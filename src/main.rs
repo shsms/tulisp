@@ -3,20 +3,70 @@ extern crate pest;
 extern crate pest_derive;
 
 use pest::{iterators::Pair, Parser};
-use std::convert::TryInto;
+use std::{convert::TryInto, ops::Add};
 
 #[derive(Parser)]
 #[grammar = "tulisp.pest"]
 struct TulispParser;
 
-#[derive(Debug, Clone)]
-enum TulispValue {
+#[derive(Debug, Clone, PartialEq)]
+pub struct List {
+    head: Link,
+}
+
+type Link = Option<Box<Cons>>;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Cons {
+    car: TulispValue,
+    cdr: Link,
+}
+
+impl List {
+    pub fn new() -> Self {
+        List { head: None }
+    }
+
+    pub fn append(&mut self, val: TulispValue) {
+        let mut last = &mut self.head;
+
+        while let Some(cons) = last {
+            last = &mut cons.cdr;
+        }
+        *last = Some(Box::new(Cons {
+            car: val,
+            cdr: None,
+        }));
+    }
+
+    pub fn into_iter(self) -> IntoIter {
+        IntoIter { next: self.head }
+    }
+}
+
+pub struct IntoIter {
+    next: Option<Box<Cons>>,
+}
+
+impl Iterator for IntoIter {
+    type Item = Cons;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.next.take().map(|item| {
+            self.next = item.cdr.clone();
+            *item
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TulispValue {
     Nil,
     Ident(String),
     Int(i64),
     Float(f64),
     String(String),
-    SExp(Vec<TulispValue>),
+    SExp(List),
     Quote(Box<TulispValue>),
     Backquote(Box<TulispValue>),
     Unquote(Box<TulispValue>),
@@ -71,33 +121,31 @@ impl TulispValue {
     fn add(self, other: TulispValue) -> TulispValue {
         if let TulispValue::Float(s) = self {
             let o: f64 = try_into_or_return!(other);
-            (s + o).into()
+            (s.add(o)).into()
         } else if let TulispValue::Float(o) = other {
             let s: f64 = try_into_or_return!(self);
-            (s + o).into()
+            (s.add(o)).into()
         } else {
             let s: i64 = try_into_or_return!(self);
             let o: i64 = try_into_or_return!(other);
-            (s + o).into()
+            (s.add(o)).into()
         }
     }
 }
 
 const NIL: TulispValue = TulispValue::Nil;
 
-fn car(vec: &Vec<TulispValue>) -> &TulispValue {
-    match vec.iter().next() {
-        Some(vv) => vv,
+fn car(list: &List) -> &TulispValue {
+    match &list.head {
+        Some(vv) => &vv.car,
         None => &NIL,
     }
 }
 
-fn cdr<'a>(vec: &Vec<TulispValue>) -> TulispValue {
-    // TODO: make it not copy
-    if vec.len() > 1 {
-        TulispValue::SExp(vec[1..].to_vec())
-    } else {
-        NIL
+fn cdr(list: List) -> TulispValue {
+    match list.head {
+        Some(vv) => TulispValue::SExp(List { head: vv.cdr }),
+        None => NIL,
     }
 }
 
@@ -107,7 +155,7 @@ fn fold_with(
 ) -> TulispValue {
     let zero = TulispValue::Int(0);
     match list {
-        TulispValue::SExp(list) => list.into_iter().map(|x| eval(x)).fold(zero, method),
+        TulispValue::SExp(list) => list.into_iter().map(|x| eval(x.car)).fold(zero, method),
         _ => zero,
     }
 }
@@ -117,7 +165,7 @@ fn eval_func(list: TulispValue) -> TulispValue {
     if let TulispValue::SExp(list) = list {
         if let TulispValue::Ident(name) = car(&list) {
             if name == "+" {
-                return fold_with(cdr(&list), TulispValue::add);
+                return fold_with(cdr(list), TulispValue::add);
             }
         }
     }
@@ -152,12 +200,18 @@ fn eval_string(string: &str) {
 
 fn parse(value: Pair<Rule>) -> Result<TulispValue, Box<dyn std::error::Error>> {
     match value.as_rule() {
-        Rule::form => Ok(TulispValue::SExp(
+        Rule::form => Ok(TulispValue::SExp({
+            let mut list = List::new();
             value
                 .into_inner()
                 .map(parse)
-                .collect::<Result<Vec<_>, _>>()?,
-        )),
+                .map(|val| -> Result<(), Box<dyn std::error::Error>> {
+                    list.append(val?);
+                    Ok(())
+                })
+                .reduce(|_, _| Ok(()));
+            list
+        })),
         Rule::backquote => Ok(TulispValue::Backquote(Box::new(parse(
             value.into_inner().peek().ok_or_else(|| {
                 Box::new(std::io::Error::new(
