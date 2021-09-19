@@ -10,37 +10,42 @@ use std::{collections::HashMap, convert::TryInto};
 struct TulispParser;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct List {
-    head: Link,
-}
-
-type Link = Option<Box<Cons>>;
-
-#[derive(Debug, Clone, PartialEq)]
 pub struct Cons {
-    car: TulispValue,
-    cdr: Link,
+    car: Box<TulispValue>,
+    cdr: Option<Box<Cons>>,
 }
 
-impl List {
+impl Cons {
     pub fn new() -> Self {
-        List { head: None }
+        Cons {
+            car: Box::new(TulispValue::Uninitialized),
+            cdr: None,
+        }
     }
 
     pub fn append(&mut self, val: TulispValue) {
-        let mut last = &mut self.head;
+        if let TulispValue::Uninitialized = *self.car {
+            *self = Cons {
+                car: Box::new(val),
+                cdr: None,
+            };
+            return;
+        }
+        let mut last = &mut self.cdr;
 
         while let Some(cons) = last {
             last = &mut cons.cdr;
         }
         *last = Some(Box::new(Cons {
-            car: val,
+            car: Box::new(val),
             cdr: None,
         }));
     }
 
     pub fn into_iter(self) -> IntoIter {
-        IntoIter { next: self.head }
+        IntoIter {
+            next: Some(Box::new(self)),
+        }
     }
 }
 
@@ -61,12 +66,13 @@ impl Iterator for IntoIter {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TulispValue {
+    Uninitialized,
     Nil,
     Ident(String),
     Int(i64),
     Float(f64),
     String(String),
-    SExp(List),
+    SExp(Cons),
     Quote(Box<TulispValue>),
     Backquote(Box<TulispValue>),
     Unquote(Box<TulispValue>),
@@ -135,19 +141,14 @@ macro_rules! binary_ops {
     }};
 }
 
-const NIL: TulispValue = TulispValue::Nil;
-
-fn car(list: &List) -> &TulispValue {
-    match &list.head {
-        Some(vv) => &vv.car,
-        None => &NIL,
-    }
+fn car(cons: &Cons) -> &TulispValue {
+    &*cons.car
 }
 
-fn cdr(list: List) -> TulispValue {
-    match list.head {
-        Some(vv) => TulispValue::SExp(List { head: vv.cdr }),
-        None => NIL,
+fn cdr(list: Cons) -> TulispValue {
+    match list.cdr {
+        Some(cdr) => TulispValue::SExp(*cdr),
+        None => TulispValue::Nil,
     }
 }
 
@@ -160,7 +161,7 @@ fn reduce_with(
     match list {
         TulispValue::SExp(list) => list
             .into_iter()
-            .map(|x| eval(ctx, x.car))
+            .map(|x| eval(ctx, *x.car))
             .reduce(method)
             .unwrap_or(zero),
         _ => zero,
@@ -203,36 +204,34 @@ impl<'a> TulispContext<'a> {
     }
     fn r#let(&mut self, varlist: TulispValue) -> Result<TulispContext, TulispValue> {
         match varlist {
-            TulispValue::SExp(vars) => {
+            TulispValue::SExp(varlist) => {
                 let mut local = HashMap::new();
-                let mut iter = vars.into_iter();
+                let mut iter = varlist.into_iter();
                 let mut next = iter.next();
-                while let Some(var) = next {
-                    if let TulispValue::SExp(var) = var.car {
-                        match var.head {
-                            None => {}
-                            Some(var) => match &var.car {
-                                TulispValue::Ident(name) => {
-                                    match var.cdr {
-                                        Some(vv) => local.insert(
-                                            name.clone(),
-                                            ContextObject::TulispValue(eval(self, vv.car)),
-                                        ),
-                                        None => local.insert(
-                                            name.clone(),
-                                            ContextObject::TulispValue(TulispValue::Nil),
-                                        ),
-                                    };
-                                }
-                                e => {
-                                    return Err(TulispValue::Error(format!(
-                                        "Name not an ident: {:?}",
-                                        e
-                                    )))
-                                }
-                            },
-                        }
-                    }
+                while let Some(varitem) = next {
+                    match *varitem.car {
+                        TulispValue::SExp(var) => match *var.car {
+                            TulispValue::Ident(name) => {
+                                match var.cdr {
+                                    Some(vv) => local.insert(
+                                        name.clone(),
+                                        ContextObject::TulispValue(eval(self, *vv.car)),
+                                    ),
+                                    None => local.insert(
+                                        name.clone(),
+                                        ContextObject::TulispValue(TulispValue::Nil),
+                                    ),
+                                };
+                            }
+                            e => {
+                                return Err(TulispValue::Error(format!(
+                                    "Name not an ident: {:?}",
+                                    e
+                                )))
+                            }
+                        },
+                        e => return Err(TulispValue::Error(format!("Name not an ident: {:?}", e))),
+                    };
                     next = iter.next();
                 }
 
@@ -272,19 +271,19 @@ fn make_context<'a>() -> TulispContext<'a> {
     ctx.insert(
         "let".to_string(),
         ContextObject::Func(|ctx, vv| match vv {
-            TulispValue::SExp(body) => match body.head {
-                Some(vv) => {
-                    let Cons { car, cdr } = *vv;
-                    let mut ctx = match ctx.r#let(car) {
-                        Ok(vv) => vv,
-                        Err(e) => return e,
-                    };
-                    List { head: cdr }
+            TulispValue::SExp(body) => {
+                let Cons { car, cdr } = body;
+                let mut ctx = match ctx.r#let(*car) {
+                    Ok(vv) => vv,
+                    Err(e) => return e,
+                };
+                match cdr {
+                    Some(vv) => vv
                         .into_iter()
-                        .fold(TulispValue::Nil, |_, expr| eval(&mut ctx, expr.car))
+                        .fold(TulispValue::Nil, |_, expr| eval(&mut ctx, *expr.car)),
+                    None => TulispValue::Error("let: expected varlist and body".to_string()),
                 }
-                None => TulispValue::Error("let: expected varlist and body".to_string()),
-            },
+            }
             _ => TulispValue::Error("let: expected varlist and body".to_string()),
         }),
     );
@@ -313,6 +312,9 @@ fn eval(ctx: &mut TulispContext, value: TulispValue) -> TulispValue {
         TulispValue::Backquote(_) => todo!(),
         TulispValue::Unquote(_) => todo!(),
         TulispValue::Error(_) => value,
+        TulispValue::Uninitialized => {
+            TulispValue::Error("Attempt to process uninitialized value".to_string())
+        }
     };
     // println!("{}; result: {:?}", fmt, ret);
     ret
@@ -333,7 +335,7 @@ fn eval_string(string: &str) {
 fn parse(value: Pair<Rule>) -> Result<TulispValue, Box<dyn std::error::Error>> {
     match value.as_rule() {
         Rule::form => Ok(TulispValue::SExp({
-            let mut list = List::new();
+            let mut list = Cons::new();
             value
                 .into_inner()
                 .map(parse)
@@ -395,6 +397,6 @@ fn parse(value: Pair<Rule>) -> Result<TulispValue, Box<dyn std::error::Error>> {
 
 fn main() {
     // let string = r#"(+ 10 20 -50 (/ 4.0 -2))"#;
-    let string = "(let ((vv (+ 55 1)) (jj 20)) (let ((vv 20)) vv) vv)";
+    let string = "(let ((vv (+ 55 1)) (jj 20)) (+ vv jj 1))";
     eval_string(string);
 }
