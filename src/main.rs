@@ -173,29 +173,85 @@ fn eval_func(ctx: &mut TulispContext, val: TulispValue) -> TulispValue {
         let name = car(&list);
         ret = match ctx.get(name) {
             Some(ContextObject::Func(func)) => func(ctx, cdr(list)),
-            None => TulispValue::Error(format!("function is void: {:?}", name)),
+            _ => TulispValue::Error(format!("function is void: {:?}", name)),
         }
     }
     ret
 }
 
-struct TulispContext(HashMap<String, ContextObject>);
+struct TulispContext<'a> {
+    local: HashMap<String, ContextObject>,
+    outer: Option<&'a TulispContext<'a>>,
+}
 
-impl TulispContext {
+impl<'a> TulispContext<'a> {
+    fn get_str(&self, name: &String) -> Option<&ContextObject> {
+        match self.local.get(name) {
+            vv @ Some(_) => vv,
+            None => match &self.outer {
+                Some(ctx) => ctx.get_str(name),
+                None => None,
+            },
+        }
+    }
     fn get(&self, name: &TulispValue) -> Option<&ContextObject> {
         if let TulispValue::Ident(name) = name {
-            self.0.get(name)
+            self.get_str(name)
         } else {
             None
+        }
+    }
+    fn r#let(&mut self, varlist: TulispValue) -> Result<TulispContext, TulispValue> {
+        match varlist {
+            TulispValue::SExp(vars) => {
+                let mut local = HashMap::new();
+                let mut iter = vars.into_iter();
+                let mut next = iter.next();
+                while let Some(var) = next {
+                    if let TulispValue::SExp(var) = var.car {
+                        match var.head {
+                            None => {}
+                            Some(var) => match &var.car {
+                                TulispValue::Ident(name) => {
+                                    match var.cdr {
+                                        Some(vv) => local.insert(
+                                            name.clone(),
+                                            ContextObject::TulispValue(eval(self, vv.car)),
+                                        ),
+                                        None => local.insert(
+                                            name.clone(),
+                                            ContextObject::TulispValue(TulispValue::Nil),
+                                        ),
+                                    };
+                                }
+                                e => {
+                                    return Err(TulispValue::Error(format!(
+                                        "Name not an ident: {:?}",
+                                        e
+                                    )))
+                                }
+                            },
+                        }
+                    }
+                    next = iter.next();
+                }
+
+                Ok(TulispContext {
+                    local,
+                    outer: Some(self),
+                })
+            }
+            _ => Err(TulispValue::Error("incorrect let varlist".to_string())),
         }
     }
 }
 
 enum ContextObject {
+    TulispValue(TulispValue),
     Func(fn(&mut TulispContext, TulispValue) -> TulispValue),
 }
 
-fn make_context() -> TulispContext {
+fn make_context<'a>() -> TulispContext<'a> {
     let mut ctx = HashMap::new();
     ctx.insert(
         "+".to_string(),
@@ -213,13 +269,42 @@ fn make_context() -> TulispContext {
         "/".to_string(),
         ContextObject::Func(|ctx, vv| reduce_with(ctx, vv, binary_ops!(std::ops::Div::div))),
     );
-    TulispContext(ctx)
+    ctx.insert(
+        "let".to_string(),
+        ContextObject::Func(|ctx, vv| match vv {
+            TulispValue::SExp(body) => match body.head {
+                Some(vv) => {
+                    let Cons { car, cdr } = *vv;
+                    let mut ctx = match ctx.r#let(car) {
+                        Ok(vv) => vv,
+                        Err(e) => return e,
+                    };
+                    List { head: cdr }
+                        .into_iter()
+                        .fold(TulispValue::Nil, |_, expr| eval(&mut ctx, expr.car))
+                }
+                None => TulispValue::Error("let: expected varlist and body".to_string()),
+            },
+            _ => TulispValue::Error("let: expected varlist and body".to_string()),
+        }),
+    );
+    TulispContext {
+        local: ctx,
+        outer: None,
+    }
 }
 
 fn eval(ctx: &mut TulispContext, value: TulispValue) -> TulispValue {
-    match value {
+    // let fmt = format!("ToEval: {:#?}", value);
+    let ret = match value {
         TulispValue::Nil => value,
-        TulispValue::Ident(_) => value,
+        TulispValue::Ident(name) => match ctx.get_str(&name) {
+            Some(obj) => match obj {
+                ContextObject::TulispValue(vv) => vv.clone(),
+                _ => TulispValue::Error(format!("variable definition is void: {}", name)),
+            },
+            None => todo!(),
+        },
         TulispValue::Int(_) => value,
         TulispValue::Float(_) => value,
         TulispValue::String(_) => value,
@@ -228,7 +313,9 @@ fn eval(ctx: &mut TulispContext, value: TulispValue) -> TulispValue {
         TulispValue::Backquote(_) => todo!(),
         TulispValue::Unquote(_) => todo!(),
         TulispValue::Error(_) => value,
-    }
+    };
+    // println!("{}; result: {:?}", fmt, ret);
+    ret
 }
 
 fn eval_string(string: &str) {
@@ -307,7 +394,7 @@ fn parse(value: Pair<Rule>) -> Result<TulispValue, Box<dyn std::error::Error>> {
 }
 
 fn main() {
-    let string = r#"(+ 10 20 -50 (/ 4.0 -2))"#;
-
+    // let string = r#"(+ 10 20 -50 (/ 4.0 -2))"#;
+    let string = "(let ((vv (+ 55 1)) (jj 20)) (let ((vv 20)) vv) vv)";
     eval_string(string);
 }
