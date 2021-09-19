@@ -3,7 +3,7 @@ extern crate pest;
 extern crate pest_derive;
 
 use pest::{iterators::Pair, Parser};
-use std::{convert::TryInto, ops::Add};
+use std::{collections::HashMap, convert::TryInto};
 
 #[derive(Parser)]
 #[grammar = "tulisp.pest"]
@@ -117,20 +117,22 @@ macro_rules! try_into_or_return {
     };
 }
 
-impl TulispValue {
-    fn add(self, other: TulispValue) -> TulispValue {
-        if let TulispValue::Float(s) = self {
-            let o: f64 = try_into_or_return!(other);
-            (s.add(o)).into()
-        } else if let TulispValue::Float(o) = other {
-            let s: f64 = try_into_or_return!(self);
-            (s.add(o)).into()
-        } else {
-            let s: i64 = try_into_or_return!(self);
-            let o: i64 = try_into_or_return!(other);
-            (s.add(o)).into()
+macro_rules! binary_ops {
+    ($oper:expr) => {{
+        |selfobj: TulispValue, other: TulispValue| -> TulispValue {
+            if let TulispValue::Float(s) = selfobj {
+                let o: f64 = try_into_or_return!(other);
+                $oper(s, o).into()
+            } else if let TulispValue::Float(o) = other {
+                let s: f64 = try_into_or_return!(selfobj);
+                $oper(s, o).into()
+            } else {
+                let s: i64 = try_into_or_return!(selfobj);
+                let o: i64 = try_into_or_return!(other);
+                $oper(s, o).into()
+            }
         }
-    }
+    }};
 }
 
 const NIL: TulispValue = TulispValue::Nil;
@@ -149,37 +151,79 @@ fn cdr(list: List) -> TulispValue {
     }
 }
 
-fn fold_with(
+fn reduce_with(
+    ctx: &mut TulispContext,
     list: TulispValue,
     method: impl Fn(TulispValue, TulispValue) -> TulispValue,
 ) -> TulispValue {
     let zero = TulispValue::Int(0);
     match list {
-        TulispValue::SExp(list) => list.into_iter().map(|x| eval(x.car)).fold(zero, method),
+        TulispValue::SExp(list) => list
+            .into_iter()
+            .map(|x| eval(ctx, x.car))
+            .reduce(method)
+            .unwrap_or(zero),
         _ => zero,
     }
 }
 
-fn eval_func(list: TulispValue) -> TulispValue {
-    let ret = TulispValue::Nil;
-    if let TulispValue::SExp(list) = list {
-        if let TulispValue::Ident(name) = car(&list) {
-            if name == "+" {
-                return fold_with(cdr(list), TulispValue::add);
-            }
+fn eval_func(ctx: &mut TulispContext, val: TulispValue) -> TulispValue {
+    let mut ret = TulispValue::Nil;
+    if let TulispValue::SExp(list) = val {
+        let name = car(&list);
+        ret = match ctx.get(name) {
+            Some(ContextObject::Func(func)) => func(ctx, cdr(list)),
+            None => TulispValue::Error(format!("function is void: {:?}", name)),
         }
     }
     ret
 }
 
-fn eval(value: TulispValue) -> TulispValue {
+struct TulispContext(HashMap<String, ContextObject>);
+
+impl TulispContext {
+    fn get(&self, name: &TulispValue) -> Option<&ContextObject> {
+        if let TulispValue::Ident(name) = name {
+            self.0.get(name)
+        } else {
+            None
+        }
+    }
+}
+
+enum ContextObject {
+    Func(fn(&mut TulispContext, TulispValue) -> TulispValue),
+}
+
+fn make_context() -> TulispContext {
+    let mut ctx = HashMap::new();
+    ctx.insert(
+        "+".to_string(),
+        ContextObject::Func(|ctx, vv| reduce_with(ctx, vv, binary_ops!(std::ops::Add::add))),
+    );
+    ctx.insert(
+        "-".to_string(),
+        ContextObject::Func(|ctx, vv| reduce_with(ctx, vv, binary_ops!(std::ops::Sub::sub))),
+    );
+    ctx.insert(
+        "*".to_string(),
+        ContextObject::Func(|ctx, vv| reduce_with(ctx, vv, binary_ops!(std::ops::Mul::mul))),
+    );
+    ctx.insert(
+        "/".to_string(),
+        ContextObject::Func(|ctx, vv| reduce_with(ctx, vv, binary_ops!(std::ops::Div::div))),
+    );
+    TulispContext(ctx)
+}
+
+fn eval(ctx: &mut TulispContext, value: TulispValue) -> TulispValue {
     match value {
         TulispValue::Nil => value,
         TulispValue::Ident(_) => value,
         TulispValue::Int(_) => value,
         TulispValue::Float(_) => value,
         TulispValue::String(_) => value,
-        TulispValue::SExp(_) => eval_func(value),
+        TulispValue::SExp(_) => eval_func(ctx, value),
         TulispValue::Quote(_) => value,
         TulispValue::Backquote(_) => todo!(),
         TulispValue::Unquote(_) => todo!(),
@@ -194,7 +238,8 @@ fn eval_string(string: &str) {
     for ii in p.unwrap() {
         let p = parse(ii);
         // println!("parse: {:#?}", p);
-        println!("{:?}", eval(p.unwrap()));
+        let mut ctx = make_context();
+        println!("{:?}", eval(&mut ctx, p.unwrap()));
     }
 }
 
@@ -262,7 +307,7 @@ fn parse(value: Pair<Rule>) -> Result<TulispValue, Box<dyn std::error::Error>> {
 }
 
 fn main() {
-    let string = r#"(+ 10 20 -50 (+ 2 3))"#;
+    let string = r#"(+ 10 20 -50 (/ 4.0 -2))"#;
 
     eval_string(string);
 }

@@ -47,7 +47,7 @@ char = { !("\"") ~ ANY }
 literal = _{ number | string }
 ident = @{ (alpha | symbol) ~ (alpha | digit | minus | symbol)* |
     (number | minus) ~ (alpha | digit | minus | symbol)+ |
-    minus ~ WHITESPACE }
+    minus }
 
 notform = { ident | literal }
 
