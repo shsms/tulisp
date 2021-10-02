@@ -19,7 +19,7 @@ at = { "@" }
 dollar = { "$" }
 question = { "?" }
 equal = { "=" }
-dot = { "." }
+dot = _{ "." }
 plus = { "+" }
 star = { "*" }
 slash = { "/" }
@@ -49,13 +49,11 @@ ident = @{ (alpha | symbol) ~ (alpha | digit | minus | symbol)* |
     (number | minus) ~ (alpha | digit | minus | symbol)+ |
     minus }
 
-notform = { ident | literal }
-
-cons = { open ~ notform ~ dot ~ notform ~ close }
+cons = { open ~ expr ~ dot ~ expr ~ close }
 
 form = { open ~ (expr)* ~ close }
 
 nil = { "nil" }
-expr = _{ nil | literal | ident | form | quote | backquote | splice | unquote }
+expr = _{ nil | literal | cons | form  | quote | backquote | splice | unquote  | ident }
 
 program = _{ SOI ~ (expr)+ }
