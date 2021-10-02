@@ -80,6 +80,18 @@ pub enum TulispValue {
     Unquote(Box<TulispValue>),
 }
 
+macro_rules! TRUE {
+    () => {
+        TulispValue::Ident(String::from("t"))
+    };
+}
+
+macro_rules! FALSE {
+    () => {
+        TulispValue::Nil
+    };
+}
+
 impl TulispValue {
     pub fn into_iter(self) -> TulispValueIntoIter {
         TulispValueIntoIter { next: Some(self) }
@@ -96,14 +108,6 @@ impl TulispValue {
         let mut ret = Cons::new();
         ret.append(self);
         TulispValue::SExp(ret)
-    }
-
-    pub fn as_bool(&self) -> bool {
-        match self {
-            TulispValue::Nil => false,
-            TulispValue::SExp(c) => *c.car != TulispValue::Uninitialized,
-            _ => true,
-        }
     }
 }
 
@@ -131,6 +135,7 @@ pub struct TulispValueIntoIter {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Error {
+    NotImplemented(String),
     ParsingError(String),
     TypeMismatch(String),
     Undefined(String),
@@ -163,6 +168,16 @@ impl TryInto<i64> for TulispValue {
     }
 }
 
+impl Into<bool> for TulispValue {
+    fn into(self) -> bool {
+        match self {
+            TulispValue::Nil => false,
+            TulispValue::SExp(c) => *c.car != TulispValue::Uninitialized,
+            _ => true,
+        }
+    }
+}
+
 impl From<i64> for TulispValue {
     fn from(vv: i64) -> Self {
         TulispValue::Int(vv)
@@ -175,22 +190,13 @@ impl From<f64> for TulispValue {
     }
 }
 
-macro_rules! binary_ops {
-    ($oper:expr) => {{
-        |selfobj: TulispValue, other: TulispValue| -> Result<TulispValue, Error> {
-            if let TulispValue::Float(s) = selfobj {
-                let o: f64 = other.try_into()?;
-                Ok($oper(s, o).into())
-            } else if let TulispValue::Float(o) = other {
-                let s: f64 = selfobj.try_into()?;
-                Ok($oper(s, o).into())
-            } else {
-                let s: i64 = selfobj.try_into()?;
-                let o: i64 = other.try_into()?;
-                Ok($oper(s, o).into())
-            }
+impl From<bool> for TulispValue {
+    fn from(vv: bool) -> Self {
+        match vv {
+            true => TRUE!(),
+            false => FALSE!(),
         }
-    }};
+    }
 }
 
 fn car(cons: &TulispValue) -> Result<&TulispValue, Error> {
@@ -212,22 +218,53 @@ fn cdr(cons: &TulispValue) -> Result<TulispValue, Error> {
     }
 }
 
+macro_rules! max_min_ops {
+    ($oper:tt) => {{
+        |selfobj: TulispValue, other: TulispValue| -> Result<TulispValue, Error> {
+            if let TulispValue::Float(s) = selfobj {
+                let o: f64 = other.try_into()?;
+                Ok(f64::$oper(s, o).into())
+            } else if let TulispValue::Float(o) = other {
+                let s: f64 = selfobj.try_into()?;
+                Ok(f64::$oper(s, o).into())
+            } else {
+                let s: i64 = selfobj.try_into()?;
+                let o: i64 = other.try_into()?;
+                Ok(std::cmp::$oper(s, o).into())
+            }
+        }
+    }};
+}
+
+macro_rules! binary_ops {
+    ($oper:expr) => {{
+        |selfobj: TulispValue, other: TulispValue| -> Result<TulispValue, Error> {
+            if let TulispValue::Float(s) = selfobj {
+                let o: f64 = other.try_into()?;
+                Ok($oper(&s, &o).into())
+            } else if let TulispValue::Float(o) = other {
+                let s: f64 = selfobj.try_into()?;
+                Ok($oper(&s, &o).into())
+            } else {
+                let s: i64 = selfobj.try_into()?;
+                let o: i64 = other.try_into()?;
+                Ok($oper(&s, &o).into())
+            }
+        }
+    }};
+}
+
 fn reduce_with(
     ctx: &mut TulispContext<'_>,
     list: TulispValue,
     method: impl Fn(TulispValue, TulispValue) -> Result<TulispValue, Error>,
 ) -> Result<TulispValue, Error> {
-    let zero = TulispValue::Int(0);
-    match list {
-        TulispValue::SExp(list) => list
-            .into_iter()
-            .map(|x| eval(ctx, *x.car))
-            .reduce(|v1, v2| method(v1?, v2?))
-            .unwrap_or(Err(Error::TypeMismatch(
-                "reduce_with returned no error".to_string(),
-            ))),
-        _ => Ok(zero),
-    }
+    list.into_iter()
+        .map(|x| eval(ctx, x))
+        .reduce(|v1, v2| method(v1?, v2?))
+        .unwrap_or(Err(Error::TypeMismatch(
+            "Incorrect number of arguments: 0".to_string(),
+        )))
 }
 
 fn eval_defun(
@@ -287,8 +324,11 @@ fn eval_defun(
         outer: Some(ctx),
     };
 
-    body.into_iter()
-        .fold(Ok(TulispValue::Nil), |_, expr| eval(&mut ctx, *expr.car))
+    let mut result = TulispValue::Nil;
+    for ele in body.into_iter() {
+        result = eval(&mut ctx, *ele.car)?;
+    }
+    Ok(result)
 }
 
 fn eval_func(ctx: &mut TulispContext<'_>, val: TulispValue) -> Result<TulispValue, Error> {
@@ -321,8 +361,21 @@ impl<'a> TulispContext<'a> {
         if let TulispValue::Ident(name) = name {
             self.get_str(name)
         } else {
+            // TODO: return Result
             None
         }
+    }
+    fn set_str(&mut self, name: &String, value: TulispValue) {
+        // TODO: update in scope, instead of in local.
+        self.local
+            .insert(name.to_string(), ContextObject::TulispValue(value));
+    }
+
+    fn set(&mut self, name: &TulispValue, value: TulispValue) {
+        if let TulispValue::Ident(name) = name {
+            self.set_str(name, value)
+        }
+        // TODO: return Result
     }
     fn r#let(&mut self, varlist: TulispValue) -> Result<TulispContext<'_>, Error> {
         let mut local = HashMap::new();
@@ -390,18 +443,120 @@ fn make_context<'a>() -> Result<TulispContext<'a>, Error> {
         ContextObject::Func(|ctx, vv| reduce_with(ctx, vv, binary_ops!(std::ops::Div::div))),
     );
     ctx.insert(
+        ">".to_string(),
+        ContextObject::Func(|ctx, vv| reduce_with(ctx, vv, binary_ops!(std::cmp::PartialOrd::gt))),
+    );
+    ctx.insert(
+        ">=".to_string(),
+        ContextObject::Func(|ctx, vv| reduce_with(ctx, vv, binary_ops!(std::cmp::PartialOrd::ge))),
+    );
+    ctx.insert(
+        "<".to_string(),
+        ContextObject::Func(|ctx, vv| reduce_with(ctx, vv, binary_ops!(std::cmp::PartialOrd::lt))),
+    );
+    ctx.insert(
+        "<=".to_string(),
+        ContextObject::Func(|ctx, vv| reduce_with(ctx, vv, binary_ops!(std::cmp::PartialOrd::le))),
+    );
+    ctx.insert(
+        "max".to_string(),
+        ContextObject::Func(|ctx, vv| reduce_with(ctx, vv, max_min_ops!(max))),
+    );
+    ctx.insert(
+        "min".to_string(),
+        ContextObject::Func(|ctx, vv| reduce_with(ctx, vv, max_min_ops!(min))),
+    );
+    ctx.insert(
+        "expt".to_string(),
+        ContextObject::Func(|ctx, vv| {
+            let base = eval(ctx, car(&vv)?.clone())?;
+            let rest = cdr(&vv)?;
+            let pow = eval(ctx, car(&rest)?.clone())?;
+            Ok(f64::powf(base.try_into()?, pow.clone().try_into()?).into())
+        }),
+    );
+    ctx.insert(
+        "print".to_string(),
+        ContextObject::Func(|ctx, vv| {
+            let mut iter = vv.into_iter();
+            let object = iter.next();
+            if iter.next().is_some() {
+                Err(Error::NotImplemented(
+                    "output stream currently not supported".to_string(),
+                ))
+            } else if let Some(v) = object {
+                println!("{:?}", eval(ctx, v.clone())?);
+                Ok(v)
+            } else {
+                Err(Error::TypeMismatch(
+                    "Incorrect number of arguments: print, 0".to_string(),
+                ))
+            }
+        }),
+    );
+    ctx.insert(
         "if".to_string(),
         ContextObject::Func(|ctx, vv| {
             let condition = car(&vv)?;
             let body = cdr(&vv)?;
             let then_body = car(&body)?;
             let else_body = cdr(&body)?;
-            if eval(ctx, condition.clone())?.as_bool() {
+            if eval(ctx, condition.clone())?.into() {
                 eval(ctx, then_body.clone())
             } else {
-                eval(ctx,else_body)
+                eval_each(ctx, else_body)
             }
-        })
+        }),
+    );
+    ctx.insert(
+        "cond".to_string(),
+        ContextObject::Func(|ctx, vv| {
+            for item in vv.into_iter() {
+                let condition = car(&item)?;
+                let value = cdr(&item)?;
+                if eval(ctx, condition.clone())?.into() {
+                    return eval_each(ctx, value);
+                }
+            }
+            Ok(TulispValue::Nil)
+        }),
+    );
+    ctx.insert(
+        "while".to_string(),
+        ContextObject::Func(|ctx, vv| {
+            let condition = car(&vv)?;
+            let body = cdr(&vv)?;
+            let mut result = TulispValue::Nil;
+            while eval(ctx, condition.clone())?.into() {
+                result = eval_each(ctx, body.clone())?;
+            }
+            Ok(result)
+        }),
+    );
+    ctx.insert(
+        "setq".to_string(),
+        ContextObject::Func(|ctx, vv| {
+            let mut iter = vv.into_iter();
+            let name = match iter.next() {
+                Some(vv) => vv,
+                None => {
+                    return Err(Error::TypeMismatch(
+                        "Incorrect number of arguments: setq, 0".to_string(),
+                    ))
+                }
+            };
+            let value = match iter.next() {
+                Some(vv) => eval(ctx, vv)?,
+                None => {
+                    return Err(Error::TypeMismatch(
+                        "Incorrect number of arguments: setq, 1".to_string(),
+                    ))
+                }
+            };
+            ctx.set(&name, value);
+            // TODO: result from set
+            Ok(TulispValue::Nil)
+        }),
     );
     ctx.insert(
         "let".to_string(),
@@ -428,7 +583,10 @@ fn make_context<'a>() -> Result<TulispContext<'a>, Error> {
         ContextObject::Func(|ctx, vv| {
             let varlist = car(&vv)?;
             let body = cdr(&vv)?;
-            fn unwrap_varlist(varlist: TulispValue, body: TulispValue) -> Result<TulispValue, Error> {
+            fn unwrap_varlist(
+                varlist: TulispValue,
+                body: TulispValue,
+            ) -> Result<TulispValue, Error> {
                 let nextvar = car(&varlist)?;
                 let rest = cdr(&varlist)?;
 
@@ -487,23 +645,48 @@ fn eval(ctx: &mut TulispContext<'_>, value: TulispValue) -> Result<TulispValue, 
     // let fmt = format!("ToEval: {:#?}", value);
     let ret = match value {
         TulispValue::Nil => Ok(value),
-        TulispValue::Ident(name) => match ctx.get_str(&name) {
-            Some(obj) => match obj {
-                ContextObject::TulispValue(vv) => Ok(vv.clone()),
-                _ => Err(Error::TypeMismatch(format!(
-                    "variable definition is void: {}",
-                    name
-                ))),
-            },
-            None => todo!(),
-        },
+        TulispValue::Ident(name) => {
+            if name == "t" {
+                Ok(TulispValue::Ident(name))
+            } else {
+                match ctx.get_str(&name) {
+                    Some(obj) => match obj {
+                        ContextObject::TulispValue(vv) => Ok(vv),
+                        _ => Err(Error::TypeMismatch(format!(
+                            "variable definition is void: {}",
+                            name
+                        ))),
+                    },
+                    None => todo!(),
+                }
+            }
+        }
         TulispValue::Int(_) => Ok(value),
         TulispValue::Float(_) => Ok(value),
         TulispValue::String(_) => Ok(value),
         TulispValue::SExp(_) => eval_func(ctx, value),
-        TulispValue::Quote(_) => Ok(value),
-        TulispValue::Backquote(_) => todo!(),
-        TulispValue::Unquote(_) => todo!(),
+        TulispValue::Quote(vv) => Ok(*vv),
+        TulispValue::Backquote(vv) => {
+            let mut ret = Cons::new();
+            match *vv {
+                vv @ TulispValue::SExp(_) => {
+                    for ele in vv.into_iter() {
+                        match ele {
+                            e @ TulispValue::SExp(_) => {
+                                ret.append(eval(ctx, TulispValue::Backquote(Box::new(e)))?)
+                            }
+                            TulispValue::Unquote(vv) => ret.append(eval(ctx, *vv)?),
+                            e => ret.append(e),
+                        };
+                    }
+                }
+                vv => ret.append(vv),
+            }
+            Ok(TulispValue::SExp(ret))
+        }
+        TulispValue::Unquote(_) => {
+            Err(Error::TypeMismatch("Unquote without backquote".to_string()))
+        }
         TulispValue::Uninitialized => Err(Error::Uninitialized(
             "Attempt to process uninitialized value".to_string(),
         )),
@@ -512,17 +695,25 @@ fn eval(ctx: &mut TulispContext<'_>, value: TulispValue) -> Result<TulispValue, 
     ret
 }
 
+fn eval_each(ctx: &mut TulispContext<'_>, value: TulispValue) -> Result<TulispValue, Error> {
+    let mut result = TulispValue::Nil;
+    for ele in value.into_iter() {
+        result = eval(ctx, ele)?;
+    }
+    Ok(result)
+}
+
 fn eval_string(ctx: &mut TulispContext<'_>, string: &str) -> Result<TulispValue, Error> {
     let p = TulispParser::parse(Rule::program, string);
     // println!("{:#?}", p);
 
-    let mut result = Ok(TulispValue::Nil);
+    let mut result = TulispValue::Nil;
     for ii in p.unwrap() {
         let p = parse(ii);
         // println!("parse: {:#?}", p);
-        result = eval(ctx, p.unwrap());
+        result = eval(ctx, p.unwrap())?;
     }
-    result
+    Ok(result)
 }
 
 fn parse(value: Pair<'_, Rule>) -> Result<TulispValue, Error> {
@@ -590,23 +781,52 @@ fn main() -> Result<(), Error> {
     // let string = r#"(+ 10 20 -50 (/ 4.0 -2))"#;
     // let string = "(let ((vv (+ 55 1)) (jj 20)) (+ vv jj 1))";
     // let string = "(defun test (a) (+ a 1)) (let ((vv 20)) (let ((zz (+ vv 10))) (test zz)))";
-    let string = "(defun test (a) (+ a 1)) (let* ((vv 20) (zz (+ vv 10))) (test zz))";
+    // let string = "(defun inc-to-20 (a) (print `(\"Input:\" (val ,a))) (if (< a 10) (inc-to-20 (+ a 1)) a)) (let* ((vv 2) (zz (+ vv 2))) (inc-to-20 zz))";
+    // let string = "(let ((vv (+ 55 1)) (jj 20)) (setq vv (+ vv 10)) (+ vv jj 1))";
+    let string = "(let ((vv 0)) (while (< vv 10) (setq vv (+ 1 vv))) vv)";
 
     let mut ctx = make_context()?;
     println!("{:?}", eval_string(&mut ctx, string)?);
     Ok(())
 }
 
-
 #[cfg(test)]
 mod tests {
-    use crate::{Error, TulispValue, eval_string, make_context};
+    use crate::{eval_string, make_context, Error, TulispValue};
 
     #[test]
     fn test_if() -> Result<(), Error> {
         let mut ctx = make_context()?;
-        let prog = "(if 10 10 20)";
+        let prog = "(if t 10 20)";
         assert_eq!(eval_string(&mut ctx, prog)?, TulispValue::Int(10));
+
+        let prog = "(if nil 10 20)";
+        assert_eq!(eval_string(&mut ctx, prog)?, TulispValue::Int(20));
+
+        let prog = "(if (> 20 10) 10 20)";
+        assert_eq!(eval_string(&mut ctx, prog)?, TulispValue::Int(10));
+
+        let prog = "(if (> 10 20) 10 20)";
+        assert_eq!(eval_string(&mut ctx, prog)?, TulispValue::Int(20));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_setq() -> Result<(), Error> {
+        let mut ctx = make_context()?;
+        let prog = "(let ((xx 10)) (setq xx (+ xx 10)) (* xx 3))";
+        assert_eq!(eval_string(&mut ctx, prog)?, TulispValue::Int(60));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_while() -> Result<(), Error> {
+        let mut ctx = make_context()?;
+        let prog = "(let ((vv 0)) (while (< vv 42) (setq vv (+ 1 vv))) vv)";
+        assert_eq!(eval_string(&mut ctx, prog)?, TulispValue::Int(42));
+
         Ok(())
     }
 }
