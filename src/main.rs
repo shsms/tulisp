@@ -82,9 +82,10 @@ pub enum TulispValue {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Error {
+    ParsingError(String),
     TypeMismatch(String),
-    Uninitialized(String),
     Undefined(String),
+    Uninitialized(String),
 }
 
 impl TryInto<f64> for TulispValue {
@@ -143,14 +144,22 @@ macro_rules! binary_ops {
     }};
 }
 
-fn car(cons: &Cons) -> &TulispValue {
-    &*cons.car
+fn car(cons: &TulispValue) -> Result<&TulispValue, Error> {
+    if let TulispValue::SExp(cons) = cons {
+        Ok(&cons.car)
+    } else {
+        Err(Error::TypeMismatch(format!("Not a Cons: {:?}", cons)))
+    }
 }
 
-fn cdr(list: Cons) -> TulispValue {
-    match list.cdr {
-        Some(cdr) => TulispValue::SExp(*cdr),
-        None => TulispValue::Nil,
+fn cdr(cons: &TulispValue) -> Result<TulispValue, Error> {
+    if let TulispValue::SExp(cons) = cons {
+        match &cons.cdr {
+            Some(cdr) => Ok(TulispValue::SExp(*cdr.clone())),
+            None => Ok(TulispValue::Nil),
+        }
+    } else {
+        Err(Error::TypeMismatch(format!("Not a Cons: {:?}", cons)))
     }
 }
 
@@ -234,19 +243,13 @@ fn eval_defun(
 }
 
 fn eval_func(ctx: &mut TulispContext<'_>, val: TulispValue) -> Result<TulispValue, Error> {
-    if let TulispValue::SExp(list) = val {
-        let name = car(&list);
-        match ctx.get(name) {
-            Some(ContextObject::Func(func)) => func(ctx, cdr(list)),
-            Some(ContextObject::Defun { args, body }) => {
-                eval_defun(ctx, args.clone(), body.clone(), cdr(list))
-            }
-            _ => Err(Error::Undefined(format!("function is void: {:?}", name))),
+    let name = car(&val)?;
+    match ctx.get(name) {
+        Some(ContextObject::Func(func)) => func(ctx, cdr(&val)?),
+        Some(ContextObject::Defun { args, body }) => {
+            eval_defun(ctx, args.clone(), body.clone(), cdr(&val)?)
         }
-    } else {
-        Err(Error::Undefined(
-            "Function definition must be an SExp".to_string(),
-        ))
+        _ => Err(Error::Undefined(format!("function is void: {:?}", name))),
     }
 }
 
@@ -366,10 +369,14 @@ fn make_context<'a>() -> Result<TulispContext<'a>, Error> {
                     Some(vv) => vv
                         .into_iter()
                         .fold(Ok(TulispValue::Nil), |_, expr| eval(&mut ctx, *expr.car)),
-                    None => Err(Error::TypeMismatch("let: expected varlist and body".to_string())),
+                    None => Err(Error::TypeMismatch(
+                        "let: expected varlist and body".to_string(),
+                    )),
                 }
             }
-            _ => Err(Error::TypeMismatch("let: expected varlist and body".to_string())),
+            _ => Err(Error::TypeMismatch(
+                "let: expected varlist and body".to_string(),
+            )),
         }),
     );
     ctx.insert(
@@ -437,7 +444,7 @@ fn eval(ctx: &mut TulispContext<'_>, value: TulispValue) -> Result<TulispValue, 
     ret
 }
 
-fn eval_string(ctx: &mut TulispContext<'_>, string: &str) {
+fn eval_string(ctx: &mut TulispContext<'_>, string: &str) -> Result<TulispValue, Error> {
     let p = TulispParser::parse(Rule::program, string);
     // println!("{:#?}", p);
 
@@ -447,17 +454,17 @@ fn eval_string(ctx: &mut TulispContext<'_>, string: &str) {
         // println!("parse: {:#?}", p);
         result = eval(ctx, p.unwrap());
     }
-    println!("{:?}", result);
+    result
 }
 
-fn parse(value: Pair<'_, Rule>) -> Result<TulispValue, Box<dyn std::error::Error>> {
+fn parse(value: Pair<'_, Rule>) -> Result<TulispValue, Error> {
     match value.as_rule() {
         Rule::form => Ok(TulispValue::SExp({
             let mut list = Cons::new();
             value
                 .into_inner()
                 .map(parse)
-                .map(|val| -> Result<(), Box<dyn std::error::Error>> {
+                .map(|val| -> Result<(), Error> {
                     list.append(val?);
                     Ok(())
                 })
@@ -466,50 +473,45 @@ fn parse(value: Pair<'_, Rule>) -> Result<TulispValue, Box<dyn std::error::Error
         })),
         Rule::backquote => Ok(TulispValue::Backquote(Box::new(parse(
             value.into_inner().peek().ok_or_else(|| {
-                Box::new(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    format!("parsing error: Backquote inner not found"),
-                ))
+                Error::ParsingError(format!("parsing error: Backquote inner not found"))
             })?,
         )?))),
         Rule::unquote => Ok(TulispValue::Unquote(Box::new(parse(
             value.into_inner().peek().ok_or_else(|| {
-                Box::new(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    format!("parsing error: Unquote inner not found"),
-                ))
+                Error::ParsingError(format!("parsing error: Unquote inner not found"))
             })?,
         )?))),
         Rule::quote => Ok(TulispValue::Quote(Box::new(parse(
             value.into_inner().peek().ok_or_else(|| {
-                Box::new(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    format!("parsing error: Quote inner not found"),
-                ))
+                Error::ParsingError(format!("parsing error: Quote inner not found"))
             })?,
         )?))),
         Rule::nil => Ok(TulispValue::Nil),
         Rule::ident => Ok(TulispValue::Ident(value.as_span().as_str().to_string())),
-        Rule::integer => Ok(TulispValue::Int(value.as_span().as_str().parse()?)),
-        Rule::float => Ok(TulispValue::Float(value.as_span().as_str().parse()?)),
+        Rule::integer => {
+            Ok(TulispValue::Int(value.as_span().as_str().parse().map_err(
+                |e: std::num::ParseIntError| Error::ParsingError(e.to_string()),
+            )?))
+        }
+        Rule::float => Ok(TulispValue::Float(
+            value
+                .as_span()
+                .as_str()
+                .parse()
+                .map_err(|e: std::num::ParseFloatError| Error::ParsingError(e.to_string()))?,
+        )),
         Rule::string => Ok(TulispValue::String(
             value
                 .into_inner()
                 .peek()
                 .ok_or_else(|| {
-                    Box::new(std::io::Error::new(
-                        std::io::ErrorKind::InvalidInput,
-                        format!("parsing error: string inner not found"),
-                    ))
+                    Error::ParsingError(format!("parsing error: string inner not found"))
                 })?
                 .as_span()
                 .as_str()
                 .to_string(),
         )),
-        e => Err(Box::new(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            format!("unknown rule {:?}", e),
-        ))),
+        e => Err(Error::ParsingError(format!("unknown rule {:?}", e))),
     }
 }
 
@@ -517,7 +519,8 @@ fn main() -> Result<(), Error> {
     // let string = r#"(+ 10 20 -50 (/ 4.0 -2))"#;
     // let string = "(let ((vv (+ 55 1)) (jj 20)) (+ vv jj 1))";
     let string = "(defun test (a) (+ a 1)) (let ((vv 20)) (let ((zz (+ vv 10))) (test zz)))";
+
     let mut ctx = make_context()?;
-    eval_string(&mut ctx, string);
+    println!("{:?}", eval_string(&mut ctx, string)?);
     Ok(())
 }
