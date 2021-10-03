@@ -80,6 +80,35 @@ pub enum TulispValue {
     Unquote(Box<TulispValue>),
 }
 
+impl std::fmt::Display for TulispValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TulispValue::Uninitialized => f.write_str(""),
+            TulispValue::Nil => f.write_str("nil"),
+            TulispValue::Ident(vv) => f.write_str(vv),
+            TulispValue::Int(vv) => f.write_fmt(format_args!("{}", vv)),
+            TulispValue::Float(vv) => f.write_fmt(format_args!("{}", vv)),
+            TulispValue::String(vv) => f.write_fmt(format_args!("\"{}\"", vv)),
+            vv @ TulispValue::SExp(_) => {
+                let mut ret = String::from("(");
+                let mut add_space = false;
+                for item in vv.clone().into_iter() {
+                    if add_space {
+                        ret.push(' ');
+                    }
+                    add_space = true;
+                    ret.push_str(&format!("{}", item));
+                }
+                ret.push(')');
+                f.write_str(&ret)
+            }
+            TulispValue::Quote(vv) => f.write_fmt(format_args!("'{}", vv)),
+            TulispValue::Backquote(vv) => f.write_fmt(format_args!("`{}", vv)),
+            TulispValue::Unquote(vv) => f.write_fmt(format_args!(",{}", vv)),
+        }
+    }
+}
+
 macro_rules! TRUE {
     () => {
         TulispValue::Ident(String::from("t"))
@@ -459,12 +488,29 @@ fn make_context<'a>() -> Result<TulispContext<'a>, Error> {
         ContextObject::Func(|ctx, vv| reduce_with(ctx, vv, binary_ops!(std::cmp::PartialOrd::le))),
     );
     ctx.insert(
+        "equal".to_string(),
+        ContextObject::Func(|ctx, vv| reduce_with(ctx, vv, binary_ops!(std::cmp::PartialEq::eq))),
+    );
+    ctx.insert(
         "max".to_string(),
         ContextObject::Func(|ctx, vv| reduce_with(ctx, vv, max_min_ops!(max))),
     );
     ctx.insert(
         "min".to_string(),
         ContextObject::Func(|ctx, vv| reduce_with(ctx, vv, max_min_ops!(min))),
+    );
+    ctx.insert(
+        "concat".to_string(),
+        ContextObject::Func(|ctx, vv| {
+            let mut ret = String::new();
+            for ele in vv.into_iter() {
+                match eval(ctx, ele.clone())? {
+                    TulispValue::String(s) => ret.push_str(&s),
+                    _ => return Err(Error::TypeMismatch(format!("Not a string: {:?}", ele))),
+                }
+            }
+            Ok(TulispValue::String(ret))
+        })
     );
     ctx.insert(
         "expt".to_string(),
@@ -476,6 +522,7 @@ fn make_context<'a>() -> Result<TulispContext<'a>, Error> {
         }),
     );
     ctx.insert(
+        // TODO: make more elisp compatible.
         "print".to_string(),
         ContextObject::Func(|ctx, vv| {
             let mut iter = vv.into_iter();
@@ -485,7 +532,7 @@ fn make_context<'a>() -> Result<TulispContext<'a>, Error> {
                     "output stream currently not supported".to_string(),
                 ))
             } else if let Some(v) = object {
-                println!("{:?}", eval(ctx, v.clone())?);
+                println!("{}", eval(ctx, v.clone())?);
                 Ok(v)
             } else {
                 Err(Error::TypeMismatch(
@@ -493,6 +540,12 @@ fn make_context<'a>() -> Result<TulispContext<'a>, Error> {
                 ))
             }
         }),
+    );
+    ctx.insert(
+        "prin1-to-string".to_string(),
+        ContextObject::Func(|ctx, vv| {
+            Ok(TulispValue::String(eval(ctx, car(&vv)?.clone())?.to_string()))
+        })
     );
     ctx.insert(
         "if".to_string(),
@@ -781,9 +834,20 @@ fn main() -> Result<(), Error> {
     // let string = r#"(+ 10 20 -50 (/ 4.0 -2))"#;
     // let string = "(let ((vv (+ 55 1)) (jj 20)) (+ vv jj 1))";
     // let string = "(defun test (a) (+ a 1)) (let ((vv 20)) (let ((zz (+ vv 10))) (test zz)))";
-    // let string = "(defun inc-to-20 (a) (print `(\"Input:\" (val ,a))) (if (< a 10) (inc-to-20 (+ a 1)) a)) (let* ((vv 2) (zz (+ vv 2))) (inc-to-20 zz))";
+    // let string = "(defun inc-to-20 (a) (print (+ 10.0 a)) (if (< a 10) (inc-to-20 (+ a 1)) a)) (let* ((vv 2) (zz (+ vv 2))) (inc-to-20 zz))";
     // let string = "(let ((vv (+ 55 1)) (jj 20)) (setq vv (+ vv 10)) (+ vv jj 1))";
-    let string = "(let ((vv 0)) (while (< vv 10) (setq vv (+ 1 vv))) vv)";
+    // let string = "(let ((vv 0)) (while (< vv 10) (setq vv (+ 1 vv))) vv)";
+    // let string = "(min 10 44 2 150 89)";
+    let string = "(defun fibonacci (n)
+  (cond
+    ((<= n 1) 0)
+    ((equal n 2) 1)
+    (t (+ (fibonacci (- n 1)) (fibonacci (- n 2))))))
+(let ((nn 1))
+(while (< nn 10)
+  (print (concat \"Next:\" (prin1-to-string (fibonacci nn))))
+  (setq nn (+ nn 1))))
+";
 
     let mut ctx = make_context()?;
     println!("{:?}", eval_string(&mut ctx, string)?);
