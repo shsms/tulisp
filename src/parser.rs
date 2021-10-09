@@ -15,7 +15,7 @@ pub fn parse_string(string: &str) -> Result<TulispValue, Error> {
     for ele in p.unwrap() {
         list.append(parse(ele)?);
     }
-    Ok(TulispValue::SExp(list))
+    Ok(TulispValue::SExp(Box::new(list)))
 }
 
 pub fn parse(value: Pair<'_, Rule>) -> Result<TulispValue, Error> {
@@ -30,7 +30,7 @@ pub fn parse(value: Pair<'_, Rule>) -> Result<TulispValue, Error> {
                     Ok(())
                 })
                 .reduce(|_, _| Ok(()));
-            list
+            Box::new(list)
         })),
         Rule::backquote => Ok(TulispValue::Backquote(Box::new(parse(
             value
