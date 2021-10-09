@@ -1,61 +1,83 @@
 use crate::Error;
-use std::collections::VecDeque;
-
 use crate::value::TulispValue;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Cons(VecDeque<TulispValue>);
+pub struct Cons {
+    car: TulispValue,
+    cdr: TulispValue,
+}
 
 impl Cons {
     pub fn new() -> Self {
-        Self(VecDeque::new())
-    }
-
-    pub fn append(&mut self, val: TulispValue) {
-        self.0.push_back(val);
-    }
-
-    pub fn into_iter(self) -> ConsIntoIter {
-        ConsIntoIter {
-            next: self,
+        Cons {
+            car: TulispValue::Uninitialized,
+            cdr: TulispValue::Uninitialized,
         }
     }
 
-    pub fn iter(&self) -> ConsIter<'_> {
-        self.0.iter()
+    pub fn append(&mut self, val: TulispValue) {
+        if let TulispValue::Uninitialized = self.car {
+            *self = Cons {
+                car: val,
+                cdr: TulispValue::Uninitialized,
+            };
+            return;
+        }
+        let mut last = &mut self.cdr;
+
+        while let TulispValue::SExp(cons) = last {
+            last = &mut cons.cdr;
+        }
+        *last = TulispValue::SExp(Box::new(Cons {
+            car: val,
+            cdr: TulispValue::Uninitialized,
+        }));
+    }
+
+    pub fn into_iter(self) -> ConsIntoIter {
+        ConsIntoIter { next: Some(self) }
     }
 }
-
-pub type ConsIter<'a> = std::collections::vec_deque::Iter<'a, TulispValue>;
 
 impl Iterator for ConsIntoIter {
     type Item = TulispValue;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.next.0.pop_front()
+        let Cons { car, cdr } = self.next.take()?;
+        if car == TulispValue::Uninitialized {
+            self.next = Some(Cons::new());
+            return None;
+        } else if let TulispValue::SExp(cons) = cdr {
+            self.next = Some(*cons);
+            Some(car)
+        } else if cdr == TulispValue::Uninitialized {
+            self.next = Some(Cons::new());
+            Some(car)
+        } else {
+            self.next = Some(Cons {
+                car: cdr,
+                cdr: TulispValue::Uninitialized,
+            });
+            Some(car)
+        }
     }
 }
 
 pub struct ConsIntoIter {
-    next: Cons,
+    next: Option<Cons>,
 }
-
 
 pub fn car(cons: &TulispValue) -> Result<&TulispValue, Error> {
     if let TulispValue::SExp(cons) = cons {
-        match cons.0.front() {
-            Some(vv) => Ok(vv),
-            None => Ok(&TulispValue::UNINITIALIZED),
-        }
+        Ok(&cons.car)
     } else {
         Err(Error::TypeMismatch(format!("Not a Cons: {:?}", cons)))
     }
 }
 
 pub fn cdr(cons: TulispValue) -> Result<TulispValue, Error> {
-    if let TulispValue::SExp(mut cons) = cons {
-        cons.0.pop_front();
-        Ok(TulispValue::SExp(Box::new(Cons(cons.0))))
+    if let TulispValue::SExp(cons) = cons {
+        Ok(cons.cdr)
     } else {
         Err(Error::TypeMismatch(format!("Not a Cons: {:?}", cons)))
     }
