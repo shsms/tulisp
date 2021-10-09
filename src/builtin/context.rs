@@ -123,7 +123,7 @@ pub fn make_context() -> TulispContext {
         "expt".to_string(),
         ContextObject::Func(|ctx, vv| {
             let base = eval(ctx, car(&vv)?.clone())?;
-            let rest = cdr(vv)?;
+            let rest = cdr(&vv)?;
             let pow = eval(ctx, car(&rest)?.clone())?;
             Ok(f64::powf(base.try_into()?, pow.clone().try_into()?).into())
         }),
@@ -160,13 +160,13 @@ pub fn make_context() -> TulispContext {
         "if".to_string(),
         ContextObject::Func(|ctx, vv| {
             let condition = car(&vv)?;
-            let body = cdr(vv.clone())?;
+            let body = cdr(&vv)?;
             let then_body = car(&body)?;
-            let else_body = cdr(body.clone())?;
+            let else_body = cdr(&body)?;
             if eval(ctx, condition.clone())?.into() {
                 eval(ctx, then_body.clone())
             } else {
-                eval_each(ctx, else_body)
+                eval_each(ctx, else_body.clone())
             }
         }),
     );
@@ -175,9 +175,9 @@ pub fn make_context() -> TulispContext {
         ContextObject::Func(|ctx, vv| {
             for item in vv.into_iter() {
                 let condition = car(&item)?;
-                let value = cdr(item.clone())?;
+                let value = cdr(&item)?;
                 if eval(ctx, condition.clone())?.into() {
-                    return eval_each(ctx, value);
+                    return eval_each(ctx, value.clone());
                 }
             }
             Ok(TulispValue::Nil)
@@ -187,7 +187,7 @@ pub fn make_context() -> TulispContext {
         "while".to_string(),
         ContextObject::Func(|ctx, vv| {
             let condition = car(&vv)?;
-            let body = cdr(vv.clone())?;
+            let body = cdr(&vv)?;
             let mut result = TulispValue::Nil;
             while eval(ctx, condition.clone())?.into() {
                 result = eval_each(ctx, body.clone())?;
@@ -225,10 +225,10 @@ pub fn make_context() -> TulispContext {
         ContextObject::Func(|ctx, vv| {
             // TODO: add cons_destruct method that returns car and cdr
             let car = car(&vv)?.clone();
-            let cdr = cdr(vv)?;
+            let cdr = cdr(&vv)?;
             ctx.r#let(car)?;
             let ret = match cdr {
-                vv @ TulispValue::SExp(_) => eval_each(ctx, vv),
+                vv @ TulispValue::SExp(_) => eval_each(ctx, vv.clone()),
                 _ => Err(Error::TypeMismatch(
                     "let: expected varlist and body".to_string(),
                 )),
@@ -241,19 +241,20 @@ pub fn make_context() -> TulispContext {
         "let*".to_string(),
         ContextObject::Func(|ctx, vv| {
             let varlist = car(&vv)?;
-            let body = cdr(vv.clone())?;
+            let body = cdr(&vv)?;
             fn unwrap_varlist(
                 varlist: TulispValue,
                 body: TulispValue,
             ) -> Result<TulispValue, Error> {
                 let nextvar = car(&varlist)?;
-                let rest = cdr(varlist.clone())?;
+                let rest = cdr(&varlist)?;
 
                 let mut ret = Cons::new();
                 ret.append(TulispValue::Ident("let".to_string()));
                 ret.append(nextvar.clone().into_list());
-                if rest != TulispValue::Nil {
-                    ret.append(unwrap_varlist(rest, body)?);
+                if *rest != TulispValue::Nil {
+                    // TODO: avoid clone
+                    ret.append(unwrap_varlist(rest.clone(), body)?);
                 } else {
                     for ele in body.into_iter() {
                         ret.append(ele);
@@ -261,7 +262,7 @@ pub fn make_context() -> TulispContext {
                 }
                 Ok(TulispValue::SExp(Box::new(ret)))
             }
-            eval(ctx, unwrap_varlist(varlist.clone(), body)?)
+            eval(ctx, unwrap_varlist(varlist.clone(), body.clone())?)
         }),
     );
     ctx.insert(
@@ -271,13 +272,13 @@ pub fn make_context() -> TulispContext {
                 Ok(nn) => nn.clone().into_ident()?,
                 Err(_) => return Err(Error::Undefined("Defun with no name".to_string())),
             };
-            let vv = cdr(vv)?;
+            let vv = cdr(&vv)?;
             let args = match car(&vv) {
                 Ok(aa @ TulispValue::SExp(_)) => aa.clone(),
                 _ => TulispValue::Nil, // TODO: test defun with no args
             };
             let body = cdr(vv)?;
-            ctx.set_str(&name, ContextObject::Defun { args, body })?;
+            ctx.set_str(&name, ContextObject::Defun { args, body: body.clone() })?;
             Ok(TulispValue::Nil)
         }),
     );

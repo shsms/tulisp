@@ -33,9 +33,9 @@ fn eval_defun(
 fn eval_func(ctx: &mut TulispContext, val: TulispValue) -> Result<TulispValue, Error> {
     let name = car(&val)?;
     match ctx.get(name) {
-        Some(ContextObject::Func(func)) => func(ctx, cdr(val)?),
+        Some(ContextObject::Func(func)) => func(ctx, cdr(&val)?.clone()),
         Some(ContextObject::Defun { args, body }) => {
-            eval_defun(ctx, args.clone(), body.clone(), cdr(val)?)
+            eval_defun(ctx, args.clone(), body.clone(), cdr(&val)?.clone())
         }
         _ => Err(Error::Undefined(format!("function is void: {:?}", name))),
     }

@@ -75,9 +75,9 @@ pub fn car(cons: &TulispValue) -> Result<&TulispValue, Error> {
     }
 }
 
-pub fn cdr(cons: TulispValue) -> Result<TulispValue, Error> {
+pub fn cdr(cons: &TulispValue) -> Result<&TulispValue, Error> {
     if let TulispValue::SExp(cons) = cons {
-        Ok(cons.cdr)
+        Ok(&cons.cdr)
     } else {
         Err(Error::TypeMismatch(format!("Not a Cons: {:?}", cons)))
     }
