@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fs};
 
 use crate::{Error, cons::{Cons, car, cdr}, context::{ContextObject, TulispContext}, parser::parse_string, value::TulispValue};
 
@@ -107,3 +107,8 @@ pub fn eval_string(ctx: &mut TulispContext, string: &str) -> Result<TulispValue,
     eval_each(ctx, parse_string(string)?)
 }
 
+pub fn eval_file(ctx: &mut TulispContext, filename: &str) -> Result<TulispValue, Error> {
+    let contents = fs::read_to_string(filename)
+        .expect("Something went wrong reading the file");
+    eval_string(ctx, &contents)
+}

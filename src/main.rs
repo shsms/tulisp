@@ -3,15 +3,17 @@
 #[macro_use]
 extern crate pest_derive;
 
+mod builtin;
 mod cons;
 mod context;
+mod eval;
 mod parser;
 mod value;
-mod eval;
-mod builtin;
+
+use std::env;
 
 use builtin::make_context;
-use eval::eval_string;
+use eval::eval_file;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Error {
@@ -30,30 +32,21 @@ fn main() -> Result<(), Error> {
     // let string = "(let ((vv (+ 55 1)) (jj 20)) (setq vv (+ vv 10)) (+ vv jj 1))";
     // let string = "(let ((vv 0)) (while (< vv 10) (setq vv (+ 1 vv))) vv)";
     // let string = "(min 10 44 2 150 89)";
+    // let string = r#"(defun test () 10) (print (test))"#;
 
-    let string = r##"
-        (defun fibonacci (n)
-          (cond
-           ((<= n 1) 0)
-           ((equal n 2) 1)
-           (t (+ (fibonacci (- n 1))
-                 (fibonacci (- n 2))))))
-
-        (let ((n 1))
-          (while (< n 10)
-            (print (concat "Next:" (prin1-to-string n) ":" (prin1-to-string (fibonacci n))))
-            (setq n (+ n 1))))
-    "##;
-
+    let args: Vec<String> = env::args().skip(1).collect();
     let mut ctx = make_context();
-    eval_string(&mut ctx, string)?;
+    for arg in args {
+        eval_file(&mut ctx, &arg)?;
+    }
+
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use crate::value::TulispValue;
-    use crate::{eval_string, make_context, Error};
+    use crate::{eval::eval_string, make_context, Error};
 
     #[test]
     fn test_if() -> Result<(), Error> {
