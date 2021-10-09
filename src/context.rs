@@ -93,6 +93,7 @@ impl TulispContext {
         }
     }
 
+    // TODO: take ref
     pub fn r#let(&mut self, varlist: TulispValue) -> Result<(), Error> {
         let mut local = HashMap::new();
         for varitem in varlist.into_iter() {
@@ -103,7 +104,7 @@ impl TulispContext {
                 .ok_or(Error::Undefined("let varitem requires name".to_string()))?;
             let value = varitem
                 .next()
-                .map_or(Ok(TulispValue::Nil), |vv| eval(self, vv))?;
+                .map_or(Ok(TulispValue::Nil), |vv| eval(self, &vv))?;
             if varitem.next().is_some() {
                 return Err(Error::TypeMismatch(
                     "let varitem has too many values".to_string(),

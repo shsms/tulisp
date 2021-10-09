@@ -53,7 +53,7 @@ fn reduce_with(
     method: impl Fn(TulispValue, TulispValue) -> Result<TulispValue, Error>,
 ) -> Result<TulispValue, Error> {
     list.into_iter()
-        .map(|x| eval(ctx, x))
+        .map(|x| eval(ctx, &x))
         .reduce(|v1, v2| method(v1?, v2?))
         .unwrap_or(Err(Error::TypeMismatch(
             "Incorrect number of arguments: 0".to_string(),
@@ -111,7 +111,7 @@ pub fn make_context() -> TulispContext {
         ContextObject::Func(|ctx, vv| {
             let mut ret = String::new();
             for ele in vv.into_iter() {
-                match eval(ctx, ele.clone())? {
+                match eval(ctx, &ele)? {
                     TulispValue::String(s) => ret.push_str(&s),
                     _ => return Err(Error::TypeMismatch(format!("Not a string: {:?}", ele))),
                 }
@@ -122,9 +122,9 @@ pub fn make_context() -> TulispContext {
     ctx.insert(
         "expt".to_string(),
         ContextObject::Func(|ctx, vv| {
-            let base = eval(ctx, car(&vv)?.clone())?;
+            let base = eval(ctx, car(&vv)?)?;
             let rest = cdr(&vv)?;
-            let pow = eval(ctx, car(&rest)?.clone())?;
+            let pow = eval(ctx, car(&rest)?)?;
             Ok(f64::powf(base.try_into()?, pow.clone().try_into()?).into())
         }),
     );
@@ -139,7 +139,7 @@ pub fn make_context() -> TulispContext {
                     "output stream currently not supported".to_string(),
                 ))
             } else if let Some(v) = object {
-                println!("{}", eval(ctx, v.clone())?);
+                println!("{}", eval(ctx, &v)?);
                 Ok(v)
             } else {
                 Err(Error::TypeMismatch(
@@ -152,7 +152,7 @@ pub fn make_context() -> TulispContext {
         "prin1-to-string".to_string(),
         ContextObject::Func(|ctx, vv| {
             Ok(TulispValue::String(
-                eval(ctx, car(&vv)?.clone())?.to_string(),
+                eval(ctx, car(&vv)?)?.to_string(),
             ))
         }),
     );
@@ -163,10 +163,10 @@ pub fn make_context() -> TulispContext {
             let body = cdr(&vv)?;
             let then_body = car(&body)?;
             let else_body = cdr(&body)?;
-            if eval(ctx, condition.clone())?.into() {
-                eval(ctx, then_body.clone())
+            if eval(ctx, condition)?.into() {
+                eval(ctx, then_body)
             } else {
-                eval_each(ctx, else_body.clone())
+                eval_each(ctx, else_body)
             }
         }),
     );
@@ -176,8 +176,8 @@ pub fn make_context() -> TulispContext {
             for item in vv.into_iter() {
                 let condition = car(&item)?;
                 let value = cdr(&item)?;
-                if eval(ctx, condition.clone())?.into() {
-                    return eval_each(ctx, value.clone());
+                if eval(ctx, condition)?.into() {
+                    return eval_each(ctx, value);
                 }
             }
             Ok(TulispValue::Nil)
@@ -189,8 +189,8 @@ pub fn make_context() -> TulispContext {
             let condition = car(&vv)?;
             let body = cdr(&vv)?;
             let mut result = TulispValue::Nil;
-            while eval(ctx, condition.clone())?.into() {
-                result = eval_each(ctx, body.clone())?;
+            while eval(ctx, condition)?.into() {
+                result = eval_each(ctx, body)?;
             }
             Ok(result)
         }),
@@ -208,7 +208,7 @@ pub fn make_context() -> TulispContext {
                 }
             };
             let value = match iter.next() {
-                Some(vv) => eval(ctx, vv)?,
+                Some(vv) => eval(ctx, &vv)?,
                 None => {
                     return Err(Error::TypeMismatch(
                         "Incorrect number of arguments: setq, 1".to_string(),
@@ -228,7 +228,7 @@ pub fn make_context() -> TulispContext {
             let cdr = cdr(&vv)?;
             ctx.r#let(car)?;
             let ret = match cdr {
-                vv @ TulispValue::SExp(_) => eval_each(ctx, vv.clone()),
+                vv @ TulispValue::SExp(_) => eval_each(ctx, vv),
                 _ => Err(Error::TypeMismatch(
                     "let: expected varlist and body".to_string(),
                 )),
@@ -262,7 +262,7 @@ pub fn make_context() -> TulispContext {
                 }
                 Ok(TulispValue::SExp(Box::new(ret)))
             }
-            eval(ctx, unwrap_varlist(varlist.clone(), body.clone())?)
+            eval(ctx, &unwrap_varlist(varlist.clone(), body.clone())?)
         }),
     );
     ctx.insert(
