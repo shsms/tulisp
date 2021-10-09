@@ -1,12 +1,15 @@
 use std::collections::HashMap;
 
-use crate::{Error, TulispValue};
+use crate::{Error, eval::eval, value::TulispValue};
 
 #[derive(Clone)]
 pub enum ContextObject {
     TulispValue(TulispValue),
     Func(fn(&mut TulispContext, TulispValue) -> Result<TulispValue, Error>),
-    Defun { args: TulispValue, body: TulispValue},
+    Defun {
+        args: TulispValue,
+        body: TulispValue,
+    },
 }
 
 impl std::fmt::Debug for ContextObject {
@@ -30,7 +33,7 @@ impl TulispContext {
         Self(vec![item])
     }
 
-    pub fn push(&mut self, item: HashMap<String,ContextObject>) {
+    pub fn push(&mut self, item: HashMap<String, ContextObject>) {
         self.0.push(item);
     }
 
@@ -60,7 +63,7 @@ impl TulispContext {
     fn get_mut(&mut self, name: &String) -> Option<&mut ContextObject> {
         for ele in self.0.iter_mut().rev() {
             match ele.get_mut(name) {
-                None => {},
+                None => {}
                 vv => return vv,
             }
         }
@@ -68,22 +71,25 @@ impl TulispContext {
     }
 
     pub fn set_str(&mut self, name: &String, value: ContextObject) -> Result<(), Error> {
-            match self.get_mut(name) {
-                Some(m) => *m = value,
-                None => match self.0.first_mut() {
-                    Some(f) => {
-                        f.insert(name.clone(), value);
-                    }
-                    None => { return Err(Error::Undefined("Top level context is missing".to_string()))},
-                },
-            }
-            Ok(())
+        match self.get_mut(name) {
+            Some(m) => *m = value,
+            None => match self.0.first_mut() {
+                Some(f) => {
+                    f.insert(name.clone(), value);
+                }
+                None => return Err(Error::Undefined("Top level context is missing".to_string())),
+            },
+        }
+        Ok(())
     }
     pub fn set(&mut self, name: &TulispValue, value: TulispValue) -> Result<(), Error> {
         if let TulispValue::Ident(name) = name {
             self.set_str(name, ContextObject::TulispValue(value))
         } else {
-            Err(Error::TypeMismatch(format!("name is not an ident: {}", name)))
+            Err(Error::TypeMismatch(format!(
+                "name is not an ident: {}",
+                name
+            )))
         }
     }
 
@@ -97,7 +103,7 @@ impl TulispContext {
                 .ok_or(Error::Undefined("let varitem requires name".to_string()))?;
             let value = varitem
                 .next()
-                .map_or(Ok(TulispValue::Nil), |vv| crate::eval(self, vv))?;
+                .map_or(Ok(TulispValue::Nil), |vv| eval(self, vv))?;
             if varitem.next().is_some() {
                 return Err(Error::TypeMismatch(
                     "let varitem has too many values".to_string(),

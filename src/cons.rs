@@ -1,9 +1,7 @@
 use crate::Error;
 use std::collections::VecDeque;
 
-use crate::UNINITIALIZED;
-
-use crate::TulispValue;
+use crate::value::TulispValue;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Cons(VecDeque<TulispValue>);
@@ -41,7 +39,7 @@ pub fn car(cons: &TulispValue) -> Result<&TulispValue, Error> {
     if let TulispValue::SExp(cons) = cons {
         match cons.0.front() {
             Some(vv) => Ok(vv),
-            None => Ok(&UNINITIALIZED),
+            None => Ok(&TulispValue::UNINITIALIZED),
         }
     } else {
         Err(Error::TypeMismatch(format!("Not a Cons: {:?}", cons)))
