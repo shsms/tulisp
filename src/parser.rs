@@ -2,7 +2,7 @@ use pest;
 
 use pest::{iterators::Pair, Parser};
 
-use crate::{Cons, Error, TulispValue};
+use crate::{cons::Cons, Error, TulispValue};
 
 #[derive(Parser)]
 #[grammar = "tulisp.pest"]
