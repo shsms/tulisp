@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 
-use crate::{Cons, Error, TulispValue};
+use crate::{Error, TulispValue};
 
 #[derive(Clone)]
 pub enum ContextObject {
     TulispValue(TulispValue),
     Func(fn(&mut TulispContext, TulispValue) -> Result<TulispValue, Error>),
-    Defun { args: Cons, body: Cons },
+    Defun { args: TulispValue, body: TulispValue},
 }
 
 impl std::fmt::Debug for ContextObject {
