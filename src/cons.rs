@@ -20,7 +20,13 @@ impl Cons {
             next: self,
         }
     }
+
+    pub fn iter(&self) -> ConsIter<'_> {
+        self.0.iter()
+    }
 }
+
+pub type ConsIter<'a> = std::collections::vec_deque::Iter<'a, TulispValue>;
 
 impl Iterator for ConsIntoIter {
     type Item = TulispValue;
