@@ -1,5 +1,5 @@
-use crate::Error;
 use crate::value::TulispValue;
+use crate::Error;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Cons {
@@ -8,11 +8,13 @@ pub struct Cons {
 }
 
 impl Cons {
+    const EMPTY: Cons = Cons {
+        car: TulispValue::Uninitialized,
+        cdr: TulispValue::Uninitialized,
+    };
+
     pub fn new() -> Self {
-        Cons {
-            car: TulispValue::Uninitialized,
-            cdr: TulispValue::Uninitialized,
-        }
+        Cons::EMPTY
     }
 
     pub fn append(&mut self, val: TulispValue) {
@@ -34,8 +36,33 @@ impl Cons {
         }));
     }
 
+    pub fn iter<'a>(&'a self) -> ConsIter<'a> {
+        ConsIter { next: self }
+    }
+
     pub fn into_iter(self) -> ConsIntoIter {
         ConsIntoIter { next: Some(self) }
+    }
+}
+
+pub struct ConsIter<'a> {
+    next: &'a Cons,
+}
+
+impl<'a> Iterator for ConsIter<'a> {
+    type Item = &'a TulispValue;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let Cons { car, cdr } = self.next;
+        if *car == TulispValue::Uninitialized {
+            None
+        } else if let TulispValue::SExp(cons) = cdr {
+            self.next = &*cons;
+            Some(car)
+        } else {
+            self.next = &Cons::EMPTY;
+            Some(car)
+        }
     }
 }
 
@@ -45,19 +72,12 @@ impl Iterator for ConsIntoIter {
     fn next(&mut self) -> Option<Self::Item> {
         let Cons { car, cdr } = self.next.take()?;
         if car == TulispValue::Uninitialized {
-            self.next = Some(Cons::new());
-            return None;
+            None
         } else if let TulispValue::SExp(cons) = cdr {
             self.next = Some(*cons);
             Some(car)
-        } else if cdr == TulispValue::Uninitialized {
-            self.next = Some(Cons::new());
-            Some(car)
         } else {
-            self.next = Some(Cons {
-                car: cdr,
-                cdr: TulispValue::Uninitialized,
-            });
+            self.next = Some(Cons::new());
             Some(car)
         }
     }

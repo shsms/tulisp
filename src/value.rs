@@ -58,7 +58,12 @@ impl std::fmt::Display for TulispValue {
 }
 
 impl TulispValue {
-    pub const UNINITIALIZED: TulispValue = TulispValue::Uninitialized;
+    pub fn iter(&self) -> Result<cons::ConsIter<'_>, Error> {
+        match self {
+            TulispValue::SExp(cons) => Ok(cons.iter()),
+            _ => Err(Error::TypeMismatch("Not iterable".to_string())),
+        }
+    }
 
     pub fn into_iter(self) -> cons::ConsIntoIter {
         match self {
