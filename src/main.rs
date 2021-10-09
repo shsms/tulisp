@@ -1,19 +1,16 @@
 #![warn(rust_2018_idioms)]
 
-pub mod context;
-
-use pest;
 #[macro_use]
 extern crate pest_derive;
 
-use pest::{iterators::Pair, Parser};
+mod context;
+mod parser;
+
 use std::{collections::HashMap, convert::TryInto};
 
-use crate::context::{ContextObject, TulispContext};
+use parser::parse_string;
 
-#[derive(Parser)]
-#[grammar = "tulisp.pest"]
-struct TulispParser;
+use crate::context::{ContextObject, TulispContext};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Cons {
@@ -369,7 +366,7 @@ fn eval_func(ctx: &mut TulispContext, val: TulispValue) -> Result<TulispValue, E
     }
 }
 
-fn make_context() -> Result<TulispContext, Error> {
+fn make_context() -> TulispContext {
     let mut ctx = HashMap::new();
     ctx.insert(
         "+".to_string(),
@@ -605,7 +602,7 @@ fn make_context() -> Result<TulispContext, Error> {
             _ => Err(Error::TypeMismatch("Expected a defun body".to_string())),
         }),
     );
-    Ok(TulispContext::new(ctx))
+    TulispContext::new(ctx)
 }
 
 pub fn eval(ctx: &mut TulispContext, value: TulispValue) -> Result<TulispValue, Error> {
@@ -671,77 +668,7 @@ fn eval_each(ctx: &mut TulispContext, value: TulispValue) -> Result<TulispValue,
 }
 
 fn eval_string(ctx: &mut TulispContext, string: &str) -> Result<TulispValue, Error> {
-    let p = TulispParser::parse(Rule::program, string);
-    // println!("{:#?}", p);
-
-    let mut result = TulispValue::Nil;
-    for ii in p.unwrap() {
-        let p = parse(ii);
-        // println!("parse: {:#?}", p);
-        result = eval(ctx, p.unwrap())?;
-    }
-    Ok(result)
-}
-
-fn parse(value: Pair<'_, Rule>) -> Result<TulispValue, Error> {
-    match value.as_rule() {
-        Rule::form => Ok(TulispValue::SExp({
-            let mut list = Cons::new();
-            value
-                .into_inner()
-                .map(parse)
-                .map(|val| -> Result<(), Error> {
-                    list.append(val?);
-                    Ok(())
-                })
-                .reduce(|_, _| Ok(()));
-            list
-        })),
-        Rule::backquote => Ok(TulispValue::Backquote(Box::new(parse(
-            value
-                .into_inner()
-                .peek()
-                .ok_or_else(|| Error::ParsingError(format!("Backquote inner not found")))?,
-        )?))),
-        Rule::unquote => Ok(TulispValue::Unquote(Box::new(parse(
-            value
-                .into_inner()
-                .peek()
-                .ok_or_else(|| Error::ParsingError(format!("Unquote inner not found")))?,
-        )?))),
-        Rule::quote => Ok(TulispValue::Quote(Box::new(parse(
-            value
-                .into_inner()
-                .peek()
-                .ok_or_else(|| Error::ParsingError(format!("Quote inner not found")))?,
-        )?))),
-        Rule::nil => Ok(TulispValue::Nil),
-        Rule::ident => Ok(TulispValue::Ident(value.as_span().as_str().to_string())),
-        Rule::integer => {
-            Ok(TulispValue::Int(value.as_span().as_str().parse().map_err(
-                |e: std::num::ParseIntError| Error::ParsingError(e.to_string()),
-            )?))
-        }
-        Rule::float => Ok(TulispValue::Float(
-            value
-                .as_span()
-                .as_str()
-                .parse()
-                .map_err(|e: std::num::ParseFloatError| Error::ParsingError(e.to_string()))?,
-        )),
-        Rule::string => Ok(TulispValue::String(
-            value
-                .into_inner()
-                .peek()
-                .ok_or_else(|| {
-                    Error::ParsingError(format!("parsing error: string inner not found"))
-                })?
-                .as_span()
-                .as_str()
-                .to_string(),
-        )),
-        e => Err(Error::ParsingError(format!("unknown rule {:?}", e))),
-    }
+    eval_each(ctx, parse_string(string)?)
 }
 
 fn main() -> Result<(), Error> {
@@ -753,18 +680,21 @@ fn main() -> Result<(), Error> {
     // let string = "(let ((vv 0)) (while (< vv 10) (setq vv (+ 1 vv))) vv)";
     // let string = "(min 10 44 2 150 89)";
 
-    let string = "(defun fibonacci (n)
-      (cond
-        ((<= n 1) 0)
-        ((equal n 2) 1)
-        (t (+ (fibonacci (- n 1)) (fibonacci (- n 2))))))
-    (let ((nn 1))
-    (while (< nn 10)
-      (print (concat \"Next:\" (prin1-to-string nn) \":\" (prin1-to-string (fibonacci nn))))
-      (setq nn (+ nn 1))))
-    ";
+    let string = r##"
+        (defun fibonacci (n)
+          (cond
+           ((<= n 1) 0)
+           ((equal n 2) 1)
+           (t (+ (fibonacci (- n 1))
+                 (fibonacci (- n 2))))))
 
-    let mut ctx = make_context()?;
+        (let ((n 1))
+          (while (< n 10)
+            (print (concat "Next:" (prin1-to-string n) ":" (prin1-to-string (fibonacci n))))
+            (setq n (+ n 1))))
+    "##;
+
+    let mut ctx = make_context();
     println!("{:?}", eval_string(&mut ctx, string)?);
     Ok(())
 }
@@ -775,7 +705,7 @@ mod tests {
 
     #[test]
     fn test_if() -> Result<(), Error> {
-        let mut ctx = make_context()?;
+        let mut ctx = make_context();
         let prog = "(if t 10 20)";
         assert_eq!(eval_string(&mut ctx, prog)?, TulispValue::Int(10));
 
@@ -793,8 +723,8 @@ mod tests {
 
     #[test]
     fn test_setq() -> Result<(), Error> {
-        let mut ctx = make_context()?;
-        let prog = "(let ((xx 10)) (setq xx (+ xx 10)) (* xx 3))";
+        let mut ctx = make_context();
+        let prog = r##"(let ((xx 10)) (setq zz (+ xx 10))) (* zz 3)"##;
         assert_eq!(eval_string(&mut ctx, prog)?, TulispValue::Int(60));
 
         Ok(())
@@ -802,7 +732,7 @@ mod tests {
 
     #[test]
     fn test_while() -> Result<(), Error> {
-        let mut ctx = make_context()?;
+        let mut ctx = make_context();
         let prog = "(let ((vv 0)) (while (< vv 42) (setq vv (+ 1 vv))) vv)";
         assert_eq!(eval_string(&mut ctx, prog)?, TulispValue::Int(42));
 
