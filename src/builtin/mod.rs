@@ -1,2 +1,3 @@
 mod context;
-pub use context::make_context;
+pub mod macros;
+pub use context::new_context;

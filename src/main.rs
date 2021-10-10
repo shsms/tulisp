@@ -12,7 +12,7 @@ mod value;
 
 use std::env;
 
-use builtin::make_context;
+use builtin::new_context;
 use eval::eval_file;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -35,7 +35,7 @@ fn main() -> Result<(), Error> {
     // let string = r#"(defun test () 10) (print (test))"#;
 
     let args: Vec<String> = env::args().skip(1).collect();
-    let mut ctx = make_context();
+    let mut ctx = new_context();
     for arg in args {
         eval_file(&mut ctx, &arg)?;
     }
@@ -46,11 +46,11 @@ fn main() -> Result<(), Error> {
 #[cfg(test)]
 mod tests {
     use crate::value::TulispValue;
-    use crate::{eval::eval_string, make_context, Error};
+    use crate::{eval::eval_string, new_context, Error};
 
     #[test]
     fn test_if() -> Result<(), Error> {
-        let mut ctx = make_context();
+        let mut ctx = new_context();
         let prog = "(if t 10 20)";
         assert_eq!(eval_string(&mut ctx, prog)?, TulispValue::Int(10));
 
@@ -68,7 +68,7 @@ mod tests {
 
     #[test]
     fn test_setq() -> Result<(), Error> {
-        let mut ctx = make_context();
+        let mut ctx = new_context();
         let prog = r##"(let ((xx 10)) (setq zz (+ xx 10))) (* zz 3)"##;
         assert_eq!(eval_string(&mut ctx, prog)?, TulispValue::Int(60));
 
@@ -77,7 +77,7 @@ mod tests {
 
     #[test]
     fn test_while() -> Result<(), Error> {
-        let mut ctx = make_context();
+        let mut ctx = new_context();
         let prog = "(let ((vv 0)) (while (< vv 42) (setq vv (+ 1 vv))) vv)";
         assert_eq!(eval_string(&mut ctx, prog)?, TulispValue::Int(42));
 

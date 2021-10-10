@@ -1,15 +1,13 @@
+use crate::cons::car;
+use crate::cons::cdr;
+use crate::context::ContextObject;
+use crate::context::TulispContext;
+use crate::eval::eval;
+use crate::eval::eval_each;
+use crate::value::TulispValue;
 use crate::Error;
 use std::collections::HashMap;
-use crate::eval::eval_each;
-use crate::context::ContextObject;
-use crate::value::TulispValue;
-use crate::eval::eval;
-use crate::cons::cdr;
-use crate::context::TulispContext;
-use crate::cons::car;
-use crate::cons::Cons;
 use std::convert::TryInto;
-
 
 macro_rules! max_min_ops {
     ($oper:tt) => {{
@@ -60,7 +58,7 @@ fn reduce_with(
         )))
 }
 
-pub fn make_context() -> TulispContext {
+pub fn new_context() -> TulispContext {
     let mut ctx = HashMap::new();
     ctx.insert(
         "+".to_string(),
@@ -151,11 +149,7 @@ pub fn make_context() -> TulispContext {
     );
     ctx.insert(
         "prin1-to-string".to_string(),
-        ContextObject::Func(|ctx, vv| {
-            Ok(TulispValue::String(
-                eval(ctx, car(&vv)?)?.to_string(),
-            ))
-        }),
+        ContextObject::Func(|ctx, vv| Ok(TulispValue::String(eval(ctx, car(&vv)?)?.to_string()))),
     );
     ctx.insert(
         "if".to_string(),
@@ -238,33 +232,7 @@ pub fn make_context() -> TulispContext {
             ret
         }),
     );
-    ctx.insert(
-        "let*".to_string(),
-        ContextObject::Func(|ctx, vv| {
-            let varlist = car(&vv)?;
-            let body = cdr(&vv)?;
-            fn unwrap_varlist(
-                varlist: &TulispValue,
-                body: &TulispValue,
-            ) -> Result<TulispValue, Error> {
-                let nextvar = car(&varlist)?;
-                let rest = cdr(&varlist)?;
 
-                let mut ret = Cons::new();
-                ret.append(TulispValue::Ident("let".to_string()));
-                ret.append(nextvar.clone().into_list());
-                if *rest != TulispValue::Nil {
-                    ret.append(unwrap_varlist(rest, body)?);
-                } else {
-                    for ele in body.iter()? {
-                        ret.append(ele.clone());
-                    }
-                }
-                Ok(TulispValue::SExp(Box::new(ret)))
-            }
-            eval(ctx, &unwrap_varlist(varlist, body)?)
-        }),
-    );
     ctx.insert(
         "defun".to_string(),
         ContextObject::Func(|ctx, vv| {

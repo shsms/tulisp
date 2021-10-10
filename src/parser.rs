@@ -2,7 +2,10 @@ use pest;
 
 use pest::{iterators::Pair, Parser};
 
-use crate::{cons::Cons, Error, value::TulispValue};
+use crate::builtin::macros::macro_context;
+use crate::cons::{car, cdr};
+use crate::context::{ContextObject, TulispContext};
+use crate::{cons::Cons, value::TulispValue, Error};
 
 #[derive(Parser)]
 #[grammar = "tulisp.pest"]
@@ -18,9 +21,21 @@ pub fn parse_string(string: &str) -> Result<TulispValue, Error> {
     Ok(TulispValue::SExp(Box::new(list)))
 }
 
+fn expand_macros(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispValue, Error> {
+    let name = match car(&expr)? {
+        TulispValue::Ident(ident) => ident.to_string(),
+        _ => return Ok(expr),
+    };
+    match ctx.get_str(&name) {
+        Some(ContextObject::Func(func)) => func(ctx, cdr(&expr)?),
+        _ => Ok(expr),
+    }
+}
+
 pub fn parse(value: Pair<'_, Rule>) -> Result<TulispValue, Error> {
+    let macros = &mut macro_context();
     match value.as_rule() {
-        Rule::form => Ok(TulispValue::SExp({
+        Rule::form => {
             let mut list = Cons::new();
             value
                 .into_inner()
@@ -29,9 +44,9 @@ pub fn parse(value: Pair<'_, Rule>) -> Result<TulispValue, Error> {
                     list.append(val?);
                     Ok(())
                 })
-                .reduce(|_, _| Ok(()));
-            Box::new(list)
-        })),
+                .fold(Ok(()), |v1, v2| v1.and(v2))?;
+            expand_macros(macros, TulispValue::SExp(Box::new(list)))
+        }
         Rule::backquote => Ok(TulispValue::Backquote(Box::new(parse(
             value
                 .into_inner()
