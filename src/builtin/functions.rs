@@ -1,4 +1,4 @@
-use crate::cons::car;
+pub(crate) use crate::cons::car;
 use crate::cons::cdr;
 use crate::context::ContextObject;
 use crate::context::TulispContext;
@@ -58,8 +58,7 @@ fn reduce_with(
         )))
 }
 
-pub fn new_context() -> TulispContext {
-    let mut ctx = HashMap::new();
+pub fn add(ctx: &mut HashMap<String, ContextObject>){
     ctx.insert(
         "+".to_string(),
         ContextObject::Func(|ctx, vv| reduce_with(ctx, vv, binary_ops!(std::ops::Add::add))),
@@ -137,9 +136,9 @@ pub fn new_context() -> TulispContext {
                     "output stream currently not supported".to_string(),
                 ))
             } else if let Some(v) = object {
-                println!("{}", eval(ctx, &v)?);
-                // TODO: a CoW TulispValue could help prevent clone
-                Ok(v.clone())
+                let ret = eval(ctx, &v)?;
+                println!("{}", ret);
+                Ok(ret)
             } else {
                 Err(Error::TypeMismatch(
                     "Incorrect number of arguments: print, 0".to_string(),
@@ -210,9 +209,8 @@ pub fn new_context() -> TulispContext {
                     ))
                 }
             };
-            ctx.set(name, value)?;
-            // TODO: result from set
-            Ok(TulispValue::Nil)
+            ctx.set(name, value.clone())?;
+            Ok(value)
         }),
     );
     ctx.insert(
@@ -238,17 +236,16 @@ pub fn new_context() -> TulispContext {
         ContextObject::Func(|ctx, vv| {
             let name = match car(&vv) {
                 Ok(nn) => nn.clone().as_ident()?,
-                Err(_) => return Err(Error::Undefined("Defun with no name".to_string())),
+                Err(_) => return Err(Error::Undefined("defun with no name".to_string())),
             };
             let vv = cdr(&vv)?;
             let args = match car(&vv) {
                 Ok(aa @ TulispValue::SExp(_)) => aa.clone(),
-                _ => TulispValue::Nil, // TODO: test defun with no args
+                _ => TulispValue::Nil,
             };
             let body = cdr(vv)?.clone();
             ctx.set_str(&name, ContextObject::Defun { args, body })?;
             Ok(TulispValue::Nil)
         }),
     );
-    TulispContext::new(ctx)
 }

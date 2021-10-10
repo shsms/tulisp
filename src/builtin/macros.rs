@@ -1,16 +1,32 @@
 use std::collections::HashMap;
 
 use crate::cons::{car, cdr, Cons};
-use crate::context::{ContextObject, TulispContext};
+use crate::context::ContextObject;
 use crate::value::TulispValue;
 use crate::Error;
 
-pub fn macro_context() -> TulispContext {
-    let mut ctx = HashMap::new();
+pub fn add(ctx: &mut HashMap<String, ContextObject>) {
+    ctx.insert(
+        "defmacro".to_string(),
+        ContextObject::Macro(|ctx, vv| {
+            let name = match car(&vv) {
+                Ok(nn) => nn.clone().as_ident()?,
+                Err(_) => return Err(Error::Undefined("defmacro with no name".to_string())),
+            };
+            let vv = cdr(&vv)?;
+            let args = match car(&vv) {
+                Ok(aa @ TulispValue::SExp(_)) => aa.clone(),
+                _ => TulispValue::Nil,
+            };
+            let body = cdr(vv)?.clone();
+            ctx.set_str(&name, ContextObject::Defmacro { args, body })?;
+            Ok(TulispValue::Nil)
+        }),
+    );
 
     ctx.insert(
         "let*".to_string(),
-        ContextObject::Func(|_, vv| {
+        ContextObject::Macro(|_, vv| {
             let varlist = car(&vv)?;
             let body = cdr(&vv)?;
             fn unwrap_varlist(
@@ -35,6 +51,4 @@ pub fn macro_context() -> TulispContext {
             unwrap_varlist(varlist, body)
         }),
     );
-
-    TulispContext::new(ctx)
 }
