@@ -5,7 +5,7 @@ use crate::{Error, eval::eval, value::TulispValue};
 #[derive(Clone)]
 pub enum ContextObject {
     TulispValue(TulispValue),
-    Func(fn(&mut TulispContext, TulispValue) -> Result<TulispValue, Error>),
+    Func(fn(&mut TulispContext, &TulispValue) -> Result<TulispValue, Error>),
     Defun {
         args: TulispValue,
         body: TulispValue,
@@ -93,11 +93,10 @@ impl TulispContext {
         }
     }
 
-    // TODO: take ref
-    pub fn r#let(&mut self, varlist: TulispValue) -> Result<(), Error> {
+    pub fn r#let(&mut self, varlist: &TulispValue) -> Result<(), Error> {
         let mut local = HashMap::new();
-        for varitem in varlist.into_iter() {
-            let mut varitem = varitem.into_iter();
+        for varitem in varlist.iter()? {
+            let mut varitem = varitem.iter()?;
 
             let name = varitem
                 .next()
@@ -110,7 +109,7 @@ impl TulispContext {
                     "let varitem has too many values".to_string(),
                 ));
             }
-            local.insert(name.into_ident()?, ContextObject::TulispValue(value));
+            local.insert(name.as_ident()?, ContextObject::TulispValue(value));
         }
         self.0.push(local);
 

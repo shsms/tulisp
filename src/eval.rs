@@ -4,14 +4,14 @@ use crate::{Error, cons::{Cons, car, cdr}, context::{ContextObject, TulispContex
 
 fn eval_defun(
     ctx: &mut TulispContext,
-    params: TulispValue,  // TODO: make params a ref
+    params: &TulispValue,  // TODO: make params a ref
     body: &TulispValue,
-    args: TulispValue,
+    args: &TulispValue,
 ) -> Result<TulispValue, Error> {
-    let mut args = args.into_iter();
+    let mut args = args.iter()?;
     let mut local = HashMap::new();
-    for param in params.into_iter() {
-        let name = match param.into_ident() {
+    for param in params.iter()? {
+        let name = match param.as_ident() {
             Ok(vv) => vv,
             Err(e) => return Err(e),
         };
@@ -33,9 +33,9 @@ fn eval_defun(
 fn eval_func(ctx: &mut TulispContext, val: &TulispValue) -> Result<TulispValue, Error> {
     let name = car(val)?;
     match ctx.get(name) {
-        Some(ContextObject::Func(func)) => func(ctx, cdr(&val)?.clone()),
+        Some(ContextObject::Func(func)) => func(ctx, cdr(&val)?),
         Some(ContextObject::Defun { args, body }) => {
-            eval_defun(ctx, args.clone(), &body, cdr(&val)?.clone())
+            eval_defun(ctx, &args, &body, cdr(&val)?)
         }
         _ => Err(Error::Undefined(format!("function is void: {:?}", name))),
     }
@@ -70,13 +70,13 @@ pub fn eval(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue,
             let mut ret = Cons::new();
             match &**vv {
                 vv @ TulispValue::SExp(_) => {
-                    for ele in vv.clone().into_iter() {
+                    for ele in vv.iter()? {
                         match ele {
                             e @ TulispValue::SExp(_) => {
-                                ret.append(eval(ctx, &TulispValue::Backquote(Box::new(e)))?)
+                                ret.append(eval(ctx, &TulispValue::Backquote(Box::new(e.clone())))?)
                             }
                             TulispValue::Unquote(vv) => ret.append(eval(ctx, &vv)?),
-                            e => ret.append(e),
+                            e => ret.append(e.clone()),
                         };
                     }
                 }
@@ -98,8 +98,8 @@ pub fn eval(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue,
 pub fn eval_each(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue, Error> {
     let mut result = TulispValue::Nil;
     // TODO: change after new `.iter()`
-    for ele in value.clone().into_iter() {
-        result = eval(ctx, &ele)?;
+    for ele in value.iter()? {
+        result = eval(ctx, ele)?;
     }
     Ok(result)
 }

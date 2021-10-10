@@ -40,7 +40,8 @@ impl std::fmt::Display for TulispValue {
             vv @ TulispValue::SExp(_) => {
                 let mut ret = String::from("(");
                 let mut add_space = false;
-                for item in vv.clone().into_iter() {
+                // iter() is guaranteed for SExp
+                for item in vv.iter().unwrap() {
                     if add_space {
                         ret.push(' ');
                     }
@@ -65,16 +66,9 @@ impl TulispValue {
         }
     }
 
-    pub fn into_iter(self) -> cons::ConsIntoIter {
+    pub fn as_ident(&self) -> Result<String, Error> {
         match self {
-            TulispValue::SExp(cons) => cons.into_iter(),
-            _ => Cons::new().into_iter(),
-        }
-    }
-
-    pub fn into_ident(self) -> Result<String, Error> {
-        match self {
-            TulispValue::Ident(ident) => Ok(ident),
+            TulispValue::Ident(ident) => Ok(ident.to_string()),
             _ => Err(Error::TypeMismatch(format!("Expected ident: {:?}", self))),
         }
     }

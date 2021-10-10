@@ -39,10 +39,6 @@ impl Cons {
     pub fn iter<'a>(&'a self) -> ConsIter<'a> {
         ConsIter { next: self }
     }
-
-    pub fn into_iter(self) -> ConsIntoIter {
-        ConsIntoIter { next: Some(self) }
-    }
 }
 
 pub struct ConsIter<'a> {
@@ -64,27 +60,6 @@ impl<'a> Iterator for ConsIter<'a> {
             Some(car)
         }
     }
-}
-
-impl Iterator for ConsIntoIter {
-    type Item = TulispValue;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let Cons { car, cdr } = self.next.take()?;
-        if car == TulispValue::Uninitialized {
-            None
-        } else if let TulispValue::SExp(cons) = cdr {
-            self.next = Some(*cons);
-            Some(car)
-        } else {
-            self.next = Some(Cons::new());
-            Some(car)
-        }
-    }
-}
-
-pub struct ConsIntoIter {
-    next: Option<Cons>,
 }
 
 pub fn car(cons: &TulispValue) -> Result<&TulispValue, Error> {
