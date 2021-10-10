@@ -95,8 +95,8 @@ impl TulispContext {
 
     pub fn r#let(&mut self, varlist: &TulispValue) -> Result<(), Error> {
         let mut local = HashMap::new();
-        for varitem in varlist.iter()? {
-            let mut varitem = varitem.iter()?;
+        for varitem in varlist.iter() {
+            let mut varitem = varitem.iter();
 
             let name = varitem
                 .next()

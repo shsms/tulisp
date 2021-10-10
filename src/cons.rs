@@ -8,7 +8,7 @@ pub struct Cons {
 }
 
 impl Cons {
-    const EMPTY: Cons = Cons {
+    pub const EMPTY: Cons = Cons {
         car: TulispValue::Uninitialized,
         cdr: TulispValue::Uninitialized,
     };

@@ -40,8 +40,7 @@ impl std::fmt::Display for TulispValue {
             vv @ TulispValue::SExp(_) => {
                 let mut ret = String::from("(");
                 let mut add_space = false;
-                // iter() is guaranteed for SExp
-                for item in vv.iter().unwrap() {
+                for item in vv.iter() {
                     if add_space {
                         ret.push(' ');
                     }
@@ -59,10 +58,10 @@ impl std::fmt::Display for TulispValue {
 }
 
 impl TulispValue {
-    pub fn iter(&self) -> Result<cons::ConsIter<'_>, Error> {
+    pub fn iter(&self) -> cons::ConsIter<'_> {
         match self {
-            TulispValue::SExp(cons) => Ok(cons.iter()),
-            _ => Err(Error::TypeMismatch("Not iterable".to_string())),
+            TulispValue::SExp(cons) => cons.iter(),
+            _ => Cons::EMPTY.iter(),
         }
     }
 

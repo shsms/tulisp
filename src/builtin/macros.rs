@@ -26,7 +26,7 @@ pub fn macro_context() -> TulispContext {
                 if *rest != TulispValue::Uninitialized {
                     ret.append(unwrap_varlist(rest, body)?);
                 } else {
-                    for ele in body.iter()? {
+                    for ele in body.iter() {
                         ret.append(ele.clone());
                     }
                 }

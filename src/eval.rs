@@ -8,9 +8,9 @@ fn eval_defun(
     body: &TulispValue,
     args: &TulispValue,
 ) -> Result<TulispValue, Error> {
-    let mut args = args.iter()?;
+    let mut args = args.iter();
     let mut local = HashMap::new();
-    for param in params.iter()? {
+    for param in params.iter() {
         let name = match param.as_ident() {
             Ok(vv) => vv,
             Err(e) => return Err(e),
@@ -70,7 +70,7 @@ pub fn eval(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue,
             let mut ret = Cons::new();
             match &**vv {
                 vv @ TulispValue::SExp(_) => {
-                    for ele in vv.iter()? {
+                    for ele in vv.iter() {
                         match ele {
                             e @ TulispValue::SExp(_) => {
                                 ret.append(eval(ctx, &TulispValue::Backquote(Box::new(e.clone())))?)
@@ -98,7 +98,7 @@ pub fn eval(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue,
 pub fn eval_each(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue, Error> {
     let mut result = TulispValue::Nil;
     // TODO: change after new `.iter()`
-    for ele in value.iter()? {
+    for ele in value.iter() {
         result = eval(ctx, ele)?;
     }
     Ok(result)

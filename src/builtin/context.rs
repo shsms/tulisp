@@ -50,7 +50,7 @@ fn reduce_with(
     list: &TulispValue,
     method: impl Fn(TulispValue, TulispValue) -> Result<TulispValue, Error>,
 ) -> Result<TulispValue, Error> {
-    list.iter()?
+    list.iter()
         .map(|x| eval(ctx, x))
         .reduce(|v1, v2| method(v1?, v2?))
         .unwrap_or(Err(Error::TypeMismatch(
@@ -108,7 +108,7 @@ pub fn new_context() -> TulispContext {
         "concat".to_string(),
         ContextObject::Func(|ctx, vv| {
             let mut ret = String::new();
-            for ele in vv.iter()? {
+            for ele in vv.iter() {
                 match eval(ctx, ele)? {
                     TulispValue::String(s) => ret.push_str(&s),
                     _ => return Err(Error::TypeMismatch(format!("Not a string: {:?}", ele))),
@@ -130,7 +130,7 @@ pub fn new_context() -> TulispContext {
         // TODO: make more elisp compatible.
         "print".to_string(),
         ContextObject::Func(|ctx, vv| {
-            let mut iter = vv.iter()?;
+            let mut iter = vv.iter();
             let object = iter.next();
             if iter.next().is_some() {
                 Err(Error::NotImplemented(
@@ -168,7 +168,7 @@ pub fn new_context() -> TulispContext {
     ctx.insert(
         "cond".to_string(),
         ContextObject::Func(|ctx, vv| {
-            for item in vv.iter()? {
+            for item in vv.iter() {
                 let condition = car(item)?;
                 let value = cdr(item)?;
                 if eval(ctx, condition)?.into() {
@@ -193,7 +193,7 @@ pub fn new_context() -> TulispContext {
     ctx.insert(
         "setq".to_string(),
         ContextObject::Func(|ctx, vv| {
-            let mut iter = vv.iter()?;
+            let mut iter = vv.iter();
             let name = match iter.next() {
                 Some(vv) => vv,
                 None => {
