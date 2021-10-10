@@ -65,6 +65,14 @@ impl TulispValue {
         }
     }
 
+    pub fn append(&mut self, val: TulispValue) -> Result<(), Error> {
+        if let TulispValue::SExp(cons) = self {
+            cons.append(val)
+        } else {
+            Err(Error::TypeMismatch("unable to append".to_string()))
+        }
+    }
+
     pub fn as_ident(&self) -> Result<String, Error> {
         match self {
             TulispValue::Ident(ident) => Ok(ident.to_string()),
@@ -74,7 +82,7 @@ impl TulispValue {
 
     pub fn into_list(self) -> TulispValue {
         let mut ret = Cons::new();
-        ret.append(self);
+        ret.push(self).unwrap();
         TulispValue::SExp(Box::new(ret))
     }
 }

@@ -1,5 +1,6 @@
 pub(crate) use crate::cons::car;
 use crate::cons::cdr;
+use crate::cons::Cons;
 use crate::context::ContextObject;
 use crate::context::TulispContext;
 use crate::eval::eval;
@@ -59,7 +60,7 @@ fn reduce_with(
         )))
 }
 
-pub fn add(ctx: &mut HashMap<String, ContextObject>){
+pub fn add(ctx: &mut HashMap<String, ContextObject>) {
     ctx.insert(
         "+".to_string(),
         ContextObject::Func(|ctx, vv| reduce_with(ctx, vv, binary_ops!(std::ops::Add::add))),
@@ -256,12 +257,60 @@ pub fn add(ctx: &mut HashMap<String, ContextObject>){
             let mut iter = vv.iter();
             let vv = match iter.next() {
                 Some(vv) => eval(ctx, vv)?,
-                None => return Err(Error::TypeMismatch("macroexpand: too few arguments".to_string())),
+                None => {
+                    return Err(Error::TypeMismatch(
+                        "macroexpand: too few arguments".to_string(),
+                    ))
+                }
             };
             if iter.next().is_some() {
-                return Err(Error::Unimplemented("macroexpand: environment param is unimplemented".to_string()));
+                return Err(Error::Unimplemented(
+                    "macroexpand: environment param is unimplemented".to_string(),
+                ));
             }
             macroexpand(ctx, vv)
+        }),
+    );
+
+    // List functions
+    ctx.insert(
+        "car".to_string(),
+        ContextObject::Func(|ctx, vv| Ok(car(&eval(ctx, car(vv)?)?)?.to_owned())),
+    );
+
+    ctx.insert(
+        "cdr".to_string(),
+        ContextObject::Func(|ctx, vv| Ok(cdr(&eval(ctx, car(vv)?)?)?.to_owned())),
+    );
+
+    ctx.insert(
+        "append".to_string(),
+        ContextObject::Func(|ctx, vv| {
+            let mut first = eval(ctx, car(vv)?)?;
+            for ele in cdr(vv)?.iter() {
+                first.append(eval(ctx, ele)?)?
+            }
+            Ok(first)
+        }),
+    );
+
+    ctx.insert(
+        "list".to_string(),
+        ContextObject::Func(|ctx, vv| {
+            let mut cons = Cons::new();
+            for ele in vv.iter() {
+                cons.push(eval(ctx, ele)?)?
+            }
+            Ok(TulispValue::SExp(Box::new(cons)))
+        }),
+    );
+
+    /*
+    ctx.insert(
+        "".to_string(),
+        ContextObject::Func(|ctx, vv| {
+
         })
     );
+    */
 }

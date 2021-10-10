@@ -113,14 +113,14 @@ pub fn eval(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue,
                     for ele in vv.iter() {
                         match ele {
                             e @ TulispValue::SExp(_) => {
-                                ret.append(eval(ctx, &TulispValue::Backquote(Box::new(e.clone())))?)
+                                ret.push(eval(ctx, &TulispValue::Backquote(Box::new(e.clone())))?)?
                             }
-                            TulispValue::Unquote(vv) => ret.append(eval(ctx, &vv)?),
-                            e => ret.append(e.clone()),
+                            TulispValue::Unquote(vv) => ret.push(eval(ctx, &vv)?)?,
+                            e => ret.push(e.clone())?,
                         };
                     }
                 }
-                vv => ret.append(vv.clone()),
+                vv => ret.push(vv.clone())?,
             }
             Ok(TulispValue::SExp(Box::new(ret)))
         }

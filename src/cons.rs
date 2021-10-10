@@ -17,23 +17,56 @@ impl Cons {
         Cons::EMPTY
     }
 
-    pub fn append(&mut self, val: TulispValue) {
+    pub fn push(&mut self, val: TulispValue) -> Result<(), Error> {
         if let TulispValue::Uninitialized = self.car {
             *self = Cons {
                 car: val,
                 cdr: TulispValue::Uninitialized,
             };
-            return;
+            return Ok(());
         }
         let mut last = &mut self.cdr;
 
         while let TulispValue::SExp(cons) = last {
             last = &mut cons.cdr;
         }
-        *last = TulispValue::SExp(Box::new(Cons {
-            car: val,
-            cdr: TulispValue::Uninitialized,
-        }));
+        if let TulispValue::Uninitialized = last {
+            *last = TulispValue::SExp(Box::new(Cons {
+                car: val,
+                cdr: TulispValue::Uninitialized,
+            }));
+        } else {
+            return Err(Error::TypeMismatch("Cons: unable to push".to_string()));
+        }
+        Ok(())
+    }
+
+    pub fn append(&mut self, val: TulispValue) -> Result<(), Error> {
+        if let TulispValue::Uninitialized = self.car {
+            match val {
+                TulispValue::SExp(cons) => {
+                    *self = *cons;
+                }
+                val => {
+                    *self = Cons {
+                        car: val,
+                        cdr: TulispValue::Uninitialized,
+                    };
+                }
+            }
+            return Ok(());
+        }
+        let mut last = &mut self.cdr;
+
+        while let TulispValue::SExp(cons) = last {
+            last = &mut cons.cdr;
+        }
+        if let TulispValue::Uninitialized = last {
+            *last = val;
+        } else {
+            return Err(Error::TypeMismatch("Unable to append".to_string()));
+        }
+        Ok(())
     }
 
     pub fn iter<'a>(&'a self) -> ConsIter<'a> {

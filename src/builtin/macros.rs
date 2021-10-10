@@ -37,13 +37,13 @@ pub fn add(ctx: &mut HashMap<String, ContextObject>) {
                 let rest = cdr(&varlist)?;
 
                 let mut ret = Cons::new();
-                ret.append(TulispValue::Ident("let".to_string()));
-                ret.append(nextvar.clone().into_list());
+                ret.push(TulispValue::Ident("let".to_string()))?;
+                ret.push(nextvar.clone().into_list())?;
                 if *rest != TulispValue::Uninitialized {
-                    ret.append(unwrap_varlist(rest, body)?);
+                    ret.push(unwrap_varlist(rest, body)?)?;
                 } else {
                     for ele in body.iter() {
-                        ret.append(ele.clone());
+                        ret.push(ele.clone())?;
                     }
                 }
                 Ok(TulispValue::SExp(Box::new(ret)))

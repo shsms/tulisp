@@ -16,7 +16,7 @@ pub fn parse_string(ctx: &mut TulispContext, string: &str) -> Result<TulispValue
 
     let mut list = Cons::new();
     for ele in p.unwrap() {
-        list.append(parse(ctx, ele, &MacroExpand::Yes)?);
+        list.push(parse(ctx, ele, &MacroExpand::Yes)?)?;
     }
     Ok(TulispValue::SExp(Box::new(list)))
 }
@@ -54,8 +54,7 @@ fn parse(ctx: &mut TulispContext, value: Pair<'_, Rule>, expand_macros: &MacroEx
                 .into_inner()
                 .map(|item|parse(ctx, item, expand_macros))
                 .map(|val| -> Result<(), Error> {
-                    list.append(val?);
-                    Ok(())
+                    list.push(val?)
                 })
                 .fold(Ok(()), |v1, v2| v1.and(v2))?;
             let ret = TulispValue::SExp(Box::new(list));

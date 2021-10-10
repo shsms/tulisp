@@ -1,0 +1,6 @@
+(setq aa (list 10 20 (+ 5 20)))
+(setq aa (append aa '(30 40)))
+(print aa)
+(print (car aa))
+(print (cdr aa))
+(print (car (cdr aa)))

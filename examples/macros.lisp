@@ -1,5 +1,5 @@
 (defmacro inc (var)
-  `(setq ,var (+ 1 ,var)))
+  (list 'setq var (list '+ 1 var)))
 
 (defun test () 10)
 
