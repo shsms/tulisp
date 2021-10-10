@@ -6,6 +6,11 @@ use crate::{Error, eval::eval, value::TulispValue};
 pub enum ContextObject {
     TulispValue(TulispValue),
     Func(fn(&mut TulispContext, &TulispValue) -> Result<TulispValue, Error>),
+    Macro(fn(&mut TulispContext, &TulispValue) -> Result<TulispValue, Error>),
+    Defmacro{
+        args: TulispValue,
+        body: TulispValue,
+    },
     Defun {
         args: TulispValue,
         body: TulispValue,
@@ -16,8 +21,14 @@ impl std::fmt::Debug for ContextObject {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::TulispValue(arg0) => f.debug_tuple("TulispValue").field(arg0).finish(),
-            Self::Func(_) => f.write_str("Func"),
+            Self::Func(_) => f.write_str("builtin function"),
             Self::Defun { args, body } => f
+                .debug_struct("Defun")
+                .field("args", args)
+                .field("body", body)
+                .finish(),
+            Self::Macro(_) => f.write_str("builtin macro"),
+            Self::Defmacro { args, body } => f
                 .debug_struct("Defun")
                 .field("args", args)
                 .field("body", body)

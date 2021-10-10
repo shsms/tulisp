@@ -4,6 +4,7 @@ use crate::context::ContextObject;
 use crate::context::TulispContext;
 use crate::eval::eval;
 use crate::eval::eval_each;
+use crate::parser::macroexpand;
 use crate::value::TulispValue;
 use crate::Error;
 use std::collections::HashMap;
@@ -247,5 +248,20 @@ pub fn add(ctx: &mut HashMap<String, ContextObject>){
             ctx.set_str(&name, ContextObject::Defun { args, body })?;
             Ok(TulispValue::Nil)
         }),
+    );
+
+    ctx.insert(
+        "macroexpand".to_string(),
+        ContextObject::Func(|ctx, vv| {
+            let mut iter = vv.iter();
+            let vv = match iter.next() {
+                Some(vv) => eval(ctx, vv)?,
+                None => return Err(Error::TypeMismatch("macroexpand: too few arguments".to_string())),
+            };
+            if iter.next().is_some() {
+                return Err(Error::Unimplemented("macroexpand: environment param is unimplemented".to_string()));
+            }
+            macroexpand(ctx, vv)
+        })
     );
 }

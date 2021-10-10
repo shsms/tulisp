@@ -22,6 +22,7 @@ pub enum Error {
     TypeMismatch(String),
     Undefined(String),
     Uninitialized(String),
+    Unimplemented(String),
 }
 
 fn main() -> Result<(), Error> {

@@ -2,68 +2,100 @@ use pest;
 
 use pest::{iterators::Pair, Parser};
 
-use crate::builtin::macros::macro_context;
 use crate::cons::{car, cdr};
 use crate::context::{ContextObject, TulispContext};
+use crate::eval::eval_defmacro;
 use crate::{cons::Cons, value::TulispValue, Error};
 
 #[derive(Parser)]
 #[grammar = "tulisp.pest"]
 struct TulispParser;
 
-pub fn parse_string(string: &str) -> Result<TulispValue, Error> {
+pub fn parse_string(ctx: &mut TulispContext, string: &str) -> Result<TulispValue, Error> {
     let p = TulispParser::parse(Rule::program, string);
 
     let mut list = Cons::new();
     for ele in p.unwrap() {
-        list.append(parse(ele)?);
+        list.append(parse(ctx, ele, &MacroExpand::Yes)?);
     }
     Ok(TulispValue::SExp(Box::new(list)))
 }
 
-fn expand_macros(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispValue, Error> {
+pub fn macroexpand(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispValue, Error> {
+    match &expr {
+        TulispValue::SExp(_) => {},
+        _ => return Ok(expr),
+    };
     let name = match car(&expr)? {
         TulispValue::Ident(ident) => ident.to_string(),
         _ => return Ok(expr),
     };
     match ctx.get_str(&name) {
-        Some(ContextObject::Func(func)) => func(ctx, cdr(&expr)?),
+        Some(ContextObject::Macro(func)) => func(ctx, cdr(&expr)?),
+        Some(ContextObject::Defmacro{ args, body }) => {
+            eval_defmacro(ctx, &args, &body, cdr(&expr)?)
+        }
         _ => Ok(expr),
     }
 }
 
-pub fn parse(value: Pair<'_, Rule>) -> Result<TulispValue, Error> {
-    let macros = &mut macro_context();
+#[derive(Debug, PartialEq, PartialOrd)]
+enum MacroExpand {
+    Yes,
+    No,
+    Unquote,
+}
+
+fn parse(ctx: &mut TulispContext, value: Pair<'_, Rule>, expand_macros: &MacroExpand) -> Result<TulispValue, Error> {
     match value.as_rule() {
         Rule::form => {
             let mut list = Cons::new();
             value
                 .into_inner()
-                .map(parse)
+                .map(|item|parse(ctx, item, expand_macros))
                 .map(|val| -> Result<(), Error> {
                     list.append(val?);
                     Ok(())
                 })
                 .fold(Ok(()), |v1, v2| v1.and(v2))?;
-            expand_macros(macros, TulispValue::SExp(Box::new(list)))
+            let ret = TulispValue::SExp(Box::new(list));
+            if *expand_macros == MacroExpand::Yes {
+                Ok(macroexpand(ctx, ret)?)
+            } else {
+                Ok(ret)
+            }
         }
         Rule::backquote => Ok(TulispValue::Backquote(Box::new(parse(
+            ctx,
             value
                 .into_inner()
                 .peek()
                 .ok_or_else(|| Error::ParsingError(format!("Backquote inner not found")))?,
+            if *expand_macros != MacroExpand::No {
+                &MacroExpand::Unquote
+            } else {
+                expand_macros
+            }
         )?))),
         Rule::unquote => Ok(TulispValue::Unquote(Box::new(parse(
+            ctx,
             value
                 .into_inner()
                 .peek()
                 .ok_or_else(|| Error::ParsingError(format!("Unquote inner not found")))?,
+            if *expand_macros != MacroExpand::No {
+                &MacroExpand::Yes
+            } else {
+                expand_macros
+            }
         )?))),
         Rule::quote => Ok(TulispValue::Quote(Box::new(parse(
+            ctx,
             value
                 .into_inner()
                 .peek()
                 .ok_or_else(|| Error::ParsingError(format!("Quote inner not found")))?,
+            &MacroExpand::No
         )?))),
         Rule::nil => Ok(TulispValue::Nil),
         Rule::ident => Ok(TulispValue::Ident(value.as_span().as_str().to_string())),

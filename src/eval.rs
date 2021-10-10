@@ -1,10 +1,16 @@
 use std::{collections::HashMap, fs};
 
-use crate::{Error, cons::{Cons, car, cdr}, context::{ContextObject, TulispContext}, parser::parse_string, value::TulispValue};
+use crate::{
+    cons::{car, cdr, Cons},
+    context::{ContextObject, TulispContext},
+    parser::{macroexpand, parse_string},
+    value::TulispValue,
+    Error,
+};
 
-fn eval_defun(
+pub fn eval_defun(
     ctx: &mut TulispContext,
-    params: &TulispValue,  // TODO: make params a ref
+    params: &TulispValue,
     body: &TulispValue,
     args: &TulispValue,
 ) -> Result<TulispValue, Error> {
@@ -30,19 +36,50 @@ fn eval_defun(
     result
 }
 
+// identical to eval_defun,  only difference is arguments are not evaluated.
+pub fn eval_defmacro(
+    ctx: &mut TulispContext,
+    params: &TulispValue,
+    body: &TulispValue,
+    args: &TulispValue,
+) -> Result<TulispValue, Error> {
+    let mut args = args.iter();
+    let mut local = HashMap::new();
+    for param in params.iter() {
+        let name = match param.as_ident() {
+            Ok(vv) => vv,
+            Err(e) => return Err(e),
+        };
+        let val = match args.next() {
+            Some(vv) => vv.clone(),
+            None => return Err(Error::TypeMismatch("Too few arguments".to_string())),
+        };
+        local.insert(name, ContextObject::TulispValue(val));
+    }
+    if args.next().is_some() {
+        return Err(Error::TypeMismatch("Too many arguments".to_string()));
+    }
+    ctx.push(local);
+    let result = eval_each(ctx, body);
+    ctx.pop();
+    result
+}
+
 fn eval_func(ctx: &mut TulispContext, val: &TulispValue) -> Result<TulispValue, Error> {
     let name = car(val)?;
     match ctx.get(name) {
         Some(ContextObject::Func(func)) => func(ctx, cdr(&val)?),
-        Some(ContextObject::Defun { args, body }) => {
-            eval_defun(ctx, &args, &body, cdr(&val)?)
+        Some(ContextObject::Defun { args, body }) => eval_defun(ctx, &args, &body, cdr(val)?),
+        Some(ContextObject::Macro(_)) | Some(ContextObject::Defmacro { .. }) => {
+            let expanded = macroexpand(ctx, val.clone())?;
+            eval(ctx, &expanded)
         }
         _ => Err(Error::Undefined(format!("function is void: {:?}", name))),
     }
 }
 
 pub fn eval(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue, Error> {
-    // let fmt = format!("ToEval: {:#?}", value);
+    // let fmt = format!("ToEval: {}", value);
     let ret = match value {
         TulispValue::Nil => Ok(value.clone()),
         TulispValue::Ident(name) => {
@@ -57,7 +94,10 @@ pub fn eval(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue,
                             name
                         ))),
                     },
-                    None => todo!(),
+                    None => Err(Error::TypeMismatch(format!(
+                        "variable definition is void: {}",
+                        name
+                    ))),
                 }
             }
         }
@@ -91,7 +131,7 @@ pub fn eval(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue,
             "Attempt to process uninitialized value".to_string(),
         )),
     };
-    // println!("{}; result: {:?}", fmt, ret);
+    // println!("{}\n  => {}", fmt, ret.clone()?);
     ret
 }
 
@@ -105,11 +145,11 @@ pub fn eval_each(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispV
 }
 
 pub fn eval_string(ctx: &mut TulispContext, string: &str) -> Result<TulispValue, Error> {
-    eval_each(ctx, &parse_string(string)?)
+    let vv = &parse_string(ctx, string)?;
+    eval_each(ctx, vv)
 }
 
 pub fn eval_file(ctx: &mut TulispContext, filename: &str) -> Result<TulispValue, Error> {
-    let contents = fs::read_to_string(filename)
-        .expect("Something went wrong reading the file");
+    let contents = fs::read_to_string(filename).expect("Something went wrong reading the file");
     eval_string(ctx, &contents)
 }
