@@ -23,7 +23,7 @@ pub fn parse_string(ctx: &mut TulispContext, string: &str) -> Result<TulispValue
 
 pub fn macroexpand(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispValue, Error> {
     match &expr {
-        TulispValue::SExp(_) => {},
+        TulispValue::SExp(_) => {}
         _ => return Ok(expr),
     };
     let name = match car(&expr)? {
@@ -31,9 +31,13 @@ pub fn macroexpand(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispV
         _ => return Ok(expr),
     };
     match ctx.get_str(&name) {
-        Some(ContextObject::Macro(func)) => func(ctx, cdr(&expr)?),
-        Some(ContextObject::Defmacro{ args, body }) => {
-            eval_defmacro(ctx, &args, &body, cdr(&expr)?)
+        Some(ContextObject::Macro(func)) => {
+            let expansion = func(ctx, cdr(&expr)?)?;
+            macroexpand(ctx, expansion)
+        }
+        Some(ContextObject::Defmacro { args, body }) => {
+            let expansion = eval_defmacro(ctx, &args, &body, cdr(&expr)?)?;
+            macroexpand(ctx, expansion)
         }
         _ => Ok(expr),
     }
@@ -46,16 +50,18 @@ enum MacroExpand {
     Unquote,
 }
 
-fn parse(ctx: &mut TulispContext, value: Pair<'_, Rule>, expand_macros: &MacroExpand) -> Result<TulispValue, Error> {
+fn parse(
+    ctx: &mut TulispContext,
+    value: Pair<'_, Rule>,
+    expand_macros: &MacroExpand,
+) -> Result<TulispValue, Error> {
     match value.as_rule() {
         Rule::form => {
             let mut list = Cons::new();
             value
                 .into_inner()
-                .map(|item|parse(ctx, item, expand_macros))
-                .map(|val| -> Result<(), Error> {
-                    list.push(val?)
-                })
+                .map(|item| parse(ctx, item, expand_macros))
+                .map(|val| -> Result<(), Error> { list.push(val?) })
                 .fold(Ok(()), |v1, v2| v1.and(v2))?;
             let ret = TulispValue::SExp(Box::new(list));
             if *expand_macros == MacroExpand::Yes {
@@ -74,7 +80,7 @@ fn parse(ctx: &mut TulispContext, value: Pair<'_, Rule>, expand_macros: &MacroEx
                 &MacroExpand::Unquote
             } else {
                 expand_macros
-            }
+            },
         )?))),
         Rule::unquote => Ok(TulispValue::Unquote(Box::new(parse(
             ctx,
@@ -86,7 +92,7 @@ fn parse(ctx: &mut TulispContext, value: Pair<'_, Rule>, expand_macros: &MacroEx
                 &MacroExpand::Yes
             } else {
                 expand_macros
-            }
+            },
         )?))),
         Rule::quote => Ok(TulispValue::Quote(Box::new(parse(
             ctx,
@@ -94,7 +100,7 @@ fn parse(ctx: &mut TulispContext, value: Pair<'_, Rule>, expand_macros: &MacroEx
                 .into_inner()
                 .peek()
                 .ok_or_else(|| Error::ParsingError(format!("Quote inner not found")))?,
-            &MacroExpand::No
+            &MacroExpand::No,
         )?))),
         Rule::nil => Ok(TulispValue::Nil),
         Rule::ident => Ok(TulispValue::Ident(value.as_span().as_str().to_string())),
