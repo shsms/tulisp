@@ -2,14 +2,16 @@ pub(crate) use crate::cons::car;
 use crate::cons::cdr;
 use crate::cons::Cons;
 use crate::context::ContextObject;
+use crate::context::Scope;
 use crate::context::TulispContext;
 use crate::eval::eval;
 use crate::eval::eval_each;
 use crate::parser::macroexpand;
 use crate::value::TulispValue;
 use crate::Error;
-use std::collections::HashMap;
+use std::cell::RefCell;
 use std::convert::TryInto;
+use std::rc::Rc;
 
 macro_rules! max_min_ops {
     ($oper:tt) => {{
@@ -60,54 +62,76 @@ fn reduce_with(
         )))
 }
 
-pub fn add(ctx: &mut HashMap<String, ContextObject>) {
+pub fn add(ctx: &mut Scope) {
     ctx.insert(
         "+".to_string(),
-        ContextObject::Func(|ctx, vv| reduce_with(ctx, vv, binary_ops!(std::ops::Add::add))),
+        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
+            reduce_with(ctx, vv, binary_ops!(std::ops::Add::add))
+        }))),
     );
     ctx.insert(
         "-".to_string(),
-        ContextObject::Func(|ctx, vv| reduce_with(ctx, vv, binary_ops!(std::ops::Sub::sub))),
+        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
+            reduce_with(ctx, vv, binary_ops!(std::ops::Sub::sub))
+        }))),
     );
     ctx.insert(
         "*".to_string(),
-        ContextObject::Func(|ctx, vv| reduce_with(ctx, vv, binary_ops!(std::ops::Mul::mul))),
+        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
+            reduce_with(ctx, vv, binary_ops!(std::ops::Mul::mul))
+        }))),
     );
     ctx.insert(
         "/".to_string(),
-        ContextObject::Func(|ctx, vv| reduce_with(ctx, vv, binary_ops!(std::ops::Div::div))),
+        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
+            reduce_with(ctx, vv, binary_ops!(std::ops::Div::div))
+        }))),
     );
     ctx.insert(
         ">".to_string(),
-        ContextObject::Func(|ctx, vv| reduce_with(ctx, vv, binary_ops!(std::cmp::PartialOrd::gt))),
+        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
+            reduce_with(ctx, vv, binary_ops!(std::cmp::PartialOrd::gt))
+        }))),
     );
     ctx.insert(
         ">=".to_string(),
-        ContextObject::Func(|ctx, vv| reduce_with(ctx, vv, binary_ops!(std::cmp::PartialOrd::ge))),
+        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
+            reduce_with(ctx, vv, binary_ops!(std::cmp::PartialOrd::ge))
+        }))),
     );
     ctx.insert(
         "<".to_string(),
-        ContextObject::Func(|ctx, vv| reduce_with(ctx, vv, binary_ops!(std::cmp::PartialOrd::lt))),
+        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
+            reduce_with(ctx, vv, binary_ops!(std::cmp::PartialOrd::lt))
+        }))),
     );
     ctx.insert(
         "<=".to_string(),
-        ContextObject::Func(|ctx, vv| reduce_with(ctx, vv, binary_ops!(std::cmp::PartialOrd::le))),
+        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
+            reduce_with(ctx, vv, binary_ops!(std::cmp::PartialOrd::le))
+        }))),
     );
     ctx.insert(
         "equal".to_string(),
-        ContextObject::Func(|ctx, vv| reduce_with(ctx, vv, binary_ops!(std::cmp::PartialEq::eq))),
+        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
+            reduce_with(ctx, vv, binary_ops!(std::cmp::PartialEq::eq))
+        }))),
     );
     ctx.insert(
         "max".to_string(),
-        ContextObject::Func(|ctx, vv| reduce_with(ctx, vv, max_min_ops!(max))),
+        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
+            reduce_with(ctx, vv, max_min_ops!(max))
+        }))),
     );
     ctx.insert(
         "min".to_string(),
-        ContextObject::Func(|ctx, vv| reduce_with(ctx, vv, max_min_ops!(min))),
+        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
+            reduce_with(ctx, vv, max_min_ops!(min))
+        }))),
     );
     ctx.insert(
         "concat".to_string(),
-        ContextObject::Func(|ctx, vv| {
+        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             let mut ret = String::new();
             for ele in vv.iter() {
                 match eval(ctx, ele)? {
@@ -116,21 +140,21 @@ pub fn add(ctx: &mut HashMap<String, ContextObject>) {
                 }
             }
             Ok(TulispValue::String(ret))
-        }),
+        }))),
     );
     ctx.insert(
         "expt".to_string(),
-        ContextObject::Func(|ctx, vv| {
+        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             let base = eval(ctx, car(&vv)?)?;
             let rest = cdr(&vv)?;
             let pow = eval(ctx, car(&rest)?)?;
             Ok(f64::powf(base.try_into()?, pow.try_into()?).into())
-        }),
+        }))),
     );
     ctx.insert(
         // TODO: make more elisp compatible.
         "print".to_string(),
-        ContextObject::Func(|ctx, vv| {
+        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             let mut iter = vv.iter();
             let object = iter.next();
             if iter.next().is_some() {
@@ -146,15 +170,17 @@ pub fn add(ctx: &mut HashMap<String, ContextObject>) {
                     "Incorrect number of arguments: print, 0".to_string(),
                 ))
             }
-        }),
+        }))),
     );
     ctx.insert(
         "prin1-to-string".to_string(),
-        ContextObject::Func(|ctx, vv| Ok(TulispValue::String(eval(ctx, car(&vv)?)?.to_string()))),
+        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
+            Ok(TulispValue::String(eval(ctx, car(&vv)?)?.to_string()))
+        }))),
     );
     ctx.insert(
         "if".to_string(),
-        ContextObject::Func(|ctx, vv| {
+        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             let condition = car(&vv)?;
             let body = cdr(&vv)?;
             let then_body = car(&body)?;
@@ -164,11 +190,11 @@ pub fn add(ctx: &mut HashMap<String, ContextObject>) {
             } else {
                 eval_each(ctx, else_body)
             }
-        }),
+        }))),
     );
     ctx.insert(
         "cond".to_string(),
-        ContextObject::Func(|ctx, vv| {
+        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             for item in vv.iter() {
                 let condition = car(item)?;
                 let value = cdr(item)?;
@@ -177,11 +203,11 @@ pub fn add(ctx: &mut HashMap<String, ContextObject>) {
                 }
             }
             Ok(TulispValue::Nil)
-        }),
+        }))),
     );
     ctx.insert(
         "while".to_string(),
-        ContextObject::Func(|ctx, vv| {
+        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             let condition = car(&vv)?;
             let body = cdr(&vv)?;
             let mut result = TulispValue::Nil;
@@ -189,11 +215,11 @@ pub fn add(ctx: &mut HashMap<String, ContextObject>) {
                 result = eval_each(ctx, body)?;
             }
             Ok(result)
-        }),
+        }))),
     );
     ctx.insert(
         "setq".to_string(),
-        ContextObject::Func(|ctx, vv| {
+        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             let mut iter = vv.iter();
             let name = match iter.next() {
                 Some(vv) => vv,
@@ -213,47 +239,47 @@ pub fn add(ctx: &mut HashMap<String, ContextObject>) {
             };
             ctx.set(name, value.clone())?;
             Ok(value)
-        }),
+        }))),
     );
     ctx.insert(
         "let".to_string(),
-        ContextObject::Func(|ctx, vv| {
+        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             // TODO: add cons_destruct method that returns car and cdr
             let car = car(&vv)?;
             let cdr = cdr(&vv)?;
             ctx.r#let(car)?;
             let ret = match cdr {
-                vv @ TulispValue::SExp(_) => eval_each(ctx, vv),
+                vv @ TulispValue::SExp(_, _) => eval_each(ctx, vv),
                 _ => Err(Error::TypeMismatch(
                     "let: expected varlist and body".to_string(),
                 )),
             };
             ctx.pop();
             ret
-        }),
+        }))),
     );
 
     ctx.insert(
         "defun".to_string(),
-        ContextObject::Func(|ctx, vv| {
+        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             let name = match car(&vv) {
                 Ok(nn) => nn.clone().as_ident()?,
                 Err(_) => return Err(Error::Undefined("defun with no name".to_string())),
             };
             let vv = cdr(&vv)?;
             let args = match car(&vv) {
-                Ok(aa @ TulispValue::SExp(_)) => aa.clone(),
+                Ok(aa @ TulispValue::SExp(_, _)) => aa.clone(),
                 _ => TulispValue::Nil,
             };
             let body = cdr(vv)?.clone();
             ctx.set_str(&name, ContextObject::Defun { args, body })?;
             Ok(TulispValue::Nil)
-        }),
+        }))),
     );
 
     ctx.insert(
         "macroexpand".to_string(),
-        ContextObject::Func(|ctx, vv| {
+        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             let mut iter = vv.iter();
             let vv = match iter.next() {
                 Some(vv) => eval(ctx, vv)?,
@@ -269,40 +295,44 @@ pub fn add(ctx: &mut HashMap<String, ContextObject>) {
                 ));
             }
             macroexpand(ctx, vv)
-        }),
+        }))),
     );
 
     // List functions
     ctx.insert(
         "car".to_string(),
-        ContextObject::Func(|ctx, vv| Ok(car(&eval(ctx, car(vv)?)?)?.to_owned())),
+        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
+            Ok(car(&eval(ctx, car(vv)?)?)?.to_owned())
+        }))),
     );
 
     ctx.insert(
         "cdr".to_string(),
-        ContextObject::Func(|ctx, vv| Ok(cdr(&eval(ctx, car(vv)?)?)?.to_owned())),
+        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
+            Ok(cdr(&eval(ctx, car(vv)?)?)?.to_owned())
+        }))),
     );
 
     ctx.insert(
         "append".to_string(),
-        ContextObject::Func(|ctx, vv| {
+        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             let mut first = eval(ctx, car(vv)?)?;
             for ele in cdr(vv)?.iter() {
                 first.append(eval(ctx, ele)?)?
             }
             Ok(first)
-        }),
+        }))),
     );
 
     ctx.insert(
         "list".to_string(),
-        ContextObject::Func(|ctx, vv| {
+        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             let mut cons = Cons::new();
             for ele in vv.iter() {
                 cons.push(eval(ctx, ele)?)?
             }
-            Ok(TulispValue::SExp(Box::new(cons)))
-        }),
+            Ok(TulispValue::SExp(Box::new(cons), None))
+        }))),
     );
 
     /*

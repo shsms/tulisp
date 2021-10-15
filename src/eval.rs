@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs};
+use std::{cell::RefCell, collections::HashMap, fs, rc::Rc};
 
 use crate::{
     cons::{car, cdr, Cons},
@@ -25,7 +25,7 @@ pub fn eval_defun(
             Some(vv) => eval(ctx, &vv)?,
             None => return Err(Error::TypeMismatch("Too few arguments".to_string())),
         };
-        local.insert(name, ContextObject::TulispValue(val));
+        local.insert(name, Rc::new(RefCell::new(ContextObject::TulispValue(val))));
     }
     if args.next().is_some() {
         return Err(Error::TypeMismatch("Too many arguments".to_string()));
@@ -54,7 +54,7 @@ pub fn eval_defmacro(
             Some(vv) => vv.clone(),
             None => return Err(Error::TypeMismatch("Too few arguments".to_string())),
         };
-        local.insert(name, ContextObject::TulispValue(val));
+        local.insert(name, Rc::new(RefCell::new(ContextObject::TulispValue(val))));
     }
     if args.next().is_some() {
         return Err(Error::TypeMismatch("Too many arguments".to_string()));
@@ -67,14 +67,21 @@ pub fn eval_defmacro(
 
 fn eval_func(ctx: &mut TulispContext, val: &TulispValue) -> Result<TulispValue, Error> {
     let name = car(val)?;
-    match ctx.get(name) {
-        Some(ContextObject::Func(func)) => func(ctx, cdr(&val)?),
-        Some(ContextObject::Defun { args, body }) => eval_defun(ctx, &args, &body, cdr(val)?),
-        Some(ContextObject::Macro(_)) | Some(ContextObject::Defmacro { .. }) => {
-            let expanded = macroexpand(ctx, val.clone())?;
-            eval(ctx, &expanded)
-        }
-        _ => Err(Error::Undefined(format!("function is void: {:?}", name))),
+    let func = match val {
+        TulispValue::SExp(_, Some(func)) => Some(func.clone()),
+        _ => ctx.get(name),
+    };
+    match func {
+        Some(item) => match &*item.as_ref().borrow() {
+            ContextObject::Func(func) => func(ctx, cdr(&val)?),
+            ContextObject::Defun { args, body } => eval_defun(ctx, &args, &body, cdr(val)?),
+            ContextObject::Macro(_) | ContextObject::Defmacro { .. } => {
+                let expanded = macroexpand(ctx, val.clone())?;
+                eval(ctx, &expanded)
+            }
+            _ => Err(Error::Undefined(format!("function is void: {:?}", name))),
+        },
+        None => Err(Error::Undefined(format!("function is void: {:?}", name))),
     }
 }
 
@@ -87,8 +94,8 @@ pub fn eval(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue,
                 Ok(value.clone())
             } else {
                 match ctx.get_str(&name) {
-                    Some(obj) => match obj {
-                        ContextObject::TulispValue(vv) => Ok(vv),
+                    Some(obj) => match &*obj.as_ref().borrow() {
+                        ContextObject::TulispValue(vv) => Ok(vv.clone()),
                         _ => Err(Error::TypeMismatch(format!(
                             "variable definition is void: {}",
                             name
@@ -104,15 +111,15 @@ pub fn eval(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue,
         TulispValue::Int(_) => Ok(value.clone()),
         TulispValue::Float(_) => Ok(value.clone()),
         TulispValue::String(_) => Ok(value.clone()),
-        TulispValue::SExp(_) => eval_func(ctx, &value),
+        TulispValue::SExp(_, _) => eval_func(ctx, &value),
         TulispValue::Quote(vv) => Ok(*vv.clone()),
         TulispValue::Backquote(vv) => {
             let mut ret = Cons::new();
             match &**vv {
-                vv @ TulispValue::SExp(_) => {
+                vv @ TulispValue::SExp(_, _) => {
                     for ele in vv.iter() {
                         match ele {
-                            e @ TulispValue::SExp(_) => {
+                            e @ TulispValue::SExp(_, _) => {
                                 ret.push(eval(ctx, &TulispValue::Backquote(Box::new(e.clone())))?)?
                             }
                             TulispValue::Unquote(vv) => ret.push(eval(ctx, &vv)?)?,
@@ -122,7 +129,7 @@ pub fn eval(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue,
                 }
                 vv => ret.push(vv.clone())?,
             }
-            Ok(TulispValue::SExp(Box::new(ret)))
+            Ok(TulispValue::SExp(Box::new(ret), None))
         }
         TulispValue::Unquote(_) => {
             Err(Error::TypeMismatch("Unquote without backquote".to_string()))

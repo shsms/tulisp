@@ -1,3 +1,5 @@
+use std::borrow::Borrow;
+
 use pest;
 
 use pest::{iterators::Pair, Parser};
@@ -18,12 +20,12 @@ pub fn parse_string(ctx: &mut TulispContext, string: &str) -> Result<TulispValue
     for ele in p.unwrap() {
         list.push(parse(ctx, ele, &MacroExpand::Yes)?)?;
     }
-    Ok(TulispValue::SExp(Box::new(list)))
+    Ok(TulispValue::SExp(Box::new(list), None))
 }
 
 pub fn macroexpand(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispValue, Error> {
     match &expr {
-        TulispValue::SExp(_) => {}
+        TulispValue::SExp(_, _) => {}
         _ => return Ok(expr),
     };
     let name = match car(&expr)? {
@@ -31,15 +33,39 @@ pub fn macroexpand(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispV
         _ => return Ok(expr),
     };
     match ctx.get_str(&name) {
-        Some(ContextObject::Macro(func)) => {
-            let expansion = func(ctx, cdr(&expr)?)?;
-            macroexpand(ctx, expansion)
+        Some(item) => match &*item.as_ref().borrow() {
+            ContextObject::Macro(func) => {
+                let expansion = func(ctx, cdr(&expr)?)?;
+                macroexpand(ctx, expansion)
+            }
+            ContextObject::Defmacro { args, body } => {
+                let expansion = eval_defmacro(ctx, &args, &body, cdr(&expr)?)?;
+                macroexpand(ctx, expansion)
+            }
+            _ => Ok(expr),
+        },
+        None => Ok(expr),
+    }
+}
+
+fn locate_func(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispValue, Error> {
+    let name = match car(&expr)? {
+        TulispValue::Ident(ident) => ident.to_string(),
+        _ => return Ok(expr),
+    };
+    match ctx.get_str(&name) {
+        Some(item) => match &*item.as_ref().borrow() {
+            ContextObject::Func(_) | ContextObject::Defun { ..} => {
+                match expr {
+                    TulispValue::SExp(body, _) => {
+                        Ok(TulispValue::SExp(body, Some(item.clone())))
+                    }
+                    _ => Ok(expr),
+                }
+            },
+            _ => Ok(expr),
         }
-        Some(ContextObject::Defmacro { args, body }) => {
-            let expansion = eval_defmacro(ctx, &args, &body, cdr(&expr)?)?;
-            macroexpand(ctx, expansion)
-        }
-        _ => Ok(expr),
+        None => Ok(expr),
     }
 }
 
@@ -63,7 +89,7 @@ fn parse(
                 .map(|item| parse(ctx, item, expand_macros))
                 .map(|val| -> Result<(), Error> { list.push(val?) })
                 .fold(Ok(()), |v1, v2| v1.and(v2))?;
-            let ret = TulispValue::SExp(Box::new(list));
+            let ret = locate_func(ctx, TulispValue::SExp(Box::new(list), None))?;
             if *expand_macros == MacroExpand::Yes {
                 Ok(macroexpand(ctx, ret)?)
             } else {

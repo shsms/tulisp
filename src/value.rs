@@ -1,8 +1,8 @@
-use std::convert::TryInto;
+use std::{cell::RefCell, convert::TryInto, rc::Rc};
 
-use crate::{Error, cons::{self, Cons, car}};
+use crate::{Error, cons::{self, Cons, car}, context::ContextObject};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum TulispValue {
     Uninitialized,
     Nil,
@@ -10,10 +10,26 @@ pub enum TulispValue {
     Int(i64),
     Float(f64),
     String(String),
-    SExp(Box<Cons>),
+    SExp(Box<Cons>, Option<Rc<RefCell<ContextObject>>>),
     Quote(Box<TulispValue>),
     Backquote(Box<TulispValue>),
     Unquote(Box<TulispValue>),
+}
+
+impl PartialEq for TulispValue {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Ident(l0), Self::Ident(r0)) => l0 == r0,
+            (Self::Int(l0), Self::Int(r0)) => l0 == r0,
+            (Self::Float(l0), Self::Float(r0)) => l0 == r0,
+            (Self::String(l0), Self::String(r0)) => l0 == r0,
+            (Self::SExp(l0, _), Self::SExp(r0, _)) => l0 == r0,
+            (Self::Quote(l0), Self::Quote(r0)) => l0 == r0,
+            (Self::Backquote(l0), Self::Backquote(r0)) => l0 == r0,
+            (Self::Unquote(l0), Self::Unquote(r0)) => l0 == r0,
+            _ => core::mem::discriminant(self) == core::mem::discriminant(other),
+        }
+    }
 }
 
 macro_rules! TRUE {
@@ -37,7 +53,7 @@ impl std::fmt::Display for TulispValue {
             TulispValue::Int(vv) => f.write_fmt(format_args!("{}", vv)),
             TulispValue::Float(vv) => f.write_fmt(format_args!("{}", vv)),
             TulispValue::String(vv) => f.write_fmt(format_args!("\"{}\"", vv)),
-            vv @ TulispValue::SExp(_) => {
+            vv @ TulispValue::SExp(_, _) => {
                 let mut ret = String::from("(");
                 let mut add_space = false;
                 for item in vv.iter() {
@@ -60,13 +76,13 @@ impl std::fmt::Display for TulispValue {
 impl TulispValue {
     pub fn iter(&self) -> cons::ConsIter<'_> {
         match self {
-            TulispValue::SExp(cons) => cons.iter(),
+            TulispValue::SExp(cons, _) => cons.iter(),
             _ => Cons::EMPTY.iter(),
         }
     }
 
     pub fn append(&mut self, val: TulispValue) -> Result<(), Error> {
-        if let TulispValue::SExp(cons) = self {
+        if let TulispValue::SExp(cons, _) = self {
             cons.append(val)
         } else {
             Err(Error::TypeMismatch("unable to append".to_string()))
@@ -83,7 +99,7 @@ impl TulispValue {
     pub fn into_list(self) -> TulispValue {
         let mut ret = Cons::new();
         ret.push(self).unwrap();
-        TulispValue::SExp(Box::new(ret))
+        TulispValue::SExp(Box::new(ret), None)
     }
 }
 impl TryInto<f64> for TulispValue {

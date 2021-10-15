@@ -1,13 +1,13 @@
-use std::collections::HashMap;
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
-use crate::{Error, eval::eval, value::TulispValue};
+use crate::{eval::eval, value::TulispValue, Error};
 
 #[derive(Clone)]
 pub enum ContextObject {
     TulispValue(TulispValue),
     Func(fn(&mut TulispContext, &TulispValue) -> Result<TulispValue, Error>),
     Macro(fn(&mut TulispContext, &TulispValue) -> Result<TulispValue, Error>),
-    Defmacro{
+    Defmacro {
         args: TulispValue,
         body: TulispValue,
     },
@@ -37,14 +37,16 @@ impl std::fmt::Debug for ContextObject {
     }
 }
 
-pub struct TulispContext(Vec<HashMap<String, ContextObject>>);
+pub type Scope = HashMap<String, Rc<RefCell<ContextObject>>>;
+
+pub struct TulispContext(Vec<Scope>);
 
 impl TulispContext {
-    pub fn new(item: HashMap<String, ContextObject>) -> Self {
+    pub fn new(item: Scope) -> Self {
         Self(vec![item])
     }
 
-    pub fn push(&mut self, item: HashMap<String, ContextObject>) {
+    pub fn push(&mut self, item: Scope) {
         self.0.push(item);
     }
 
@@ -52,7 +54,7 @@ impl TulispContext {
         self.0.pop();
     }
 
-    pub fn get_str(&self, name: &String) -> Option<ContextObject> {
+    pub fn get_str(&self, name: &String) -> Option<Rc<RefCell<ContextObject>>> {
         for ele in self.0.iter().rev() {
             match ele.get(name) {
                 Some(vv) => return Some(vv.clone()),
@@ -62,7 +64,7 @@ impl TulispContext {
         None
     }
 
-    pub fn get(&self, name: &TulispValue) -> Option<ContextObject> {
+    pub fn get(&self, name: &TulispValue) -> Option<Rc<RefCell<ContextObject>>> {
         if let TulispValue::Ident(name) = name {
             self.get_str(name)
         } else {
@@ -71,22 +73,12 @@ impl TulispContext {
         }
     }
 
-    fn get_mut(&mut self, name: &String) -> Option<&mut ContextObject> {
-        for ele in self.0.iter_mut().rev() {
-            match ele.get_mut(name) {
-                None => {}
-                vv => return vv,
-            }
-        }
-        None
-    }
-
     pub fn set_str(&mut self, name: &String, value: ContextObject) -> Result<(), Error> {
-        match self.get_mut(name) {
-            Some(m) => *m = value,
+        match self.get_str(name) {
+            Some(m) => *m.as_ref().borrow_mut() = value,
             None => match self.0.first_mut() {
                 Some(f) => {
-                    f.insert(name.clone(), value);
+                    f.insert(name.clone(), Rc::new(RefCell::new(value)));
                 }
                 None => return Err(Error::Undefined("Top level context is missing".to_string())),
             },
@@ -120,7 +112,10 @@ impl TulispContext {
                     "let varitem has too many values".to_string(),
                 ));
             }
-            local.insert(name.as_ident()?, ContextObject::TulispValue(value));
+            local.insert(
+                name.as_ident()?,
+                Rc::new(RefCell::new(ContextObject::TulispValue(value))),
+            );
         }
         self.0.push(local);
 
