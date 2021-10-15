@@ -52,7 +52,7 @@ macro_rules! binary_ops {
 fn reduce_with(
     ctx: &mut TulispContext,
     list: &TulispValue,
-    method: impl Fn(TulispValue, TulispValue) -> Result<TulispValue, Error>,
+    method: fn(TulispValue, TulispValue) -> Result<TulispValue, Error>,
 ) -> Result<TulispValue, Error> {
     list.iter()
         .map(|x| eval(ctx, x))

@@ -1,5 +1,3 @@
-use std::borrow::Borrow;
-
 use pest;
 
 use pest::{iterators::Pair, Parser};
@@ -55,16 +53,12 @@ fn locate_func(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispValue
     };
     match ctx.get_str(&name) {
         Some(item) => match &*item.as_ref().borrow() {
-            ContextObject::Func(_) | ContextObject::Defun { ..} => {
-                match expr {
-                    TulispValue::SExp(body, _) => {
-                        Ok(TulispValue::SExp(body, Some(item.clone())))
-                    }
-                    _ => Ok(expr),
-                }
+            ContextObject::Func(_) | ContextObject::Defun { .. } => match expr {
+                TulispValue::SExp(body, None) => Ok(TulispValue::SExp(body, Some(item.clone()))),
+                _ => Ok(expr),
             },
             _ => Ok(expr),
-        }
+        },
         None => Ok(expr),
     }
 }
