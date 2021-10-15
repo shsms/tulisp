@@ -130,6 +130,12 @@ pub fn add(ctx: &mut Scope) {
         }))),
     );
     ctx.insert(
+        "mod".to_string(), // TODO: ensure only 2 args
+        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
+            reduce_with(ctx, vv, binary_ops!(std::ops::Rem::rem))
+        }))),
+    );
+    ctx.insert(
         "concat".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             let mut ret = String::new();
