@@ -6,6 +6,32 @@ use crate::{
     Error,
 };
 
+use pest;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Span {
+    pub start: usize,
+    pub end: usize,
+}
+
+impl Span {
+    pub fn from(vv: &TulispValue) -> Option<Span> {
+        match vv {
+            TulispValue::SExp { span, .. } => span.clone(),
+            _ => None,
+        }
+    }
+}
+
+impl From<pest::Span<'_>> for Span {
+    fn from(vv: pest::Span<'_>) -> Self {
+        Span {
+            start: vv.start(),
+            end: vv.end(),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum TulispValue {
     Uninitialized,
@@ -14,7 +40,11 @@ pub enum TulispValue {
     Int(i64),
     Float(f64),
     String(String),
-    SExp(Box<Cons>, Option<Rc<RefCell<ContextObject>>>),
+    SExp {
+        cons: Box<Cons>,
+        ctxobj: Option<Rc<RefCell<ContextObject>>>,
+        span: Option<Span>,
+    },
     Quote(Box<TulispValue>),
     Backquote(Box<TulispValue>),
     Unquote(Box<TulispValue>),
@@ -27,7 +57,7 @@ impl PartialEq for TulispValue {
             (Self::Int(l0), Self::Int(r0)) => l0 == r0,
             (Self::Float(l0), Self::Float(r0)) => l0 == r0,
             (Self::String(l0), Self::String(r0)) => l0 == r0,
-            (Self::SExp(l0, _), Self::SExp(r0, _)) => l0 == r0,
+            (Self::SExp { cons: l0, .. }, Self::SExp { cons: r0, .. }) => l0 == r0,
             (Self::Quote(l0), Self::Quote(r0)) => l0 == r0,
             (Self::Backquote(l0), Self::Backquote(r0)) => l0 == r0,
             (Self::Unquote(l0), Self::Unquote(r0)) => l0 == r0,
@@ -57,7 +87,7 @@ impl std::fmt::Display for TulispValue {
             TulispValue::Int(vv) => f.write_fmt(format_args!("{}", vv)),
             TulispValue::Float(vv) => f.write_fmt(format_args!("{}", vv)),
             TulispValue::String(vv) => f.write_fmt(format_args!("\"{}\"", vv)),
-            vv @ TulispValue::SExp(_, _) => {
+            vv @ TulispValue::SExp { .. } => {
                 let mut ret = String::from("(");
                 let mut add_space = false;
                 for item in vv.iter() {
@@ -82,19 +112,23 @@ impl TulispValue {
     pub const UNINITIALIZED: TulispValue = TulispValue::Uninitialized;
     pub fn iter(&self) -> cons::ConsIter<'_> {
         match self {
-            TulispValue::SExp(cons, _) => cons.iter(),
+            TulispValue::SExp { cons, .. } => cons.iter(),
             _ => Cons::EMPTY.iter(),
         }
     }
 
     pub fn push(&mut self, val: TulispValue) -> Result<&TulispValue, Error> {
-        if let TulispValue::SExp(cons, _) = self {
-            cons.push(val)?;
+        if let TulispValue::SExp { cons, span, .. } = self {
+            cons.push(val).map_err(|e| e.with_span(span))?;
             Ok(self)
         } else if *self == TulispValue::Uninitialized || *self == TulispValue::Nil {
             let mut cons = Cons::new();
             cons.push(val)?;
-            *self = TulispValue::SExp(Box::new(cons), None);
+            *self = TulispValue::SExp {
+                cons: Box::new(cons),
+                ctxobj: None,
+                span: None,
+            };
             Ok(self)
         } else {
             Err(Error::TypeMismatch("unable to push".to_string()))
@@ -107,8 +141,8 @@ impl TulispValue {
     }
 
     pub fn append(&mut self, val: TulispValue) -> Result<&TulispValue, Error> {
-        if let TulispValue::SExp(cons, _) = self {
-            cons.append(val)?;
+        if let TulispValue::SExp { cons, span, .. } = self {
+            cons.append(val).map_err(|e| e.with_span(span))?;
             Ok(self)
         } else {
             Err(Error::TypeMismatch("unable to append".to_string()))
@@ -139,7 +173,7 @@ impl TulispValue {
 
     pub fn is_list(&self) -> bool {
         match self {
-            TulispValue::SExp(_, _) => true,
+            TulispValue::SExp { .. } => true,
             _ => false,
         }
     }
@@ -147,7 +181,11 @@ impl TulispValue {
     pub fn into_list(self) -> TulispValue {
         let mut ret = Cons::new();
         ret.push(self).unwrap();
-        TulispValue::SExp(Box::new(ret), None)
+        TulispValue::SExp {
+            cons: Box::new(ret),
+            ctxobj: None,
+            span: None,
+        }
     }
 }
 impl TryInto<f64> for TulispValue {

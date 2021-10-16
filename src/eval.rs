@@ -68,7 +68,10 @@ pub fn eval_defmacro(
 fn eval_func(ctx: &mut TulispContext, val: &TulispValue) -> Result<TulispValue, Error> {
     let name = car(val)?;
     let func = match val {
-        TulispValue::SExp(_, Some(func)) => Some(func.clone()),
+        TulispValue::SExp {
+            ctxobj: func @ Some(_),
+            ..
+        } => func.clone(),
         _ => ctx.get(name),
     };
     match func {
@@ -111,15 +114,15 @@ pub fn eval(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue,
         TulispValue::Int(_) => Ok(value.clone()),
         TulispValue::Float(_) => Ok(value.clone()),
         TulispValue::String(_) => Ok(value.clone()),
-        TulispValue::SExp(_, _) => eval_func(ctx, &value),
+        TulispValue::SExp { ref span, .. } => eval_func(ctx, &value).map_err(|e| e.with_span(span)),
         TulispValue::Quote(vv) => Ok(*vv.clone()),
         TulispValue::Backquote(vv) => {
             let mut ret = Cons::new();
             match &**vv {
-                vv @ TulispValue::SExp(_, _) => {
+                vv @ TulispValue::SExp { .. } => {
                     for ele in vv.iter() {
                         match ele {
-                            e @ TulispValue::SExp(_, _) => {
+                            e @ TulispValue::SExp { .. } => {
                                 ret.push(eval(ctx, &TulispValue::Backquote(Box::new(e.clone())))?)?
                             }
                             TulispValue::Unquote(vv) => ret.push(eval(ctx, &vv)?)?,
@@ -129,7 +132,11 @@ pub fn eval(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue,
                 }
                 vv => ret.push(vv.clone())?,
             }
-            Ok(TulispValue::SExp(Box::new(ret), None))
+            Ok(TulispValue::SExp {
+                cons: Box::new(ret),
+                ctxobj: None,
+                span: None,
+            })
         }
         TulispValue::Unquote(_) => {
             Err(Error::TypeMismatch("Unquote without backquote".to_string()))

@@ -57,10 +57,11 @@ pub fn add(ctx: &mut Scope) {
                         ret.push(ele.clone())?;
                     }
                 }
-                Ok(TulispValue::SExp(
-                    Box::new(ret),
-                    ctx.get_str(&"let".to_string()),
-                ))
+                Ok(TulispValue::SExp {
+                    cons: Box::new(ret),
+                    ctxobj: ctx.get_str(&"let".to_string()),
+                    span: None,
+                })
             }
             unwrap_varlist(ctx, varlist, body)
         }))),

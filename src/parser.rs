@@ -5,6 +5,7 @@ use pest::{iterators::Pair, Parser};
 use crate::cons::{car, cdr};
 use crate::context::{ContextObject, TulispContext};
 use crate::eval::{eval, eval_defmacro};
+use crate::value::Span;
 use crate::{cons::Cons, value::TulispValue, Error};
 
 #[derive(Parser)]
@@ -20,12 +21,16 @@ pub fn parse_string(ctx: &mut TulispContext, string: &str) -> Result<TulispValue
         let p = locate_all_func(ctx, p)?;
         list.push(p)?;
     }
-    Ok(TulispValue::SExp(Box::new(list), None))
+    Ok(TulispValue::SExp {
+        cons: Box::new(list),
+        ctxobj: None,
+        span: None,
+    })
 }
 
 pub fn macroexpand(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispValue, Error> {
     match &expr {
-        TulispValue::SExp(_, _) => {}
+        TulispValue::SExp { .. } => {}
         _ => return Ok(expr),
     };
     let name = match car(&expr)? {
@@ -52,7 +57,7 @@ fn locate_all_func(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispV
     let mut ret = Cons::new();
     for ele in expr.iter() {
         let next = match ele.clone() {
-            e @ TulispValue::SExp(_, None) => {
+            e @ TulispValue::SExp { ctxobj: None, .. } => {
                 let next = locate_all_func(ctx, e)?;
                 locate_func(ctx, next)?
             }
@@ -60,7 +65,11 @@ fn locate_all_func(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispV
         };
         ret.push(next)?;
     }
-    Ok(TulispValue::SExp(Box::new(ret), None))
+    Ok(TulispValue::SExp {
+        cons: Box::new(ret),
+        ctxobj: None,
+        span: Span::from(&expr),
+    })
 }
 
 fn locate_func(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispValue, Error> {
@@ -71,7 +80,15 @@ fn locate_func(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispValue
     match ctx.get_str(&name) {
         Some(item) => match &*item.as_ref().borrow() {
             ContextObject::Func(_) | ContextObject::Defun { .. } => match expr {
-                TulispValue::SExp(body, None) => Ok(TulispValue::SExp(body, Some(item.clone()))),
+                TulispValue::SExp {
+                    cons: body,
+                    ctxobj: None,
+                    span,
+                } => Ok(TulispValue::SExp {
+                    cons: body,
+                    ctxobj: Some(item.clone()),
+                    span,
+                }),
                 _ => Ok(expr),
             },
             _ => Ok(expr),
@@ -95,12 +112,17 @@ fn parse(
     match value.as_rule() {
         Rule::form => {
             let mut list = Cons::new();
+            let span: Span = value.as_span().into();
             value
                 .into_inner()
                 .map(|item| parse(ctx, item, expand_macros))
                 .map(|val| -> Result<(), Error> { list.push(val?) })
                 .fold(Ok(()), |v1, v2| v1.and(v2))?;
-            let expr = TulispValue::SExp(Box::new(list), None);
+            let expr = TulispValue::SExp {
+                cons: Box::new(list),
+                ctxobj: None,
+                span: Some(span),
+            };
             let name = match car(&expr)? {
                 TulispValue::Ident(ident) => ident.to_string(),
                 _ => return Ok(expr),

@@ -311,7 +311,7 @@ pub fn add(ctx: &mut Scope) {
             defun_args!(let (varlist &rest body) = vv);
             ctx.r#let(varlist)?;
             let ret = match body {
-                vv @ TulispValue::SExp(_, _) => eval_each(ctx, vv),
+                vv @ TulispValue::SExp { .. } => eval_each(ctx, vv),
                 _ => Err(Error::TypeMismatch(
                     "let: expected varlist and body".to_string(),
                 )),
@@ -405,7 +405,11 @@ pub fn add(ctx: &mut Scope) {
             for ele in vv.iter() {
                 cons.push(eval(ctx, ele)?)?
             }
-            Ok(TulispValue::SExp(Box::new(cons), None))
+            Ok(TulispValue::SExp {
+                cons: Box::new(cons),
+                ctxobj: None,
+                span: None,
+            })
         }))),
     );
 

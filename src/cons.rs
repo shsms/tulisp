@@ -27,17 +27,18 @@ impl Cons {
         }
         let mut last = &mut self.cdr;
 
-        while let TulispValue::SExp(cons, _) = last {
+        while let TulispValue::SExp { cons, .. } = last {
             last = &mut cons.cdr;
         }
         if let TulispValue::Uninitialized = last {
-            *last = TulispValue::SExp(
-                Box::new(Cons {
+            *last = TulispValue::SExp {
+                cons: Box::new(Cons {
                     car: val,
                     cdr: TulispValue::Uninitialized,
                 }),
-                None,
-            );
+                ctxobj: None,
+                span: None,
+            };
         } else {
             return Err(Error::TypeMismatch("Cons: unable to push".to_string()));
         }
@@ -47,7 +48,7 @@ impl Cons {
     pub fn append(&mut self, val: TulispValue) -> Result<(), Error> {
         if let TulispValue::Uninitialized = self.car {
             match val {
-                TulispValue::SExp(cons, _) => {
+                TulispValue::SExp { cons, .. } => {
                     *self = *cons;
                 }
                 val => {
@@ -61,7 +62,7 @@ impl Cons {
         }
         let mut last = &mut self.cdr;
 
-        while let TulispValue::SExp(cons, _) = last {
+        while let TulispValue::SExp { cons, .. } = last {
             last = &mut cons.cdr;
         }
         if let TulispValue::Uninitialized = last {
@@ -88,7 +89,7 @@ impl<'a> Iterator for ConsIter<'a> {
         let Cons { car, cdr } = self.next;
         if *car == TulispValue::Uninitialized {
             None
-        } else if let TulispValue::SExp(cons, _) = cdr {
+        } else if let TulispValue::SExp { cons, .. } = cdr {
             self.next = &*cons;
             Some(car)
         } else {
@@ -99,7 +100,7 @@ impl<'a> Iterator for ConsIter<'a> {
 }
 
 pub fn car(cons: &TulispValue) -> Result<&TulispValue, Error> {
-    if let TulispValue::SExp(cons, _) = cons {
+    if let TulispValue::SExp { cons, .. } = cons {
         Ok(&cons.car)
     } else {
         Err(Error::TypeMismatch(format!("Not a Cons: {:?}", cons)))
@@ -107,7 +108,7 @@ pub fn car(cons: &TulispValue) -> Result<&TulispValue, Error> {
 }
 
 pub fn cdr(cons: &TulispValue) -> Result<&TulispValue, Error> {
-    if let TulispValue::SExp(cons, _) = cons {
+    if let TulispValue::SExp { cons, .. } = cons {
         Ok(&cons.cdr)
     } else {
         Err(Error::TypeMismatch(format!("Not a Cons: {:?}", cons)))
