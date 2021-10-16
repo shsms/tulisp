@@ -8,7 +8,8 @@
   (print (inc vv))
   (print `(+ 1 (inc vv)))
   (print `(+ 1 ,(inc vv)))
-  (print '`(+ 1 ,(inc vv))))
+  (print '`(+ 1 ,(inc vv)))
+  (print (eval '`(+ 1 ,(inc vv)))))
 
 (let ((vv (test)))
   (print (macroexpand '10)))

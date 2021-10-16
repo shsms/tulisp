@@ -283,6 +283,15 @@ pub fn add(ctx: &mut Scope) {
     );
 
     ctx.insert(
+        "eval".to_string(),
+        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
+            defun_args!(let (arg) = vv);
+            let arg = eval(ctx, arg)?;
+            eval(ctx, &arg)
+        })))
+    );
+
+    ctx.insert(
         "macroexpand".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             defun_args!(let (name) = vv);
