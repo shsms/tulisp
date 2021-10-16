@@ -22,16 +22,43 @@ macro_rules! defun_args {
         defun_args!(@impl $vv, $var);
         defun_args!(@impl $vv, $($vars)+);
     };
-    (let ($($vars:ident)+) = $vv:ident) => {
-	defun_args!(@impl $vv, $($vars)+);
+    (@impl $vv:ident,) => {};
+    (@no-rest $vv:ident) => {
         if *$vv != TulispValue::Uninitialized {
             return Err(Error::TypeMismatch("Too many arguments".to_string()));
         }
     };
-    (@impl $vv:ident,) => {};
+    (@rest $rest:ident $vv:ident) => {
+        let $rest = $vv;
+    };
+    (@optvar $vv:ident, $var:ident) => {
+        let ($var, $vv) = if *$vv != TulispValue::Uninitialized {
+            (car($vv)?, cdr($vv)?)
+        } else {
+            (&TulispValue::NIL, &TulispValue::UNINITIALIZED)
+        };
+    };
+    (@optvar $vv:ident, $var:ident $($vars:ident)+) => {
+        defun_args!(@optvar $vv, $var);
+        defun_args!(@optvar $vv, $($vars)+)
+    };
+    (let ($($vars:ident)+) = $vv:ident) => {
+	defun_args!(@impl $vv, $($vars)+);
+        defun_args!(@no-rest $vv);
+    };
+    (let ($($vars:ident)* &optional $($optvars:ident)+) = $vv:ident) => {
+	defun_args!(@impl $vv, $($vars)*);
+        defun_args!(@optvar $vv, $($optvars)+);
+        defun_args!(@no-rest $vv);
+    };
     (let ($($vars:ident)* &rest $rest:ident) = $vv:ident) => {
 	defun_args!(@impl $vv, $($vars)*);
-        let $rest = $vv;
+        defun_args!(@rest $rest $vv);
+    };
+    (let ($($vars:ident)* &optional $($optvars:ident)+ &rest $rest:ident) = $vv:ident) => {
+	defun_args!(@impl $vv, $($vars)*);
+        defun_args!(@optvar $vv, $($optvars)+);
+        defun_args!(@rest $rest $vv);
     };
 }
 

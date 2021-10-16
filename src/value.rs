@@ -78,6 +78,8 @@ impl std::fmt::Display for TulispValue {
 }
 
 impl TulispValue {
+    pub const NIL: TulispValue = TulispValue::Nil;
+    pub const UNINITIALIZED: TulispValue = TulispValue::Uninitialized;
     pub fn iter(&self) -> cons::ConsIter<'_> {
         match self {
             TulispValue::SExp(cons, _) => cons.iter(),
