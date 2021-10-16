@@ -4,7 +4,7 @@ use pest::{iterators::Pair, Parser};
 
 use crate::cons::{car, cdr};
 use crate::context::{ContextObject, TulispContext};
-use crate::eval::eval_defmacro;
+use crate::eval::{eval, eval_defmacro};
 use crate::{cons::Cons, value::TulispValue, Error};
 
 #[derive(Parser)]
@@ -16,7 +16,9 @@ pub fn parse_string(ctx: &mut TulispContext, string: &str) -> Result<TulispValue
 
     let mut list = Cons::new();
     for ele in p.unwrap() {
-        list.push(parse(ctx, ele, &MacroExpand::Yes)?)?;
+        let p = parse(ctx, ele, &MacroExpand::Yes)?;
+        let p = locate_all_func(ctx, p)?;
+        list.push(p)?;
     }
     Ok(TulispValue::SExp(Box::new(list), None))
 }
@@ -44,6 +46,21 @@ pub fn macroexpand(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispV
         },
         None => Ok(expr),
     }
+}
+
+fn locate_all_func(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispValue, Error> {
+    let mut ret = Cons::new();
+    for ele in expr.iter() {
+        let next = match ele.clone() {
+            e @ TulispValue::SExp(_, None) => {
+                let next = locate_all_func(ctx, e)?;
+                locate_func(ctx, next)?
+            }
+            e => e,
+        };
+        ret.push(next)?;
+    }
+    Ok(TulispValue::SExp(Box::new(ret), None))
 }
 
 fn locate_func(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispValue, Error> {
@@ -83,11 +100,18 @@ fn parse(
                 .map(|item| parse(ctx, item, expand_macros))
                 .map(|val| -> Result<(), Error> { list.push(val?) })
                 .fold(Ok(()), |v1, v2| v1.and(v2))?;
-            let ret = locate_func(ctx, TulispValue::SExp(Box::new(list), None))?;
+            let expr = TulispValue::SExp(Box::new(list), None);
+            let name = match car(&expr)? {
+                TulispValue::Ident(ident) => ident.to_string(),
+                _ => return Ok(expr),
+            };
+            if name == "defun" {
+                eval(ctx, &expr)?;
+            }
             if *expand_macros == MacroExpand::Yes {
-                Ok(macroexpand(ctx, ret)?)
+                Ok(macroexpand(ctx, expr)?)
             } else {
-                Ok(ret)
+                Ok(expr)
             }
         }
         Rule::backquote => Ok(TulispValue::Backquote(Box::new(parse(

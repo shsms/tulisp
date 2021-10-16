@@ -272,7 +272,7 @@ pub fn add(ctx: &mut Scope) {
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             defun_args!(let (name args &rest body) = vv);
             ctx.set_str(
-                &name.as_ident()?,
+                name.as_ident()?,
                 ContextObject::Defun {
                     args: args.clone(),
                     body: body.clone(),
@@ -288,7 +288,7 @@ pub fn add(ctx: &mut Scope) {
             defun_args!(let (arg) = vv);
             let arg = eval(ctx, arg)?;
             eval(ctx, &arg)
-        })))
+        }))),
     );
 
     ctx.insert(

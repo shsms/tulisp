@@ -86,7 +86,7 @@ fn eval_func(ctx: &mut TulispContext, val: &TulispValue) -> Result<TulispValue, 
 }
 
 pub fn eval(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue, Error> {
-    // let fmt = format!("ToEval: {}", value);
+    // let fmt = format!("ToEval: {:?}", value);
     let ret = match value {
         TulispValue::Nil => Ok(value.clone()),
         TulispValue::Ident(name) => {
@@ -143,12 +143,9 @@ pub fn eval(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue,
 }
 
 pub fn eval_each(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue, Error> {
-    let mut result = TulispValue::Nil;
-    // TODO: change after new `.iter()`
-    for ele in value.iter() {
-        result = eval(ctx, ele)?;
-    }
-    Ok(result)
+    value
+        .iter()
+        .fold(Ok(TulispValue::Nil), |v1, v2| v1.and(eval(ctx, v2)))
 }
 
 pub fn eval_string(ctx: &mut TulispContext, string: &str) -> Result<TulispValue, Error> {

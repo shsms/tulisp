@@ -54,7 +54,7 @@ impl TulispContext {
         self.0.pop();
     }
 
-    pub fn get_str(&self, name: &String) -> Option<Rc<RefCell<ContextObject>>> {
+    pub fn get_str(&self, name: &str) -> Option<Rc<RefCell<ContextObject>>> {
         for ele in self.0.iter().rev() {
             match ele.get(name) {
                 Some(vv) => return Some(vv.clone()),
@@ -73,8 +73,8 @@ impl TulispContext {
         }
     }
 
-    pub fn set_str(&mut self, name: &String, value: ContextObject) -> Result<(), Error> {
-        match self.get_str(name) {
+    pub fn set_str(&mut self, name: String, value: ContextObject) -> Result<(), Error> {
+        match self.get_str(&name) {
             Some(m) => *m.as_ref().borrow_mut() = value,
             None => match self.0.first_mut() {
                 Some(f) => {
@@ -87,7 +87,7 @@ impl TulispContext {
     }
     pub fn set(&mut self, name: &TulispValue, value: TulispValue) -> Result<(), Error> {
         if let TulispValue::Ident(name) = name {
-            self.set_str(name, ContextObject::TulispValue(value))
+            self.set_str(name.clone(), ContextObject::TulispValue(value))
         } else {
             Err(Error::TypeMismatch(format!(
                 "name is not an ident: {}",

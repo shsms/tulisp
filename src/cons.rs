@@ -31,10 +31,13 @@ impl Cons {
             last = &mut cons.cdr;
         }
         if let TulispValue::Uninitialized = last {
-            *last = TulispValue::SExp(Box::new(Cons {
-                car: val,
-                cdr: TulispValue::Uninitialized,
-            }), None);
+            *last = TulispValue::SExp(
+                Box::new(Cons {
+                    car: val,
+                    cdr: TulispValue::Uninitialized,
+                }),
+                None,
+            );
         } else {
             return Err(Error::TypeMismatch("Cons: unable to push".to_string()));
         }

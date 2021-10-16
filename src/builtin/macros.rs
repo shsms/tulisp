@@ -13,7 +13,7 @@ pub fn add(ctx: &mut Scope) {
         Rc::new(RefCell::new(ContextObject::Macro(|ctx, vv| {
             defun_args!(let (name args &rest body) = vv);
             ctx.set_str(
-                &name.as_ident()?,
+                name.as_ident()?,
                 ContextObject::Defmacro {
                     args: args.clone(),
                     body: body.clone(),
@@ -33,7 +33,7 @@ pub fn add(ctx: &mut Scope) {
                 body: &TulispValue,
             ) -> Result<TulispValue, Error> {
                 defun_args!(let (nextvar &rest rest) = varlist);
-                
+
                 let mut ret = Cons::new();
                 ret.push(TulispValue::Ident("let".to_string()))?;
                 ret.push(nextvar.clone().into_list())?;

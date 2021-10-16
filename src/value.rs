@@ -1,6 +1,10 @@
 use std::{cell::RefCell, convert::TryInto, rc::Rc};
 
-use crate::{Error, cons::{self, Cons, car}, context::ContextObject};
+use crate::{
+    cons::{self, car, Cons},
+    context::ContextObject,
+    Error,
+};
 
 #[derive(Debug, Clone)]
 pub enum TulispValue {
