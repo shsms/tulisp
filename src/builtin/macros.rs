@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use crate::builtin::functions::defun_args;
 use crate::cons::{car, cdr, Cons};
 use crate::context::{ContextObject, Scope, TulispContext};
 use crate::value::TulispValue;
@@ -10,17 +11,14 @@ pub fn add(ctx: &mut Scope) {
     ctx.insert(
         "defmacro".to_string(),
         Rc::new(RefCell::new(ContextObject::Macro(|ctx, vv| {
-            let name = match car(&vv) {
-                Ok(nn) => nn.clone().as_ident()?,
-                Err(_) => return Err(Error::Undefined("defmacro with no name".to_string())),
-            };
-            let vv = cdr(&vv)?;
-            let args = match car(&vv) {
-                Ok(aa @ TulispValue::SExp(_, _)) => aa.clone(),
-                _ => TulispValue::Nil,
-            };
-            let body = cdr(vv)?.clone();
-            ctx.set_str(&name, ContextObject::Defmacro { args, body })?;
+            defun_args!(let (name args &rest body) = vv);
+            ctx.set_str(
+                &name.as_ident()?,
+                ContextObject::Defmacro {
+                    args: args.clone(),
+                    body: body.clone(),
+                },
+            )?;
             Ok(TulispValue::Nil)
         }))),
     );
@@ -28,16 +26,14 @@ pub fn add(ctx: &mut Scope) {
     ctx.insert(
         "let*".to_string(),
         Rc::new(RefCell::new(ContextObject::Macro(|ctx, vv| {
-            let varlist = car(&vv)?;
-            let body = cdr(&vv)?;
+            defun_args!(let (varlist &rest body) = vv);
             fn unwrap_varlist(
                 ctx: &mut TulispContext,
                 varlist: &TulispValue,
                 body: &TulispValue,
             ) -> Result<TulispValue, Error> {
-                let nextvar = car(&varlist)?;
-                let rest = cdr(&varlist)?;
-
+                defun_args!(let (nextvar &rest rest) = varlist);
+                
                 let mut ret = Cons::new();
                 ret.push(TulispValue::Ident("let".to_string()))?;
                 ret.push(nextvar.clone().into_list())?;
@@ -48,7 +44,10 @@ pub fn add(ctx: &mut Scope) {
                         ret.push(ele.clone())?;
                     }
                 }
-                Ok(TulispValue::SExp(Box::new(ret),  ctx.get_str(&"let".to_string())))
+                Ok(TulispValue::SExp(
+                    Box::new(ret),
+                    ctx.get_str(&"let".to_string()),
+                ))
             }
             unwrap_varlist(ctx, varlist, body)
         }))),

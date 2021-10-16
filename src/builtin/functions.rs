@@ -13,6 +13,30 @@ use std::cell::RefCell;
 use std::convert::TryInto;
 use std::rc::Rc;
 
+macro_rules! defun_args {
+    (@impl $vv:ident, $var:ident) => {
+        let $var = car($vv)?;
+        let $vv = cdr($vv)?;
+    };
+    (@impl $vv:ident, $var:ident $($vars:tt)+) => {
+        defun_args!(@impl $vv, $var);
+        defun_args!(@impl $vv, $($vars)+);
+    };
+    (let ($($vars:ident)+) = $vv:ident) => {
+	defun_args!(@impl $vv, $($vars)+);
+        if *$vv != TulispValue::Uninitialized {
+            return Err(Error::TypeMismatch("Too many arguments".to_string()));
+        }
+    };
+    (@impl $vv:ident,) => {};
+    (let ($($vars:ident)* &rest $rest:ident) = $vv:ident) => {
+	defun_args!(@impl $vv, $($vars)*);
+        let $rest = $vv;
+    };
+}
+
+pub(crate) use defun_args;
+
 macro_rules! max_min_ops {
     ($oper:tt) => {{
         |selfobj: TulispValue, other: TulispValue| -> Result<TulispValue, Error> {
@@ -130,9 +154,10 @@ pub fn add(ctx: &mut Scope) {
         }))),
     );
     ctx.insert(
-        "mod".to_string(), // TODO: ensure only 2 args
+        "mod".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            reduce_with(ctx, vv, binary_ops!(std::ops::Rem::rem))
+            defun_args!(let (dividend divisor) = vv);
+            binary_ops!(std::ops::Rem::rem)(eval(ctx, dividend)?, eval(ctx, divisor)?)
         }))),
     );
     ctx.insert(
@@ -151,10 +176,8 @@ pub fn add(ctx: &mut Scope) {
     ctx.insert(
         "expt".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            let base = eval(ctx, car(&vv)?)?;
-            let rest = cdr(&vv)?;
-            let pow = eval(ctx, car(&rest)?)?;
-            Ok(f64::powf(base.try_into()?, pow.try_into()?).into())
+            defun_args!(let (base pow) = vv);
+            Ok(f64::powf(eval(ctx, base)?.try_into()?, eval(ctx, pow)?.try_into()?).into())
         }))),
     );
     ctx.insert(
@@ -181,16 +204,14 @@ pub fn add(ctx: &mut Scope) {
     ctx.insert(
         "prin1-to-string".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            Ok(TulispValue::String(eval(ctx, car(&vv)?)?.to_string()))
+            defun_args!(let (arg) = vv);
+            Ok(TulispValue::String(eval(ctx, arg)?.to_string()))
         }))),
     );
     ctx.insert(
         "if".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            let condition = car(&vv)?;
-            let body = cdr(&vv)?;
-            let then_body = car(&body)?;
-            let else_body = cdr(&body)?;
+            defun_args!(let (condition then_body &rest else_body) = vv);
             if eval(ctx, condition)?.into() {
                 eval(ctx, then_body)
             } else {
@@ -202,10 +223,9 @@ pub fn add(ctx: &mut Scope) {
         "cond".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             for item in vv.iter() {
-                let condition = car(item)?;
-                let value = cdr(item)?;
+                defun_args!(let (condition &rest body) = item);
                 if eval(ctx, condition)?.into() {
-                    return eval_each(ctx, value);
+                    return eval_each(ctx, body);
                 }
             }
             Ok(TulispValue::Nil)
@@ -214,8 +234,7 @@ pub fn add(ctx: &mut Scope) {
     ctx.insert(
         "while".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            let condition = car(&vv)?;
-            let body = cdr(&vv)?;
+            defun_args!(let (condition &rest body) = vv);
             let mut result = TulispValue::Nil;
             while eval(ctx, condition)?.into() {
                 result = eval_each(ctx, body)?;
@@ -226,23 +245,8 @@ pub fn add(ctx: &mut Scope) {
     ctx.insert(
         "setq".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            let mut iter = vv.iter();
-            let name = match iter.next() {
-                Some(vv) => vv,
-                None => {
-                    return Err(Error::TypeMismatch(
-                        "Incorrect number of arguments: setq, 0".to_string(),
-                    ))
-                }
-            };
-            let value = match iter.next() {
-                Some(vv) => eval(ctx, &vv)?,
-                None => {
-                    return Err(Error::TypeMismatch(
-                        "Incorrect number of arguments: setq, 1".to_string(),
-                    ))
-                }
-            };
+            defun_args!(let (name value) = vv);
+            let value = eval(ctx, value)?;
             ctx.set(name, value.clone())?;
             Ok(value)
         }))),
@@ -250,11 +254,9 @@ pub fn add(ctx: &mut Scope) {
     ctx.insert(
         "let".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            // TODO: add cons_destruct method that returns car and cdr
-            let car = car(&vv)?;
-            let cdr = cdr(&vv)?;
-            ctx.r#let(car)?;
-            let ret = match cdr {
+            defun_args!(let (varlist &rest body) = vv);
+            ctx.r#let(varlist)?;
+            let ret = match body {
                 vv @ TulispValue::SExp(_, _) => eval_each(ctx, vv),
                 _ => Err(Error::TypeMismatch(
                     "let: expected varlist and body".to_string(),
@@ -268,17 +270,14 @@ pub fn add(ctx: &mut Scope) {
     ctx.insert(
         "defun".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            let name = match car(&vv) {
-                Ok(nn) => nn.clone().as_ident()?,
-                Err(_) => return Err(Error::Undefined("defun with no name".to_string())),
-            };
-            let vv = cdr(&vv)?;
-            let args = match car(&vv) {
-                Ok(aa @ TulispValue::SExp(_, _)) => aa.clone(),
-                _ => TulispValue::Nil,
-            };
-            let body = cdr(vv)?.clone();
-            ctx.set_str(&name, ContextObject::Defun { args, body })?;
+            defun_args!(let (name args &rest body) = vv);
+            ctx.set_str(
+                &name.as_ident()?,
+                ContextObject::Defun {
+                    args: args.clone(),
+                    body: body.clone(),
+                },
+            )?;
             Ok(TulispValue::Nil)
         }))),
     );
@@ -286,21 +285,9 @@ pub fn add(ctx: &mut Scope) {
     ctx.insert(
         "macroexpand".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            let mut iter = vv.iter();
-            let vv = match iter.next() {
-                Some(vv) => eval(ctx, vv)?,
-                None => {
-                    return Err(Error::TypeMismatch(
-                        "macroexpand: too few arguments".to_string(),
-                    ))
-                }
-            };
-            if iter.next().is_some() {
-                return Err(Error::Unimplemented(
-                    "macroexpand: environment param is unimplemented".to_string(),
-                ));
-            }
-            macroexpand(ctx, vv)
+            defun_args!(let (name) = vv);
+            let name = eval(ctx, name)?;
+            macroexpand(ctx, name)
         }))),
     );
 
@@ -308,22 +295,25 @@ pub fn add(ctx: &mut Scope) {
     ctx.insert(
         "car".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            Ok(car(&eval(ctx, car(vv)?)?)?.to_owned())
+            defun_args!(let (name) = vv);
+            Ok(car(&eval(ctx, name)?)?.to_owned())
         }))),
     );
 
     ctx.insert(
         "cdr".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            Ok(cdr(&eval(ctx, car(vv)?)?)?.to_owned())
+            defun_args!(let (name) = vv);
+            Ok(cdr(&eval(ctx, name)?)?.to_owned())
         }))),
     );
 
     ctx.insert(
         "append".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            let mut first = eval(ctx, car(vv)?)?;
-            for ele in cdr(vv)?.iter() {
+            defun_args!(let (first &rest rest) = vv);
+            let mut first = eval(ctx, first)?;
+            for ele in rest.iter() {
                 first.append(eval(ctx, ele)?)?
             }
             Ok(first)

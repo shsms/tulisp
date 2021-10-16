@@ -12,4 +12,4 @@
           (setq c (+ 1 c)))
         n2)))
 
-(print (fib-fast 36))
+(print (fib-fast 30))
