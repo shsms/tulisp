@@ -28,8 +28,6 @@ macro_rules! list {
     }};
 }
 
-
-
 macro_rules! defun_args {
     (@impl $vv:ident, $var:ident) => {
         let $var = car($vv)?;
@@ -330,6 +328,21 @@ pub fn add(ctx: &mut Scope) {
             ctx.set_str(
                 name.as_ident()?,
                 ContextObject::Defun {
+                    args: args.clone(),
+                    body: body.clone(),
+                },
+            )?;
+            Ok(TulispValue::Nil)
+        }))),
+    );
+
+    ctx.insert(
+        "defmacro".to_string(),
+        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
+            defun_args!(let (name args &rest body) = vv);
+            ctx.set_str(
+                name.as_ident()?,
+                ContextObject::Defmacro {
                     args: args.clone(),
                     body: body.clone(),
                 },

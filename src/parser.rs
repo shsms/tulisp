@@ -105,7 +105,7 @@ fn parse(
                 TulispValue::Ident(ident) => ident.to_string(),
                 _ => return Ok(expr),
             };
-            if name == "defun" {
+            if name == "defun" || name == "defmacro" {
                 eval(ctx, &expr)?;
             }
             if *expand_macros == MacroExpand::Yes {

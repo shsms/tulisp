@@ -28,21 +28,6 @@ fn thread_last(ctx: &mut TulispContext, vv: &TulispValue) -> Result<TulispValue,
 
 pub fn add(ctx: &mut Scope) {
     ctx.insert(
-        "defmacro".to_string(),
-        Rc::new(RefCell::new(ContextObject::Macro(|ctx, vv| {
-            defun_args!(let (name args &rest body) = vv);
-            ctx.set_str(
-                name.as_ident()?,
-                ContextObject::Defmacro {
-                    args: args.clone(),
-                    body: body.clone(),
-                },
-            )?;
-            Ok(TulispValue::Nil)
-        }))),
-    );
-
-    ctx.insert(
         "->>".to_string(),
         Rc::new(RefCell::new(ContextObject::Macro(thread_last))),
     );
