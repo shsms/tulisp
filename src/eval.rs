@@ -86,7 +86,7 @@ fn eval_func(ctx: &mut TulispContext, val: &TulispValue) -> Result<TulispValue, 
 }
 
 pub fn eval(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue, Error> {
-    let fmt = format!("ToEval: {}", value);
+    // let _fmt = format!("ToEval: {}", value);
     let ret = match value {
         TulispValue::Nil => Ok(value.clone()),
         TulispValue::Ident(name) => {
@@ -138,7 +138,7 @@ pub fn eval(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue,
             "Attempt to process uninitialized value".to_string(),
         )),
     };
-    // println!("{}\n  => {}", fmt, ret.clone()?);
+    // println!("{}\n  => {}", _fmt, ret.clone()?);
     ret
 }
 

@@ -145,7 +145,14 @@ pub fn add(ctx: &mut Scope) {
     ctx.insert(
         "-".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            reduce_with(ctx, vv, binary_ops!(std::ops::Sub::sub))
+            let args = vv;
+            defun_args!(let (first &rest rest) = args);
+            if !rest.as_bool() {
+                let vv = binary_ops!(std::ops::Sub::sub)(TulispValue::Int(0), eval(ctx, first)?)?;
+                Ok(vv)
+            } else {
+                reduce_with(ctx, vv, binary_ops!(std::ops::Sub::sub))
+            }
         }))),
     );
     ctx.insert(

@@ -129,7 +129,7 @@ impl TulispValue {
 
     pub fn as_bool(&self) -> bool {
         match self {
-            TulispValue::Nil => false,
+            TulispValue::Nil | TulispValue::Uninitialized => false,
             c => match car(&c) {
                 Ok(tt) => *tt != TulispValue::Uninitialized,
                 Err(_) => true,
