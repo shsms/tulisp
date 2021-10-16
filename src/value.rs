@@ -87,18 +87,60 @@ impl TulispValue {
         }
     }
 
-    pub fn append(&mut self, val: TulispValue) -> Result<(), Error> {
+    pub fn push(&mut self, val: TulispValue) -> Result<&TulispValue, Error> {
         if let TulispValue::SExp(cons, _) = self {
-            cons.append(val)
+            cons.push(val)?;
+            Ok(self)
+        } else if *self == TulispValue::Uninitialized || *self == TulispValue::Nil {
+            let mut cons = Cons::new();
+            cons.push(val)?;
+            *self = TulispValue::SExp(Box::new(cons), None);
+            Ok(self)
+        } else {
+            Err(Error::TypeMismatch("unable to push".to_string()))
+        }
+    }
+
+    pub fn into_push(mut self, val: TulispValue) -> Result<TulispValue, Error> {
+        self.push(val)?;
+        Ok(self)
+    }
+
+    pub fn append(&mut self, val: TulispValue) -> Result<&TulispValue, Error> {
+        if let TulispValue::SExp(cons, _) = self {
+            cons.append(val)?;
+            Ok(self)
         } else {
             Err(Error::TypeMismatch("unable to append".to_string()))
         }
+    }
+
+    pub fn into_append(mut self, val: TulispValue) -> Result<TulispValue, Error> {
+        self.append(val)?;
+        Ok(self)
     }
 
     pub fn as_ident(&self) -> Result<String, Error> {
         match self {
             TulispValue::Ident(ident) => Ok(ident.to_string()),
             _ => Err(Error::TypeMismatch(format!("Expected ident: {:?}", self))),
+        }
+    }
+
+    pub fn as_bool(&self) -> bool {
+        match self {
+            TulispValue::Nil => false,
+            c => match car(&c) {
+                Ok(tt) => *tt != TulispValue::Uninitialized,
+                Err(_) => true,
+            },
+        }
+    }
+
+    pub fn is_list(&self) -> bool {
+        match self {
+            TulispValue::SExp(_, _) => true,
+            _ => false,
         }
     }
 

@@ -13,6 +13,23 @@ use std::cell::RefCell;
 use std::convert::TryInto;
 use std::rc::Rc;
 
+macro_rules! list {
+    (@push $ret:ident, $item:expr) => {
+        $ret.push($item)?;
+    };
+    (@push $ret:ident, $item:expr, $($items:expr),+) => {
+        $ret.push($item)?;
+        list!(@push $ret, $($items),+);
+    };
+    ($($items:expr),+) => {{
+	let mut ret = TulispValue::Nil;
+        list!(@push ret, $($items),+);
+        ret
+    }};
+}
+
+
+
 macro_rules! defun_args {
     (@impl $vv:ident, $var:ident) => {
         let $var = car($vv)?;
@@ -29,7 +46,11 @@ macro_rules! defun_args {
         }
     };
     (@rest $rest:ident $vv:ident) => {
-        let $rest = $vv;
+        let $rest = if *$vv == TulispValue::Uninitialized {
+            &TulispValue::NIL
+        } else {
+            $vv
+        };
     };
     (@optvar $vv:ident, $var:ident) => {
         let ($var, $vv) = if *$vv != TulispValue::Uninitialized {
@@ -63,6 +84,7 @@ macro_rules! defun_args {
 }
 
 pub(crate) use defun_args;
+pub(crate) use list;
 
 macro_rules! max_min_ops {
     ($oper:tt) => {{
@@ -350,7 +372,7 @@ pub fn add(ctx: &mut Scope) {
             defun_args!(let (first &rest rest) = vv);
             let mut first = eval(ctx, first)?;
             for ele in rest.iter() {
-                first.append(eval(ctx, ele)?)?
+                first.append(eval(ctx, ele)?)?;
             }
             Ok(first)
         }))),

@@ -86,7 +86,7 @@ fn eval_func(ctx: &mut TulispContext, val: &TulispValue) -> Result<TulispValue, 
 }
 
 pub fn eval(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue, Error> {
-    // let fmt = format!("ToEval: {:?}", value);
+    let fmt = format!("ToEval: {}", value);
     let ret = match value {
         TulispValue::Nil => Ok(value.clone()),
         TulispValue::Ident(name) => {
