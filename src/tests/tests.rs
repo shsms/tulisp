@@ -9,6 +9,12 @@ macro_rules! tulisp_assert {
         let expected = car(&expected)?;
         assert_eq!(&output, expected);
     };
+    (program:$input:expr, error:$desc:expr $(,)?) => {
+        let mut ctx = new_context();
+        let output = eval_string(&mut ctx, $input);
+        assert!(output.is_err());
+        assert_eq!(output.unwrap_err().desc, $desc);
+    };
 }
 
 #[test]
@@ -25,7 +31,7 @@ fn test_if() -> Result<(), Error> {
     tulisp_assert! {
         program: "(if (> 20 10) 10 20)",
         result: "10",
-    };
+    }
 
     tulisp_assert! {
         program: "(if (> 10 20) 10 20)",
@@ -35,6 +41,14 @@ fn test_if() -> Result<(), Error> {
     Ok(())
 }
 
+#[test]
+fn test_math() -> Result<(), Error> {
+    tulisp_assert!{
+        program: "(/ 10 0)",
+        error: "Division by zero",
+    }
+    Ok(())
+}
 #[test]
 fn test_setq() -> Result<(), Error> {
     tulisp_assert!{
@@ -58,30 +72,30 @@ fn test_while() -> Result<(), Error> {
 fn test_threading_macros() -> Result<(), Error> {
     tulisp_assert! {
         program: r##"
-            (macroexpand
-             '(-> 9
-                  (expt 0.5)
-                  (equal 3)
-                  (if "true" "false")))
-            "##, result: r##"
-            (if (equal (expt 9 0.5) 3)
-                "true"
-              "false")
-            "##,
+        (macroexpand
+         '(-> 9
+              (expt 0.5)
+              (equal 3)
+              (if "true" "false")))
+        "##, result: r##"
+        (if (equal (expt 9 0.5) 3)
+            "true"
+          "false")
+        "##,
     };
 
     tulisp_assert! {
         program: r##"
-            (macroexpand
-             '(->> 0.5
-                   (expt 9)
-                   (equal 3)
-                   (if nil ())))
-            "##, result: r##"
-            (if nil
-                ()
-              (equal 3 (expt 9 0.5)))
-            "##,
+        (macroexpand
+         '(->> 0.5
+               (expt 9)
+               (equal 3)
+               (if nil ())))
+        "##, result: r##"
+        (if nil
+            ()
+          (equal 3 (expt 9 0.5)))
+        "##,
     };
 
     Ok(())

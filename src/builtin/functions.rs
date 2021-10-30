@@ -172,6 +172,12 @@ pub fn add(ctx: &mut Scope) {
     ctx.insert(
         "/".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
+            defun_args!(let (_first &rest rest) = vv);
+            for ele in rest.iter() {
+                if ele == &TulispValue::Int(0) || ele == &TulispValue::Float(0.0) {
+                    return Err(Error::new(ErrorKind::Undefined, "Division by zero".to_string()));
+                }
+            }
             reduce_with(ctx, vv, binary_ops!(std::ops::Div::div))
         }))),
     );
