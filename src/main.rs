@@ -9,6 +9,7 @@ mod context;
 mod eval;
 mod parser;
 mod value;
+mod tests;
 
 use std::env;
 
@@ -66,74 +67,3 @@ fn main() -> Result<(), Error> {
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use crate::value::TulispValue;
-    use crate::{eval::eval_string, new_context, Error};
-
-    #[test]
-    fn test_if() -> Result<(), Error> {
-        let mut ctx = new_context();
-        let prog = "(if t 10 20)";
-        assert_eq!(eval_string(&mut ctx, prog)?, TulispValue::Int(10));
-
-        let prog = "(if nil 10 20)";
-        assert_eq!(eval_string(&mut ctx, prog)?, TulispValue::Int(20));
-
-        let prog = "(if (> 20 10) 10 20)";
-        assert_eq!(eval_string(&mut ctx, prog)?, TulispValue::Int(10));
-
-        let prog = "(if (> 10 20) 10 20)";
-        assert_eq!(eval_string(&mut ctx, prog)?, TulispValue::Int(20));
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_setq() -> Result<(), Error> {
-        let mut ctx = new_context();
-        let prog = r##"(let ((xx 10)) (setq zz (+ xx 10))) (* zz 3)"##;
-        assert_eq!(eval_string(&mut ctx, prog)?, TulispValue::Int(60));
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_while() -> Result<(), Error> {
-        let mut ctx = new_context();
-        let prog = "(let ((vv 0)) (while (< vv 42) (setq vv (+ 1 vv))) vv)";
-        assert_eq!(eval_string(&mut ctx, prog)?, TulispValue::Int(42));
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_threading_macros() -> Result<(), Error> {
-        let mut ctx = new_context();
-        let prog = r##"
-        (macroexpand
-         '(-> 9
-              (expt 0.5)
-              (equal 3)
-              (if "true" "false")))
-        "##;
-        assert_eq!(
-            eval_string(&mut ctx, prog)?.to_string(),
-            r##"(if (equal (expt 9 0.5) 3) "true" "false")"##
-        );
-
-        let prog = r##"
-        (macroexpand
-         '(->> 0.5
-               (expt 9)
-               (equal 3)
-               (if nil ())))
-        "##;
-        assert_eq!(
-            eval_string(&mut ctx, prog)?.to_string(),
-            r##"(if nil () (equal 3 (expt 9 0.5)))"##
-        );
-
-        Ok(())
-    }
-}

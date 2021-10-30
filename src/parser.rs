@@ -17,8 +17,10 @@ pub fn parse_string(ctx: &mut TulispContext, string: &str) -> Result<TulispValue
 
     let mut list = Cons::new();
     for ele in p.unwrap() {
-        let p = parse(ctx, ele, &MacroExpand::Yes)?;
-        let p = locate_all_func(ctx, p)?;
+        let p = match parse(ctx, ele, &MacroExpand::Yes)? {
+            p if p.is_list() => locate_all_func(ctx, p)?,
+            p => p,
+        };
         list.push(p)?;
     }
     Ok(TulispValue::SExp {
