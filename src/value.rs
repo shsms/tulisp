@@ -187,6 +187,13 @@ impl TulispValue {
             span: None,
         }
     }
+
+    pub fn fmt_string(&self) -> String {
+        match self {
+            TulispValue::String(vv) => vv.to_string(),
+            s => s.to_string(),
+        }
+    }
 }
 impl TryInto<f64> for TulispValue {
     type Error = Error;

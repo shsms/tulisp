@@ -259,7 +259,27 @@ pub fn add(ctx: &mut Scope) {
         "prin1-to-string".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             defun_args!(let (arg) = vv);
-            Ok(TulispValue::String(eval(ctx, arg)?.to_string()))
+            Ok(TulispValue::String(eval(ctx, arg)?.fmt_string()))
+        }))),
+    );
+    ctx.insert(
+        "princ".to_string(),
+        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
+            let mut iter = vv.iter();
+            let object = iter.next();
+            if iter.next().is_some() {
+                Err(Error::NotImplemented(
+                    "output stream currently not supported".to_string(),
+                ))
+            } else if let Some(v) = object {
+                let ret = eval(ctx, &v)?;
+                println!("{}", ret.fmt_string());
+                Ok(ret)
+            } else {
+                Err(Error::TypeMismatch(
+                    "Incorrect number of arguments: print, 0".to_string(),
+                ))
+            }
         }))),
     );
     ctx.insert(
