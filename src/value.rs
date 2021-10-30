@@ -3,7 +3,7 @@ use std::{cell::RefCell, convert::TryInto, rc::Rc};
 use crate::{
     cons::{self, car, Cons},
     context::ContextObject,
-    Error,
+    Error, ErrorKind,
 };
 
 use pest;
@@ -119,7 +119,7 @@ impl TulispValue {
 
     pub fn push(&mut self, val: TulispValue) -> Result<&TulispValue, Error> {
         if let TulispValue::SExp { cons, span, .. } = self {
-            cons.push(val).map_err(|e| e.with_span(span))?;
+            cons.push(val).map_err(|e| e.with_span(span.clone()))?;
             Ok(self)
         } else if *self == TulispValue::Uninitialized || *self == TulispValue::Nil {
             let mut cons = Cons::new();
@@ -131,7 +131,10 @@ impl TulispValue {
             };
             Ok(self)
         } else {
-            Err(Error::TypeMismatch("unable to push".to_string()))
+            Err(Error::new(
+                ErrorKind::TypeMismatch,
+                "unable to push".to_string(),
+            ))
         }
     }
 
@@ -142,10 +145,13 @@ impl TulispValue {
 
     pub fn append(&mut self, val: TulispValue) -> Result<&TulispValue, Error> {
         if let TulispValue::SExp { cons, span, .. } = self {
-            cons.append(val).map_err(|e| e.with_span(span))?;
+            cons.append(val).map_err(|e| e.with_span(span.clone()))?;
             Ok(self)
         } else {
-            Err(Error::TypeMismatch("unable to append".to_string()))
+            Err(Error::new(
+                ErrorKind::TypeMismatch,
+                "unable to append".to_string(),
+            ))
         }
     }
 
@@ -157,7 +163,10 @@ impl TulispValue {
     pub fn as_ident(&self) -> Result<String, Error> {
         match self {
             TulispValue::Ident(ident) => Ok(ident.to_string()),
-            _ => Err(Error::TypeMismatch(format!("Expected ident: {:?}", self))),
+            _ => Err(Error::new(
+                ErrorKind::TypeMismatch,
+                format!("Expected ident: {:?}", self),
+            )),
         }
     }
 
@@ -202,10 +211,10 @@ impl TryInto<f64> for TulispValue {
         match self {
             TulispValue::Float(s) => Ok(s),
             TulispValue::Int(s) => Ok(s as f64),
-            t => Err(Error::TypeMismatch(format!(
-                "Expected number, got: {:?}",
-                t
-            ))),
+            t => Err(Error::new(
+                ErrorKind::TypeMismatch,
+                format!("Expected number, got: {:?}", t),
+            )),
         }
     }
 }
@@ -216,7 +225,10 @@ impl TryInto<i64> for TulispValue {
     fn try_into(self) -> Result<i64, Error> {
         match self {
             TulispValue::Int(s) => Ok(s),
-            t => Err(Error::TypeMismatch(format!("Expected integer: {:?}", t))),
+            t => Err(Error::new(
+                ErrorKind::TypeMismatch,
+                format!("Expected integer: {:?}", t),
+            )),
         }
     }
 }

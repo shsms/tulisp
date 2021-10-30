@@ -6,7 +6,7 @@ use crate::cons::{car, cdr};
 use crate::context::{ContextObject, TulispContext};
 use crate::eval::{eval, eval_defmacro};
 use crate::value::Span;
-use crate::{cons::Cons, value::TulispValue, Error};
+use crate::{cons::Cons, value::TulispValue, Error, ErrorKind};
 
 #[derive(Parser)]
 #[grammar = "tulisp.pest"]
@@ -138,10 +138,12 @@ fn parse(
         }
         Rule::backquote => Ok(TulispValue::Backquote(Box::new(parse(
             ctx,
-            value
-                .into_inner()
-                .peek()
-                .ok_or_else(|| Error::ParsingError(format!("Backquote inner not found")))?,
+            value.into_inner().peek().ok_or_else(|| {
+                Error::new(
+                    ErrorKind::ParsingError,
+                    format!("Backquote inner not found"),
+                )
+            })?,
             if *expand_macros != MacroExpand::No {
                 &MacroExpand::Unquote
             } else {
@@ -150,10 +152,9 @@ fn parse(
         )?))),
         Rule::unquote => Ok(TulispValue::Unquote(Box::new(parse(
             ctx,
-            value
-                .into_inner()
-                .peek()
-                .ok_or_else(|| Error::ParsingError(format!("Unquote inner not found")))?,
+            value.into_inner().peek().ok_or_else(|| {
+                Error::new(ErrorKind::ParsingError, format!("Unquote inner not found"))
+            })?,
             if *expand_macros != MacroExpand::No {
                 &MacroExpand::Yes
             } else {
@@ -162,37 +163,42 @@ fn parse(
         )?))),
         Rule::quote => Ok(TulispValue::Quote(Box::new(parse(
             ctx,
-            value
-                .into_inner()
-                .peek()
-                .ok_or_else(|| Error::ParsingError(format!("Quote inner not found")))?,
+            value.into_inner().peek().ok_or_else(|| {
+                Error::new(ErrorKind::ParsingError, format!("Quote inner not found"))
+            })?,
             &MacroExpand::No,
         )?))),
         Rule::nil => Ok(TulispValue::Nil),
         Rule::ident => Ok(TulispValue::Ident(value.as_span().as_str().to_string())),
-        Rule::integer => {
-            Ok(TulispValue::Int(value.as_span().as_str().parse().map_err(
-                |e: std::num::ParseIntError| Error::ParsingError(e.to_string()),
-            )?))
-        }
+        Rule::integer => Ok(TulispValue::Int(value.as_span().as_str().parse().map_err(
+            |e: std::num::ParseIntError| Error::new(ErrorKind::ParsingError, e.to_string()),
+        )?)),
         Rule::float => Ok(TulispValue::Float(
             value
                 .as_span()
                 .as_str()
                 .parse()
-                .map_err(|e: std::num::ParseFloatError| Error::ParsingError(e.to_string()))?,
+                .map_err(|e: std::num::ParseFloatError| {
+                    Error::new(ErrorKind::ParsingError, e.to_string())
+                })?,
         )),
         Rule::string => Ok(TulispValue::String(
             value
                 .into_inner()
                 .peek()
                 .ok_or_else(|| {
-                    Error::ParsingError(format!("parsing error: string inner not found"))
+                    Error::new(
+                        ErrorKind::ParsingError,
+                        format!("parsing error: string inner not found"),
+                    )
                 })?
                 .as_span()
                 .as_str()
                 .to_string(),
         )),
-        e => Err(Error::ParsingError(format!("unknown rule {:?}", e))),
+        e => Err(Error::new(
+            ErrorKind::ParsingError,
+            format!("unknown rule {:?}", e),
+        )),
     }
 }

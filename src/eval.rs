@@ -5,7 +5,7 @@ use crate::{
     context::{ContextObject, TulispContext},
     parser::{macroexpand, parse_string},
     value::TulispValue,
-    Error,
+    Error, ErrorKind,
 };
 
 pub fn eval_defun(
@@ -23,12 +23,20 @@ pub fn eval_defun(
         };
         let val = match args.next() {
             Some(vv) => eval(ctx, &vv)?,
-            None => return Err(Error::TypeMismatch("Too few arguments".to_string())),
+            None => {
+                return Err(Error::new(
+                    ErrorKind::TypeMismatch,
+                    "Too few arguments".to_string(),
+                ))
+            }
         };
         local.insert(name, Rc::new(RefCell::new(ContextObject::TulispValue(val))));
     }
     if args.next().is_some() {
-        return Err(Error::TypeMismatch("Too many arguments".to_string()));
+        return Err(Error::new(
+            ErrorKind::TypeMismatch,
+            "Too many arguments".to_string(),
+        ));
     }
     ctx.push(local);
     let result = eval_each(ctx, body);
@@ -52,12 +60,20 @@ pub fn eval_defmacro(
         };
         let val = match args.next() {
             Some(vv) => vv.clone(),
-            None => return Err(Error::TypeMismatch("Too few arguments".to_string())),
+            None => {
+                return Err(Error::new(
+                    ErrorKind::TypeMismatch,
+                    "Too few arguments".to_string(),
+                ))
+            }
         };
         local.insert(name, Rc::new(RefCell::new(ContextObject::TulispValue(val))));
     }
     if args.next().is_some() {
-        return Err(Error::TypeMismatch("Too many arguments".to_string()));
+        return Err(Error::new(
+            ErrorKind::TypeMismatch,
+            "Too many arguments".to_string(),
+        ));
     }
     ctx.push(local);
     let result = eval_each(ctx, body);
@@ -82,9 +98,15 @@ fn eval_func(ctx: &mut TulispContext, val: &TulispValue) -> Result<TulispValue, 
                 let expanded = macroexpand(ctx, val.clone())?;
                 eval(ctx, &expanded)
             }
-            _ => Err(Error::Undefined(format!("function is void: {:?}", name))),
+            _ => Err(Error::new(
+                ErrorKind::Undefined,
+                format!("function is void: {}", name),
+            )),
         },
-        None => Err(Error::Undefined(format!("function is void: {:?}", name))),
+        None => Err(Error::new(
+            ErrorKind::Undefined,
+            format!("function is void: {}", name),
+        )),
     }
 }
 
@@ -99,22 +121,24 @@ pub fn eval(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue,
                 match ctx.get_str(&name) {
                     Some(obj) => match &*obj.as_ref().borrow() {
                         ContextObject::TulispValue(vv) => Ok(vv.clone()),
-                        _ => Err(Error::TypeMismatch(format!(
-                            "variable definition is void: {}",
-                            name
-                        ))),
+                        _ => Err(Error::new(
+                            ErrorKind::TypeMismatch,
+                            format!("variable definition is void: {}", name),
+                        )),
                     },
-                    None => Err(Error::TypeMismatch(format!(
-                        "variable definition is void: {}",
-                        name
-                    ))),
+                    None => Err(Error::new(
+                        ErrorKind::TypeMismatch,
+                        format!("variable definition is void: {}", name),
+                    )),
                 }
             }
         }
         TulispValue::Int(_) => Ok(value.clone()),
         TulispValue::Float(_) => Ok(value.clone()),
         TulispValue::String(_) => Ok(value.clone()),
-        TulispValue::SExp { ref span, .. } => eval_func(ctx, &value).map_err(|e| e.with_span(span)),
+        TulispValue::SExp { span, .. } => {
+            eval_func(ctx, &value).map_err(|e| e.with_span(span.clone()))
+        }
         TulispValue::Quote(vv) => Ok(*vv.clone()),
         TulispValue::Backquote(vv) => {
             let mut ret = Cons::new();
@@ -138,10 +162,12 @@ pub fn eval(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue,
                 span: None,
             })
         }
-        TulispValue::Unquote(_) => {
-            Err(Error::TypeMismatch("Unquote without backquote".to_string()))
-        }
-        TulispValue::Uninitialized => Err(Error::Uninitialized(
+        TulispValue::Unquote(_) => Err(Error::new(
+            ErrorKind::TypeMismatch,
+            "Unquote without backquote".to_string(),
+        )),
+        TulispValue::Uninitialized => Err(Error::new(
+            ErrorKind::Uninitialized,
             "Attempt to process uninitialized value".to_string(),
         )),
     };

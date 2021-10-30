@@ -1,5 +1,6 @@
 use crate::value::TulispValue;
 use crate::Error;
+use crate::ErrorKind;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Cons {
@@ -40,7 +41,10 @@ impl Cons {
                 span: None,
             };
         } else {
-            return Err(Error::TypeMismatch("Cons: unable to push".to_string()));
+            return Err(Error::new(
+                ErrorKind::TypeMismatch,
+                "Cons: unable to push".to_string(),
+            ));
         }
         Ok(())
     }
@@ -68,7 +72,10 @@ impl Cons {
         if let TulispValue::Uninitialized = last {
             *last = val;
         } else {
-            return Err(Error::TypeMismatch("Unable to append".to_string()));
+            return Err(Error::new(
+                ErrorKind::TypeMismatch,
+                "Unable to append".to_string(),
+            ));
         }
         Ok(())
     }
@@ -103,7 +110,10 @@ pub fn car(cons: &TulispValue) -> Result<&TulispValue, Error> {
     if let TulispValue::SExp { cons, .. } = cons {
         Ok(&cons.car)
     } else {
-        Err(Error::TypeMismatch(format!("Not a Cons: {:?}", cons)))
+        Err(Error::new(
+            ErrorKind::TypeMismatch,
+            format!("Not a Cons: {:?}", cons),
+        ))
     }
 }
 
@@ -111,6 +121,9 @@ pub fn cdr(cons: &TulispValue) -> Result<&TulispValue, Error> {
     if let TulispValue::SExp { cons, .. } = cons {
         Ok(&cons.cdr)
     } else {
-        Err(Error::TypeMismatch(format!("Not a Cons: {:?}", cons)))
+        Err(Error::new(
+            ErrorKind::TypeMismatch,
+            format!("Not a Cons: {:?}", cons),
+        ))
     }
 }

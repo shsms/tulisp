@@ -1,6 +1,6 @@
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
-use crate::{eval::eval, value::TulispValue, Error};
+use crate::{eval::eval, value::TulispValue, Error, ErrorKind};
 
 #[derive(Clone)]
 pub enum ContextObject {
@@ -80,7 +80,12 @@ impl TulispContext {
                 Some(f) => {
                     f.insert(name.clone(), Rc::new(RefCell::new(value)));
                 }
-                None => return Err(Error::Undefined("Top level context is missing".to_string())),
+                None => {
+                    return Err(Error::new(
+                        ErrorKind::Undefined,
+                        "Top level context is missing".to_string(),
+                    ))
+                }
             },
         }
         Ok(())
@@ -89,10 +94,10 @@ impl TulispContext {
         if let TulispValue::Ident(name) = name {
             self.set_str(name.clone(), ContextObject::TulispValue(value))
         } else {
-            Err(Error::TypeMismatch(format!(
-                "name is not an ident: {}",
-                name
-            )))
+            Err(Error::new(
+                ErrorKind::TypeMismatch,
+                format!("name is not an ident: {}", name),
+            ))
         }
     }
 
@@ -101,14 +106,16 @@ impl TulispContext {
         for varitem in varlist.iter() {
             let mut varitem = varitem.iter();
 
-            let name = varitem
-                .next()
-                .ok_or(Error::Undefined("let varitem requires name".to_string()))?;
+            let name = varitem.next().ok_or(Error::new(
+                ErrorKind::Undefined,
+                "let varitem requires name".to_string(),
+            ))?;
             let value = varitem
                 .next()
                 .map_or(Ok(TulispValue::Nil), |vv| eval(self, &vv))?;
             if varitem.next().is_some() {
-                return Err(Error::TypeMismatch(
+                return Err(Error::new(
+                    ErrorKind::TypeMismatch,
                     "let varitem has too many values".to_string(),
                 ));
             }

@@ -17,44 +17,29 @@ use eval::eval_file;
 use value::Span;
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Error {
-    NotImplemented(String),
-    ParsingError(String),
-    TypeMismatch(String),
-    Undefined(String),
-    Uninitialized(String),
-    Unimplemented(String),
+pub enum ErrorKind {
+    NotImplemented,
+    ParsingError,
+    TypeMismatch,
+    Undefined,
+    Uninitialized,
+    Unimplemented,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Error {
+    kind: ErrorKind,
+    desc: String,
+    span: Option<Span>,
 }
 
 impl Error {
-    pub fn with_span(self, span: &Option<Span>) -> Error {
-        let span = match span {
-            Some(span) => span,
-            None => {
-                println!("Got error, but no span: {:?}", self);
-                return self;
-            }
-        };
-        match &self {
-            Error::NotImplemented(err) => {
-                Error::NotImplemented(format!("{} : ({}, {})", err, span.start, span.end))
-            }
-            Error::ParsingError(err) => {
-                Error::ParsingError(format!("{} : ({}, {})", err, span.start, span.end))
-            }
-            Error::TypeMismatch(err) => {
-                Error::TypeMismatch(format!("{} : ({}, {})", err, span.start, span.end))
-            }
-            Error::Undefined(err) => {
-                Error::Undefined(format!("{} : ({}, {})", err, span.start, span.end))
-            }
-            Error::Uninitialized(err) => {
-                Error::Uninitialized(format!("{} : ({}, {})", err, span.start, span.end))
-            }
-            Error::Unimplemented(err) => {
-                Error::Unimplemented(format!("{} : ({}, {})", err, span.start, span.end))
-            }
-        }
+    pub fn new(kind: ErrorKind, desc: String)  -> Self {
+        Error {kind, desc, span: None}
+    }
+    pub fn with_span(mut self, span: Option<Span>) -> Self {
+        self.span = span;
+        self
     }
 }
 

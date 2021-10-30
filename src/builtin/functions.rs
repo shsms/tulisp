@@ -9,6 +9,7 @@ use crate::eval::eval_each;
 use crate::parser::macroexpand;
 use crate::value::TulispValue;
 use crate::Error;
+use crate::ErrorKind;
 use std::cell::RefCell;
 use std::convert::TryInto;
 use std::rc::Rc;
@@ -40,7 +41,7 @@ macro_rules! defun_args {
     (@impl $vv:ident,) => {};
     (@no-rest $vv:ident) => {
         if *$vv != TulispValue::Uninitialized {
-            return Err(Error::TypeMismatch("Too many arguments".to_string()));
+            return Err(Error::new(ErrorKind::TypeMismatch,"Too many arguments".to_string(), ));
         }
     };
     (@rest $rest:ident $vv:ident) => {
@@ -128,7 +129,8 @@ fn reduce_with(
     list.iter()
         .map(|x| eval(ctx, x))
         .reduce(|v1, v2| method(v1?, v2?))
-        .unwrap_or(Err(Error::TypeMismatch(
+        .unwrap_or(Err(Error::new(
+            ErrorKind::TypeMismatch,
             "Incorrect number of arguments: 0".to_string(),
         )))
 }
@@ -221,7 +223,12 @@ pub fn add(ctx: &mut Scope) {
             for ele in vv.iter() {
                 match eval(ctx, ele)? {
                     TulispValue::String(s) => ret.push_str(&s),
-                    _ => return Err(Error::TypeMismatch(format!("Not a string: {:?}", ele))),
+                    _ => {
+                        return Err(Error::new(
+                            ErrorKind::TypeMismatch,
+                            format!("Not a string: {:?}", ele),
+                        ))
+                    }
                 }
             }
             Ok(TulispValue::String(ret))
@@ -241,7 +248,8 @@ pub fn add(ctx: &mut Scope) {
             let mut iter = vv.iter();
             let object = iter.next();
             if iter.next().is_some() {
-                Err(Error::NotImplemented(
+                Err(Error::new(
+                    ErrorKind::NotImplemented,
                     "output stream currently not supported".to_string(),
                 ))
             } else if let Some(v) = object {
@@ -249,7 +257,8 @@ pub fn add(ctx: &mut Scope) {
                 println!("{}", ret);
                 Ok(ret)
             } else {
-                Err(Error::TypeMismatch(
+                Err(Error::new(
+                    ErrorKind::TypeMismatch,
                     "Incorrect number of arguments: print, 0".to_string(),
                 ))
             }
@@ -268,7 +277,8 @@ pub fn add(ctx: &mut Scope) {
             let mut iter = vv.iter();
             let object = iter.next();
             if iter.next().is_some() {
-                Err(Error::NotImplemented(
+                Err(Error::new(
+                    ErrorKind::NotImplemented,
                     "output stream currently not supported".to_string(),
                 ))
             } else if let Some(v) = object {
@@ -276,7 +286,8 @@ pub fn add(ctx: &mut Scope) {
                 println!("{}", ret.fmt_string());
                 Ok(ret)
             } else {
-                Err(Error::TypeMismatch(
+                Err(Error::new(
+                    ErrorKind::TypeMismatch,
                     "Incorrect number of arguments: print, 0".to_string(),
                 ))
             }
@@ -332,7 +343,8 @@ pub fn add(ctx: &mut Scope) {
             ctx.r#let(varlist)?;
             let ret = match body {
                 vv @ TulispValue::SExp { .. } => eval_each(ctx, vv),
-                _ => Err(Error::TypeMismatch(
+                _ => Err(Error::new(
+                    ErrorKind::TypeMismatch,
                     "let: expected varlist and body".to_string(),
                 )),
             };
