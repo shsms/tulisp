@@ -11,6 +11,7 @@ use crate::value::TulispValue;
 use crate::Error;
 use crate::ErrorKind;
 use std::cell::RefCell;
+use std::cmp::Ordering;
 use std::convert::TryInto;
 use std::rc::Rc;
 
@@ -175,7 +176,10 @@ pub fn add(ctx: &mut Scope) {
             defun_args!(let (_first &rest rest) = vv);
             for ele in rest.iter() {
                 if ele == &TulispValue::Int(0) || ele == &TulispValue::Float(0.0) {
-                    return Err(Error::new(ErrorKind::Undefined, "Division by zero".to_string()));
+                    return Err(Error::new(
+                        ErrorKind::Undefined,
+                        "Division by zero".to_string(),
+                    ));
                 }
             }
             reduce_with(ctx, vv, binary_ops!(std::ops::Div::div))
@@ -459,12 +463,47 @@ pub fn add(ctx: &mut Scope) {
         }))),
     );
 
+    ctx.insert(
+        "sort".to_string(),
+        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
+            defun_args!(let (seq pred) = vv);
+            let pred = eval(ctx, pred)?;
+            let pred = ctx.get(&pred).ok_or_else(|| {
+                Error::new(
+                    ErrorKind::Undefined,
+                    format!("Unknown predicate: {}", pred),
+                )
+            })?;
+            let seq = eval(ctx, seq)?;
+            let mut vec: Vec<_> = seq.iter().map(|v| v.clone()).collect();
+            vec.sort_by(|v1, v2| {
+                let vv = TulispValue::Nil
+                    .into_push(TulispValue::Nil)
+                    .unwrap()
+                    .into_push(v1.clone())
+                    .unwrap()
+                    .into_push(v2.clone())
+                    .unwrap()
+                    .with_ctxobj(Some(pred.clone()));
+
+                if eval(ctx, &vv).unwrap_or(TulispValue::Nil).as_bool() {
+                    Ordering::Less
+                } else {
+                    Ordering::Equal
+                }
+            });
+            let ret = vec.iter().fold(TulispValue::Nil, |v1, v2| {
+                v1.into_push((*v2).clone()).unwrap()
+            });
+            Ok(ret)
+        }))),
+    );
     /*
     ctx.insert(
         "".to_string(),
-        ContextObject::Func(|ctx, vv| {
+        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
 
-        })
+        })))
     );
     */
 }

@@ -69,6 +69,15 @@ fn test_while() -> Result<(), Error> {
 }
 
 #[test]
+fn test_sort() -> Result<(), Error> {
+    tulisp_assert!{
+        program: "(sort '(20 10 30 15 45) '<)",
+        result: "(10 15 20 30 45)",
+    }
+    Ok(())
+}
+
+#[test]
 fn test_threading_macros() -> Result<(), Error> {
     tulisp_assert! {
         program: r##"

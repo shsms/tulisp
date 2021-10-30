@@ -210,6 +210,13 @@ impl TulispValue {
         }
     }
 
+    pub fn with_ctxobj(self, ctxobj: Option<Rc<RefCell<ContextObject>>>) -> TulispValue {
+        match self {
+            TulispValue::SExp { cons, span, ..} => TulispValue::SExp{cons, ctxobj, span},
+            _ => self
+        }
+    }
+
     pub fn fmt_string(&self) -> String {
         match self {
             TulispValue::String(vv) => vv.to_string(),
