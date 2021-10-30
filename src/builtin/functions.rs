@@ -18,13 +18,21 @@ macro_rules! list {
     (@push $ret:ident, $item:expr) => {
         $ret.push($item)?;
     };
-    (@push $ret:ident, $item:expr, $($items:expr),+) => {
-        $ret.push($item)?;
-        list!(@push $ret, $($items),+);
+    (@push $ret:ident, @ $item:expr) => {
+        $ret.append($item)?;
     };
-    ($($items:expr),+) => {{
+    (@push $ret:ident, $item:expr, $($items:tt)+) => {
+        $ret.push($item)?;
+        list!(@push $ret, $($items)+);
+    };
+    (@push $ret:ident, @ $item:expr, $($items:tt)+) => {
+        $ret.append($item)?;
+        list!(@push $ret, $($items)+);
+    };
+    (, $($items:tt)+) => { list!($($items)+) };
+    ($($items:tt)+) => {{
 	let mut ret = TulispValue::Nil;
-        list!(@push ret, $($items),+);
+        list!(@push ret, $($items)+);
         ret
     }};
 }

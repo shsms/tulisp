@@ -8,25 +8,48 @@ use crate::context::{ContextObject, Scope, TulispContext};
 use crate::value::TulispValue;
 use crate::Error;
 
-fn thread_last(ctx: &mut TulispContext, vv: &TulispValue) -> Result<TulispValue, Error> {
+fn thread_first(ctx: &mut TulispContext, vv: &TulispValue) -> Result<TulispValue, Error> {
     defun_args!(let (x &optional form &rest more) = vv);
-    if !form.as_bool() {
+    if form.is_null() {
         Ok(x.clone())
-    } else if !more.as_bool() {
+    } else if more.is_null() {
         if form.is_list() {
-            Ok(form.clone().into_push(x.clone())?)
+            Ok(list!(,car(form)?.clone() ,x.clone() ,@cdr(form)?.clone()))
         } else {
-            Ok(list!(form.clone(), x.clone()))
+            Ok(list!(,form.clone() ,x.clone()))
         }
     } else {
-        let inner = thread_last(ctx, &list!(x.clone(), form.clone()))?
-            .into_list()
-            .into_append(more.clone())?;
-        thread_last(ctx, &inner)
+        let inner = thread_first(ctx, &list!(,x.clone() ,form.clone()))?;
+        thread_first(ctx, &list!(,inner ,@more.clone()))
+    }
+}
+
+fn thread_last(ctx: &mut TulispContext, vv: &TulispValue) -> Result<TulispValue, Error> {
+    defun_args!(let (x &optional form &rest more) = vv);
+    if form.is_null() {
+        Ok(x.clone())
+    } else if more.is_null() {
+        if form.is_list() {
+            Ok(list!(,@form.clone() ,x.clone()))
+        } else {
+            Ok(list!(,form.clone() ,x.clone()))
+        }
+    } else {
+        let inner = thread_last(ctx, &list!(,x.clone() ,form.clone()))?;
+        thread_last(ctx, &list!(,inner ,@more.clone()))
     }
 }
 
 pub fn add(ctx: &mut Scope) {
+    ctx.insert(
+        "->".to_string(),
+        Rc::new(RefCell::new(ContextObject::Macro(thread_first))),
+    );
+    ctx.insert(
+        "thread-first".to_string(),
+        Rc::new(RefCell::new(ContextObject::Macro(thread_first))),
+    );
+
     ctx.insert(
         "->>".to_string(),
         Rc::new(RefCell::new(ContextObject::Macro(thread_last))),

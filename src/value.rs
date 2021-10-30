@@ -147,6 +147,15 @@ impl TulispValue {
         if let TulispValue::SExp { cons, span, .. } = self {
             cons.append(val).map_err(|e| e.with_span(span.clone()))?;
             Ok(self)
+        } else if *self == TulispValue::Uninitialized || *self == TulispValue::Nil {
+            let mut cons = Cons::new();
+            cons.append(val)?;
+            *self = TulispValue::SExp {
+                cons: Box::new(cons),
+                ctxobj: None,
+                span: None,
+            };
+            Ok(self)
         } else {
             Err(Error::new(
                 ErrorKind::TypeMismatch,
@@ -178,6 +187,10 @@ impl TulispValue {
                 Err(_) => true,
             },
         }
+    }
+
+    pub fn is_null(&self) -> bool {
+        !self.as_bool()
     }
 
     pub fn is_list(&self) -> bool {

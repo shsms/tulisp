@@ -34,8 +34,12 @@ pub struct Error {
 }
 
 impl Error {
-    pub fn new(kind: ErrorKind, desc: String)  -> Self {
-        Error {kind, desc, span: None}
+    pub fn new(kind: ErrorKind, desc: String) -> Self {
+        Error {
+            kind,
+            desc,
+            span: None,
+        }
     }
     pub fn with_span(mut self, span: Option<Span>) -> Self {
         self.span = span;
@@ -99,6 +103,36 @@ mod tests {
         let mut ctx = new_context();
         let prog = "(let ((vv 0)) (while (< vv 42) (setq vv (+ 1 vv))) vv)";
         assert_eq!(eval_string(&mut ctx, prog)?, TulispValue::Int(42));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_threading_macros() -> Result<(), Error> {
+        let mut ctx = new_context();
+        let prog = r##"
+        (macroexpand
+         '(-> 9
+              (expt 0.5)
+              (equal 3)
+              (if "true" "false")))
+        "##;
+        assert_eq!(
+            eval_string(&mut ctx, prog)?.to_string(),
+            r##"(if (equal (expt 9 0.5) 3) "true" "false")"##
+        );
+
+        let prog = r##"
+        (macroexpand
+         '(->> 0.5
+               (expt 9)
+               (equal 3)
+               (if nil ())))
+        "##;
+        assert_eq!(
+            eval_string(&mut ctx, prog)?.to_string(),
+            r##"(if nil () (equal 3 (expt 9 0.5)))"##
+        );
 
         Ok(())
     }
