@@ -7,7 +7,13 @@ macro_rules! tulisp_assert {
         let output = eval_string(&mut ctx, $input)?;
         let expected = parse_string(&mut ctx, $result)?;
         let expected = car(&expected)?;
-        assert!(&output == expected, "\n  output: {},\n  expected: {}\n", output, expected);
+        assert!(
+            &output == expected,
+            "\n  program: {}\n  output: {},\n  expected: {}\n",
+            $input,
+            output,
+            expected
+        );
     };
     (program:$input:expr, error:$desc:expr $(,)?) => {
         let mut ctx = new_context();
@@ -19,39 +25,166 @@ macro_rules! tulisp_assert {
 
 #[test]
 fn test_if() -> Result<(), Error> {
-    tulisp_assert! {
-        program: "(if t 10 20)",
-        result: "10",
-    }
-    tulisp_assert! {
-        program: "(if nil 10 20)",
-        result: "20",
-    }
+    tulisp_assert! { program: "(if t 10 15 20)",      result: "10" }
+    tulisp_assert! { program: "(if nil 10 15 20)",    result: "20" }
+    tulisp_assert! { program: "(if (> 20 10) 10 20)", result: "10" }
+    tulisp_assert! { program: "(if (> 10 20) 10 20)", result: "20" }
+    tulisp_assert! { program: r##"
+    (defun cf (vv)
+      (cond ((> vv 45) 'gt45)
+            ((> vv 5) 'gt5)))
+    (list (cf 2) (cf 200) (cf 8))
+    "##, result: r#"(nil gt45 gt5)"#}
+    Ok(())
+}
 
+#[test]
+fn test_defun() -> Result<(), Error> {
     tulisp_assert! {
-        program: "(if (> 20 10) 10 20)",
-        result: "10",
+        program: "(defun num () 4) (num)",
+        result: "4",
     }
-
     tulisp_assert! {
-        program: "(if (> 10 20) 10 20)",
-        result: "20",
+        program: "(defun add (x y) (+ x y)) (add 10 20)",
+        result: "30",
+    }
+    tulisp_assert! {
+        program: "(defun add (x y) (+ x y)) (add 10)",
+        error: "Too few arguments",
+    }
+    tulisp_assert! {
+        program: "(defun add (x y) (+ x y)) (add 10 20 30)",
+        error: "Too many arguments",
+    }
+    tulisp_assert! {
+        program: "(defmacro num ()  4) (macroexpand '(num))",
+        result: "4",
+    }
+    tulisp_assert! {
+        program: "(defmacro inc (var)  (list 'setq var (list '+ 1 var))) (macroexpand '(inc x))",
+        result: "(setq x (+ 1 x))",
+    }
+    tulisp_assert! {
+        program: "(defmacro inc (var)  (list 'setq var (list '+ 1 var))) (let ((x 4)) (inc x))",
+        result: "5",
+    }
+    tulisp_assert! {
+        program: "(defmacro inc (var)  (list 'setq var (list '+ 1 var))) (let ((x 4)) (inc))",
+        error: "Too few arguments",
+    }
+    tulisp_assert! {
+        program: "(defmacro inc (var)  (list 'setq var (list '+ 1 var))) (let ((x 4)) (inc 4 5))",
+        error: "Too many arguments",
+    }
+    Ok(())
+}
+
+#[test]
+fn test_eval() -> Result<(), Error> {
+    tulisp_assert! {
+        program: "'(mod 32 5)",
+        result: "(mod 32 5)",
+    }
+    tulisp_assert! {
+        program: "(eval '(mod 32 5))",
+        result: "2",
     }
 
     Ok(())
 }
+#[test]
+fn test_strings() -> Result<(), Error> {
+    tulisp_assert! { program: r##"(concat 'hello 'world)"##, error: "Not a string: 'hello" }
+    tulisp_assert! { program: r##"(concat "hello" " world")"##, result: r#""hello world""# }
+    tulisp_assert! {
+        program: r##"(let ((hello "hello") (world "world")) (concat hello " " world))"##,
+        result: r#""hello world""#,
+    }
 
+    tulisp_assert! { program: "(prin1-to-string 'hello)", result: r#""hello""# }
+    tulisp_assert! { program: "(prin1-to-string 25)", result: r#""25""# }
+    tulisp_assert! { program: "(setq h 25)(prin1-to-string h)", result: r#""25""# }
+    tulisp_assert! {
+        program: "(setq h '(list 25 'hello))(prin1-to-string h)",
+        result: r#""(list 25 'hello)""#
+    }
+    tulisp_assert! { program: r##"(setq h "hello")(prin1-to-string h)"##, result: r#""hello""# }
+    Ok(())
+}
+
+#[test]
+fn test_lists() -> Result<(), Error> {
+    tulisp_assert! {
+        program: r##"
+        (let ((items (list 10 20)))
+          (setq items
+                (append items
+                        '(30 40)
+                        (list (+ 8 42) 60)))
+          items)
+        "##,
+        result: "(10 20 30 40 50 60)",
+    }
+
+    tulisp_assert! {
+        program: "(setq items (append items '(10)))",
+        error: "variable definition is void: items",
+    }
+
+    tulisp_assert! {
+        program: "(let ((vv '(12 20 30))) `(,(car vv) ,(cdr vv)))",
+        result: "(12 (20 30))",
+    }
+
+    Ok(())
+}
 #[test]
 fn test_math() -> Result<(), Error> {
-    tulisp_assert!{
-        program: "(/ 10 0)",
-        error: "Division by zero",
-    }
+    tulisp_assert! { program: "(/ 10 0)", error: "Division by zero", }
+
+    tulisp_assert! { program: "(/ 24 2 2)",                result: "6"     }
+    tulisp_assert! { program: "(+ 40 (* 2.5 4) (- 4 12))", result: "42.0"  }
+    tulisp_assert! { program: "(+ 40 (* 2.5 4) (- -1 7))", result: "42.0"  }
+    tulisp_assert! { program: "(expt 2 3)",                result: "8.0"   }
+    tulisp_assert! { program: "(mod 32 5)",                result: "2"     }
+    tulisp_assert! { program: "(min 12 5 45)",             result: "5"     }
+    tulisp_assert! { program: "(max 12 5 45.2 8)",         result: "45.2"  }
+
+    tulisp_assert! { program: "(< 8 32)",      result: "t"   }
+    tulisp_assert! { program: "(< 80 32)",     result: "nil" }
+    tulisp_assert! { program: "(<= 32 32)",    result: "t"   }
+    tulisp_assert! { program: "(<= 8 32)",     result: "t"   }
+    tulisp_assert! { program: "(<= 80 32)",    result: "nil" }
+    tulisp_assert! { program: "(> 8 32)",      result: "nil" }
+    tulisp_assert! { program: "(> 80 32)",     result: "t"   }
+    tulisp_assert! { program: "(>= 32 32)",    result: "t"   }
+    tulisp_assert! { program: "(>= 8 32)",     result: "nil" }
+    tulisp_assert! { program: "(>= 80 32)",    result: "t"   }
+    tulisp_assert! { program: "(equal 8 8)",   result: "t"   }
+    tulisp_assert! { program: "(equal 8 4)",   result: "nil" }
+    tulisp_assert! { program: "(equal 8.0 8)", result: "t"   }
+    tulisp_assert! { program: "(equal 8.0 4)", result: "nil" }
     Ok(())
 }
+
+#[test]
+fn test_let() -> Result<(), Error> {
+    tulisp_assert! {
+        program: "(let ((vv (+ 55 1)) (jj 20)) (+ vv jj 1))",
+        result: "77",
+    }
+
+    tulisp_assert! {
+        program: "(let* ((vv 21) (jj (+ vv 1))) (setq jj (+ 21 jj)) jj)",
+        result: "43",
+    }
+
+    Ok(())
+}
+
 #[test]
 fn test_setq() -> Result<(), Error> {
-    tulisp_assert!{
+    tulisp_assert! {
         program: r##"(let ((xx 10)) (setq zz (+ xx 10))) (* zz 3)"##,
         result: "60",
     }
@@ -61,7 +194,7 @@ fn test_setq() -> Result<(), Error> {
 
 #[test]
 fn test_while() -> Result<(), Error> {
-    tulisp_assert!{
+    tulisp_assert! {
         program: "(let ((vv 0)) (while (< vv 42) (setq vv (+ 1 vv))) vv)",
         result: "42",
     }
@@ -70,9 +203,17 @@ fn test_while() -> Result<(), Error> {
 
 #[test]
 fn test_sort() -> Result<(), Error> {
-    tulisp_assert!{
+    tulisp_assert! {
         program: "(sort '(20 10 30 15 45) '<)",
         result: "(10 15 20 30 45)",
+    }
+    tulisp_assert! {
+        program: "(sort '(20 10 30 15 45) '>)",
+        result: "(45 30 20 15 10)",
+    }
+    tulisp_assert! {
+        program: "(sort '(20 10 30 15 45) '<<)",
+        error: "Unknown predicate: <<",
     }
     Ok(())
 }
@@ -106,6 +247,26 @@ fn test_threading_macros() -> Result<(), Error> {
           (equal 3 (expt 9 0.5)))
         "##,
     };
+
+    tulisp_assert! {
+        program: "(thread-last (- 5) (- 10) -)",
+        result: "-15",
+    }
+
+    tulisp_assert! {
+        program: "(thread-first (- 5) (- 10) -)",
+        result: "15",
+    }
+
+    tulisp_assert! {
+        program: "(-> 10)",
+        result: "10",
+    }
+
+    tulisp_assert! {
+        program: "(->> 10)",
+        result: "10",
+    }
 
     Ok(())
 }

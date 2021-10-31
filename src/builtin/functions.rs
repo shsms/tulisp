@@ -198,6 +198,7 @@ pub fn add(ctx: &mut Scope) {
             reduce_with(ctx, vv, binary_ops!(std::ops::Div::div))
         }))),
     );
+    // TODO: >, >=, <, <=, equal - need to be able to support more than 2 args
     ctx.insert(
         ">".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
@@ -265,7 +266,7 @@ pub fn add(ctx: &mut Scope) {
                     _ => {
                         return Err(Error::new(
                             ErrorKind::TypeMismatch,
-                            format!("Not a string: {:?}", ele),
+                            format!("Not a string: {}", ele),
                         ))
                     }
                 }
