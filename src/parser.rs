@@ -42,7 +42,7 @@ pub fn macroexpand(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispV
     match ctx.get_str(&name) {
         Some(item) => match &*item.as_ref().borrow() {
             ContextObject::Macro(func) => {
-                let expansion = func(ctx, cdr(&expr)?)?;
+                let expansion = func(ctx, &expr)?;
                 macroexpand(ctx, expansion)
             }
             ContextObject::Defmacro { args, body } => {

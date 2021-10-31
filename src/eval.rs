@@ -92,7 +92,7 @@ fn eval_func(ctx: &mut TulispContext, val: &TulispValue) -> Result<TulispValue, 
     };
     match func {
         Some(item) => match &*item.as_ref().borrow() {
-            ContextObject::Func(func) => func(ctx, cdr(&val)?),
+            ContextObject::Func(func) => func(ctx, &val),
             ContextObject::Defun { args, body } => eval_defun(ctx, &args, &body, cdr(val)?),
             ContextObject::Macro(_) | ContextObject::Defmacro { .. } => {
                 let expanded = macroexpand(ctx, val.clone())?;

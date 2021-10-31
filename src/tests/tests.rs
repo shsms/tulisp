@@ -7,7 +7,7 @@ macro_rules! tulisp_assert {
         let output = eval_string(&mut ctx, $input)?;
         let expected = parse_string(&mut ctx, $result)?;
         let expected = car(&expected)?;
-        assert_eq!(&output, expected);
+        assert!(&output == expected, "\n  output: {},\n  expected: {}\n", output, expected);
     };
     (program:$input:expr, error:$desc:expr $(,)?) => {
         let mut ctx = new_context();

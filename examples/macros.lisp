@@ -17,3 +17,25 @@
       (/ 25)
       -
       (+ 40))))
+(print (eval (macroexpand '(thread-last
+                            5
+                            (+ 20)
+                            (/ 25)
+                            -
+                            (+ 40)))))
+
+(print (macroexpand '(thread-first
+      5
+      (+ 20)
+      (/ 25)
+      -
+      (+ 40))))
+
+(print (thread-first
+         5
+         (+ 20)
+         (/ 25)
+         -
+         (+ 40)))
+
+(princ (/ 5 10))

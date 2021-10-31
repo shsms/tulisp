@@ -5,11 +5,11 @@ use crate::builtin::functions::defun_args;
 use crate::builtin::functions::list;
 use crate::cons::{car, cdr, Cons};
 use crate::context::{ContextObject, Scope, TulispContext};
-use crate::value::TulispValue;
+use crate::value::TulispValue::{self, Nil};
 use crate::Error;
 
 fn thread_first(ctx: &mut TulispContext, vv: &TulispValue) -> Result<TulispValue, Error> {
-    defun_args!(let (x &optional form &rest more) = vv);
+    defun_args!(_name (x &optional form &rest more) = vv);
     if form.is_null() {
         Ok(x.clone())
     } else if more.is_null() {
@@ -19,13 +19,13 @@ fn thread_first(ctx: &mut TulispContext, vv: &TulispValue) -> Result<TulispValue
             Ok(list!(,form.clone() ,x.clone()))
         }
     } else {
-        let inner = thread_first(ctx, &list!(,x.clone() ,form.clone()))?;
-        thread_first(ctx, &list!(,inner ,@more.clone()))
+        let inner = thread_first(ctx, &list!(Nil ,x.clone() ,form.clone()))?;
+        thread_first(ctx, &list!(Nil ,inner ,@more.clone()))
     }
 }
 
 fn thread_last(ctx: &mut TulispContext, vv: &TulispValue) -> Result<TulispValue, Error> {
-    defun_args!(let (x &optional form &rest more) = vv);
+    defun_args!(_name (x &optional form &rest more) = vv);
     if form.is_null() {
         Ok(x.clone())
     } else if more.is_null() {
@@ -35,8 +35,8 @@ fn thread_last(ctx: &mut TulispContext, vv: &TulispValue) -> Result<TulispValue,
             Ok(list!(,form.clone() ,x.clone()))
         }
     } else {
-        let inner = thread_last(ctx, &list!(,x.clone() ,form.clone()))?;
-        thread_last(ctx, &list!(,inner ,@more.clone()))
+        let inner = thread_last(ctx, &list!(Nil ,x.clone() ,form.clone()))?;
+        thread_last(ctx, &list!(Nil ,inner ,@more.clone()))
     }
 }
 
@@ -62,13 +62,13 @@ pub fn add(ctx: &mut Scope) {
     ctx.insert(
         "let*".to_string(),
         Rc::new(RefCell::new(ContextObject::Macro(|ctx, vv| {
-            defun_args!(let (varlist &rest body) = vv);
+            defun_args!(_name (varlist &rest body) = vv);
             fn unwrap_varlist(
                 ctx: &mut TulispContext,
                 varlist: &TulispValue,
                 body: &TulispValue,
             ) -> Result<TulispValue, Error> {
-                defun_args!(let (nextvar &rest rest) = varlist);
+                defun_args!((nextvar &rest rest) = varlist);
 
                 let mut ret = Cons::new();
                 ret.push(TulispValue::Ident("let".to_string()))?;
