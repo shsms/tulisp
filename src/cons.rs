@@ -127,3 +127,11 @@ pub fn cdr(cons: &TulispValue) -> Result<&TulispValue, Error> {
         ))
     }
 }
+
+pub fn cons(car: TulispValue, cdr: TulispValue) -> TulispValue {
+    TulispValue::SExp {
+        cons: Box::new(Cons { car, cdr }),
+        ctxobj: None,
+        span: None,
+    }
+}
