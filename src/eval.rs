@@ -8,80 +8,112 @@ use crate::{
     Error, ErrorKind,
 };
 
+trait Evaluator {
+    fn eval(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue, Error>;
+}
+
+struct Eval;
+impl Evaluator for Eval {
+    fn eval(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue, Error> {
+        eval(ctx, value)
+    }
+}
+
+struct DummyEval;
+impl Evaluator for DummyEval {
+    fn eval(_ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue, Error> {
+        Ok(value.clone())
+    }
+}
+
+fn eval_function<E: Evaluator>(
+    ctx: &mut TulispContext,
+    params: &TulispValue,
+    body: &TulispValue,
+    args: &TulispValue,
+) -> Result<TulispValue, Error> {
+    let mut args = args.iter();
+    let mut params = params.iter();
+    let mut local = HashMap::new();
+    let mut is_opt = false;
+    let mut is_rest = false;
+    while let Some(param) = params.next() {
+        let name = match param.as_ident() {
+            Ok(vv) => vv,
+            Err(e) => return Err(e),
+        };
+        if name == "&optional" {
+            is_opt = true;
+            continue;
+        } else if name == "&rest" {
+            is_opt = false;
+            is_rest = true;
+            continue;
+        }
+        let val = if is_opt {
+            match args.next() {
+                Some(vv) => E::eval(ctx, &vv)?,
+                None => TulispValue::Nil,
+            }
+        } else if is_rest {
+            let mut ret = TulispValue::Nil;
+            while let Some(arg) = args.next() {
+                ret = ret.into_push(E::eval(ctx, arg)?)?;
+            }
+            if params.next().is_some() {
+                return Err(Error::new(
+                    ErrorKind::TypeMismatch,
+                    "Too many &rest parameters".to_string(),
+                ));
+            }
+            ret
+        } else {
+            match args.next() {
+                Some(vv) => E::eval(ctx, &vv)?,
+                None => {
+                    return Err(Error::new(
+                        ErrorKind::TypeMismatch,
+                        "Too few arguments".to_string(),
+                    ))
+                }
+            }
+        };
+        local.insert(name, Rc::new(RefCell::new(ContextObject::TulispValue(val))));
+        if is_rest {
+            break;
+        }
+    }
+    if args.next().is_some() {
+        return Err(Error::new(
+            ErrorKind::TypeMismatch,
+            "Too many arguments".to_string(),
+        ));
+    }
+    ctx.push(local);
+    let result = eval_progn(ctx, body);
+    ctx.pop();
+    result
+}
+
 pub fn eval_defun(
     ctx: &mut TulispContext,
     params: &TulispValue,
     body: &TulispValue,
     args: &TulispValue,
 ) -> Result<TulispValue, Error> {
-    let mut args = args.iter();
-    let mut local = HashMap::new();
-    for param in params.iter() {
-        let name = match param.as_ident() {
-            Ok(vv) => vv,
-            Err(e) => return Err(e),
-        };
-        let val = match args.next() {
-            Some(vv) => eval(ctx, &vv)?,
-            None => {
-                return Err(Error::new(
-                    ErrorKind::TypeMismatch,
-                    "Too few arguments".to_string(),
-                ))
-            }
-        };
-        local.insert(name, Rc::new(RefCell::new(ContextObject::TulispValue(val))));
-    }
-    if args.next().is_some() {
-        return Err(Error::new(
-            ErrorKind::TypeMismatch,
-            "Too many arguments".to_string(),
-        ));
-    }
-    ctx.push(local);
-    let result = eval_each(ctx, body);
-    ctx.pop();
-    result
+    eval_function::<Eval>(ctx, params, body, args)
 }
 
-// identical to eval_defun,  only difference is arguments are not evaluated.
 pub fn eval_defmacro(
     ctx: &mut TulispContext,
     params: &TulispValue,
     body: &TulispValue,
     args: &TulispValue,
 ) -> Result<TulispValue, Error> {
-    let mut args = args.iter();
-    let mut local = HashMap::new();
-    for param in params.iter() {
-        let name = match param.as_ident() {
-            Ok(vv) => vv,
-            Err(e) => return Err(e),
-        };
-        let val = match args.next() {
-            Some(vv) => vv.clone(),
-            None => {
-                return Err(Error::new(
-                    ErrorKind::TypeMismatch,
-                    "Too few arguments".to_string(),
-                ))
-            }
-        };
-        local.insert(name, Rc::new(RefCell::new(ContextObject::TulispValue(val))));
-    }
-    if args.next().is_some() {
-        return Err(Error::new(
-            ErrorKind::TypeMismatch,
-            "Too many arguments".to_string(),
-        ));
-    }
-    ctx.push(local);
-    let result = eval_each(ctx, body);
-    ctx.pop();
-    result
+    eval_function::<DummyEval>(ctx, params, body, args)
 }
 
-fn eval_func(ctx: &mut TulispContext, val: &TulispValue) -> Result<TulispValue, Error> {
+fn eval_form(ctx: &mut TulispContext, val: &TulispValue) -> Result<TulispValue, Error> {
     let name = car(val)?;
     let func = match val {
         TulispValue::SExp {
@@ -137,7 +169,7 @@ pub fn eval(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue,
         TulispValue::Float(_) => Ok(value.clone()),
         TulispValue::String(_) => Ok(value.clone()),
         TulispValue::SExp { span, .. } => {
-            eval_func(ctx, &value).map_err(|e| e.with_span(span.clone()))
+            eval_form(ctx, &value).map_err(|e| e.with_span(span.clone()))
         }
         TulispValue::Quote(vv) => Ok(*vv.clone()),
         TulispValue::Backquote(vv) => {
@@ -176,6 +208,14 @@ pub fn eval(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue,
 }
 
 pub fn eval_each(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue, Error> {
+    let mut ret = TulispValue::Nil;
+    for val in value.iter() {
+        ret = ret.into_push(eval(ctx, val)?)?;
+    }
+    Ok(ret)
+}
+
+pub fn eval_progn(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue, Error> {
     value
         .iter()
         .fold(Ok(TulispValue::Nil), |v1, v2| v1.and(eval(ctx, v2)))
@@ -183,7 +223,7 @@ pub fn eval_each(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispV
 
 pub fn eval_string(ctx: &mut TulispContext, string: &str) -> Result<TulispValue, Error> {
     let vv = &parse_string(ctx, string)?;
-    eval_each(ctx, vv)
+    eval_progn(ctx, vv)
 }
 
 pub fn eval_file(ctx: &mut TulispContext, filename: &str) -> Result<TulispValue, Error> {

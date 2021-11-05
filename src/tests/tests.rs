@@ -49,6 +49,34 @@ fn test_defun() -> Result<(), Error> {
         result: "30",
     }
     tulisp_assert! {
+        program: "(defun add (x &optional y z) (+ x (if y y 0) (if z z 0))) (add (add 100) (add 10 20) (add 1 2 3))",
+        result: "136",
+    }
+    tulisp_assert! {
+        program: "(defun add (x &rest y) (if y (append y (list x)) (list x))) (list (add 100) (add 10 20) (add 1 2 3))",
+        result: "((100) (20 10) (2 3 1))",
+    }
+    tulisp_assert!{
+        program: "(defun j (&rest x y) nil) (j)",
+        error: "Too many &rest parameters",
+    }
+    tulisp_assert!{
+        program: "(defun j (&rest x) x) (list (j) (j 10) (j 100 200))",
+        result: "(nil (10) (100 200))",
+    }
+    tulisp_assert! {
+    program: r##"
+        (defun add (x &optional y z &rest rest)
+          (let ((ret (list (+ x (if y y 0) (if z z 0)))))
+            (if rest (append ret rest) ret)))
+
+        (list (add 100)
+              (add 10 20)
+              (add 1 2 3 4 5))
+    "##,
+    result: "((100) (30) (6 4 5))",
+        }
+    tulisp_assert! {
         program: "(defun add (x y) (+ x y)) (add 10)",
         error: "Too few arguments",
     }

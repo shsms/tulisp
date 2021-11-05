@@ -5,7 +5,7 @@ use crate::context::ContextObject;
 use crate::context::Scope;
 use crate::context::TulispContext;
 use crate::eval::eval;
-use crate::eval::eval_each;
+use crate::eval::eval_progn;
 use crate::parser::macroexpand;
 use crate::value::TulispValue;
 use crate::Error;
@@ -342,7 +342,7 @@ pub fn add(ctx: &mut Scope) {
             if eval(ctx, condition)?.into() {
                 eval(ctx, then_body)
             } else {
-                eval_each(ctx, else_body)
+                eval_progn(ctx, else_body)
             }
         }))),
     );
@@ -353,7 +353,7 @@ pub fn add(ctx: &mut Scope) {
             for item in vv.iter() {
                 defun_args!((condition &rest body) = item);
                 if eval(ctx, condition)?.into() {
-                    return eval_each(ctx, body);
+                    return eval_progn(ctx, body);
                 }
             }
             Ok(TulispValue::Nil)
@@ -365,7 +365,7 @@ pub fn add(ctx: &mut Scope) {
             defun_args!(_name (condition &rest body) = vv);
             let mut result = TulispValue::Nil;
             while eval(ctx, condition)?.into() {
-                result = eval_each(ctx, body)?;
+                result = eval_progn(ctx, body)?;
             }
             Ok(result)
         }))),
@@ -385,7 +385,7 @@ pub fn add(ctx: &mut Scope) {
             defun_args!(_name (varlist &rest body) = vv);
             ctx.r#let(varlist)?;
             let ret = match body {
-                vv @ TulispValue::SExp { .. } => eval_each(ctx, vv),
+                vv @ TulispValue::SExp { .. } => eval_progn(ctx, vv),
                 _ => Err(Error::new(
                     ErrorKind::TypeMismatch,
                     "let: expected varlist and body".to_string(),
