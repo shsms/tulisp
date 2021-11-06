@@ -8,8 +8,8 @@ mod cons;
 mod context;
 mod eval;
 mod parser;
-mod value;
 mod tests;
+mod value;
 
 use std::env;
 
@@ -66,4 +66,3 @@ fn main() -> Result<(), Error> {
 
     Ok(())
 }
-

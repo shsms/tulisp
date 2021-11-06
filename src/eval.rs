@@ -2,7 +2,7 @@ use std::{cell::RefCell, collections::HashMap, fs, rc::Rc};
 
 use crate::{
     cons::{car, cdr, Cons},
-    context::{ContextObject, TulispContext},
+    context::{ContextObject, Scope, TulispContext},
     parser::{macroexpand, parse_string},
     value::TulispValue,
     Error, ErrorKind,
@@ -26,12 +26,11 @@ impl Evaluator for DummyEval {
     }
 }
 
-fn eval_function<E: Evaluator>(
+fn zip_function_args<E: Evaluator>(
     ctx: &mut TulispContext,
     params: &TulispValue,
-    body: &TulispValue,
     args: &TulispValue,
-) -> Result<TulispValue, Error> {
+) -> Result<Scope, Error> {
     let mut args = args.iter();
     let mut params = params.iter();
     let mut local = HashMap::new();
@@ -89,10 +88,20 @@ fn eval_function<E: Evaluator>(
             "Too many arguments".to_string(),
         ));
     }
+    Ok(local)
+}
+
+fn eval_function<E: Evaluator>(
+    ctx: &mut TulispContext,
+    params: &TulispValue,
+    body: &TulispValue,
+    args: &TulispValue,
+) -> Result<TulispValue, Error> {
+    let local = zip_function_args::<E>(ctx, params, args)?;
     ctx.push(local);
-    let result = eval_progn(ctx, body);
+    let result = eval_progn(ctx, body)?;
     ctx.pop();
-    result
+    Ok(result)
 }
 
 pub fn eval_defun(
@@ -101,7 +110,11 @@ pub fn eval_defun(
     body: &TulispValue,
     args: &TulispValue,
 ) -> Result<TulispValue, Error> {
-    eval_function::<Eval>(ctx, params, body, args)
+    let mut result = eval_function::<Eval>(ctx, params, body, args)?;
+    while let Ok(TulispValue::Bounce) = car(&result) {
+        result = eval_function::<DummyEval>(ctx, params, body, cdr(&result)?)?;
+    }
+    Ok(result)
 }
 
 pub fn eval_defmacro(
@@ -202,6 +215,7 @@ pub fn eval(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue,
             ErrorKind::Uninitialized,
             "Attempt to process uninitialized value".to_string(),
         )),
+        TulispValue::Bounce => Ok(value.clone()),
     };
     // println!("{}\n  => {}", _fmt, ret.clone()?);
     ret

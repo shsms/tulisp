@@ -48,6 +48,7 @@ pub enum TulispValue {
     Quote(Box<TulispValue>),
     Backquote(Box<TulispValue>),
     Unquote(Box<TulispValue>),
+    Bounce,
 }
 
 impl PartialEq for TulispValue {
@@ -82,6 +83,7 @@ impl std::fmt::Display for TulispValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             TulispValue::Uninitialized => f.write_str(""),
+            TulispValue::Bounce => f.write_str("Bounce"),
             TulispValue::Nil => f.write_str("nil"),
             TulispValue::Ident(vv) => f.write_str(vv),
             TulispValue::Int(vv) => f.write_fmt(format_args!("{}", vv)),
@@ -159,7 +161,7 @@ impl TulispValue {
         } else {
             Err(Error::new(
                 ErrorKind::TypeMismatch,
-                "unable to append".to_string(),
+                format!("unable to append: {}", val),
             ))
         }
     }
@@ -212,8 +214,8 @@ impl TulispValue {
 
     pub fn with_ctxobj(self, ctxobj: Option<Rc<RefCell<ContextObject>>>) -> TulispValue {
         match self {
-            TulispValue::SExp { cons, span, ..} => TulispValue::SExp{cons, ctxobj, span},
-            _ => self
+            TulispValue::SExp { cons, span, .. } => TulispValue::SExp { cons, ctxobj, span },
+            _ => self,
         }
     }
 

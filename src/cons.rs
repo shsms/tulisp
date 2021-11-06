@@ -74,7 +74,7 @@ impl Cons {
         } else {
             return Err(Error::new(
                 ErrorKind::TypeMismatch,
-                "Unable to append".to_string(),
+                format!("Unable to append: {}", val),
             ));
         }
         Ok(())
@@ -112,7 +112,7 @@ pub fn car(cons: &TulispValue) -> Result<&TulispValue, Error> {
     } else {
         Err(Error::new(
             ErrorKind::TypeMismatch,
-            format!("Not a Cons: {:?}", cons),
+            format!("car: Not a Cons: {:?}", cons),
         ))
     }
 }
@@ -123,7 +123,7 @@ pub fn cdr(cons: &TulispValue) -> Result<&TulispValue, Error> {
     } else {
         Err(Error::new(
             ErrorKind::TypeMismatch,
-            format!("Not a Cons: {:?}", cons),
+            format!("cdr: Not a Cons: {:?}", cons),
         ))
     }
 }

@@ -56,11 +56,11 @@ fn test_defun() -> Result<(), Error> {
         program: "(defun add (x &rest y) (if y (append y (list x)) (list x))) (list (add 100) (add 10 20) (add 1 2 3))",
         result: "((100) (20 10) (2 3 1))",
     }
-    tulisp_assert!{
+    tulisp_assert! {
         program: "(defun j (&rest x y) nil) (j)",
         error: "Too many &rest parameters",
     }
-    tulisp_assert!{
+    tulisp_assert! {
         program: "(defun j (&rest x) x) (list (j) (j 10) (j 100 200))",
         result: "(nil (10) (100 200))",
     }
@@ -103,6 +103,25 @@ fn test_defun() -> Result<(), Error> {
     tulisp_assert! {
         program: "(defmacro inc (var)  (list 'setq var (list '+ 1 var))) (let ((x 4)) (inc 4 5))",
         error: "Too many arguments",
+    }
+    tulisp_assert! {
+        program: r##"
+        (defun if-tail (n acc)
+          (if (equal n 0) acc (if-tail (- n 1) (+ acc 1))))
+
+        (if-tail 30000 0)
+        "##,
+        result: "30000",
+    }
+    tulisp_assert! {
+        program: r##"
+        (defun cond-tail (n acc)
+          (cond ((equal n 0) acc)
+                (t (cond-tail (- n 1) (+ acc 1)))))
+
+        (cond-tail 30000 0)
+        "##,
+        result: "30000",
     }
     Ok(())
 }
