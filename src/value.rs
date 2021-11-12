@@ -119,7 +119,7 @@ impl TulispValue {
         }
     }
 
-    pub fn push(&mut self, val: TulispValue) -> Result<&TulispValue, Error> {
+    pub fn push(&mut self, val: TulispValue) -> Result<&mut TulispValue, Error> {
         if let TulispValue::SExp { cons, span, .. } = self {
             cons.push(val).map_err(|e| e.with_span(span.clone()))?;
             Ok(self)
@@ -140,12 +140,7 @@ impl TulispValue {
         }
     }
 
-    pub fn into_push(mut self, val: TulispValue) -> Result<TulispValue, Error> {
-        self.push(val)?;
-        Ok(self)
-    }
-
-    pub fn append(&mut self, val: TulispValue) -> Result<&TulispValue, Error> {
+    pub fn append(&mut self, val: TulispValue) -> Result<&mut TulispValue, Error> {
         if let TulispValue::SExp { cons, span, .. } = self {
             cons.append(val).map_err(|e| e.with_span(span.clone()))?;
             Ok(self)
@@ -164,11 +159,6 @@ impl TulispValue {
                 format!("unable to append: {}", val),
             ))
         }
-    }
-
-    pub fn into_append(mut self, val: TulispValue) -> Result<TulispValue, Error> {
-        self.append(val)?;
-        Ok(self)
     }
 
     pub fn as_ident(&self) -> Result<String, Error> {
@@ -207,6 +197,14 @@ impl TulispValue {
         ret.push(self).unwrap();
         TulispValue::SExp {
             cons: Box::new(ret),
+            ctxobj: None,
+            span: None,
+        }
+    }
+
+    pub fn new_list() -> TulispValue {
+        TulispValue::SExp {
+            cons: Box::new(Cons::EMPTY),
             ctxobj: None,
             span: None,
         }

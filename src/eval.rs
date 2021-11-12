@@ -57,7 +57,7 @@ fn zip_function_args<E: Evaluator>(
         } else if is_rest {
             let mut ret = TulispValue::Nil;
             while let Some(arg) = args.next() {
-                ret = ret.into_push(E::eval(ctx, arg)?)?;
+                ret.push(E::eval(ctx, arg)?)?;
             }
             if params.next().is_some() {
                 return Err(Error::new(
@@ -221,10 +221,11 @@ pub fn eval(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue,
     ret
 }
 
+#[allow(dead_code)]
 pub fn eval_each(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue, Error> {
     let mut ret = TulispValue::Nil;
     for val in value.iter() {
-        ret = ret.into_push(eval(ctx, val)?)?;
+        ret.push(eval(ctx, val)?)?;
     }
     Ok(ret)
 }

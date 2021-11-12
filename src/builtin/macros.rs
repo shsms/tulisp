@@ -14,13 +14,13 @@ fn thread_first(ctx: &mut TulispContext, vv: &TulispValue) -> Result<TulispValue
         Ok(x.clone())
     } else if more.is_null() {
         if form.is_list() {
-            Ok(list!(,car(form)?.clone() ,x.clone() ,@cdr(form)?.clone()))
+            Ok(list!(,car(form)?.clone() ,x.clone() ,@cdr(form)?.clone())?)
         } else {
-            Ok(list!(,form.clone() ,x.clone()))
+            Ok(list!(,form.clone() ,x.clone())?)
         }
     } else {
-        let inner = thread_first(ctx, &list!(Nil ,x.clone() ,form.clone()))?;
-        thread_first(ctx, &list!(Nil ,inner ,@more.clone()))
+        let inner = thread_first(ctx, &list!(,Nil ,x.clone() ,form.clone())?)?;
+        thread_first(ctx, &list!(,Nil ,inner ,@more.clone())?)
     }
 }
 
@@ -30,13 +30,13 @@ fn thread_last(ctx: &mut TulispContext, vv: &TulispValue) -> Result<TulispValue,
         Ok(x.clone())
     } else if more.is_null() {
         if form.is_list() {
-            Ok(list!(,@form.clone() ,x.clone()))
+            Ok(list!(,@form.clone() ,x.clone())?)
         } else {
-            Ok(list!(,form.clone() ,x.clone()))
+            Ok(list!(,form.clone() ,x.clone())?)
         }
     } else {
-        let inner = thread_last(ctx, &list!(Nil ,x.clone() ,form.clone()))?;
-        thread_last(ctx, &list!(Nil ,inner ,@more.clone()))
+        let inner = thread_last(ctx, &list!(,Nil ,x.clone() ,form.clone())?)?;
+        thread_last(ctx, &list!(,Nil ,inner ,@more.clone())?)
     }
 }
 

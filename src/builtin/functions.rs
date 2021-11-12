@@ -18,25 +18,25 @@ use std::rc::Rc;
 
 macro_rules! list {
     (@push $ret:ident, $item:expr) => {
-        $ret.push($item)?;
+        $ret.push($item)
     };
     (@push $ret:ident, @ $item:expr) => {
-        $ret.append($item)?;
+        $ret.append($item)
     };
     (@push $ret:ident, $item:expr, $($items:tt)+) => {
-        list!(@push $ret, $item);
-        list!(@push $ret, $($items)+);
+        list!(@push $ret, $item).and_then(|ret|
+        list!(@push ret, $($items)+))
     };
     (@push $ret:ident, @ $item:expr, $($items:tt)+) => {
-        list!(@push $ret, @ $item);
-        list!(@push $ret, $($items)+);
+        list!(@push $ret, @ $item).and_then(|ret|
+        list!(@push ret, $($items)+))
     };
     (, $($items:tt)+) => { list!($($items)+) };
     ($($items:tt)+) => {{
-	let mut ret = TulispValue::Nil;
-        list!(@push ret, $($items)+);
-        ret
+	let mut ret = list!();
+        list!(@push ret, $($items)+).and_then(|ret| Ok(ret.to_owned()))
     }};
+    () => { TulispValue::new_list() }
 }
 
 macro_rules! defun_args {
@@ -158,7 +158,7 @@ fn mark_tail_calls(name: &TulispValue, body: &TulispValue) -> Result<TulispValue
     let mut body_iter = body.iter();
     let mut tail = body_iter.next().unwrap(); // TODO: make safe
     while let Some(next) = body_iter.next() {
-        ret = ret.into_push(tail.clone())?;
+        ret.push(tail.clone())?;
         tail = next;
     }
     if !tail.is_list() {
@@ -177,36 +177,30 @@ fn mark_tail_calls(name: &TulispValue, body: &TulispValue) -> Result<TulispValue
             ctxobj: None,
             span,
         }
-        .into_append(cdr(tail)?.clone())?;
-        TulispValue::Nil
-            .into_push(TulispValue::Ident("list".to_string()))?
-            .into_push(TulispValue::Bounce)?
-            .into_append(ret_tail)?
+        .append(cdr(tail)?.clone())?
+        .to_owned();
+        list!(,TulispValue::Ident("list".to_string()) ,TulispValue::Bounce ,@ret_tail)?
     } else if tail_name_str == "progn" {
         mark_tail_calls(name, cdr(tail)?)?
     } else if tail_name_str == "if" {
         defun_args!(_ (condition then_body &rest else_body) = tail);
-        let ret = TulispValue::Nil;
-        ret.into_push(tail_ident.clone())?
-            .into_push(condition.clone())?
-            .into_push(car(&mark_tail_calls(name, &then_body.clone().into_list())?)?.clone())?
-            .into_append(mark_tail_calls(name, else_body)?)?
+        list!(,tail_ident.clone()
+              ,condition.clone()
+              ,car(&mark_tail_calls(name, &then_body.clone().into_list())?)?.to_owned()
+              ,@mark_tail_calls(name, else_body)?
+        )?
     } else if tail_name_str == "cond" {
         defun_args!(_ (&rest conds) = tail);
-        let mut ret = TulispValue::Nil.into_push(tail_ident.clone())?;
+        let mut ret = list!(,tail_ident.clone())?;
         for cond in conds.iter() {
             defun_args!((condition &rest body) = cond);
-            ret.push(
-                TulispValue::Nil
-                    .into_push(condition.clone())?
-                    .into_append(mark_tail_calls(name, body)?)?,
-            )?;
+            ret = list!(,@ret ,list!(,condition.clone() ,@mark_tail_calls(name, body)?)?)?;
         }
         ret
     } else {
         tail.clone()
     };
-    let ret = ret.into_push(new_tail)?;
+    ret.push(new_tail)?;
     Ok(ret)
 }
 
@@ -589,13 +583,9 @@ pub fn add(ctx: &mut Scope) {
             let seq = eval(ctx, seq)?;
             let mut vec: Vec<_> = seq.iter().map(|v| v.clone()).collect();
             vec.sort_by(|v1, v2| {
-                let vv = TulispValue::Nil
-                    .into_push(TulispValue::Nil)
+                let vv = list!(,TulispValue::Nil ,v1.clone() ,v2.clone())
                     .unwrap()
-                    .into_push(v1.clone())
-                    .unwrap()
-                    .into_push(v2.clone())
-                    .unwrap()
+                    .to_owned()
                     .with_ctxobj(Some(pred.clone()));
 
                 if eval(ctx, &vv).unwrap_or(TulispValue::Nil).as_bool() {
@@ -604,8 +594,8 @@ pub fn add(ctx: &mut Scope) {
                     Ordering::Equal
                 }
             });
-            let ret = vec.iter().fold(TulispValue::Nil, |v1, v2| {
-                v1.into_push((*v2).clone()).unwrap()
+            let ret = vec.iter().fold(list!(), |v1, v2| {
+                list!(,@v1 ,(*v2).clone()).unwrap().to_owned()
             });
             Ok(ret)
         }))),
