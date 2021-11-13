@@ -57,7 +57,7 @@ fn zip_function_args<E: Evaluator>(
         } else if is_rest {
             let mut ret = TulispValue::Nil;
             while let Some(arg) = args.next() {
-                ret.push(E::eval(ctx, arg)?)?;
+                ret.push(E::eval(ctx, &arg)?)?;
             }
             if params.next().is_some() {
                 return Err(Error::new(
@@ -112,7 +112,7 @@ pub fn eval_defun(
 ) -> Result<TulispValue, Error> {
     let mut result = eval_function::<Eval>(ctx, params, body, args)?;
     while let Ok(TulispValue::Bounce) = car(&result) {
-        result = eval_function::<DummyEval>(ctx, params, body, cdr(&result)?)?;
+        result = eval_function::<DummyEval>(ctx, params, body, &cdr(&result)?)?;
     }
     Ok(result)
 }
@@ -133,12 +133,12 @@ fn eval_form(ctx: &mut TulispContext, val: &TulispValue) -> Result<TulispValue, 
             ctxobj: func @ Some(_),
             ..
         } => func.clone(),
-        _ => ctx.get(name),
+        _ => ctx.get(&name),
     };
     match func {
         Some(item) => match &*item.as_ref().borrow() {
             ContextObject::Func(func) => func(ctx, &val),
-            ContextObject::Defun { args, body } => eval_defun(ctx, &args, &body, cdr(val)?),
+            ContextObject::Defun { args, body } => eval_defun(ctx, &args, &body, &cdr(&val)?),
             ContextObject::Macro(_) | ContextObject::Defmacro { .. } => {
                 let expanded = macroexpand(ctx, val.clone())?;
                 eval(ctx, &expanded)
@@ -150,7 +150,7 @@ fn eval_form(ctx: &mut TulispContext, val: &TulispValue) -> Result<TulispValue, 
         },
         None => Err(Error::new(
             ErrorKind::Undefined,
-            format!("function is void: {}", name),
+            format!("Unknown function name: {}", name),
         )),
     }
 }
@@ -202,7 +202,7 @@ pub fn eval(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue,
                 vv => ret.push(vv.clone())?,
             }
             Ok(TulispValue::SExp {
-                cons: Box::new(ret),
+                cons: ret,
                 ctxobj: None,
                 span: None,
             })
@@ -225,7 +225,7 @@ pub fn eval(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue,
 pub fn eval_each(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue, Error> {
     let mut ret = TulispValue::Nil;
     for val in value.iter() {
-        ret.push(eval(ctx, val)?)?;
+        ret.push(eval(ctx, &val)?)?;
     }
     Ok(ret)
 }
@@ -233,7 +233,7 @@ pub fn eval_each(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispV
 pub fn eval_progn(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue, Error> {
     value
         .iter()
-        .fold(Ok(TulispValue::Nil), |v1, v2| v1.and(eval(ctx, v2)))
+        .fold(Ok(TulispValue::Nil), |v1, v2| v1.and(eval(ctx, &v2)))
 }
 
 pub fn eval_string(ctx: &mut TulispContext, string: &str) -> Result<TulispValue, Error> {

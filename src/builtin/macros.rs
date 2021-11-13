@@ -14,7 +14,7 @@ fn thread_first(ctx: &mut TulispContext, vv: &TulispValue) -> Result<TulispValue
         Ok(x.clone())
     } else if more.is_null() {
         if form.is_list() {
-            Ok(list!(,car(form)?.clone() ,x.clone() ,@cdr(form)?.clone())?)
+            Ok(list!(,car(&form)?.clone() ,x.clone() ,@cdr(&form)?.clone())?)
         } else {
             Ok(list!(,form.clone() ,x.clone())?)
         }
@@ -73,20 +73,20 @@ pub fn add(ctx: &mut Scope) {
                 let mut ret = Cons::new();
                 ret.push(TulispValue::Ident("let".to_string()))?;
                 ret.push(nextvar.clone().into_list())?;
-                if *rest != TulispValue::Nil {
-                    ret.push(unwrap_varlist(ctx, rest, body)?)?;
+                if rest != TulispValue::Nil {
+                    ret.push(unwrap_varlist(ctx, &rest, body)?)?;
                 } else {
                     for ele in body.iter() {
                         ret.push(ele.clone())?;
                     }
                 }
                 Ok(TulispValue::SExp {
-                    cons: Box::new(ret),
+                    cons: ret,
                     ctxobj: ctx.get_str(&"let".to_string()),
                     span: None,
                 })
             }
-            unwrap_varlist(ctx, varlist, body)
+            unwrap_varlist(ctx, &varlist, &body)
         }))),
     );
 }

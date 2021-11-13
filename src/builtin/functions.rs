@@ -41,8 +41,8 @@ macro_rules! list {
 
 macro_rules! defun_args {
     (@reqr $vv:ident, $var:ident) => {
-        let $var = car($vv)?;
-        let $vv = cdr($vv)?;
+        let $var = car(&$vv)?;
+        let $vv = cdr(&$vv)?;
     };
     (@reqr $vv:ident, $var:ident $($vars:tt)+) => {
         defun_args!(@reqr $vv, $var);
@@ -50,22 +50,22 @@ macro_rules! defun_args {
     };
     (@reqr $vv:ident,) => {};
     (@no-rest $vv:ident) => {
-        if *$vv != TulispValue::Uninitialized {
+        if $vv != TulispValue::Uninitialized {
             return Err(Error::new(ErrorKind::TypeMismatch,"Too many arguments".to_string(), ));
         }
     };
     (@rest $rest:ident $vv:ident) => {
-        let $rest = if *$vv == TulispValue::Uninitialized {
-            &TulispValue::NIL
+        let $rest = if $vv == TulispValue::Uninitialized {
+            TulispValue::NIL
         } else {
             $vv
         };
     };
     (@optvar $vv:ident, $var:ident) => {
-        let ($var, $vv) = if *$vv != TulispValue::Uninitialized {
-            (car($vv)?, cdr($vv)?)
+        let ($var, $vv) = if $vv != TulispValue::Uninitialized {
+            (car(&$vv)?, cdr(&$vv)?)
         } else {
-            (&TulispValue::NIL, &TulispValue::UNINITIALIZED)
+            (TulispValue::Nil, TulispValue::Uninitialized)
         };
     };
     (@optvar $vv:ident, $var:ident $($vars:ident)+) => {
@@ -91,7 +91,7 @@ macro_rules! defun_args {
         defun_args!(@rest $rest $vv);
     };
     (_ ($($rest:tt)*) = $vv:ident) => {
-        let $vv = cdr($vv)?;
+        let $vv = cdr(&$vv)?;
         defun_args!(($($rest)*) = $vv);
     };
     ($defun_name:ident ($($rest:tt)*) = $vv:ident) => {
@@ -145,7 +145,7 @@ fn reduce_with(
     method: fn(TulispValue, TulispValue) -> Result<TulispValue, Error>,
 ) -> Result<TulispValue, Error> {
     list.iter()
-        .map(|x| eval(ctx, x))
+        .map(|x| eval(ctx, &x))
         .reduce(|v1, v2| method(v1?, v2?))
         .unwrap_or(Err(Error::new(
             ErrorKind::TypeMismatch,
@@ -164,37 +164,37 @@ fn mark_tail_calls(name: &TulispValue, body: &TulispValue) -> Result<TulispValue
     if !tail.is_list() {
         return Ok(body.clone());
     }
-    let span = if let TulispValue::SExp { span, .. } = tail {
+    let span = if let TulispValue::SExp { span, .. } = &tail {
         span.clone()
     } else {
         return Ok(tail.clone());
     };
-    let tail_ident = car(tail)?;
+    let tail_ident = car(&tail)?;
     let tail_name_str = tail_ident.as_ident()?;
-    let new_tail = if *tail_ident == *name {
+    let new_tail = if tail_ident == *name {
         let ret_tail = TulispValue::SExp {
-            cons: Box::new(Cons::EMPTY),
+            cons: Cons::new(),
             ctxobj: None,
             span,
         }
-        .append(cdr(tail)?.clone())?
+        .append(cdr(&tail)?)?
         .to_owned();
         list!(,TulispValue::Ident("list".to_string()) ,TulispValue::Bounce ,@ret_tail)?
     } else if tail_name_str == "progn" {
-        mark_tail_calls(name, cdr(tail)?)?
+        mark_tail_calls(name, &cdr(&tail)?)?
     } else if tail_name_str == "if" {
         defun_args!(_ (condition then_body &rest else_body) = tail);
         list!(,tail_ident.clone()
               ,condition.clone()
               ,car(&mark_tail_calls(name, &then_body.clone().into_list())?)?.to_owned()
-              ,@mark_tail_calls(name, else_body)?
+              ,@mark_tail_calls(name, &else_body)?
         )?
     } else if tail_name_str == "cond" {
         defun_args!(_ (&rest conds) = tail);
         let mut ret = list!(,tail_ident.clone())?;
         for cond in conds.iter() {
             defun_args!((condition &rest body) = cond);
-            ret = list!(,@ret ,list!(,condition.clone() ,@mark_tail_calls(name, body)?)?)?;
+            ret = list!(,@ret ,list!(,condition.clone() ,@mark_tail_calls(name, &body)?)?)?;
         }
         ret
     } else {
@@ -209,20 +209,20 @@ pub fn add(ctx: &mut Scope) {
         "+".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             defun_args!(_ (&rest vv) = vv);
-            reduce_with(ctx, vv, binary_ops!(std::ops::Add::add))
+            reduce_with(ctx, &vv, binary_ops!(std::ops::Add::add))
         }))),
     );
     ctx.insert(
         "-".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             defun_args!(_ (&rest vv) = vv);
-            let args = vv;
+            let args = vv.clone();
             defun_args!((first &rest rest) = args);
             if !rest.as_bool() {
-                let vv = binary_ops!(std::ops::Sub::sub)(TulispValue::Int(0), eval(ctx, first)?)?;
+                let vv = binary_ops!(std::ops::Sub::sub)(TulispValue::Int(0), eval(ctx, &first)?)?;
                 Ok(vv)
             } else {
-                reduce_with(ctx, vv, binary_ops!(std::ops::Sub::sub))
+                reduce_with(ctx, &vv, binary_ops!(std::ops::Sub::sub))
             }
         }))),
     );
@@ -230,24 +230,24 @@ pub fn add(ctx: &mut Scope) {
         "*".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             defun_args!(_ (&rest vv) = vv);
-            reduce_with(ctx, vv, binary_ops!(std::ops::Mul::mul))
+            reduce_with(ctx, &vv, binary_ops!(std::ops::Mul::mul))
         }))),
     );
     ctx.insert(
         "/".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             defun_args!(_ (&rest vv) = vv);
-            let args = vv;
+            let args = vv.clone();
             defun_args!((_first &rest rest) = args);
             for ele in rest.iter() {
-                if ele == &TulispValue::Int(0) || ele == &TulispValue::Float(0.0) {
+                if ele == TulispValue::Int(0) || ele == TulispValue::Float(0.0) {
                     return Err(Error::new(
                         ErrorKind::Undefined,
                         "Division by zero".to_string(),
                     ));
                 }
             }
-            reduce_with(ctx, vv, binary_ops!(std::ops::Div::div))
+            reduce_with(ctx, &vv, binary_ops!(std::ops::Div::div))
         }))),
     );
     // TODO: >, >=, <, <=, equal - need to be able to support more than 2 args
@@ -255,56 +255,56 @@ pub fn add(ctx: &mut Scope) {
         ">".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             defun_args!(_ (&rest vv) = vv);
-            reduce_with(ctx, vv, binary_ops!(std::cmp::PartialOrd::gt))
+            reduce_with(ctx, &vv, binary_ops!(std::cmp::PartialOrd::gt))
         }))),
     );
     ctx.insert(
         ">=".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             defun_args!(_ (&rest vv) = vv);
-            reduce_with(ctx, vv, binary_ops!(std::cmp::PartialOrd::ge))
+            reduce_with(ctx, &vv, binary_ops!(std::cmp::PartialOrd::ge))
         }))),
     );
     ctx.insert(
         "<".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             defun_args!(_ (&rest vv) = vv);
-            reduce_with(ctx, vv, binary_ops!(std::cmp::PartialOrd::lt))
+            reduce_with(ctx, &vv, binary_ops!(std::cmp::PartialOrd::lt))
         }))),
     );
     ctx.insert(
         "<=".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             defun_args!(_ (&rest vv) = vv);
-            reduce_with(ctx, vv, binary_ops!(std::cmp::PartialOrd::le))
+            reduce_with(ctx, &vv, binary_ops!(std::cmp::PartialOrd::le))
         }))),
     );
     ctx.insert(
         "equal".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             defun_args!(_ (&rest vv) = vv);
-            reduce_with(ctx, vv, binary_ops!(std::cmp::PartialEq::eq))
+            reduce_with(ctx, &vv, binary_ops!(std::cmp::PartialEq::eq))
         }))),
     );
     ctx.insert(
         "max".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             defun_args!(_ (&rest vv) = vv);
-            reduce_with(ctx, vv, max_min_ops!(max))
+            reduce_with(ctx, &vv, max_min_ops!(max))
         }))),
     );
     ctx.insert(
         "min".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             defun_args!(_ (&rest vv) = vv);
-            reduce_with(ctx, vv, max_min_ops!(min))
+            reduce_with(ctx, &vv, max_min_ops!(min))
         }))),
     );
     ctx.insert(
         "mod".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             defun_args!(_ (dividend divisor) = vv);
-            binary_ops!(std::ops::Rem::rem)(eval(ctx, dividend)?, eval(ctx, divisor)?)
+            binary_ops!(std::ops::Rem::rem)(eval(ctx, &dividend)?, eval(ctx, &divisor)?)
         }))),
     );
     ctx.insert(
@@ -313,7 +313,7 @@ pub fn add(ctx: &mut Scope) {
             defun_args!(_ (&rest vv) = vv);
             let mut ret = String::new();
             for ele in vv.iter() {
-                match eval(ctx, ele)? {
+                match eval(ctx, &ele)? {
                     TulispValue::String(s) => ret.push_str(&s),
                     _ => {
                         return Err(Error::new(
@@ -330,7 +330,7 @@ pub fn add(ctx: &mut Scope) {
         "expt".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             defun_args!(_ (base pow) = vv);
-            Ok(f64::powf(eval(ctx, base)?.try_into()?, eval(ctx, pow)?.try_into()?).into())
+            Ok(f64::powf(eval(ctx, &base)?.try_into()?, eval(ctx, &pow)?.try_into()?).into())
         }))),
     );
     ctx.insert(
@@ -361,7 +361,7 @@ pub fn add(ctx: &mut Scope) {
         "prin1-to-string".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             defun_args!(_(arg) = vv);
-            Ok(TulispValue::String(eval(ctx, arg)?.fmt_string()))
+            Ok(TulispValue::String(eval(ctx, &arg)?.fmt_string()))
         }))),
     );
     ctx.insert(
@@ -391,10 +391,10 @@ pub fn add(ctx: &mut Scope) {
         "if".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             defun_args!(_ (condition then_body &rest else_body) = vv);
-            if eval(ctx, condition)?.into() {
-                eval(ctx, then_body)
+            if eval(ctx, &condition)?.into() {
+                eval(ctx, &then_body)
             } else {
-                eval_progn(ctx, else_body)
+                eval_progn(ctx, &else_body)
             }
         }))),
     );
@@ -404,8 +404,8 @@ pub fn add(ctx: &mut Scope) {
             defun_args!(_ (&rest vv) = vv);
             for item in vv.iter() {
                 defun_args!((condition &rest body) = item);
-                if eval(ctx, condition)?.into() {
-                    return eval_progn(ctx, body);
+                if eval(ctx, &condition)?.into() {
+                    return eval_progn(ctx, &body);
                 }
             }
             Ok(TulispValue::Nil)
@@ -416,8 +416,8 @@ pub fn add(ctx: &mut Scope) {
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             defun_args!(_ (condition &rest body) = vv);
             let mut result = TulispValue::Nil;
-            while eval(ctx, condition)?.into() {
-                result = eval_progn(ctx, body)?;
+            while eval(ctx, &condition)?.into() {
+                result = eval_progn(ctx, &body)?;
             }
             Ok(result)
         }))),
@@ -426,8 +426,8 @@ pub fn add(ctx: &mut Scope) {
         "setq".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             defun_args!(_ (name value) = vv);
-            let value = eval(ctx, value)?;
-            ctx.set(name, value.clone())?;
+            let value = eval(ctx, &value)?;
+            ctx.set(&name, value.clone())?;
             Ok(value)
         }))),
     );
@@ -435,9 +435,9 @@ pub fn add(ctx: &mut Scope) {
         "let".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             defun_args!(_ (varlist &rest body) = vv);
-            ctx.r#let(varlist)?;
+            ctx.r#let(&varlist)?;
             let ret = match body {
-                vv @ TulispValue::SExp { .. } => eval_progn(ctx, vv),
+                vv @ TulispValue::SExp { .. } => eval_progn(ctx, &vv),
                 _ => Err(Error::new(
                     ErrorKind::TypeMismatch,
                     "let: expected varlist and body".to_string(),
@@ -453,19 +453,19 @@ pub fn add(ctx: &mut Scope) {
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             defun_args!(_ (name args &rest body) = vv);
             // TODO: don't discard docstring
-            let body = if let TulispValue::String(_) = car(body)? {
-                cdr(body)?
+            let body = if let TulispValue::String(_) = car(&body)? {
+                cdr(&body)?
             } else {
                 body
             };
-            let body = mark_tail_calls(name, body).map_err(|e| {
+            let body = mark_tail_calls(&name, &body).map_err(|e| {
                 println!("mark_tail_calls error: {:?}", e);
                 e
             })?;
             ctx.set_str(
                 name.as_ident()?,
                 ContextObject::Defun {
-                    args: args.clone(),
+                    args,
                     body,
                 },
             )?;
@@ -478,16 +478,16 @@ pub fn add(ctx: &mut Scope) {
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             defun_args!(_ (name args &rest body) = vv);
             // TODO: don't discard docstring
-            let body = if let TulispValue::String(_) = car(body)? {
-                cdr(body)?
+            let body = if let TulispValue::String(_) = car(&body)? {
+                cdr(&body)?
             } else {
                 body
             };
             ctx.set_str(
                 name.as_ident()?,
                 ContextObject::Defmacro {
-                    args: args.clone(),
-                    body: body.clone(),
+                    args,
+                    body,
                 },
             )?;
             Ok(TulispValue::Nil)
@@ -498,7 +498,7 @@ pub fn add(ctx: &mut Scope) {
         "eval".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             defun_args!(_(arg) = vv);
-            let arg = eval(ctx, arg)?;
+            let arg = eval(ctx, &arg)?;
             eval(ctx, &arg)
         }))),
     );
@@ -507,7 +507,7 @@ pub fn add(ctx: &mut Scope) {
         "macroexpand".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             defun_args!(_(name) = vv);
-            let name = eval(ctx, name)?;
+            let name = eval(ctx, &name)?;
             macroexpand(ctx, name)
         }))),
     );
@@ -517,7 +517,7 @@ pub fn add(ctx: &mut Scope) {
         "car".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             defun_args!(_(name) = vv);
-            Ok(car(&eval(ctx, name)?)?.to_owned())
+            Ok(car(&eval(ctx, &name)?)?.to_owned())
         }))),
     );
 
@@ -525,7 +525,7 @@ pub fn add(ctx: &mut Scope) {
         "cdr".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             defun_args!(_(name) = vv);
-            Ok(cdr(&eval(ctx, name)?)?.to_owned())
+            Ok(cdr(&eval(ctx, &name)?)?.to_owned())
         }))),
     );
 
@@ -533,8 +533,8 @@ pub fn add(ctx: &mut Scope) {
         "cons".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             defun_args!(_ (car cdr) = vv);
-            let car = eval(ctx, car)?;
-            let cdr = eval(ctx, cdr)?;
+            let car = eval(ctx, &car)?;
+            let cdr = eval(ctx, &cdr)?;
             Ok(cons::cons(car, cdr))
         }))),
     );
@@ -543,9 +543,9 @@ pub fn add(ctx: &mut Scope) {
         "append".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             defun_args!(_ (first &rest rest) = vv);
-            let mut first = eval(ctx, first)?;
+            let mut first = eval(ctx, &first)?;
             for ele in rest.iter() {
-                first.append(eval(ctx, ele)?)?;
+                first.append(eval(ctx, &ele)?)?;
             }
             Ok(first)
         }))),
@@ -555,17 +555,17 @@ pub fn add(ctx: &mut Scope) {
         "list".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             defun_args!(_ (&rest vv) = vv);
-            let (ctxobj, span) = if let TulispValue::SExp { ctxobj, span, .. } = vv {
+            let (ctxobj, span) = if let TulispValue::SExp { ctxobj, span, .. } = &vv {
                 (ctxobj.clone(), span.clone())
             } else {
                 (None, None)
             };
             let mut cons = Cons::new();
             for ele in vv.iter() {
-                cons.push(eval(ctx, ele)?)?
+                cons.push(eval(ctx, &ele)?)?
             }
             Ok(TulispValue::SExp {
-                cons: Box::new(cons),
+                cons: cons,
                 ctxobj,
                 span,
             })
@@ -576,11 +576,11 @@ pub fn add(ctx: &mut Scope) {
         "sort".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             defun_args!(_ (seq pred) = vv);
-            let pred = eval(ctx, pred)?;
+            let pred = eval(ctx, &pred)?;
             let pred = ctx.get(&pred).ok_or_else(|| {
                 Error::new(ErrorKind::Undefined, format!("Unknown predicate: {}", pred))
             })?;
-            let seq = eval(ctx, seq)?;
+            let seq = eval(ctx, &seq)?;
             let mut vec: Vec<_> = seq.iter().map(|v| v.clone()).collect();
             vec.sort_by(|v1, v2| {
                 let vv = list!(,TulispValue::Nil ,v1.clone() ,v2.clone())

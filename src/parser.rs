@@ -24,7 +24,7 @@ pub fn parse_string(ctx: &mut TulispContext, string: &str) -> Result<TulispValue
         list.push(p)?;
     }
     Ok(TulispValue::SExp {
-        cons: Box::new(list),
+        cons: list,
         ctxobj: None,
         span: None,
     })
@@ -46,7 +46,7 @@ pub fn macroexpand(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispV
                 macroexpand(ctx, expansion)
             }
             ContextObject::Defmacro { args, body } => {
-                let expansion = eval_defmacro(ctx, &args, &body, cdr(&expr)?)?;
+                let expansion = eval_defmacro(ctx, &args, &body, &cdr(&expr)?)?;
                 macroexpand(ctx, expansion)
             }
             _ => Ok(expr),
@@ -68,7 +68,7 @@ fn locate_all_func(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispV
         ret.push(next)?;
     }
     Ok(TulispValue::SExp {
-        cons: Box::new(ret),
+        cons: ret,
         ctxobj: None,
         span: Span::from(&expr),
     })
@@ -121,7 +121,7 @@ fn parse(
                 .map(|val| -> Result<(), Error> { list.push(val?) })
                 .fold(Ok(()), |v1, v2| v1.and(v2))?;
             let expr = TulispValue::SExp {
-                cons: Box::new(list),
+                cons: list,
                 ctxobj: None,
                 span: Some(span),
             };

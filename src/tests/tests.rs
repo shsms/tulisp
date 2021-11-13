@@ -8,7 +8,7 @@ macro_rules! tulisp_assert {
         let expected = parse_string(&mut ctx, $result)?;
         let expected = car(&expected)?;
         assert!(
-            &output == expected,
+            output == expected,
             "\n  program: {}\n  output: {},\n  expected: {}\n",
             $input,
             output,

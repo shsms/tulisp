@@ -41,7 +41,7 @@ pub enum TulispValue {
     Float(f64),
     String(String),
     SExp {
-        cons: Box<Cons>,
+        cons: Cons,
         ctxobj: Option<Rc<RefCell<ContextObject>>>,
         span: Option<Span>,
     },
@@ -88,7 +88,7 @@ impl std::fmt::Display for TulispValue {
             TulispValue::Ident(vv) => f.write_str(vv),
             TulispValue::Int(vv) => f.write_fmt(format_args!("{}", vv)),
             TulispValue::Float(vv) => f.write_fmt(format_args!("{}", vv)),
-            TulispValue::String(vv) => f.write_fmt(format_args!("\"{}\"", vv)),
+            TulispValue::String(vv) => f.write_fmt(format_args!("{}", vv)),
             vv @ TulispValue::SExp { .. } => {
                 let mut ret = String::from("(");
                 let mut add_space = false;
@@ -112,10 +112,10 @@ impl std::fmt::Display for TulispValue {
 impl TulispValue {
     pub const NIL: TulispValue = TulispValue::Nil;
     pub const UNINITIALIZED: TulispValue = TulispValue::Uninitialized;
-    pub fn iter(&self) -> cons::ConsIter<'_> {
+    pub fn iter(&self) -> cons::ConsIter {
         match self {
             TulispValue::SExp { cons, .. } => cons.iter(),
-            _ => Cons::EMPTY.iter(),
+            _ => Cons::new().iter(),
         }
     }
 
@@ -127,7 +127,7 @@ impl TulispValue {
             let mut cons = Cons::new();
             cons.push(val)?;
             *self = TulispValue::SExp {
-                cons: Box::new(cons),
+                cons,
                 ctxobj: None,
                 span: None,
             };
@@ -148,7 +148,7 @@ impl TulispValue {
             let mut cons = Cons::new();
             cons.append(val)?;
             *self = TulispValue::SExp {
-                cons: Box::new(cons),
+                cons,
                 ctxobj: None,
                 span: None,
             };
@@ -159,6 +159,10 @@ impl TulispValue {
                 format!("unable to append: {}", val),
             ))
         }
+    }
+
+    pub fn as_rc_refcell(self) -> Rc<RefCell<TulispValue>> {
+        Rc::new(RefCell::new(self))
     }
 
     pub fn as_ident(&self) -> Result<String, Error> {
@@ -175,7 +179,7 @@ impl TulispValue {
         match self {
             TulispValue::Nil | TulispValue::Uninitialized => false,
             c => match car(&c) {
-                Ok(tt) => *tt != TulispValue::Uninitialized,
+                Ok(tt) => tt != TulispValue::Uninitialized,
                 Err(_) => true,
             },
         }
@@ -196,7 +200,7 @@ impl TulispValue {
         let mut ret = Cons::new();
         ret.push(self).unwrap();
         TulispValue::SExp {
-            cons: Box::new(ret),
+            cons: ret,
             ctxobj: None,
             span: None,
         }
@@ -204,7 +208,7 @@ impl TulispValue {
 
     pub fn new_list() -> TulispValue {
         TulispValue::SExp {
-            cons: Box::new(Cons::EMPTY),
+            cons: Cons::new(),
             ctxobj: None,
             span: None,
         }
@@ -258,7 +262,7 @@ impl Into<bool> for TulispValue {
         match self {
             TulispValue::Nil => false,
             c => match car(&c) {
-                Ok(tt) => *tt != TulispValue::Uninitialized,
+                Ok(tt) => tt != TulispValue::Uninitialized,
                 Err(_) => true,
             },
         }
