@@ -6,7 +6,7 @@ use crate::builtin::functions::list;
 use crate::cons::{car, cdr, Cons};
 use crate::context::{ContextObject, Scope, TulispContext};
 use crate::value::TulispValue::{self, Nil};
-use crate::Error;
+use crate::error::Error;
 
 fn thread_first(ctx: &mut TulispContext, vv: &TulispValue) -> Result<TulispValue, Error> {
     defun_args!(_name (x &optional form &rest more) = vv);

@@ -5,7 +5,7 @@ use crate::{
     context::{ContextObject, Scope, TulispContext},
     parser::{macroexpand, parse_string},
     value::TulispValue,
-    Error, ErrorKind,
+    error::{Error, ErrorKind},
 };
 
 trait Evaluator {

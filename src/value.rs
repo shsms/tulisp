@@ -3,7 +3,7 @@ use std::{cell::RefCell, convert::TryInto, rc::Rc};
 use crate::{
     cons::{self, car, Cons},
     context::ContextObject,
-    Error, ErrorKind,
+    error::{Error, ErrorKind},
 };
 
 use pest;
@@ -110,8 +110,6 @@ impl std::fmt::Display for TulispValue {
 }
 
 impl TulispValue {
-    pub const NIL: TulispValue = TulispValue::Nil;
-    pub const UNINITIALIZED: TulispValue = TulispValue::Uninitialized;
     pub fn iter(&self) -> cons::ConsIter {
         match self {
             TulispValue::SExp { cons, .. } => cons.iter(),

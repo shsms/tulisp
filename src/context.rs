@@ -1,6 +1,6 @@
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
-use crate::{eval::eval, value::TulispValue, Error, ErrorKind};
+use crate::{eval::eval, value::TulispValue, error::{Error, ErrorKind}};
 
 #[derive(Clone)]
 pub enum ContextObject {

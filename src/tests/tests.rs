@@ -1,5 +1,5 @@
 use crate::parser::parse_string;
-use crate::{cons::*, eval::eval_string, new_context, Error};
+use crate::{cons::*, eval::eval_string, new_context, error::Error};
 
 macro_rules! tulisp_assert {
     (program:$input:expr, result:$result:expr $(,)?) => {
@@ -19,7 +19,7 @@ macro_rules! tulisp_assert {
         let mut ctx = new_context();
         let output = eval_string(&mut ctx, $input);
         assert!(output.is_err());
-        assert_eq!(output.unwrap_err().desc, $desc);
+        assert_eq!(output.unwrap_err().desc(), $desc);
     };
 }
 

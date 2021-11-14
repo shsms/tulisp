@@ -1,8 +1,8 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 use crate::value::TulispValue;
-use crate::Error;
-use crate::ErrorKind;
+use crate::error::Error;
+use crate::error::ErrorKind;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Cons {

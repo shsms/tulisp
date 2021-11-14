@@ -9,8 +9,8 @@ use crate::eval::eval;
 use crate::eval::eval_progn;
 use crate::parser::macroexpand;
 use crate::value::TulispValue;
-use crate::Error;
-use crate::ErrorKind;
+use crate::error::Error;
+use crate::error::ErrorKind;
 use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::convert::TryInto;
@@ -56,7 +56,7 @@ macro_rules! defun_args {
     };
     (@rest $rest:ident $vv:ident) => {
         let $rest = if $vv == TulispValue::Uninitialized {
-            TulispValue::NIL
+            TulispValue::Nil
         } else {
             $vv
         };
@@ -565,7 +565,7 @@ pub fn add(ctx: &mut Scope) {
                 cons.push(eval(ctx, &ele)?)?
             }
             Ok(TulispValue::SExp {
-                cons: cons,
+                cons,
                 ctxobj,
                 span,
             })
