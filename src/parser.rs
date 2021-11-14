@@ -6,7 +6,11 @@ use crate::cons::{car, cdr};
 use crate::context::{ContextObject, TulispContext};
 use crate::eval::{eval, eval_defmacro};
 use crate::value::Span;
-use crate::{cons::Cons, value::TulispValue, error::{Error, ErrorKind}};
+use crate::{
+    cons::Cons,
+    error::{Error, ErrorKind},
+    value::TulispValue,
+};
 
 #[derive(Parser)]
 #[grammar = "tulisp.pest"]

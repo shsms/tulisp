@@ -225,6 +225,13 @@ impl TulispValue {
             s => s.to_string(),
         }
     }
+
+    pub fn span(&self) -> Option<Span> {
+        match self {
+            TulispValue::SExp { span, .. } => span.to_owned(),
+            _ => None,
+        }
+    }
 }
 impl TryInto<f64> for TulispValue {
     type Error = Error;

@@ -3,9 +3,9 @@ use std::{cell::RefCell, collections::HashMap, fs, rc::Rc};
 use crate::{
     cons::{car, cdr, Cons},
     context::{ContextObject, Scope, TulispContext},
+    error::{Error, ErrorKind},
     parser::{macroexpand, parse_string},
     value::TulispValue,
-    error::{Error, ErrorKind},
 };
 
 trait Evaluator {
@@ -181,9 +181,10 @@ pub fn eval(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue,
         TulispValue::Int(_) => Ok(value.clone()),
         TulispValue::Float(_) => Ok(value.clone()),
         TulispValue::String(_) => Ok(value.clone()),
-        TulispValue::SExp { span, .. } => {
-            eval_form(ctx, &value).map_err(|e| e.with_span(span.clone()))
-        }
+        TulispValue::SExp { span, .. } => eval_form(ctx, &value).map_err(|e| {
+            let span = e.span().or_else(|| span.clone());
+            e.with_span(span)
+        }),
         TulispValue::Quote(vv) => Ok(*vv.clone()),
         TulispValue::Backquote(vv) => {
             let mut ret = Cons::new();

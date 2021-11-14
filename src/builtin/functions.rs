@@ -5,12 +5,12 @@ use crate::cons::Cons;
 use crate::context::ContextObject;
 use crate::context::Scope;
 use crate::context::TulispContext;
+use crate::error::Error;
+use crate::error::ErrorKind;
 use crate::eval::eval;
 use crate::eval::eval_progn;
 use crate::parser::macroexpand;
 use crate::value::TulispValue;
-use crate::error::Error;
-use crate::error::ErrorKind;
 use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::convert::TryInto;
@@ -462,13 +462,7 @@ pub fn add(ctx: &mut Scope) {
                 println!("mark_tail_calls error: {:?}", e);
                 e
             })?;
-            ctx.set_str(
-                name.as_ident()?,
-                ContextObject::Defun {
-                    args,
-                    body,
-                },
-            )?;
+            ctx.set_str(name.as_ident()?, ContextObject::Defun { args, body })?;
             Ok(TulispValue::Nil)
         }))),
     );
@@ -483,13 +477,7 @@ pub fn add(ctx: &mut Scope) {
             } else {
                 body
             };
-            ctx.set_str(
-                name.as_ident()?,
-                ContextObject::Defmacro {
-                    args,
-                    body,
-                },
-            )?;
+            ctx.set_str(name.as_ident()?, ContextObject::Defmacro { args, body })?;
             Ok(TulispValue::Nil)
         }))),
     );
@@ -564,11 +552,7 @@ pub fn add(ctx: &mut Scope) {
             for ele in vv.iter() {
                 cons.push(eval(ctx, &ele)?)?
             }
-            Ok(TulispValue::SExp {
-                cons,
-                ctxobj,
-                span,
-            })
+            Ok(TulispValue::SExp { cons, ctxobj, span })
         }))),
     );
 

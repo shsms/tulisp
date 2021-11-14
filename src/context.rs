@@ -1,6 +1,10 @@
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
-use crate::{eval::eval, value::TulispValue, error::{Error, ErrorKind}};
+use crate::{
+    error::{Error, ErrorKind},
+    eval::eval,
+    value::TulispValue,
+};
 
 #[derive(Clone)]
 pub enum ContextObject {
@@ -104,23 +108,45 @@ impl TulispContext {
     pub fn r#let(&mut self, varlist: &TulispValue) -> Result<(), Error> {
         let mut local = HashMap::new();
         for varitem in varlist.iter() {
-            let mut varitem = varitem.iter();
-
-            let name = varitem.next().ok_or(Error::new(
-                ErrorKind::Undefined,
-                "let varitem requires name".to_string(),
-            ))?;
-            let value = varitem
-                .next()
-                .map_or(Ok(TulispValue::Nil), |vv| eval(self, &vv))?;
-            if varitem.next().is_some() {
-                return Err(Error::new(
-                    ErrorKind::TypeMismatch,
-                    "let varitem has too many values".to_string(),
-                ));
-            }
+            let (name, value) = match varitem {
+                TulispValue::Ident(name) => (name, TulispValue::Nil),
+                varitem if varitem.is_list() => {
+                    let mut iter = varitem.iter();
+                    let name = iter
+                        .next()
+                        .ok_or_else(|| {
+                            Error::new(
+                                ErrorKind::Undefined,
+                                "let varitem requires name".to_string(),
+                            )
+                            .with_span(varitem.span())
+                        })?
+                        .as_ident().map_err(|e|e.with_span(varitem.span()))?;
+                    let value = iter
+                        .next()
+                        .map_or(Ok(TulispValue::Nil), |vv| eval(self, &vv))?;
+                    if iter.next().is_some() {
+                        return Err(Error::new(
+                            ErrorKind::TypeMismatch,
+                            "let varitem has too many values".to_string(),
+                        )
+                        .with_span(varitem.span()));
+                    }
+                    (name, value)
+                }
+                _ => {
+                    return Err(Error::new(
+                        ErrorKind::SyntaxError,
+                        format!(
+                            "varitems inside a let-varlist should be a var or a binding: {}",
+                            varitem
+                        ),
+                    )
+                    .with_span(varlist.span()))
+                }
+            };
             local.insert(
-                name.as_ident()?,
+                name,
                 Rc::new(RefCell::new(ContextObject::TulispValue(value))),
             );
         }

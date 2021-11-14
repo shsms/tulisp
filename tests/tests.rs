@@ -1,5 +1,5 @@
-use crate::parser::parse_string;
-use crate::{cons::*, eval::eval_string, new_context, error::Error};
+use tulisp::parser::parse_string;
+use tulisp::{builtin::new_context, cons::*, error::Error, eval::eval_string};
 
 macro_rules! tulisp_assert {
     (program:$input:expr, result:$result:expr $(,)?) => {
@@ -19,7 +19,7 @@ macro_rules! tulisp_assert {
         let mut ctx = new_context();
         let output = eval_string(&mut ctx, $input);
         assert!(output.is_err());
-        assert_eq!(output.unwrap_err().desc(), $desc);
+        assert_eq!(output.unwrap_err().to_string(), $desc);
     };
 }
 
@@ -57,8 +57,9 @@ fn test_defun() -> Result<(), Error> {
         result: "((100) (20 10) (2 3 1))",
     }
     tulisp_assert! {
+        // TODO: incorrect span location
         program: "(defun j (&rest x y) nil) (j)",
-        error: "Too many &rest parameters",
+        error: "ERROR:TypeMismatch: Too many &rest parameters, in Some(Span { start: 26, end: 29 })",
     }
     tulisp_assert! {
         program: "(defun j (&rest x) x) (list (j) (j 10) (j 100 200))",
@@ -77,12 +78,14 @@ fn test_defun() -> Result<(), Error> {
     result: "((100) (30) (6 4 5))",
         }
     tulisp_assert! {
+        // TODO: incorrect span location
         program: "(defun add (x y) (+ x y)) (add 10)",
-        error: "Too few arguments",
+        error: "ERROR:TypeMismatch: Too few arguments, in Some(Span { start: 26, end: 34 })",
     }
     tulisp_assert! {
+        // TODO: incorrect span location
         program: "(defun add (x y) (+ x y)) (add 10 20 30)",
-        error: "Too many arguments",
+        error: "ERROR:TypeMismatch: Too many arguments, in Some(Span { start: 26, end: 40 })",
     }
     tulisp_assert! {
         program: "(defmacro num ()  4) (macroexpand '(num))",
@@ -97,12 +100,14 @@ fn test_defun() -> Result<(), Error> {
         result: "5",
     }
     tulisp_assert! {
+        // TODO: incorrect span location
         program: "(defmacro inc (var)  (list 'setq var (list '+ 1 var))) (let ((x 4)) (inc))",
-        error: "Too few arguments",
+        error: "ERROR:TypeMismatch: Too few arguments, in None",
     }
     tulisp_assert! {
+        // TODO: incorrect span location
         program: "(defmacro inc (var)  (list 'setq var (list '+ 1 var))) (let ((x 4)) (inc 4 5))",
-        error: "Too many arguments",
+        error: "ERROR:TypeMismatch: Too many arguments, in None",
     }
     tulisp_assert! {
         program: r##"
@@ -141,7 +146,10 @@ fn test_eval() -> Result<(), Error> {
 }
 #[test]
 fn test_strings() -> Result<(), Error> {
-    tulisp_assert! { program: r##"(concat 'hello 'world)"##, error: "Not a string: 'hello" }
+    tulisp_assert! {
+        program: r##"(concat 'hello 'world)"##,
+        error: "ERROR:TypeMismatch: Not a string: 'hello, in Some(Span { start: 0, end: 22 })"
+    }
     tulisp_assert! { program: r##"(concat "hello" " world")"##, result: r#""hello world""# }
     tulisp_assert! {
         program: r##"(let ((hello "hello") (world "world")) (concat hello " " world))"##,
@@ -175,7 +183,7 @@ fn test_lists() -> Result<(), Error> {
 
     tulisp_assert! {
         program: "(setq items (append items '(10)))",
-        error: "variable definition is void: items",
+        error: "ERROR:TypeMismatch: variable definition is void: items, in Some(Span { start: 12, end: 32 })",
     }
 
     tulisp_assert! {
@@ -187,7 +195,10 @@ fn test_lists() -> Result<(), Error> {
 }
 #[test]
 fn test_math() -> Result<(), Error> {
-    tulisp_assert! { program: "(/ 10 0)", error: "Division by zero", }
+    tulisp_assert! {
+        program: "(/ 10 0)",
+        error: "ERROR:Undefined: Division by zero, in Some(Span { start: 0, end: 8 })",
+    }
 
     tulisp_assert! { program: "(/ 24 2 2)",                result: "6"     }
     tulisp_assert! { program: "(+ 40 (* 2.5 4) (- 4 12))", result: "42.0"  }
@@ -216,6 +227,27 @@ fn test_math() -> Result<(), Error> {
 
 #[test]
 fn test_let() -> Result<(), Error> {
+    tulisp_assert! {
+        program: "(let ((kk) (vv (+ 55 1)) (jj 20)) (append kk (+ vv jj 1)))",
+        result: "(77)",
+    }
+    tulisp_assert! {
+        program: "(let (kk (vv (+ 55 1)) (jj 20)) (append kk (+ vv jj 1)))",
+        result: "(77)",
+    }
+    tulisp_assert! {
+        program: "(let ((vv (+ 55 1)) (jj 20)) (append kk (+ vv jj 1)))",
+        error: "ERROR:TypeMismatch: variable definition is void: kk, in Some(Span { start: 29, end: 52 })",
+    }
+    tulisp_assert! {
+        program: "(let ((22 (+ 55 1)) (jj 20)) (+ vv jj 1))",
+        error: "ERROR:TypeMismatch: Expected ident: Int(22), in Some(Span { start: 6, end: 19 })",
+    }
+    tulisp_assert! {
+        program: "(let (18 (vv (+ 55 1)) (jj 20)) (+ vv jj 1))",
+        error: "ERROR:SyntaxError: varitems inside a let-varlist should be a var or a binding: 18, in Some(Span { start: 5, end: 31 })",
+    }
+
     tulisp_assert! {
         program: "(let ((vv (+ 55 1)) (jj 20)) (+ vv jj 1))",
         result: "77",
@@ -260,7 +292,7 @@ fn test_sort() -> Result<(), Error> {
     }
     tulisp_assert! {
         program: "(sort '(20 10 30 15 45) '<<)",
-        error: "Unknown predicate: <<",
+        error: "ERROR:Undefined: Unknown predicate: <<, in Some(Span { start: 0, end: 28 })",
     }
     Ok(())
 }

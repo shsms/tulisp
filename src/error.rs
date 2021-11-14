@@ -32,7 +32,10 @@ pub struct Error {
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("ERROR:{}: {}, in {:?}", self.kind, self.desc, self.span))
+        f.write_fmt(format_args!(
+            "ERROR:{}: {}, in {:?}",
+            self.kind, self.desc, self.span
+        ))
     }
 }
 
