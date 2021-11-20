@@ -3,21 +3,21 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 use crate::{
     error::{Error, ErrorKind},
     eval::eval,
-    value::TulispValue,
+    value::{TulispValue, TulispValueRef},
 };
 
 #[derive(Clone)]
 pub enum ContextObject {
-    TulispValue(TulispValue),
-    Func(fn(&mut TulispContext, &TulispValue) -> Result<TulispValue, Error>),
-    Macro(fn(&mut TulispContext, &TulispValue) -> Result<TulispValue, Error>),
+    TulispValue(TulispValueRef),
+    Func(fn(&mut TulispContext, TulispValueRef) -> Result<TulispValueRef, Error>),
+    Macro(fn(&mut TulispContext, TulispValueRef) -> Result<TulispValueRef, Error>),
     Defmacro {
-        args: TulispValue,
-        body: TulispValue,
+        args: TulispValueRef,
+        body: TulispValueRef,
     },
     Defun {
-        args: TulispValue,
-        body: TulispValue,
+        args: TulispValueRef,
+        body: TulispValueRef,
     },
 }
 
@@ -68,9 +68,9 @@ impl TulispContext {
         None
     }
 
-    pub fn get(&self, name: &TulispValue) -> Option<Rc<RefCell<ContextObject>>> {
-        if let TulispValue::Ident(name) = name {
-            self.get_str(name)
+    pub fn get(&self, name: TulispValueRef) -> Option<Rc<RefCell<ContextObject>>> {
+        if let TulispValue::Ident(name) = &*name.as_ref().borrow() {
+            self.get_str(&name)
         } else {
             // TODO: return Result
             None
@@ -94,13 +94,13 @@ impl TulispContext {
         }
         Ok(())
     }
-    pub fn set(&mut self, name: &TulispValue, value: TulispValue) -> Result<(), Error> {
-        if let TulispValue::Ident(name) = name {
+    pub fn set(&mut self, name: TulispValueRef, value: TulispValueRef) -> Result<(), Error> {
+        if let Ok(name) = name.as_ref().borrow().as_ident() {
             self.set_str(name.clone(), ContextObject::TulispValue(value))
         } else {
             Err(Error::new(
                 ErrorKind::TypeMismatch,
-                format!("name is not an ident: {}", name),
+                format!("name is not an ident: {}", name.as_ref().borrow()),
             ))
         }
     }
@@ -108,8 +108,8 @@ impl TulispContext {
     pub fn r#let(&mut self, varlist: &TulispValue) -> Result<(), Error> {
         let mut local = HashMap::new();
         for varitem in varlist.iter() {
-            let (name, value) = match varitem {
-                TulispValue::Ident(name) => (name, TulispValue::Nil),
+            let (name, value) = match &*varitem.as_ref().borrow() {
+                TulispValue::Ident(name) => (name.to_owned(), TulispValue::Nil.into_rc_refcell()),
                 varitem if varitem.is_list() => {
                     let mut iter = varitem.iter();
                     let name = iter
@@ -121,11 +121,13 @@ impl TulispContext {
                             )
                             .with_span(varitem.span())
                         })?
+                        .as_ref()
+                        .borrow()
                         .as_ident()
                         .map_err(|e| e.with_span(varitem.span()))?;
                     let value = iter
                         .next()
-                        .map_or(Ok(TulispValue::Nil), |vv| eval(self, &vv))?;
+                        .map_or(Ok(TulispValue::Nil.into_rc_refcell()), |vv| eval(self, vv))?;
                     if iter.next().is_some() {
                         return Err(Error::new(
                             ErrorKind::TypeMismatch,
@@ -140,7 +142,7 @@ impl TulispContext {
                         ErrorKind::SyntaxError,
                         format!(
                             "varitems inside a let-varlist should be a var or a binding: {}",
-                            varitem
+                            varitem.as_ref().borrow()
                         ),
                     )
                     .with_span(varlist.span()))

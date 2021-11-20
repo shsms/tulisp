@@ -1,6 +1,7 @@
 use crate::error::Error;
 use crate::error::ErrorKind;
 use crate::value::TulispValue;
+use crate::value::TulispValueRef;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -13,16 +14,16 @@ pub struct Cons {
 impl Cons {
     pub fn new() -> Self {
         Cons {
-            car: Rc::new(RefCell::new(TulispValue::Uninitialized)),
-            cdr: Rc::new(RefCell::new(TulispValue::Uninitialized)),
+            car: TulispValue::Uninitialized.into_rc_refcell(),
+            cdr: TulispValue::Uninitialized.into_rc_refcell(),
         }
     }
 
-    pub fn push(&mut self, val: TulispValue) -> Result<(), Error> {
+    pub fn push(&mut self, val: TulispValueRef) -> Result<(), Error> {
         if TulispValue::Uninitialized == *self.car.as_ref().borrow() {
             *self = Cons {
-                car: val.as_rc_refcell(),
-                cdr: Rc::new(RefCell::new(TulispValue::Uninitialized)),
+                car: val,
+                cdr: TulispValue::Uninitialized.into_rc_refcell(),
             };
             return Ok(());
         }
@@ -34,8 +35,8 @@ impl Cons {
         if TulispValue::Uninitialized == *last.as_ref().borrow() {
             *last.as_ref().borrow_mut() = TulispValue::List {
                 cons: Cons {
-                    car: Rc::new(RefCell::new(val)),
-                    cdr: Rc::new(RefCell::new(TulispValue::Uninitialized)),
+                    car: val,
+                    cdr: TulispValue::Uninitialized.into_rc_refcell(),
                 },
                 ctxobj: None,
                 span: None,
@@ -49,16 +50,16 @@ impl Cons {
         Ok(())
     }
 
-    pub fn append(&mut self, val: TulispValue) -> Result<(), Error> {
+    pub fn append(&mut self, val: TulispValueRef) -> Result<(), Error> {
         if TulispValue::Uninitialized == *self.car.as_ref().borrow() {
-            match val {
+            match &*val.as_ref().borrow() {
                 TulispValue::List { cons, .. } => {
-                    *self = cons;
+                    *self = cons.clone();
                 }
-                val => {
+                _ => {
                     *self = Cons {
-                        car: val.as_rc_refcell(),
-                        cdr: Rc::new(RefCell::new(TulispValue::Uninitialized)),
+                        car: val.clone(),
+                        cdr: TulispValue::Uninitialized.into_rc_refcell(),
                     };
                 }
             }
@@ -70,11 +71,11 @@ impl Cons {
             last = cons.cdr.clone();
         }
         if TulispValue::Uninitialized == *last.as_ref().borrow() {
-            *last.as_ref().borrow_mut() = val;
+            *last.as_ref().borrow_mut() = val.as_ref().borrow().to_owned();
         } else {
             return Err(Error::new(
                 ErrorKind::TypeMismatch,
-                format!("Unable to append: {}", val),
+                format!("Unable to append: {}", val.as_ref().borrow()),
             ));
         }
         Ok(())
@@ -90,7 +91,7 @@ pub struct ConsIter {
 }
 
 impl Iterator for ConsIter {
-    type Item = TulispValue;
+    type Item = TulispValueRef;
 
     fn next(&mut self) -> Option<Self::Item> {
         let Cons { car, cdr } = self.next.clone();
@@ -98,17 +99,17 @@ impl Iterator for ConsIter {
             None
         } else if let TulispValue::List { cons, .. } = &*cdr.as_ref().borrow() {
             self.next = cons.clone();
-            Some(car.as_ref().borrow().clone())
+            Some(car)
         } else {
             self.next = Cons::new();
-            Some(car.as_ref().borrow().clone())
+            Some(car)
         }
     }
 }
 
-pub fn car(cons: &TulispValue) -> Result<TulispValue, Error> {
-    if let TulispValue::List { cons, .. } = cons {
-        Ok(cons.car.as_ref().borrow().clone())
+pub fn car(cons: TulispValueRef) -> Result<TulispValueRef, Error> {
+    if let TulispValue::List { cons, .. } = &*cons.as_ref().borrow(){
+        Ok(cons.car.clone())
     } else {
         Err(Error::new(
             ErrorKind::TypeMismatch,
@@ -117,9 +118,9 @@ pub fn car(cons: &TulispValue) -> Result<TulispValue, Error> {
     }
 }
 
-pub fn cdr(cons: &TulispValue) -> Result<TulispValue, Error> {
-    if let TulispValue::List { cons, .. } = cons {
-        Ok(cons.cdr.as_ref().borrow().clone())
+pub fn cdr(cons: TulispValueRef) -> Result<TulispValueRef, Error> {
+    if let TulispValue::List { cons, .. } = &*cons.as_ref().borrow() {
+        Ok(cons.cdr.clone())
     } else {
         Err(Error::new(
             ErrorKind::TypeMismatch,
@@ -128,13 +129,10 @@ pub fn cdr(cons: &TulispValue) -> Result<TulispValue, Error> {
     }
 }
 
-pub fn cons(car: TulispValue, cdr: TulispValue) -> TulispValue {
+pub fn cons(car: TulispValueRef, cdr: TulispValueRef) -> TulispValueRef {
     TulispValue::List {
-        cons: Cons {
-            car: car.as_rc_refcell(),
-            cdr: cdr.as_rc_refcell(),
-        },
+        cons: Cons { car, cdr },
         ctxobj: None,
         span: None,
-    }
+    }.into_rc_refcell()
 }

@@ -5,7 +5,7 @@ use pest::{iterators::Pair, Parser};
 use crate::cons::{car, cdr};
 use crate::context::{ContextObject, TulispContext};
 use crate::eval::{eval, eval_defmacro};
-use crate::value::Span;
+use crate::value::{Span, TulispValueRef};
 use crate::{
     cons::Cons,
     error::{Error, ErrorKind},
@@ -25,7 +25,7 @@ pub fn parse_string(ctx: &mut TulispContext, string: &str) -> Result<TulispValue
             p @ TulispValue::List { .. } => locate_all_func(ctx, p)?,
             p => p,
         };
-        list.push(p)?;
+        list.push(p.into_rc_refcell())?;
     }
     Ok(TulispValue::List {
         cons: list,
@@ -34,23 +34,23 @@ pub fn parse_string(ctx: &mut TulispContext, string: &str) -> Result<TulispValue
     })
 }
 
-pub fn macroexpand(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispValue, Error> {
-    match &expr {
+pub fn macroexpand(ctx: &mut TulispContext, expr: TulispValueRef) -> Result<TulispValueRef, Error> {
+    match *expr.as_ref().borrow() {
         TulispValue::List { .. } => {}
-        _ => return Ok(expr),
+        _ => return Ok(expr.clone()),
     };
-    let name = match car(&expr)? {
-        TulispValue::Ident(ident) => ident.to_string(),
-        _ => return Ok(expr),
+    let name = match car(expr.clone())?.as_ref().borrow().as_ident() {
+        Ok(id) => id,
+        Err(_) => return Ok(expr.clone()),
     };
     match ctx.get_str(&name) {
         Some(item) => match &*item.as_ref().borrow() {
             ContextObject::Macro(func) => {
-                let expansion = func(ctx, &expr)?;
+                let expansion = func(ctx, expr)?;
                 macroexpand(ctx, expansion)
             }
             ContextObject::Defmacro { args, body } => {
-                let expansion = eval_defmacro(ctx, &args, &body, &cdr(&expr)?)?;
+                let expansion = eval_defmacro(ctx, args.clone(), body.clone(), cdr(expr)?)?;
                 macroexpand(ctx, expansion)
             }
             _ => Ok(expr),
@@ -62,14 +62,14 @@ pub fn macroexpand(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispV
 fn locate_all_func(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispValue, Error> {
     let mut ret = Cons::new();
     for ele in expr.iter() {
-        let next = match ele.clone() {
+        let next = match &*ele.as_ref().borrow() {
             e @ TulispValue::List { ctxobj: None, .. } => {
-                let next = locate_all_func(ctx, e)?;
+                let next = locate_all_func(ctx, e.to_owned())?;
                 locate_func(ctx, next)?
             }
-            e => e,
+            e => e.clone(),
         };
-        ret.push(next)?;
+        ret.push(next.into_rc_refcell())?;
     }
     Ok(TulispValue::List {
         cons: ret,
@@ -79,7 +79,7 @@ fn locate_all_func(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispV
 }
 
 fn locate_func(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispValue, Error> {
-    let name = match car(&expr)? {
+    let name = match &*car(expr.clone().into_rc_refcell())?.as_ref().borrow() {
         TulispValue::Ident(ident) => ident.to_string(),
         _ => return Ok(expr),
     };
@@ -122,24 +122,24 @@ fn parse(
             value
                 .into_inner()
                 .map(|item| parse(ctx, item, expand_macros))
-                .map(|val| -> Result<(), Error> { list.push(val?) })
+                .map(|val| -> Result<(), Error> { list.push(val?.into_rc_refcell()) })
                 .fold(Ok(()), |v1, v2| v1.and(v2))?;
             let expr = TulispValue::List {
                 cons: list,
                 ctxobj: None,
                 span: Some(span),
-            };
-            let name = match car(&expr)? {
+            }.into_rc_refcell();
+            let name = match &*car(expr.clone())?.as_ref().borrow() {
                 TulispValue::Ident(ident) => ident.to_string(),
-                _ => return Ok(expr),
+                _ => return Ok(expr.as_ref().borrow().clone()),
             };
             if name == "defun" || name == "defmacro" {
-                eval(ctx, &expr)?;
+                eval(ctx, expr.clone())?;
             }
             if *expand_macros == MacroExpand::Yes {
-                Ok(macroexpand(ctx, expr)?)
+                Ok(macroexpand(ctx, expr)?.as_ref().borrow().clone())
             } else {
-                Ok(expr)
+                Ok(expr.as_ref().borrow().clone())
             }
         }
         Rule::cons => {
@@ -148,7 +148,7 @@ fn parse(
                 .into_inner()
                 .map(|item| parse(ctx, item, expand_macros))
                 .map(|val| -> Result<(), Error> {
-                    list.append(val?)?;
+                    list.append(val?.into_rc_refcell())?;
                     Ok(())
                 })
                 .fold(Ok(()), |v1, v2| v1.and(v2))?;
