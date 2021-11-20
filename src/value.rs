@@ -1,7 +1,7 @@
 use std::{cell::RefCell, convert::TryInto, rc::Rc};
 
 use crate::{
-    cons::{self, car, Cons},
+    cons::{self, car, cdr, Cons},
     context::ContextObject,
     error::{Error, ErrorKind},
 };
@@ -88,17 +88,34 @@ impl std::fmt::Display for TulispValue {
             TulispValue::Ident(vv) => f.write_str(vv),
             TulispValue::Int(vv) => f.write_fmt(format_args!("{}", vv)),
             TulispValue::Float(vv) => f.write_fmt(format_args!("{}", vv)),
-            TulispValue::String(vv) => f.write_fmt(format_args!("{}", vv)),
+            TulispValue::String(vv) => f.write_fmt(format_args!(r#""{}""#, vv)),
             vv @ TulispValue::SExp { .. } => {
                 let mut ret = String::from("(");
                 let mut add_space = false;
-                for item in vv.iter() {
-                    if add_space {
+                fn print_next(
+                    ret: &mut String,
+                    add_space: &mut bool,
+                    vv: &TulispValue,
+                ) -> Result<(), Error> {
+                    let (first, rest) = (car(vv)?, cdr(vv)?);
+                    if *add_space {
                         ret.push(' ');
                     }
-                    add_space = true;
-                    ret.push_str(&format!("{}", item));
+                    *add_space = true;
+                    if first == TulispValue::Uninitialized {
+                        return Ok(());
+                    } else {
+                        ret.push_str(&format!("{}", car(vv)?));
+                    }
+                    if rest == TulispValue::Nil || rest == TulispValue::Uninitialized {
+                        return Ok(());
+                    } else if !rest.is_list() {
+                        ret.push_str(&format!(" . {}", rest));
+                        return Ok(());
+                    };
+                    print_next(ret, add_space, &rest)
                 }
+                print_next(&mut ret, &mut add_space, vv).unwrap_or(());
                 ret.push(')');
                 f.write_str(&ret)
             }

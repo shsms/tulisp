@@ -142,6 +142,18 @@ fn parse(
                 Ok(expr)
             }
         }
+        Rule::cons => {
+            let mut list = TulispValue::Nil;
+            value
+                .into_inner()
+                .map(|item| parse(ctx, item, expand_macros))
+                .map(|val| -> Result<(), Error> {
+                    list.append(val?)?;
+                    Ok(())
+                })
+                .fold(Ok(()), |v1, v2| v1.and(v2))?;
+            Ok(list)
+        }
         Rule::backquote => Ok(TulispValue::Backquote(Box::new(parse(
             ctx,
             value.into_inner().peek().ok_or_else(|| {

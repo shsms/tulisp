@@ -121,7 +121,8 @@ impl TulispContext {
                             )
                             .with_span(varitem.span())
                         })?
-                        .as_ident().map_err(|e|e.with_span(varitem.span()))?;
+                        .as_ident()
+                        .map_err(|e| e.with_span(varitem.span()))?;
                     let value = iter
                         .next()
                         .map_or(Ok(TulispValue::Nil), |vv| eval(self, &vv))?;

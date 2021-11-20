@@ -1,7 +1,7 @@
 use std::{cell::RefCell, collections::HashMap, fs, rc::Rc};
 
 use crate::{
-    cons::{car, cdr, Cons},
+    cons::{car, cdr},
     context::{ContextObject, Scope, TulispContext},
     error::{Error, ErrorKind},
     parser::{macroexpand, parse_string},
@@ -143,10 +143,10 @@ fn eval_form(ctx: &mut TulispContext, val: &TulispValue) -> Result<TulispValue, 
                 let expanded = macroexpand(ctx, val.clone())?;
                 eval(ctx, &expanded)
             }
-            _ => Err(Error::new(
-                ErrorKind::Undefined,
-                format!("function is void: {}", name),
-            )),
+            _ => Err(
+                Error::new(ErrorKind::Undefined, format!("function is void: {}", name))
+                    .with_span(val.span()),
+            ),
         },
         None => Err(Error::new(
             ErrorKind::Undefined,
@@ -156,7 +156,6 @@ fn eval_form(ctx: &mut TulispContext, val: &TulispValue) -> Result<TulispValue, 
 }
 
 pub fn eval(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue, Error> {
-    // let _fmt = format!("ToEval: {}", value);
     let ret = match value {
         TulispValue::Nil => Ok(value.clone()),
         TulispValue::Ident(name) => {
@@ -187,26 +186,39 @@ pub fn eval(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue,
         }),
         TulispValue::Quote(vv) => Ok(*vv.clone()),
         TulispValue::Backquote(vv) => {
-            let mut ret = Cons::new();
+            let mut ret = TulispValue::Nil;
             match &**vv {
-                vv @ TulispValue::SExp { .. } => {
-                    for ele in vv.iter() {
-                        match ele {
-                            e @ TulispValue::SExp { .. } => {
-                                ret.push(eval(ctx, &TulispValue::Backquote(Box::new(e.clone())))?)?
-                            }
-                            TulispValue::Unquote(vv) => ret.push(eval(ctx, &vv)?)?,
-                            e => ret.push(e.clone())?,
-                        };
+                vv if vv.is_list() => {
+                    fn bq_eval_next(
+                        ctx: &mut TulispContext,
+                        ret: &mut TulispValue,
+                        vv: &TulispValue,
+                    ) -> Result<(), Error> {
+                        let (first, rest) = (car(vv)?, cdr(vv)?);
+                        if first == TulispValue::Uninitialized {
+                            return Ok(());
+                        } else if let TulispValue::Unquote(vv) = first {
+                            ret.push(eval(ctx, &vv)?)?;
+                        } else {
+                            ret.push(eval(ctx, &TulispValue::Backquote(Box::new(first)))?)?;
+                        }
+                        // TODO: is Nil check necessary
+                        if let TulispValue::Unquote(vv) = rest {
+                            ret.append(eval(ctx, &vv)?)?;
+                            return Ok(());
+                        } else if !rest.is_list() {
+                            ret.append(rest)?;
+                            return Ok(());
+                        }
+                        bq_eval_next(ctx, ret, &rest)
                     }
+                    bq_eval_next(ctx, &mut ret, vv)?;
                 }
-                vv => ret.push(vv.clone())?,
+                vv => {
+                    ret = vv.clone();
+                }
             }
-            Ok(TulispValue::SExp {
-                cons: ret,
-                ctxobj: None,
-                span: None,
-            })
+            Ok(ret)
         }
         TulispValue::Unquote(_) => Err(Error::new(
             ErrorKind::TypeMismatch,
