@@ -129,7 +129,7 @@ pub fn eval_defmacro(
 fn eval_form(ctx: &mut TulispContext, val: &TulispValue) -> Result<TulispValue, Error> {
     let name = car(val)?;
     let func = match val {
-        TulispValue::SExp {
+        TulispValue::List {
             ctxobj: func @ Some(_),
             ..
         } => func.clone(),
@@ -180,7 +180,7 @@ pub fn eval(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue,
         TulispValue::Int(_) => Ok(value.clone()),
         TulispValue::Float(_) => Ok(value.clone()),
         TulispValue::String(_) => Ok(value.clone()),
-        TulispValue::SExp { span, .. } => eval_form(ctx, &value).map_err(|e| {
+        TulispValue::List { span, .. } => eval_form(ctx, &value).map_err(|e| {
             let span = e.span().or_else(|| span.clone());
             e.with_span(span)
         }),

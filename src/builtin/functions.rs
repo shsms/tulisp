@@ -164,7 +164,7 @@ fn mark_tail_calls(name: &TulispValue, body: &TulispValue) -> Result<TulispValue
     if !tail.is_list() {
         return Ok(body.clone());
     }
-    let span = if let TulispValue::SExp { span, .. } = &tail {
+    let span = if let TulispValue::List { span, .. } = &tail {
         span.clone()
     } else {
         return Ok(tail.clone());
@@ -172,7 +172,7 @@ fn mark_tail_calls(name: &TulispValue, body: &TulispValue) -> Result<TulispValue
     let tail_ident = car(&tail)?;
     let tail_name_str = tail_ident.as_ident()?;
     let new_tail = if tail_ident == *name {
-        let ret_tail = TulispValue::SExp {
+        let ret_tail = TulispValue::List {
             cons: Cons::new(),
             ctxobj: None,
             span,
@@ -437,7 +437,7 @@ pub fn add(ctx: &mut Scope) {
             defun_args!(_ (varlist &rest body) = vv);
             ctx.r#let(&varlist)?;
             let ret = match body {
-                vv @ TulispValue::SExp { .. } => eval_progn(ctx, &vv),
+                vv @ TulispValue::List { .. } => eval_progn(ctx, &vv),
                 _ => Err(Error::new(
                     ErrorKind::TypeMismatch,
                     "let: expected varlist and body".to_string(),
@@ -543,7 +543,7 @@ pub fn add(ctx: &mut Scope) {
         "list".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             defun_args!(_ (&rest vv) = vv);
-            let (ctxobj, span) = if let TulispValue::SExp { ctxobj, span, .. } = &vv {
+            let (ctxobj, span) = if let TulispValue::List { ctxobj, span, .. } = &vv {
                 (ctxobj.clone(), span.clone())
             } else {
                 (None, None)
@@ -552,7 +552,7 @@ pub fn add(ctx: &mut Scope) {
             for ele in vv.iter() {
                 cons.push(eval(ctx, &ele)?)?
             }
-            Ok(TulispValue::SExp { cons, ctxobj, span })
+            Ok(TulispValue::List { cons, ctxobj, span })
         }))),
     );
 

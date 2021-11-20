@@ -80,7 +80,7 @@ pub fn add(ctx: &mut Scope) {
                         ret.push(ele.clone())?;
                     }
                 }
-                Ok(TulispValue::SExp {
+                Ok(TulispValue::List {
                     cons: ret,
                     ctxobj: ctx.get_str(&"let".to_string()),
                     span: None,

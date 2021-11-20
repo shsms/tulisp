@@ -17,7 +17,7 @@ pub struct Span {
 impl Span {
     pub fn from(vv: &TulispValue) -> Option<Span> {
         match vv {
-            TulispValue::SExp { span, .. } => span.clone(),
+            TulispValue::List { span, .. } => span.clone(),
             _ => None,
         }
     }
@@ -40,7 +40,7 @@ pub enum TulispValue {
     Int(i64),
     Float(f64),
     String(String),
-    SExp {
+    List {
         cons: Cons,
         ctxobj: Option<Rc<RefCell<ContextObject>>>,
         span: Option<Span>,
@@ -58,7 +58,7 @@ impl PartialEq for TulispValue {
             (Self::Int(l0), Self::Int(r0)) => l0 == r0,
             (Self::Float(l0), Self::Float(r0)) => l0 == r0,
             (Self::String(l0), Self::String(r0)) => l0 == r0,
-            (Self::SExp { cons: l0, .. }, Self::SExp { cons: r0, .. }) => l0 == r0,
+            (Self::List { cons: l0, .. }, Self::List { cons: r0, .. }) => l0 == r0,
             (Self::Quote(l0), Self::Quote(r0)) => l0 == r0,
             (Self::Backquote(l0), Self::Backquote(r0)) => l0 == r0,
             (Self::Unquote(l0), Self::Unquote(r0)) => l0 == r0,
@@ -89,7 +89,7 @@ impl std::fmt::Display for TulispValue {
             TulispValue::Int(vv) => f.write_fmt(format_args!("{}", vv)),
             TulispValue::Float(vv) => f.write_fmt(format_args!("{}", vv)),
             TulispValue::String(vv) => f.write_fmt(format_args!(r#""{}""#, vv)),
-            vv @ TulispValue::SExp { .. } => {
+            vv @ TulispValue::List { .. } => {
                 let mut ret = String::from("(");
                 let mut add_space = false;
                 fn print_next(
@@ -129,19 +129,19 @@ impl std::fmt::Display for TulispValue {
 impl TulispValue {
     pub fn iter(&self) -> cons::ConsIter {
         match self {
-            TulispValue::SExp { cons, .. } => cons.iter(),
+            TulispValue::List { cons, .. } => cons.iter(),
             _ => Cons::new().iter(),
         }
     }
 
     pub fn push(&mut self, val: TulispValue) -> Result<&mut TulispValue, Error> {
-        if let TulispValue::SExp { cons, span, .. } = self {
+        if let TulispValue::List { cons, span, .. } = self {
             cons.push(val).map_err(|e| e.with_span(span.clone()))?;
             Ok(self)
         } else if *self == TulispValue::Uninitialized || *self == TulispValue::Nil {
             let mut cons = Cons::new();
             cons.push(val)?;
-            *self = TulispValue::SExp {
+            *self = TulispValue::List {
                 cons,
                 ctxobj: None,
                 span: None,
@@ -156,13 +156,13 @@ impl TulispValue {
     }
 
     pub fn append(&mut self, val: TulispValue) -> Result<&mut TulispValue, Error> {
-        if let TulispValue::SExp { cons, span, .. } = self {
+        if let TulispValue::List { cons, span, .. } = self {
             cons.append(val).map_err(|e| e.with_span(span.clone()))?;
             Ok(self)
         } else if *self == TulispValue::Uninitialized || *self == TulispValue::Nil {
             let mut cons = Cons::new();
             cons.append(val)?;
-            *self = TulispValue::SExp {
+            *self = TulispValue::List {
                 cons,
                 ctxobj: None,
                 span: None,
@@ -206,7 +206,7 @@ impl TulispValue {
 
     pub fn is_list(&self) -> bool {
         match self {
-            TulispValue::SExp { .. } => true,
+            TulispValue::List { .. } => true,
             _ => false,
         }
     }
@@ -214,7 +214,7 @@ impl TulispValue {
     pub fn into_list(self) -> TulispValue {
         let mut ret = Cons::new();
         ret.push(self).unwrap();
-        TulispValue::SExp {
+        TulispValue::List {
             cons: ret,
             ctxobj: None,
             span: None,
@@ -222,7 +222,7 @@ impl TulispValue {
     }
 
     pub fn new_list() -> TulispValue {
-        TulispValue::SExp {
+        TulispValue::List {
             cons: Cons::new(),
             ctxobj: None,
             span: None,
@@ -231,7 +231,7 @@ impl TulispValue {
 
     pub fn with_ctxobj(self, ctxobj: Option<Rc<RefCell<ContextObject>>>) -> TulispValue {
         match self {
-            TulispValue::SExp { cons, span, .. } => TulispValue::SExp { cons, ctxobj, span },
+            TulispValue::List { cons, span, .. } => TulispValue::List { cons, ctxobj, span },
             _ => self,
         }
     }
@@ -245,7 +245,7 @@ impl TulispValue {
 
     pub fn span(&self) -> Option<Span> {
         match self {
-            TulispValue::SExp { span, .. } => span.to_owned(),
+            TulispValue::List { span, .. } => span.to_owned(),
             _ => None,
         }
     }

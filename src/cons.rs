@@ -28,11 +28,11 @@ impl Cons {
         }
         let mut last = self.cdr.clone();
 
-        while let TulispValue::SExp { cons, .. } = &*last.clone().as_ref().borrow() {
+        while let TulispValue::List { cons, .. } = &*last.clone().as_ref().borrow() {
             last = cons.cdr.clone();
         }
         if TulispValue::Uninitialized == *last.as_ref().borrow() {
-            *last.as_ref().borrow_mut() = TulispValue::SExp {
+            *last.as_ref().borrow_mut() = TulispValue::List {
                 cons: Cons {
                     car: Rc::new(RefCell::new(val)),
                     cdr: Rc::new(RefCell::new(TulispValue::Uninitialized)),
@@ -52,7 +52,7 @@ impl Cons {
     pub fn append(&mut self, val: TulispValue) -> Result<(), Error> {
         if TulispValue::Uninitialized == *self.car.as_ref().borrow() {
             match val {
-                TulispValue::SExp { cons, .. } => {
+                TulispValue::List { cons, .. } => {
                     *self = cons;
                 }
                 val => {
@@ -66,7 +66,7 @@ impl Cons {
         }
         let mut last = self.cdr.clone();
 
-        while let TulispValue::SExp { cons, .. } = &*last.clone().as_ref().borrow() {
+        while let TulispValue::List { cons, .. } = &*last.clone().as_ref().borrow() {
             last = cons.cdr.clone();
         }
         if TulispValue::Uninitialized == *last.as_ref().borrow() {
@@ -96,7 +96,7 @@ impl Iterator for ConsIter {
         let Cons { car, cdr } = self.next.clone();
         if *car.as_ref().borrow() == TulispValue::Uninitialized {
             None
-        } else if let TulispValue::SExp { cons, .. } = &*cdr.as_ref().borrow() {
+        } else if let TulispValue::List { cons, .. } = &*cdr.as_ref().borrow() {
             self.next = cons.clone();
             Some(car.as_ref().borrow().clone())
         } else {
@@ -107,7 +107,7 @@ impl Iterator for ConsIter {
 }
 
 pub fn car(cons: &TulispValue) -> Result<TulispValue, Error> {
-    if let TulispValue::SExp { cons, .. } = cons {
+    if let TulispValue::List { cons, .. } = cons {
         Ok(cons.car.as_ref().borrow().clone())
     } else {
         Err(Error::new(
@@ -118,7 +118,7 @@ pub fn car(cons: &TulispValue) -> Result<TulispValue, Error> {
 }
 
 pub fn cdr(cons: &TulispValue) -> Result<TulispValue, Error> {
-    if let TulispValue::SExp { cons, .. } = cons {
+    if let TulispValue::List { cons, .. } = cons {
         Ok(cons.cdr.as_ref().borrow().clone())
     } else {
         Err(Error::new(
@@ -129,7 +129,7 @@ pub fn cdr(cons: &TulispValue) -> Result<TulispValue, Error> {
 }
 
 pub fn cons(car: TulispValue, cdr: TulispValue) -> TulispValue {
-    TulispValue::SExp {
+    TulispValue::List {
         cons: Cons {
             car: car.as_rc_refcell(),
             cdr: cdr.as_rc_refcell(),
