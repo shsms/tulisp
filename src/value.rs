@@ -7,6 +7,7 @@ use crate::{
 };
 
 use pest;
+use tailcall::tailcall;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Span {
@@ -94,7 +95,13 @@ impl std::fmt::Display for TulispValue {
             vv @ TulispValue::List { .. } => {
                 let mut ret = String::from("(");
                 let mut add_space = false;
-                fn print_next(
+
+                // TODO: for some reason `tailcall` is generating some
+                // unreachable code. tailcall optimization still
+                // works.
+                #[allow(unreachable_code)]
+                #[tailcall]
+                fn write_next(
                     ret: &mut String,
                     add_space: &mut bool,
                     vv: TulispValueRef,
@@ -117,9 +124,9 @@ impl std::fmt::Display for TulispValue {
                         ret.push_str(&format!(" . {}", rest.as_ref().borrow()));
                         return Ok(());
                     };
-                    print_next(ret, add_space, rest)
+                    write_next(ret, add_space, rest)
                 }
-                print_next(&mut ret, &mut add_space, vv.clone().into_rc_refcell()).unwrap_or(());
+                write_next(&mut ret, &mut add_space, vv.clone().into_rc_refcell()).unwrap_or(());
                 ret.push(')');
                 f.write_str(&ret)
             }

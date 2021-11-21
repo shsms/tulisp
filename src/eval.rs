@@ -1,5 +1,7 @@
 use std::{cell::RefCell, collections::HashMap, fs, rc::Rc};
 
+use tailcall::tailcall;
+
 use crate::{
     cons::{car, cdr},
     context::{ContextObject, Scope, TulispContext},
@@ -192,6 +194,8 @@ pub fn eval(ctx: &mut TulispContext, value: TulispValueRef) -> Result<TulispValu
             let mut ret = TulispValue::Nil;
             match &*vv {
                 vv if vv.is_list() => {
+                    #[allow(unreachable_code)]
+                    #[tailcall]
                     fn bq_eval_next(
                         ctx: &mut TulispContext,
                         ret: &mut TulispValue,
