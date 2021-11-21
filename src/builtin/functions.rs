@@ -16,95 +16,7 @@ use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::convert::TryInto;
 use std::rc::Rc;
-
-macro_rules! list {
-    (@push $ret:ident, $item:expr) => {
-        $ret.push($item)
-    };
-    (@push $ret:ident, @ $item:expr) => {
-        $ret.append($item)
-    };
-    (@push $ret:ident, $item:expr, $($items:tt)+) => {
-        list!(@push $ret, $item).and_then(|ret|
-        list!(@push ret, $($items)+))
-    };
-    (@push $ret:ident, @ $item:expr, $($items:tt)+) => {
-        list!(@push $ret, @ $item).and_then(|ret|
-        list!(@push ret, $($items)+))
-    };
-    (, $($items:tt)+) => { list!($($items)+) };
-    ($($items:tt)+) => {{
-	let mut ret = TulispValue::new_list();
-        list!(@push ret, $($items)+)
-            .and_then(|ret| Ok(ret.to_owned()))
-            .map(|x| x.into_rc_refcell())
-    }};
-    () => { TulispValue::new_list().into_rc_refcell() }
-}
-
-macro_rules! defun_args {
-    (@reqr $vv:ident, $var:ident) => {
-        let $var = car($vv.clone())?;
-        let $vv = cdr($vv)?;
-    };
-    (@reqr $vv:ident, $var:ident $($vars:tt)+) => {
-        defun_args!(@reqr $vv, $var);
-        defun_args!(@reqr $vv, $($vars)+);
-    };
-    (@reqr $vv:ident,) => {};
-    (@no-rest $vv:ident) => {
-        if *$vv.as_ref().borrow() != TulispValue::Uninitialized {
-            return Err(Error::new(ErrorKind::TypeMismatch,"Too many arguments".to_string(), ));
-        }
-    };
-    (@rest $rest:ident $vv:ident) => {
-        let $rest = if *$vv.as_ref().borrow() == TulispValue::Uninitialized {
-            TulispValue::Nil.into_rc_refcell()
-        } else {
-            $vv
-        };
-    };
-    (@optvar $vv:ident, $var:ident) => {
-        let ($var, $vv) = if *$vv.borrow() != TulispValue::Uninitialized {
-            (car($vv.clone())?, cdr($vv)?)
-        } else {
-            (TulispValue::Nil.into_rc_refcell(), TulispValue::Uninitialized.into_rc_refcell())
-        };
-    };
-    (@optvar $vv:ident, $var:ident $($vars:ident)+) => {
-        defun_args!(@optvar $vv, $var);
-        defun_args!(@optvar $vv, $($vars)+)
-    };
-    (($($vars:ident)+) = $vv:ident) => {
-        defun_args!(@reqr $vv, $($vars)+);
-        defun_args!(@no-rest $vv);
-    };
-    (($($vars:ident)* &optional $($optvars:ident)+) = $vv:ident) => {
-	defun_args!(@reqr $vv, $($vars)*);
-        defun_args!(@optvar $vv, $($optvars)+);
-        defun_args!(@no-rest $vv);
-    };
-    (($($vars:ident)* &rest $rest:ident) = $vv:ident) => {
-	defun_args!(@reqr $vv, $($vars)*);
-        defun_args!(@rest $rest $vv);
-    };
-    (($($vars:ident)* &optional $($optvars:ident)+ &rest $rest:ident) = $vv:ident) => {
-	defun_args!(@reqr $vv, $($vars)*);
-        defun_args!(@optvar $vv, $($optvars)+);
-        defun_args!(@rest $rest $vv);
-    };
-    (_ ($($rest:tt)*) = $vv:ident) => {
-        let $vv = cdr($vv)?;
-        defun_args!(($($rest)*) = $vv);
-    };
-    ($defun_name:ident ($($rest:tt)*) = $vv:ident) => {
-        let $defun_name = car($vv.clone())?;
-        defun_args!(_ ($($rest)*) = $vv);
-    }
-}
-
-pub(crate) use defun_args;
-pub(crate) use list;
+use crate::macros::{list, defun_args};
 
 macro_rules! max_min_ops {
     ($oper:tt) => {{
@@ -592,15 +504,10 @@ pub fn add(ctx: &mut Scope) {
         "list".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             defun_args!(_ (&rest vv) = vv);
-            let (ctxobj, span) =
-            // TODO: use get_span, get_ctxobj methods instead to avoid clone.
-                if let TulispValue::List { ctxobj, span, .. } = vv.as_ref().borrow().clone() {
-                    (ctxobj.clone(), span.clone())
-                } else {
-                    (None, None)
-                };
+            let vv = vv.as_ref().borrow();
+            let (ctxobj, span) = (vv.ctxobj(), vv.span());
             let mut cons = Cons::new();
-            for ele in vv.as_ref().borrow().iter() {
+            for ele in vv.iter() {
                 cons.push(eval(ctx, ele)?)?
             }
             Ok(TulispValue::List { cons, ctxobj, span }.into_rc_refcell())

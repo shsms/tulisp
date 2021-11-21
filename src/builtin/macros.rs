@@ -1,13 +1,11 @@
-use std::cell::RefCell;
-use std::rc::Rc;
-
-use crate::builtin::functions::defun_args;
-use crate::builtin::functions::list;
 use crate::cons::{car, cdr, Cons};
 use crate::context::{ContextObject, Scope, TulispContext};
 use crate::error::Error;
+use crate::macros::{defun_args, list};
 use crate::value::TulispValue::{self, Nil};
 use crate::value::TulispValueRef;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 fn thread_first(ctx: &mut TulispContext, vv: TulispValueRef) -> Result<TulispValueRef, Error> {
     defun_args!(_name (x &optional form &rest more) = vv);

@@ -46,9 +46,9 @@ pub enum TulispValue {
         ctxobj: Option<Rc<RefCell<ContextObject>>>,
         span: Option<Span>,
     },
-    Quote(Box<TulispValue>),
-    Backquote(Box<TulispValue>),
-    Unquote(Box<TulispValue>),
+    Quote(TulispValueRef),
+    Backquote(TulispValueRef),
+    Unquote(TulispValueRef),
     Bounce,
 }
 
@@ -107,13 +107,13 @@ impl std::fmt::Display for TulispValue {
                     vv: TulispValueRef,
                 ) -> Result<(), Error> {
                     let (first, rest) = (car(vv.clone())?, cdr(vv.clone())?);
-                    if *add_space {
-                        ret.push(' ');
-                    }
-                    *add_space = true;
                     if *first.as_ref().borrow() == TulispValue::Uninitialized {
                         return Ok(());
                     } else {
+                        if *add_space {
+                            ret.push(' ');
+                        }
+                        *add_space = true;
                         ret.push_str(&format!("{}", car(vv)?.as_ref().borrow()));
                     }
                     if *rest.as_ref().borrow() == TulispValue::Nil
@@ -130,9 +130,9 @@ impl std::fmt::Display for TulispValue {
                 ret.push(')');
                 f.write_str(&ret)
             }
-            TulispValue::Quote(vv) => f.write_fmt(format_args!("'{}", vv)),
-            TulispValue::Backquote(vv) => f.write_fmt(format_args!("`{}", vv)),
-            TulispValue::Unquote(vv) => f.write_fmt(format_args!(",{}", vv)),
+            TulispValue::Quote(vv) => f.write_fmt(format_args!("'{}", vv.as_ref().borrow())),
+            TulispValue::Backquote(vv) => f.write_fmt(format_args!("`{}", vv.as_ref().borrow())),
+            TulispValue::Unquote(vv) => f.write_fmt(format_args!(",{}", vv.as_ref().borrow())),
         }
     }
 }
@@ -251,6 +251,13 @@ impl TulispValue {
         match self {
             TulispValue::String(vv) => vv.to_string(),
             s => s.to_string(),
+        }
+    }
+
+    pub fn ctxobj(&self) -> Option<Rc<RefCell<ContextObject>>> {
+        match self {
+            TulispValue::List { ctxobj, .. } => ctxobj.to_owned(),
+            _ => None,
         }
     }
 

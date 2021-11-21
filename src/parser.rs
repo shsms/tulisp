@@ -154,7 +154,7 @@ fn parse(
                 .fold(Ok(()), |v1, v2| v1.and(v2))?;
             Ok(list)
         }
-        Rule::backquote => Ok(TulispValue::Backquote(Box::new(parse(
+        Rule::backquote => Ok(TulispValue::Backquote(parse(
             ctx,
             value.into_inner().peek().ok_or_else(|| {
                 Error::new(
@@ -167,8 +167,8 @@ fn parse(
             } else {
                 expand_macros
             },
-        )?))),
-        Rule::unquote => Ok(TulispValue::Unquote(Box::new(parse(
+        )?.into_rc_refcell())),
+        Rule::unquote => Ok(TulispValue::Unquote(parse(
             ctx,
             value.into_inner().peek().ok_or_else(|| {
                 Error::new(ErrorKind::ParsingError, format!("Unquote inner not found"))
@@ -178,14 +178,14 @@ fn parse(
             } else {
                 expand_macros
             },
-        )?))),
-        Rule::quote => Ok(TulispValue::Quote(Box::new(parse(
+        )?.into_rc_refcell())),
+        Rule::quote => Ok(TulispValue::Quote(parse(
             ctx,
             value.into_inner().peek().ok_or_else(|| {
                 Error::new(ErrorKind::ParsingError, format!("Quote inner not found"))
             })?,
             &MacroExpand::No,
-        )?))),
+        )?.into_rc_refcell())),
         Rule::nil => Ok(TulispValue::Nil),
         Rule::ident => Ok(TulispValue::Ident(value.as_span().as_str().to_string())),
         Rule::integer => Ok(TulispValue::Int(value.as_span().as_str().parse().map_err(

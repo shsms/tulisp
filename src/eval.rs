@@ -189,11 +189,11 @@ pub fn eval(ctx: &mut TulispContext, value: TulispValueRef) -> Result<TulispValu
             let span = e.span().or_else(|| span.clone());
             e.with_span(span)
         }),
-        TulispValue::Quote(vv) => Ok(vv.clone().into_rc_refcell()),
+        TulispValue::Quote(vv) => Ok(vv.clone()),
         TulispValue::Backquote(vv) => {
-            let mut ret = TulispValue::Nil;
+            let mut ret = TulispValue::Nil.into_rc_refcell();
             match &*vv {
-                vv if vv.is_list() => {
+                vv if vv.as_ref().borrow().is_list() => {
                     #[allow(unreachable_code)]
                     #[tailcall]
                     fn bq_eval_next(
@@ -205,17 +205,17 @@ pub fn eval(ctx: &mut TulispContext, value: TulispValueRef) -> Result<TulispValu
                         if *first.as_ref().borrow() == TulispValue::Uninitialized {
                             return Ok(());
                         } else if let TulispValue::Unquote(vv) = &*first.as_ref().borrow() {
-                            ret.push(eval(ctx, vv.clone().into_rc_refcell())?)?;
+                            ret.push(eval(ctx, vv.clone())?)?;
                         } else {
                             ret.push(eval(
                                 ctx,
-                                TulispValue::Backquote(Box::new(first.as_ref().borrow().clone()))
+                                TulispValue::Backquote(first.clone())
                                     .into_rc_refcell(),
                             )?)?;
                         }
                         // TODO: is Nil check necessary
                         if let TulispValue::Unquote(vv) = &*rest.as_ref().borrow() {
-                            ret.append(eval(ctx, vv.clone().into_rc_refcell())?)?;
+                            ret.append(eval(ctx, vv.clone())?)?;
                             return Ok(());
                         } else if !rest.as_ref().borrow().is_list() {
                             ret.append(rest.clone())?;
@@ -223,13 +223,13 @@ pub fn eval(ctx: &mut TulispContext, value: TulispValueRef) -> Result<TulispValu
                         }
                         bq_eval_next(ctx, ret, rest)
                     }
-                    bq_eval_next(ctx, &mut ret, vv.clone().into_rc_refcell())?;
+                    bq_eval_next(ctx, &mut ret.as_ref().borrow_mut(), vv.clone())?;
                 }
                 vv => {
-                    ret = *vv.clone();
+                    ret = vv.clone();
                 }
             }
-            Ok(ret.into_rc_refcell())
+            Ok(ret)
         }
         TulispValue::Unquote(_) => Err(Error::new(
             ErrorKind::TypeMismatch,

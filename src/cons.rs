@@ -4,6 +4,7 @@ use crate::value::TulispValue;
 use crate::value::TulispValueRef;
 use std::cell::RefCell;
 use std::rc::Rc;
+use crate::macros::list;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Cons {
@@ -130,9 +131,5 @@ pub fn cdr(cons: TulispValueRef) -> Result<TulispValueRef, Error> {
 }
 
 pub fn cons(car: TulispValueRef, cdr: TulispValueRef) -> TulispValueRef {
-    TulispValue::List {
-        cons: Cons { car, cdr },
-        ctxobj: None,
-        span: None,
-    }.into_rc_refcell()
+    list!(,car ,@cdr).unwrap()
 }
