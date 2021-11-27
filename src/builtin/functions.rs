@@ -9,6 +9,7 @@ use crate::error::Error;
 use crate::error::ErrorKind;
 use crate::eval::eval;
 use crate::eval::eval_progn;
+use crate::macros::{defun_args, list};
 use crate::parser::macroexpand;
 use crate::value::TulispValue;
 use crate::value::TulispValueRef;
@@ -16,7 +17,6 @@ use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::convert::TryInto;
 use std::rc::Rc;
-use crate::macros::{list, defun_args};
 
 macro_rules! max_min_ops {
     ($oper:tt) => {{

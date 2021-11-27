@@ -209,8 +209,7 @@ pub fn eval(ctx: &mut TulispContext, value: TulispValueRef) -> Result<TulispValu
                         } else {
                             ret.push(eval(
                                 ctx,
-                                TulispValue::Backquote(first.clone())
-                                    .into_rc_refcell(),
+                                TulispValue::Backquote(first.clone()).into_rc_refcell(),
                             )?)?;
                         }
                         // TODO: is Nil check necessary
@@ -259,7 +258,9 @@ pub fn eval_progn(ctx: &mut TulispContext, value: TulispValueRef) -> Result<Tuli
         .as_ref()
         .borrow()
         .iter()
-        .fold(Ok(TulispValue::Nil.into_rc_refcell()), |v1, v2| v1.and(eval(ctx, v2)))
+        .fold(Ok(TulispValue::Nil.into_rc_refcell()), |v1, v2| {
+            v1.and(eval(ctx, v2))
+        })
 }
 
 pub fn eval_string(ctx: &mut TulispContext, string: &str) -> Result<TulispValueRef, Error> {
