@@ -1,10 +1,10 @@
 use crate::error::Error;
 use crate::error::ErrorKind;
+use crate::macros::list;
 use crate::value::TulispValue;
 use crate::value::TulispValueRef;
 use std::cell::RefCell;
 use std::rc::Rc;
-use crate::macros::list;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Cons {
@@ -87,6 +87,21 @@ impl Cons {
     }
 }
 
+impl Drop for Cons {
+    fn drop(&mut self) {
+        if Rc::strong_count(&self.cdr) > 1 || !self.cdr.as_ref().borrow().is_list() {
+            return;
+        }
+        let mut cdr = self.cdr.as_ref().borrow_mut().take();
+        while let TulispValue::List { cons, .. } = cdr {
+            if Rc::strong_count(&cons.cdr) > 1 {
+                break;
+            }
+            cdr = cons.cdr.as_ref().borrow_mut().take();
+        }
+    }
+}
+
 pub struct ConsIter {
     next: Cons,
 }
@@ -95,7 +110,8 @@ impl Iterator for ConsIter {
     type Item = TulispValueRef;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let Cons { car, cdr } = self.next.clone();
+        let car = self.next.car.clone();
+        let cdr = self.next.cdr.clone();
         if *car.as_ref().borrow() == TulispValue::Uninitialized {
             None
         } else if let TulispValue::List { cons, .. } = &*cdr.as_ref().borrow() {
@@ -109,7 +125,7 @@ impl Iterator for ConsIter {
 }
 
 pub fn car(cons: TulispValueRef) -> Result<TulispValueRef, Error> {
-    if let TulispValue::List { cons, .. } = &*cons.as_ref().borrow(){
+    if let TulispValue::List { cons, .. } = &*cons.as_ref().borrow() {
         Ok(cons.car.clone())
     } else {
         Err(Error::new(

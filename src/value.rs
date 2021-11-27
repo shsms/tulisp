@@ -267,7 +267,12 @@ impl TulispValue {
             _ => None,
         }
     }
+
+    pub fn take(&mut self) -> TulispValue {
+        std::mem::replace(self, TulispValue::Uninitialized)
+    }
 }
+
 impl TryInto<f64> for TulispValue {
     type Error = Error;
 
