@@ -1,5 +1,5 @@
 #[macro_export]
-macro_rules! __list__ {
+macro_rules! list {
     (@push $ret:ident, $item:expr) => {
         $ret.push($item)
     };
@@ -25,7 +25,7 @@ macro_rules! __list__ {
 }
 
 #[macro_export]
-macro_rules! __defun_args__ {
+macro_rules! defun_args {
     (@reqr $vv:ident, $var:ident) => {
         let $var = car($vv.clone())?;
         let $vv = cdr($vv)?;
@@ -85,6 +85,3 @@ macro_rules! __defun_args__ {
         defun_args!(_ ($($rest)*) = $vv);
     }
 }
-
-pub use __defun_args__ as defun_args;
-pub use __list__ as list;

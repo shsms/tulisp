@@ -1,6 +1,6 @@
 use crate::error::Error;
 use crate::error::ErrorKind;
-use crate::macros::list;
+use crate::list;
 use crate::value::TulispValue;
 use crate::value_ref::TulispValueRef;
 
@@ -70,7 +70,6 @@ impl Cons {
             last = cons.cdr.clone();
         }
         if last == TulispValue::Uninitialized {
-            // TODO: options for direct assignment of Rc instead of clone_inner
             last.assign(val.clone_inner());
         } else {
             return Err(Error::new(

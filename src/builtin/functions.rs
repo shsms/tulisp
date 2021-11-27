@@ -9,7 +9,7 @@ use crate::error::Error;
 use crate::error::ErrorKind;
 use crate::eval::eval;
 use crate::eval::eval_progn;
-use crate::macros::{defun_args, list};
+use crate::{defun_args, list};
 use crate::parser::macroexpand;
 use crate::value::TulispValue;
 use crate::value_ref::TulispValueRef;

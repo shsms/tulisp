@@ -1,7 +1,7 @@
 use crate::cons::{car, cdr, Cons};
 use crate::context::{ContextObject, Scope, TulispContext};
 use crate::error::Error;
-use crate::macros::{defun_args, list};
+use crate::{defun_args, list};
 use crate::value::TulispValue::{self, Nil};
 use crate::value_ref::TulispValueRef;
 use std::cell::RefCell;
