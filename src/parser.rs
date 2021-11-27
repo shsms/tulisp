@@ -5,11 +5,11 @@ use pest::{iterators::Pair, Parser};
 use crate::cons::{car, cdr};
 use crate::context::{ContextObject, TulispContext};
 use crate::eval::{eval, eval_defmacro};
-use crate::value::{Span, TulispValueRef};
 use crate::{
     cons::Cons,
     error::{Error, ErrorKind},
-    value::TulispValue,
+    value::{Span, TulispValue},
+    value_ref::TulispValueRef,
 };
 
 #[derive(Parser)]
@@ -25,7 +25,7 @@ pub fn parse_string(ctx: &mut TulispContext, string: &str) -> Result<TulispValue
             p @ TulispValue::List { .. } => locate_all_func(ctx, p)?,
             p => p,
         };
-        list.push(p.into_rc_refcell())?;
+        list.push(p.into_ref())?;
     }
     Ok(TulispValue::List {
         cons: list,
@@ -35,11 +35,11 @@ pub fn parse_string(ctx: &mut TulispContext, string: &str) -> Result<TulispValue
 }
 
 pub fn macroexpand(ctx: &mut TulispContext, expr: TulispValueRef) -> Result<TulispValueRef, Error> {
-    match *expr.as_ref().borrow() {
+    match expr.clone_inner() {
         TulispValue::List { .. } => {}
         _ => return Ok(expr.clone()),
     };
-    let name = match car(expr.clone())?.as_ref().borrow().as_ident() {
+    let name = match car(expr.clone())?.as_ident() {
         Ok(id) => id,
         Err(_) => return Ok(expr.clone()),
     };
@@ -62,14 +62,14 @@ pub fn macroexpand(ctx: &mut TulispContext, expr: TulispValueRef) -> Result<Tuli
 fn locate_all_func(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispValue, Error> {
     let mut ret = Cons::new();
     for ele in expr.iter() {
-        let next = match &*ele.as_ref().borrow() {
+        let next = match ele.clone_inner() {
             e @ TulispValue::List { ctxobj: None, .. } => {
                 let next = locate_all_func(ctx, e.to_owned())?;
                 locate_func(ctx, next)?
             }
             e => e.clone(),
         };
-        ret.push(next.into_rc_refcell())?;
+        ret.push(next.into_ref())?;
     }
     Ok(TulispValue::List {
         cons: ret,
@@ -79,7 +79,7 @@ fn locate_all_func(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispV
 }
 
 fn locate_func(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispValue, Error> {
-    let name = match &*car(expr.clone().into_rc_refcell())?.as_ref().borrow() {
+    let name = match car(expr.clone().into_ref())?.clone_inner() {
         TulispValue::Ident(ident) => ident.to_string(),
         _ => return Ok(expr),
     };
@@ -122,25 +122,25 @@ fn parse(
             value
                 .into_inner()
                 .map(|item| parse(ctx, item, expand_macros))
-                .map(|val| -> Result<(), Error> { list.push(val?.into_rc_refcell()) })
+                .map(|val| -> Result<(), Error> { list.push(val?.into_ref()) })
                 .fold(Ok(()), |v1, v2| v1.and(v2))?;
             let expr = TulispValue::List {
                 cons: list,
                 ctxobj: None,
                 span: Some(span),
             }
-            .into_rc_refcell();
-            let name = match &*car(expr.clone())?.as_ref().borrow() {
+            .into_ref();
+            let name = match car(expr.clone())?.clone_inner() {
                 TulispValue::Ident(ident) => ident.to_string(),
-                _ => return Ok(expr.as_ref().borrow().clone()),
+                _ => return Ok(expr.clone_inner()),
             };
             if name == "defun" || name == "defmacro" {
                 eval(ctx, expr.clone())?;
             }
             if *expand_macros == MacroExpand::Yes {
-                Ok(macroexpand(ctx, expr)?.as_ref().borrow().clone())
+                Ok(macroexpand(ctx, expr)?.clone_inner())
             } else {
-                Ok(expr.as_ref().borrow().clone())
+                Ok(expr.clone_inner())
             }
         }
         Rule::cons => {
@@ -149,7 +149,7 @@ fn parse(
                 .into_inner()
                 .map(|item| parse(ctx, item, expand_macros))
                 .map(|val| -> Result<(), Error> {
-                    list.append(val?.into_rc_refcell())?;
+                    list.append(val?.into_ref())?;
                     Ok(())
                 })
                 .fold(Ok(()), |v1, v2| v1.and(v2))?;
@@ -170,7 +170,7 @@ fn parse(
                     expand_macros
                 },
             )?
-            .into_rc_refcell(),
+            .into_ref(),
         )),
         Rule::unquote => Ok(TulispValue::Unquote(
             parse(
@@ -184,7 +184,7 @@ fn parse(
                     expand_macros
                 },
             )?
-            .into_rc_refcell(),
+            .into_ref(),
         )),
         Rule::quote => Ok(TulispValue::Quote(
             parse(
@@ -194,7 +194,7 @@ fn parse(
                 })?,
                 &MacroExpand::No,
             )?
-            .into_rc_refcell(),
+            .into_ref(),
         )),
         Rule::nil => Ok(TulispValue::Nil),
         Rule::ident => Ok(TulispValue::Ident(value.as_span().as_str().to_string())),

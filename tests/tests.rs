@@ -6,13 +6,13 @@ macro_rules! tulisp_assert {
         let mut ctx = new_context();
         let output = eval_string(&mut ctx, $input)?;
         let expected = parse_string(&mut ctx, $result)?;
-        let expected = car(expected.into_rc_refcell())?;
+        let expected = car(expected.into_ref())?;
         assert!(
-            *output.as_ref().borrow() == *expected.as_ref().borrow(),
+            output == expected,
             "\n  program: {}\n  output: {},\n  expected: {}\n",
             $input,
-            output.as_ref().borrow(),
-            expected.as_ref().borrow()
+            output,
+            expected
         );
     };
     (program:$input:expr, error:$desc:expr $(,)?) => {

@@ -3,7 +3,8 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 use crate::{
     error::{Error, ErrorKind},
     eval::eval,
-    value::{TulispValue, TulispValueRef},
+    value::TulispValue,
+    value_ref::TulispValueRef,
 };
 
 #[derive(Clone)]
@@ -69,7 +70,7 @@ impl TulispContext {
     }
 
     pub fn get(&self, name: TulispValueRef) -> Option<Rc<RefCell<ContextObject>>> {
-        if let TulispValue::Ident(name) = &*name.as_ref().borrow() {
+        if let TulispValue::Ident(name) = name.clone_inner() {
             self.get_str(&name)
         } else {
             // TODO: return Result
@@ -95,21 +96,21 @@ impl TulispContext {
         Ok(())
     }
     pub fn set(&mut self, name: TulispValueRef, value: TulispValueRef) -> Result<(), Error> {
-        if let Ok(name) = name.as_ref().borrow().as_ident() {
+        if let Ok(name) = name.as_ident() {
             self.set_str(name.clone(), ContextObject::TulispValue(value))
         } else {
             Err(Error::new(
                 ErrorKind::TypeMismatch,
-                format!("name is not an ident: {}", name.as_ref().borrow()),
+                format!("name is not an ident: {}", name),
             ))
         }
     }
 
-    pub fn r#let(&mut self, varlist: &TulispValue) -> Result<(), Error> {
+    pub fn r#let(&mut self, varlist: TulispValueRef) -> Result<(), Error> {
         let mut local = HashMap::new();
         for varitem in varlist.iter() {
-            let (name, value) = match &*varitem.as_ref().borrow() {
-                TulispValue::Ident(name) => (name.to_owned(), TulispValue::Nil.into_rc_refcell()),
+            let (name, value) = match varitem.clone_inner() {
+                TulispValue::Ident(name) => (name.to_owned(), TulispValue::Nil.into_ref()),
                 varitem if varitem.is_list() => {
                     let mut iter = varitem.iter();
                     let name = iter
@@ -121,13 +122,11 @@ impl TulispContext {
                             )
                             .with_span(varitem.span())
                         })?
-                        .as_ref()
-                        .borrow()
                         .as_ident()
                         .map_err(|e| e.with_span(varitem.span()))?;
                     let value = iter
                         .next()
-                        .map_or(Ok(TulispValue::Nil.into_rc_refcell()), |vv| eval(self, vv))?;
+                        .map_or(Ok(TulispValue::Nil.into_ref()), |vv| eval(self, vv))?;
                     if iter.next().is_some() {
                         return Err(Error::new(
                             ErrorKind::TypeMismatch,
@@ -142,7 +141,7 @@ impl TulispContext {
                         ErrorKind::SyntaxError,
                         format!(
                             "varitems inside a let-varlist should be a var or a binding: {}",
-                            varitem.as_ref().borrow()
+                            varitem
                         ),
                     )
                     .with_span(varlist.span()))

@@ -19,9 +19,9 @@ macro_rules! __list__ {
 	let mut ret = TulispValue::new_list();
         list!(@push ret, $($items)+)
             .and_then(|ret| Ok(ret.to_owned()))
-            .map(|x| x.into_rc_refcell())
+            .map(|x| x.into_ref())
     }};
-    () => { TulispValue::new_list().into_rc_refcell() }
+    () => { TulispValue::new_list().into_ref() }
 }
 
 #[macro_export]
@@ -42,7 +42,7 @@ macro_rules! __defun_args__ {
     };
     (@rest $rest:ident $vv:ident) => {
         let $rest = if $vv == TulispValue::Uninitialized {
-            TulispValue::Nil.into_rc_refcell()
+            TulispValue::Nil.into_ref()
         } else {
             $vv
         };
@@ -51,7 +51,7 @@ macro_rules! __defun_args__ {
         let ($var, $vv) = if $vv != TulispValue::Uninitialized {
             (car($vv.clone())?, cdr($vv)?)
         } else {
-            (TulispValue::Nil.into_rc_refcell(), TulispValue::Uninitialized.into_rc_refcell())
+            (TulispValue::Nil.into_ref(), TulispValue::Uninitialized.into_ref())
         };
     };
     (@optvar $vv:ident, $var:ident $($vars:ident)+) => {

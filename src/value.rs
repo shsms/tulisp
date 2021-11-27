@@ -1,10 +1,10 @@
-use std::{cell::RefCell, convert::TryInto, rc::Rc};
-
 use crate::{
     cons::{self, car, cdr, Cons},
     context::ContextObject,
     error::{Error, ErrorKind},
+    value_ref::TulispValueRef,
 };
+use std::{cell::RefCell, convert::TryInto, rc::Rc};
 
 use pest;
 use tailcall::tailcall;
@@ -51,8 +51,6 @@ pub enum TulispValue {
     Unquote(TulispValueRef),
     Bounce,
 }
-
-pub type TulispValueRef = Rc<RefCell<TulispValue>>;
 
 impl PartialEq for TulispValue {
     fn eq(&self, other: &Self) -> bool {
@@ -107,32 +105,30 @@ impl std::fmt::Display for TulispValue {
                     vv: TulispValueRef,
                 ) -> Result<(), Error> {
                     let (first, rest) = (car(vv.clone())?, cdr(vv.clone())?);
-                    if *first.as_ref().borrow() == TulispValue::Uninitialized {
+                    if first == TulispValue::Uninitialized {
                         return Ok(());
                     } else {
                         if *add_space {
                             ret.push(' ');
                         }
                         *add_space = true;
-                        ret.push_str(&format!("{}", car(vv)?.as_ref().borrow()));
+                        ret.push_str(&format!("{}", car(vv)?));
                     }
-                    if *rest.as_ref().borrow() == TulispValue::Nil
-                        || *rest.as_ref().borrow() == TulispValue::Uninitialized
-                    {
+                    if rest == TulispValue::Nil || rest == TulispValue::Uninitialized {
                         return Ok(());
-                    } else if !rest.as_ref().borrow().is_list() {
-                        ret.push_str(&format!(" . {}", rest.as_ref().borrow()));
+                    } else if !rest.is_list() {
+                        ret.push_str(&format!(" . {}", rest));
                         return Ok(());
                     };
                     write_next(ret, add_space, rest)
                 }
-                write_next(&mut ret, &mut add_space, vv.clone().into_rc_refcell()).unwrap_or(());
+                write_next(&mut ret, &mut add_space, vv.clone().into_ref()).unwrap_or(());
                 ret.push(')');
                 f.write_str(&ret)
             }
-            TulispValue::Quote(vv) => f.write_fmt(format_args!("'{}", vv.as_ref().borrow())),
-            TulispValue::Backquote(vv) => f.write_fmt(format_args!("`{}", vv.as_ref().borrow())),
-            TulispValue::Unquote(vv) => f.write_fmt(format_args!(",{}", vv.as_ref().borrow())),
+            TulispValue::Quote(vv) => f.write_fmt(format_args!("'{}", vv)),
+            TulispValue::Backquote(vv) => f.write_fmt(format_args!("`{}", vv)),
+            TulispValue::Unquote(vv) => f.write_fmt(format_args!(",{}", vv)),
         }
     }
 }
@@ -182,13 +178,13 @@ impl TulispValue {
         } else {
             Err(Error::new(
                 ErrorKind::TypeMismatch,
-                format!("unable to append: {}", val.as_ref().borrow()),
+                format!("unable to append: {}", val),
             ))
         }
     }
 
-    pub fn into_rc_refcell(self) -> TulispValueRef {
-        Rc::new(RefCell::new(self))
+    pub fn into_ref(self) -> TulispValueRef {
+        TulispValueRef::new(self)
     }
 
     pub fn as_ident(&self) -> Result<String, Error> {
@@ -204,8 +200,8 @@ impl TulispValue {
     pub fn as_bool(&self) -> bool {
         match self {
             TulispValue::Nil | TulispValue::Uninitialized => false,
-            c => match car(c.clone().into_rc_refcell()) {
-                Ok(tt) => *tt.as_ref().borrow() != TulispValue::Uninitialized,
+            c => match car(c.clone().into_ref()) {
+                Ok(tt) => tt != TulispValue::Uninitialized,
                 Err(_) => true,
             },
         }
@@ -224,7 +220,7 @@ impl TulispValue {
 
     pub fn into_list(self) -> TulispValue {
         let mut ret = Cons::new();
-        ret.push(self.into_rc_refcell()).unwrap();
+        ret.push(self.into_ref()).unwrap();
         TulispValue::List {
             cons: ret,
             ctxobj: None,
@@ -306,8 +302,8 @@ impl Into<bool> for TulispValue {
     fn into(self) -> bool {
         match self {
             TulispValue::Nil => false,
-            c => match car(c.clone().into_rc_refcell()) {
-                Ok(tt) => *tt.as_ref().borrow() != TulispValue::Uninitialized,
+            c => match car(c.clone().into_ref()) {
+                Ok(tt) => tt != TulispValue::Uninitialized,
                 Err(_) => true,
             },
         }

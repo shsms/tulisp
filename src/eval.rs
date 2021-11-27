@@ -7,7 +7,8 @@ use crate::{
     context::{ContextObject, Scope, TulispContext},
     error::{Error, ErrorKind},
     parser::{macroexpand, parse_string},
-    value::{TulispValue, TulispValueRef},
+    value::TulispValue,
+    value_ref::TulispValueRef,
 };
 
 trait Evaluator {
@@ -33,13 +34,13 @@ fn zip_function_args<E: Evaluator>(
     params: TulispValueRef,
     args: TulispValueRef,
 ) -> Result<Scope, Error> {
-    let mut args = args.as_ref().borrow().iter();
-    let mut params = params.as_ref().borrow().iter();
+    let mut args = args.iter();
+    let mut params = params.iter();
     let mut local = HashMap::new();
     let mut is_opt = false;
     let mut is_rest = false;
     while let Some(param) = params.next() {
-        let name = match param.as_ref().borrow().as_ident() {
+        let name = match param.as_ident() {
             Ok(vv) => vv,
             Err(e) => return Err(e),
         };
@@ -54,7 +55,7 @@ fn zip_function_args<E: Evaluator>(
         let val = if is_opt {
             match args.next() {
                 Some(vv) => E::eval(ctx, vv)?,
-                None => TulispValue::Nil.into_rc_refcell(),
+                None => TulispValue::Nil.into_ref(),
             }
         } else if is_rest {
             let mut ret = TulispValue::Nil;
@@ -67,7 +68,7 @@ fn zip_function_args<E: Evaluator>(
                     "Too many &rest parameters".to_string(),
                 ));
             }
-            ret.into_rc_refcell()
+            ret.into_ref()
         } else {
             match args.next() {
                 Some(vv) => E::eval(ctx, vv)?,
@@ -113,7 +114,7 @@ pub fn eval_defun(
     args: TulispValueRef,
 ) -> Result<TulispValueRef, Error> {
     let mut result = eval_function::<Eval>(ctx, params.clone(), body.clone(), args)?;
-    while let Ok(TulispValue::Bounce) = car(result.clone()).map(|x| x.as_ref().borrow().clone()) {
+    while let Ok(TulispValue::Bounce) = car(result.clone()).map(|x| x.clone_inner()) {
         result = eval_function::<DummyEval>(ctx, params.clone(), body.clone(), cdr(result)?)?;
     }
     Ok(result)
@@ -130,7 +131,7 @@ pub fn eval_defmacro(
 
 fn eval_form(ctx: &mut TulispContext, val: TulispValueRef) -> Result<TulispValueRef, Error> {
     let name = car(val.clone())?;
-    let func = match &*val.as_ref().borrow() {
+    let func = match val.clone_inner() {
         TulispValue::List {
             ctxobj: func @ Some(_),
             ..
@@ -147,21 +148,20 @@ fn eval_form(ctx: &mut TulispContext, val: TulispValueRef) -> Result<TulispValue
                 let expanded = macroexpand(ctx, val.clone())?;
                 eval(ctx, expanded)
             }
-            _ => Err(Error::new(
-                ErrorKind::Undefined,
-                format!("function is void: {}", name.as_ref().borrow()),
-            )
-            .with_span(val.as_ref().borrow().span())),
+            _ => Err(
+                Error::new(ErrorKind::Undefined, format!("function is void: {}", name))
+                    .with_span(val.span()),
+            ),
         },
         None => Err(Error::new(
             ErrorKind::Undefined,
-            format!("Unknown function name: {}", name.as_ref().borrow()),
+            format!("Unknown function name: {}", name),
         )),
     }
 }
 
 pub fn eval(ctx: &mut TulispContext, value: TulispValueRef) -> Result<TulispValueRef, Error> {
-    let ret = match &*value.as_ref().borrow() {
+    let ret = match value.clone_inner() {
         TulispValue::Nil => Ok(value.clone()),
         TulispValue::Ident(name) => {
             if name == "t" {
@@ -191,9 +191,9 @@ pub fn eval(ctx: &mut TulispContext, value: TulispValueRef) -> Result<TulispValu
         }),
         TulispValue::Quote(vv) => Ok(vv.clone()),
         TulispValue::Backquote(vv) => {
-            let mut ret = TulispValue::Nil.into_rc_refcell();
-            match &*vv {
-                vv if vv.as_ref().borrow().is_list() => {
+            let mut ret = TulispValue::Nil;
+            match vv {
+                vv if vv.is_list() => {
                     #[allow(unreachable_code)]
                     #[tailcall]
                     fn bq_eval_next(
@@ -202,33 +202,30 @@ pub fn eval(ctx: &mut TulispContext, value: TulispValueRef) -> Result<TulispValu
                         vv: TulispValueRef,
                     ) -> Result<(), Error> {
                         let (first, rest) = (car(vv.clone())?, cdr(vv)?);
-                        if *first.as_ref().borrow() == TulispValue::Uninitialized {
+                        if first == TulispValue::Uninitialized {
                             return Ok(());
-                        } else if let TulispValue::Unquote(vv) = &*first.as_ref().borrow() {
+                        } else if let TulispValue::Unquote(vv) = first.clone_inner() {
                             ret.push(eval(ctx, vv.clone())?)?;
                         } else {
-                            ret.push(eval(
-                                ctx,
-                                TulispValue::Backquote(first.clone()).into_rc_refcell(),
-                            )?)?;
+                            ret.push(eval(ctx, TulispValue::Backquote(first.clone()).into_ref())?)?;
                         }
                         // TODO: is Nil check necessary
-                        if let TulispValue::Unquote(vv) = &*rest.as_ref().borrow() {
+                        if let TulispValue::Unquote(vv) = rest.clone_inner() {
                             ret.append(eval(ctx, vv.clone())?)?;
                             return Ok(());
-                        } else if !rest.as_ref().borrow().is_list() {
+                        } else if !rest.is_list() {
                             ret.append(rest.clone())?;
                             return Ok(());
                         }
                         bq_eval_next(ctx, ret, rest)
                     }
-                    bq_eval_next(ctx, &mut ret.as_ref().borrow_mut(), vv.clone())?;
+                    bq_eval_next(ctx, &mut ret, vv.clone())?;
+                    Ok(ret.into_ref())
                 }
                 vv => {
-                    ret = vv.clone();
+                    return Ok(vv.clone());
                 }
             }
-            Ok(ret)
         }
         TulispValue::Unquote(_) => Err(Error::new(
             ErrorKind::TypeMismatch,
@@ -255,16 +252,14 @@ pub fn eval_each(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispV
 
 pub fn eval_progn(ctx: &mut TulispContext, value: TulispValueRef) -> Result<TulispValueRef, Error> {
     value
-        .as_ref()
-        .borrow()
         .iter()
-        .fold(Ok(TulispValue::Nil.into_rc_refcell()), |v1, v2| {
+        .fold(Ok(TulispValue::Nil.into_ref()), |v1, v2| {
             v1.and(eval(ctx, v2))
         })
 }
 
 pub fn eval_string(ctx: &mut TulispContext, string: &str) -> Result<TulispValueRef, Error> {
-    let vv = parse_string(ctx, string)?.into_rc_refcell();
+    let vv = parse_string(ctx, string)?.into_ref();
     eval_progn(ctx, vv)
 }
 
