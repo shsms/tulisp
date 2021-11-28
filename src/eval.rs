@@ -199,15 +199,19 @@ pub fn eval(ctx: &mut TulispContext, value: TulispValueRef) -> Result<TulispValu
                         vv: TulispValueRef,
                     ) -> Result<(), Error> {
                         let (first, rest) = (car(vv.clone())?, cdr(vv)?);
-                        if first == TulispValue::Uninitialized {
+                        let first_inner = first.clone_inner();
+                        let rest_inner = rest.clone_inner();
+                        if first_inner == TulispValue::Uninitialized {
                             return Ok(());
-                        } else if let TulispValue::Unquote(vv) = first.clone_inner() {
+                        } else if let TulispValue::Unquote(vv) = first_inner {
                             ret.push(eval(ctx, vv.clone())?)?;
+                        } else if let TulispValue::Splice(vv) = first_inner {
+                            ret.append(eval(ctx, vv.clone())?)?;
                         } else {
                             ret.push(eval(ctx, TulispValue::Backquote(first.clone()).into_ref())?)?;
                         }
                         // TODO: is Nil check necessary
-                        if let TulispValue::Unquote(vv) = rest.clone_inner() {
+                        if let TulispValue::Unquote(vv) = rest_inner {
                             ret.append(eval(ctx, vv.clone())?)?;
                             return Ok(());
                         } else if !rest.is_list() {
@@ -233,6 +237,10 @@ pub fn eval(ctx: &mut TulispContext, value: TulispValueRef) -> Result<TulispValu
             "Attempt to process uninitialized value".to_string(),
         )),
         TulispValue::Bounce => Ok(value),
+        TulispValue::Splice(_) => Err(Error::new(
+            ErrorKind::TypeMismatch,
+            "Splice without backquote".to_string(),
+        )),
     };
     // println!("{}\n  => {}", _fmt, ret.clone()?);
     ret

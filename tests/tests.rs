@@ -187,8 +187,8 @@ fn test_lists() -> Result<(), Error> {
     }
 
     tulisp_assert! {
-        program: "(let ((vv '(12 20 30))) `(,(car vv) ,(cdr vv)))",
-        result: "(12 (20 30))",
+        program: "(let ((vv '(12 20 30))) `(,(car vv) ,@(cdr vv)))",
+        result: "(12 20 30)",
     }
 
     Ok(())

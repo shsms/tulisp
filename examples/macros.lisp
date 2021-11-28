@@ -6,6 +6,7 @@
   (print (inc vv))
   (print `(+ 1 (inc vv)))
   (print `(+ 1 ,(inc vv)))
+  (print `(+ 1 ,(inc vv) ,@(list 10 20)))
   (print '`(+ 1 ,(inc vv)))
   (print (eval '`(+ 1 ,(inc vv)))))
 

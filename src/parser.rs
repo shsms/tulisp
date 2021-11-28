@@ -196,6 +196,20 @@ fn parse(
             )?
             .into_ref(),
         )),
+        Rule::splice => Ok(TulispValue::Splice(
+            parse(
+                ctx,
+                value.into_inner().peek().ok_or_else(|| {
+                    Error::new(ErrorKind::ParsingError, format!("Splice inner not found"))
+                })?,
+                if *expand_macros != MacroExpand::No {
+                    &MacroExpand::Yes
+                } else {
+                    expand_macros
+                },
+            )?
+            .into_ref(),
+        )),
         Rule::nil => Ok(TulispValue::Nil),
         Rule::ident => Ok(TulispValue::Ident(value.as_span().as_str().to_string())),
         Rule::integer => Ok(TulispValue::Int(value.as_span().as_str().parse().map_err(

@@ -49,6 +49,7 @@ pub enum TulispValue {
     Quote(TulispValueRef),
     Backquote(TulispValueRef),
     Unquote(TulispValueRef),
+    Splice(TulispValueRef),
     Bounce,
 }
 
@@ -129,6 +130,7 @@ impl std::fmt::Display for TulispValue {
             TulispValue::Quote(vv) => f.write_fmt(format_args!("'{}", vv)),
             TulispValue::Backquote(vv) => f.write_fmt(format_args!("`{}", vv)),
             TulispValue::Unquote(vv) => f.write_fmt(format_args!(",{}", vv)),
+            TulispValue::Splice(vv) => f.write_fmt(format_args!(",@{}", vv)),
         }
     }
 }
