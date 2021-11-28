@@ -419,6 +419,15 @@ pub fn add(ctx: &mut Scope) {
     );
 
     ctx.insert(
+        "null".to_string(),
+        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
+            defun_args!(_(arg) = vv);
+            let arg = eval(ctx, arg)?;
+            Ok(arg.is_null().into())
+        }))),
+    );
+
+    ctx.insert(
         "eval".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             defun_args!(_(arg) = vv);
@@ -485,6 +494,14 @@ pub fn add(ctx: &mut Scope) {
                 cons.push(eval(ctx, ele)?)?;
             }
             Ok(TulispValue::List { cons, ctxobj, span }.into_ref())
+        }))),
+    );
+
+    ctx.insert(
+        "listp".to_string(),
+        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
+            defun_args!(_(arg) = vv);
+            Ok(eval(ctx, arg)?.is_list().into())
         }))),
     );
 
