@@ -114,7 +114,7 @@ pub fn eval_defun(
     args: TulispValueRef,
 ) -> Result<TulispValueRef, Error> {
     let mut result = eval_function::<Eval>(ctx, params.clone(), body.clone(), args)?;
-    while let Ok(TulispValue::Bounce) = car(result.clone()).map(|x| x.clone_inner()) {
+    while let Ok(true) = car(result.clone()).map(|x| x.is_bounce()) {
         result = eval_function::<DummyEval>(ctx, params.clone(), body.clone(), cdr(result)?)?;
     }
     Ok(result)
@@ -131,12 +131,9 @@ pub fn eval_defmacro(
 
 fn eval_form(ctx: &mut TulispContext, val: TulispValueRef) -> Result<TulispValueRef, Error> {
     let name = car(val.clone())?;
-    let func = match val.clone_inner() {
-        TulispValue::List {
-            ctxobj: func @ Some(_),
-            ..
-        } => func.clone(),
-        _ => ctx.get(name.clone()),
+    let func = match val.ctxobj() {
+        func @ Some(_) => func,
+        None => ctx.get(name.clone()),
     };
     match func {
         Some(item) => match &*item.as_ref().borrow() {
@@ -162,10 +159,10 @@ fn eval_form(ctx: &mut TulispContext, val: TulispValueRef) -> Result<TulispValue
 
 pub fn eval(ctx: &mut TulispContext, value: TulispValueRef) -> Result<TulispValueRef, Error> {
     let ret = match value.clone_inner() {
-        TulispValue::Nil => Ok(value.clone()),
+        TulispValue::Nil => Ok(value),
         TulispValue::Ident(name) => {
             if name == "t" {
-                Ok(value.clone())
+                Ok(value)
             } else {
                 match ctx.get_str(&name) {
                     Some(obj) => match &*obj.as_ref().borrow() {
@@ -182,10 +179,10 @@ pub fn eval(ctx: &mut TulispContext, value: TulispValueRef) -> Result<TulispValu
                 }
             }
         }
-        TulispValue::Int(_) => Ok(value.clone()),
-        TulispValue::Float(_) => Ok(value.clone()),
-        TulispValue::String(_) => Ok(value.clone()),
-        TulispValue::List { span, .. } => eval_form(ctx, value.clone()).map_err(|e| {
+        TulispValue::Int(_) => Ok(value),
+        TulispValue::Float(_) => Ok(value),
+        TulispValue::String(_) => Ok(value),
+        TulispValue::List { span, .. } => eval_form(ctx, value).map_err(|e| {
             let span = e.span().or_else(|| span.clone());
             e.with_span(span)
         }),
@@ -235,7 +232,7 @@ pub fn eval(ctx: &mut TulispContext, value: TulispValueRef) -> Result<TulispValu
             ErrorKind::Uninitialized,
             "Attempt to process uninitialized value".to_string(),
         )),
-        TulispValue::Bounce => Ok(value.clone()),
+        TulispValue::Bounce => Ok(value),
     };
     // println!("{}\n  => {}", _fmt, ret.clone()?);
     ret

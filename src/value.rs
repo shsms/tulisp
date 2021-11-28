@@ -187,6 +187,27 @@ impl TulispValue {
         TulispValueRef::new(self)
     }
 
+    pub fn as_list_cons(&self) -> Option<Cons> {
+        match self {
+            TulispValue::List{cons, ..} => Some(cons.clone()),
+            _ => None,
+        }
+    }
+
+    pub fn as_list_car(&self) -> Option<TulispValueRef> {
+        match self {
+            TulispValue::List{cons, ..} => Some(cons.car()),
+            _ => None,
+        }
+    }
+
+    pub fn as_list_cdr(&self) -> Option<TulispValueRef> {
+        match self {
+            TulispValue::List{cons, ..} => Some(cons.cdr()),
+            _ => None,
+        }
+    }
+
     pub fn as_ident(&self) -> Result<String, Error> {
         match self {
             TulispValue::Ident(ident) => Ok(ident.to_string()),
@@ -197,6 +218,36 @@ impl TulispValue {
         }
     }
 
+    pub fn as_float(&self) -> Result<f64, Error> {
+        match self {
+            TulispValue::Float(s) => Ok(*s),
+            t => Err(Error::new(
+                ErrorKind::TypeMismatch,
+                format!("Expected number, got: {:?}", t),
+            )),
+        }
+    }
+
+    pub fn try_float(&self) -> Result<f64, Error> {
+        match self {
+            TulispValue::Float(s) => Ok(*s),
+            TulispValue::Int(s) => Ok(*s as f64),
+            t => Err(Error::new(
+                ErrorKind::TypeMismatch,
+                format!("Expected number, got: {:?}", t),
+            )),
+        }
+    }
+
+    pub fn as_int(&self) -> Result<i64, Error> {
+        match self {
+            TulispValue::Int(s) => Ok(*s),
+            t => Err(Error::new(
+                ErrorKind::TypeMismatch,
+                format!("Expected integer: {:?}", t),
+            )),
+        }
+    }
     pub fn as_bool(&self) -> bool {
         match self {
             TulispValue::Nil | TulispValue::Uninitialized => false,
@@ -211,10 +262,24 @@ impl TulispValue {
         !self.as_bool()
     }
 
+    pub fn is_bounce(&self) -> bool {
+        match self {
+            TulispValue::Bounce => true,
+            _ => false,
+        }
+    }
+
     pub fn is_list(&self) -> bool {
         match self {
             TulispValue::List { .. } => true,
             _ => false,
+        }
+    }
+
+    pub fn as_string(&self) -> Result<String, Error> {
+        match self {
+            TulispValue::String(s) => Ok(s.to_owned()),
+            _ => Err(Error::new(ErrorKind::TypeMismatch, format!("Expected string: {}", self))),
         }
     }
 
@@ -236,10 +301,10 @@ impl TulispValue {
         }
     }
 
-    pub fn with_ctxobj(self, ctxobj: Option<Rc<RefCell<ContextObject>>>) -> TulispValue {
+    pub fn use_ctxobj(&mut self, co: Option<Rc<RefCell<ContextObject>>>) {
         match self {
-            TulispValue::List { cons, span, .. } => TulispValue::List { cons, ctxobj, span },
-            _ => self,
+            TulispValue::List {ctxobj, ..} => *ctxobj = co,
+            _ => {},
         }
     }
 
@@ -273,14 +338,7 @@ impl TryInto<f64> for TulispValue {
     type Error = Error;
 
     fn try_into(self) -> Result<f64, Error> {
-        match self {
-            TulispValue::Float(s) => Ok(s),
-            TulispValue::Int(s) => Ok(s as f64),
-            t => Err(Error::new(
-                ErrorKind::TypeMismatch,
-                format!("Expected number, got: {:?}", t),
-            )),
-        }
+        self.try_float()
     }
 }
 
@@ -288,25 +346,13 @@ impl TryInto<i64> for TulispValue {
     type Error = Error;
 
     fn try_into(self) -> Result<i64, Error> {
-        match self {
-            TulispValue::Int(s) => Ok(s),
-            t => Err(Error::new(
-                ErrorKind::TypeMismatch,
-                format!("Expected integer: {:?}", t),
-            )),
-        }
+        self.as_int()
     }
 }
 
 impl Into<bool> for TulispValue {
     fn into(self) -> bool {
-        match self {
-            TulispValue::Nil => false,
-            c => match car(c.clone().into_ref()) {
-                Ok(tt) => tt != TulispValue::Uninitialized,
-                Err(_) => true,
-            },
-        }
+        self.as_bool()
     }
 }
 

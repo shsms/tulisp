@@ -1,9 +1,9 @@
 use crate::cons::{car, cdr, Cons};
 use crate::context::{ContextObject, Scope, TulispContext};
 use crate::error::Error;
-use crate::{defun_args, list};
 use crate::value::TulispValue::{self, Nil};
 use crate::value_ref::TulispValueRef;
+use crate::{defun_args, list};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -70,11 +70,8 @@ pub fn add(ctx: &mut Scope) {
                 defun_args!((nextvar &rest rest) = varlist);
 
                 let mut ret = Cons::new();
-                ret.push(TulispValue::Ident("let".to_string()).into_ref())?;
-                ret.push(
-                    // TODO: replace with inplace into_list inside refcell
-                    nextvar.clone_inner().into_list().into_ref(),
-                )?;
+                ret.push(TulispValue::Ident("let".to_string()).into_ref())?
+                    .push(nextvar.into_list())?;
                 if rest != TulispValue::Nil {
                     ret.push(unwrap_varlist(ctx, rest, body)?)?;
                 } else {

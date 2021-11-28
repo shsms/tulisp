@@ -70,11 +70,10 @@ impl TulispContext {
     }
 
     pub fn get(&self, name: TulispValueRef) -> Option<Rc<RefCell<ContextObject>>> {
-        if let TulispValue::Ident(name) = name.clone_inner() {
-            self.get_str(&name)
-        } else {
+        match name.as_ident() {
+            Ok(name) => self.get_str(&name),
             // TODO: return Result
-            None
+            Err(_) => None,
         }
     }
 
@@ -109,43 +108,41 @@ impl TulispContext {
     pub fn r#let(&mut self, varlist: TulispValueRef) -> Result<(), Error> {
         let mut local = HashMap::new();
         for varitem in varlist.iter() {
-            let (name, value) = match varitem.clone_inner() {
-                TulispValue::Ident(name) => (name.to_owned(), TulispValue::Nil.into_ref()),
-                varitem if varitem.is_list() => {
-                    let mut iter = varitem.iter();
-                    let name = iter
-                        .next()
-                        .ok_or_else(|| {
-                            Error::new(
-                                ErrorKind::Undefined,
-                                "let varitem requires name".to_string(),
-                            )
-                            .with_span(varitem.span())
-                        })?
-                        .as_ident()
-                        .map_err(|e| e.with_span(varitem.span()))?;
-                    let value = iter
-                        .next()
-                        .map_or(Ok(TulispValue::Nil.into_ref()), |vv| eval(self, vv))?;
-                    if iter.next().is_some() {
-                        return Err(Error::new(
-                            ErrorKind::TypeMismatch,
-                            "let varitem has too many values".to_string(),
+            let (name, value) = if let Ok(name) = varitem.as_ident() {
+                (name, TulispValue::Nil.into_ref())
+            } else if varitem.is_list() {
+                let mut iter = varitem.iter();
+                let name = iter
+                    .next()
+                    .ok_or_else(|| {
+                        Error::new(
+                            ErrorKind::Undefined,
+                            "let varitem requires name".to_string(),
                         )
-                        .with_span(varitem.span()));
-                    }
-                    (name, value)
-                }
-                _ => {
+                        .with_span(varitem.span())
+                    })?
+                    .as_ident()
+                    .map_err(|e| e.with_span(varitem.span()))?;
+                let value = iter
+                    .next()
+                    .map_or(Ok(TulispValue::Nil.into_ref()), |vv| eval(self, vv))?;
+                if iter.next().is_some() {
                     return Err(Error::new(
-                        ErrorKind::SyntaxError,
-                        format!(
-                            "varitems inside a let-varlist should be a var or a binding: {}",
-                            varitem
-                        ),
+                        ErrorKind::TypeMismatch,
+                        "let varitem has too many values".to_string(),
                     )
-                    .with_span(varlist.span()))
+                    .with_span(varitem.span()));
                 }
+                (name, value)
+            } else {
+                return Err(Error::new(
+                    ErrorKind::SyntaxError,
+                    format!(
+                        "varitems inside a let-varlist should be a var or a binding: {}",
+                        varitem
+                    ),
+                )
+                .with_span(varlist.span()));
             };
             local.insert(
                 name,

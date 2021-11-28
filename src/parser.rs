@@ -122,7 +122,7 @@ fn parse(
             value
                 .into_inner()
                 .map(|item| parse(ctx, item, expand_macros))
-                .map(|val| -> Result<(), Error> { list.push(val?.into_ref()) })
+                .map(|val| -> Result<(), Error> { list.push(val?.into_ref()).map(|_|()) })
                 .fold(Ok(()), |v1, v2| v1.and(v2))?;
             let expr = TulispValue::List {
                 cons: list,

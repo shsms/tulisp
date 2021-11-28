@@ -9,10 +9,10 @@ use crate::error::Error;
 use crate::error::ErrorKind;
 use crate::eval::eval;
 use crate::eval::eval_progn;
-use crate::{defun_args, list};
 use crate::parser::macroexpand;
 use crate::value::TulispValue;
 use crate::value_ref::TulispValueRef;
+use crate::{defun_args, list};
 use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::convert::TryInto;
@@ -20,11 +20,11 @@ use std::rc::Rc;
 
 macro_rules! max_min_ops {
     ($oper:tt) => {{
-        |selfobj: TulispValue, other: TulispValue| -> Result<TulispValue, Error> {
-            if let TulispValue::Float(s) = selfobj {
+        |selfobj: TulispValueRef, other: TulispValueRef| -> Result<TulispValueRef, Error> {
+            if let Ok(s) = selfobj.as_float() {
                 let o: f64 = other.try_into()?;
                 Ok(f64::$oper(s, o).into())
-            } else if let TulispValue::Float(o) = other {
+            } else if let Ok(o) = other.as_float() {
                 let s: f64 = selfobj.try_into()?;
                 Ok(f64::$oper(s, o).into())
             } else {
@@ -38,11 +38,11 @@ macro_rules! max_min_ops {
 
 macro_rules! binary_ops {
     ($oper:expr) => {{
-        |selfobj: TulispValue, other: TulispValue| -> Result<TulispValue, Error> {
-            if let TulispValue::Float(s) = selfobj {
+        |selfobj: TulispValueRef, other: TulispValueRef| -> Result<TulispValueRef, Error> {
+            if let Ok(s) = selfobj.as_float() {
                 let o: f64 = other.try_into()?;
                 Ok($oper(&s, &o).into())
-            } else if let TulispValue::Float(o) = other {
+            } else if let Ok(o) = other.as_float() {
                 let s: f64 = selfobj.try_into()?;
                 Ok($oper(&s, &o).into())
             } else {
@@ -57,11 +57,11 @@ macro_rules! binary_ops {
 fn reduce_with(
     ctx: &mut TulispContext,
     list: TulispValueRef,
-    method: fn(TulispValue, TulispValue) -> Result<TulispValue, Error>,
+    method: fn(TulispValueRef, TulispValueRef) -> Result<TulispValueRef, Error>,
 ) -> Result<TulispValueRef, Error> {
     list.iter()
         .map(|x| eval(ctx, x))
-        .reduce(|v1, v2| method(v1?.clone_inner(), v2?.clone_inner()).map(|x| x.into_ref()))
+        .reduce(|v1, v2| method(v1?, v2?))
         .unwrap_or(Err(Error::new(
             ErrorKind::TypeMismatch,
             "Incorrect number of arguments: 0".to_string(),
@@ -79,8 +79,8 @@ fn mark_tail_calls(name: TulispValueRef, body: TulispValueRef) -> Result<TulispV
     if !tail.is_list() {
         return Ok(body.clone());
     }
-    let span = if let TulispValue::List { span, .. } = tail.clone_inner() {
-        span.clone()
+    let span = if tail.is_list() {
+        tail.span()
     } else {
         return Ok(tail.clone());
     };
@@ -106,10 +106,7 @@ fn mark_tail_calls(name: TulispValueRef, body: TulispValueRef) -> Result<TulispV
               ,condition.clone()
               ,car(mark_tail_calls(
                   name.clone(),
-                  then_body
-                      .clone_inner()
-                      .into_list()
-                      .into_ref()
+                  then_body.into_list()
               )?)?.to_owned()
               ,@mark_tail_calls(name, else_body)?
         )?
@@ -146,10 +143,10 @@ pub fn add(ctx: &mut Scope) {
             defun_args!((first &rest rest) = args);
             if rest.is_null() {
                 let vv = binary_ops!(std::ops::Sub::sub)(
-                    TulispValue::Int(0),
-                    eval(ctx, first)?.clone_inner(),
+                    TulispValue::Int(0).into_ref(),
+                    eval(ctx, first)?,
                 )?;
-                Ok(vv.into_ref())
+                Ok(vv)
             } else {
                 reduce_with(ctx, vv, binary_ops!(std::ops::Sub::sub))
             }
@@ -234,10 +231,9 @@ pub fn add(ctx: &mut Scope) {
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             defun_args!(_ (dividend divisor) = vv);
             binary_ops!(std::ops::Rem::rem)(
-                eval(ctx, dividend).map(|x| x.clone_inner())?,
-                eval(ctx, divisor).map(|x| x.clone_inner())?,
+                eval(ctx, dividend)?,
+                eval(ctx, divisor)?,
             )
-            .map(|x| x.into_ref())
         }))),
     );
     ctx.insert(
@@ -246,8 +242,8 @@ pub fn add(ctx: &mut Scope) {
             defun_args!(_ (&rest vv) = vv);
             let mut ret = String::new();
             for ele in vv.iter() {
-                match eval(ctx, ele.clone())?.clone_inner() {
-                    TulispValue::String(ref s) => ret.push_str(s),
+                match eval(ctx, ele.clone())?.as_string() {
+                    Ok(ref s) => ret.push_str(s),
                     _ => {
                         return Err(Error::new(
                             ErrorKind::TypeMismatch,
@@ -264,8 +260,8 @@ pub fn add(ctx: &mut Scope) {
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             defun_args!(_ (base pow) = vv);
             Ok(f64::powf(
-                eval(ctx, base).map(|x| x.clone_inner())?.try_into()?,
-                eval(ctx, pow).map(|x| x.clone_inner())?.try_into()?,
+                eval(ctx, base)?.try_into()?,
+                eval(ctx, pow)?.try_into()?,
             )
             .into())
             .map(|x: TulispValue| x.into_ref())
@@ -375,12 +371,13 @@ pub fn add(ctx: &mut Scope) {
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             defun_args!(_ (varlist &rest body) = vv);
             ctx.r#let(varlist)?;
-            let ret = match body.clone_inner() {
-                TulispValue::List { .. } => eval_progn(ctx, body.clone()),
-                _ => Err(Error::new(
+            let ret = if body.is_list() {
+                eval_progn(ctx, body.clone())
+            } else {
+                Err(Error::new(
                     ErrorKind::TypeMismatch,
                     "let: expected varlist and body".to_string(),
-                )),
+                ))
             };
             ctx.pop();
             ret
@@ -392,7 +389,7 @@ pub fn add(ctx: &mut Scope) {
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             defun_args!(_ (name args &rest body) = vv);
             // TODO: don't discard docstring
-            let body = if let TulispValue::String(_) = car(body.clone())?.clone_inner() {
+            let body = if car(body.clone())?.as_string().is_ok() {
                 cdr(body)?
             } else {
                 body
@@ -411,7 +408,7 @@ pub fn add(ctx: &mut Scope) {
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             defun_args!(_ (name args &rest body) = vv);
             // TODO: don't discard docstring
-            let body = if let TulispValue::String(_) = car(body.clone())?.clone_inner() {
+            let body = if car(body.clone())?.as_string().is_ok() {
                 cdr(body)?
             } else {
                 body
@@ -485,7 +482,7 @@ pub fn add(ctx: &mut Scope) {
             let (ctxobj, span) = (vv.ctxobj(), vv.span());
             let mut cons = Cons::new();
             for ele in vv.iter() {
-                cons.push(eval(ctx, ele)?)?
+                cons.push(eval(ctx, ele)?)?;
             }
             Ok(TulispValue::List { cons, ctxobj, span }.into_ref())
         }))),
@@ -502,11 +499,8 @@ pub fn add(ctx: &mut Scope) {
             let seq = eval(ctx, seq)?;
             let mut vec: Vec<_> = seq.iter().map(|v| v.clone()).collect();
             vec.sort_by(|v1, v2| {
-                let vv = list!(,TulispValue::Nil.into_ref() ,v1.clone() ,v2.clone())
-                    .unwrap()
-                    .clone_inner()
-                    .with_ctxobj(Some(pred.clone()))
-                    .into_ref();
+                let vv = list!(,TulispValue::Nil.into_ref() ,v1.clone() ,v2.clone()).unwrap();
+                vv.use_ctxobj(Some(pred.clone()));
 
                 if eval(ctx, vv)
                     .unwrap_or(TulispValue::Nil.into_ref())

@@ -18,18 +18,18 @@ impl Cons {
         }
     }
 
-    pub fn push(&mut self, val: TulispValueRef) -> Result<(), Error> {
+    pub fn push(&mut self, val: TulispValueRef) -> Result<&mut Self, Error> {
         if self.car == TulispValue::Uninitialized {
             *self = Cons {
                 car: val,
                 cdr: TulispValue::Uninitialized.into_ref(),
             };
-            return Ok(());
+            return Ok(self);
         }
         let mut last = self.cdr.clone();
 
-        while let TulispValue::List { cons, .. } = last.clone_inner() {
-            last = cons.cdr.clone();
+        while last.is_list() {
+            last = cdr(last)?;
         }
         if last == TulispValue::Uninitialized {
             last.assign(TulispValue::List {
@@ -46,28 +46,25 @@ impl Cons {
                 "Cons: unable to push".to_string(),
             ));
         }
-        Ok(())
+        Ok(self)
     }
 
-    pub fn append(&mut self, val: TulispValueRef) -> Result<(), Error> {
+    pub fn append(&mut self, val: TulispValueRef) -> Result<&mut Self, Error> {
         if self.car == TulispValue::Uninitialized {
-            match val.clone_inner() {
-                TulispValue::List { cons, .. } => {
-                    *self = cons.clone();
-                }
-                _ => {
+            if let Some(cons) = val.as_list_cons() {
+                *self = cons;
+            } else {
                     *self = Cons {
                         car: val.clone(),
                         cdr: TulispValue::Uninitialized.into_ref(),
                     };
-                }
             }
-            return Ok(());
+            return Ok(self);
         }
         let mut last = self.cdr.clone();
 
-        while let TulispValue::List { cons, .. } = last.clone_inner() {
-            last = cons.cdr.clone();
+        while last.is_list() {
+            last = cdr(last)?;
         }
         if last == TulispValue::Uninitialized {
             last.assign(val.clone_inner());
@@ -77,11 +74,19 @@ impl Cons {
                 format!("Unable to append: {}", val),
             ));
         }
-        Ok(())
+        Ok(self)
     }
 
     pub fn iter(&self) -> ConsIter {
         ConsIter { next: self.clone() }
+    }
+
+    pub(crate) fn car(&self) -> TulispValueRef {
+        self.car.clone()
+    }
+
+    pub(crate) fn cdr(&self) -> TulispValueRef {
+        self.cdr.clone()
     }
 }
 
@@ -112,8 +117,8 @@ impl Iterator for ConsIter {
         let cdr = self.next.cdr.clone();
         if car == TulispValue::Uninitialized {
             None
-        } else if let TulispValue::List { cons, .. } = cdr.clone_inner() {
-            self.next = cons.clone();
+        } else if let Some(cons) = cdr.as_list_cons() {
+            self.next = cons;
             Some(car)
         } else {
             self.next = Cons::new();
@@ -123,8 +128,8 @@ impl Iterator for ConsIter {
 }
 
 pub fn car(cons: TulispValueRef) -> Result<TulispValueRef, Error> {
-    if let TulispValue::List { cons, .. } = cons.clone_inner() {
-        Ok(cons.car.clone())
+    if let Some(car) = cons.as_list_car() {
+        Ok(car)
     } else {
         Err(Error::new(
             ErrorKind::TypeMismatch,
@@ -134,8 +139,8 @@ pub fn car(cons: TulispValueRef) -> Result<TulispValueRef, Error> {
 }
 
 pub fn cdr(cons: TulispValueRef) -> Result<TulispValueRef, Error> {
-    if let TulispValue::List { cons, .. } = cons.clone_inner() {
-        Ok(cons.cdr.clone())
+    if let Some(cdr) = cons.as_list_cdr() {
+        Ok(cdr)
     } else {
         Err(Error::new(
             ErrorKind::TypeMismatch,
