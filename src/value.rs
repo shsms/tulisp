@@ -283,16 +283,6 @@ impl TulispValue {
         }
     }
 
-    pub fn into_list(self) -> TulispValue {
-        let mut ret = Cons::new();
-        ret.push(self.into_ref()).unwrap();
-        TulispValue::List {
-            cons: ret,
-            ctxobj: None,
-            span: None,
-        }
-    }
-
     pub fn new_list() -> TulispValue {
         TulispValue::List {
             cons: Cons::new(),

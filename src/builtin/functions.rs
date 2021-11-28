@@ -106,7 +106,7 @@ fn mark_tail_calls(name: TulispValueRef, body: TulispValueRef) -> Result<TulispV
               ,condition.clone()
               ,car(mark_tail_calls(
                   name.clone(),
-                  then_body.into_list()
+                  list!(,then_body)?
               )?)?.to_owned()
               ,@mark_tail_calls(name, else_body)?
         )?

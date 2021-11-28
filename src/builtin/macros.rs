@@ -71,7 +71,7 @@ pub fn add(ctx: &mut Scope) {
 
                 let mut ret = Cons::new();
                 ret.push(TulispValue::Ident("let".to_string()).into_ref())?
-                    .push(nextvar.into_list())?;
+                    .push(list!(,nextvar)?)?;
                 if rest != TulispValue::Nil {
                     ret.push(unwrap_varlist(ctx, rest, body)?)?;
                 } else {

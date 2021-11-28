@@ -100,11 +100,6 @@ impl TulispValueRef {
     pub fn take(&self) -> TulispValue {
         self.rc.as_ref().borrow_mut().take()
     }
-    pub fn into_list(self) -> TulispValueRef {
-        let mut ret = TulispValue::Nil;
-        ret.push(self).unwrap();
-        ret.into_ref()
-    }
 }
 
 impl TryInto<f64> for TulispValueRef {
