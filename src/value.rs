@@ -144,16 +144,26 @@ impl TulispValue {
     }
 
     pub fn push(&mut self, val: TulispValueRef) -> Result<&mut TulispValue, Error> {
+        self.push_with_meta(val, None, None)
+    }
+
+    pub fn push_with_meta(
+        &mut self,
+        val: TulispValueRef,
+        span_in: Option<Span>,
+        ctxobj: Option<Rc<RefCell<ContextObject>>>,
+    ) -> Result<&mut TulispValue, Error> {
         if let TulispValue::List { cons, span, .. } = self {
-            cons.push(val).map_err(|e| e.with_span(span.clone()))?;
+            cons.push_with_meta(val, span_in, ctxobj)
+                .map_err(|e| e.with_span(span.clone()))?;
             Ok(self)
         } else if *self == TulispValue::Uninitialized || *self == TulispValue::Nil {
             let mut cons = Cons::new();
             cons.push(val)?;
             *self = TulispValue::List {
                 cons,
-                ctxobj: None,
-                span: None,
+                ctxobj,
+                span: span_in,
             };
             Ok(self)
         } else {
@@ -191,21 +201,21 @@ impl TulispValue {
 
     pub fn as_list_cons(&self) -> Option<Cons> {
         match self {
-            TulispValue::List{cons, ..} => Some(cons.clone()),
+            TulispValue::List { cons, .. } => Some(cons.clone()),
             _ => None,
         }
     }
 
     pub fn as_list_car(&self) -> Option<TulispValueRef> {
         match self {
-            TulispValue::List{cons, ..} => Some(cons.car()),
+            TulispValue::List { cons, .. } => Some(cons.car()),
             _ => None,
         }
     }
 
     pub fn as_list_cdr(&self) -> Option<TulispValueRef> {
         match self {
-            TulispValue::List{cons, ..} => Some(cons.cdr()),
+            TulispValue::List { cons, .. } => Some(cons.cdr()),
             _ => None,
         }
     }
@@ -281,7 +291,10 @@ impl TulispValue {
     pub fn as_string(&self) -> Result<String, Error> {
         match self {
             TulispValue::String(s) => Ok(s.to_owned()),
-            _ => Err(Error::new(ErrorKind::TypeMismatch, format!("Expected string: {}", self))),
+            _ => Err(Error::new(
+                ErrorKind::TypeMismatch,
+                format!("Expected string: {}", self),
+            )),
         }
     }
 
@@ -295,8 +308,8 @@ impl TulispValue {
 
     pub fn use_ctxobj(&mut self, co: Option<Rc<RefCell<ContextObject>>>) {
         match self {
-            TulispValue::List {ctxobj, ..} => *ctxobj = co,
-            _ => {},
+            TulispValue::List { ctxobj, .. } => *ctxobj = co,
+            _ => {}
         }
     }
 

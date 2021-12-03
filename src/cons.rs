@@ -1,6 +1,11 @@
+use std::cell::RefCell;
+use std::rc::Rc;
+
+use crate::context::ContextObject;
 use crate::error::Error;
 use crate::error::ErrorKind;
 use crate::list;
+use crate::value::Span;
 use crate::value::TulispValue;
 use crate::value_ref::TulispValueRef;
 
@@ -19,6 +24,15 @@ impl Cons {
     }
 
     pub fn push(&mut self, val: TulispValueRef) -> Result<&mut Self, Error> {
+        self.push_with_meta(val, None, None)
+    }
+
+    pub fn push_with_meta(
+        &mut self,
+        val: TulispValueRef,
+        span: Option<Span>,
+        ctxobj: Option<Rc<RefCell<ContextObject>>>,
+    ) -> Result<&mut Self, Error> {
         if self.car == TulispValue::Uninitialized {
             *self = Cons {
                 car: val,
@@ -37,8 +51,8 @@ impl Cons {
                     car: val,
                     cdr: TulispValue::Uninitialized.into_ref(),
                 },
-                ctxobj: None,
-                span: None,
+                ctxobj,
+                span,
             });
         } else {
             return Err(Error::new(
@@ -54,10 +68,10 @@ impl Cons {
             if let Some(cons) = val.as_list_cons() {
                 *self = cons;
             } else {
-                    *self = Cons {
-                        car: val.clone(),
-                        cdr: TulispValue::Uninitialized.into_ref(),
-                    };
+                *self = Cons {
+                    car: val.clone(),
+                    cdr: TulispValue::Uninitialized.into_ref(),
+                };
             }
             return Ok(self);
         }

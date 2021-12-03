@@ -206,7 +206,7 @@ pub fn eval(ctx: &mut TulispContext, value: TulispValueRef) -> Result<TulispValu
                         } else if let TulispValue::Unquote(vv) = first_inner {
                             ret.push(eval(ctx, vv.clone())?)?;
                         } else if let TulispValue::Splice(vv) = first_inner {
-                            ret.append(eval(ctx, vv.clone())?)?;
+                            ret.append(eval(ctx, vv.clone())?.deep_copy()?)?;
                         } else {
                             ret.push(eval(ctx, TulispValue::Backquote(first.clone()).into_ref())?)?;
                         }

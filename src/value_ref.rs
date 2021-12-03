@@ -1,11 +1,11 @@
-use std::{cell::RefCell, convert::TryInto, rc::Rc};
-
 use crate::{
-    cons::{self, Cons},
+    cons::{self, car, cdr, Cons},
     context::ContextObject,
     error::Error,
     value::{Span, TulispValue},
 };
+use std::{cell::RefCell, convert::TryInto, rc::Rc};
+use tailcall::tailcall;
 
 #[derive(Debug, Clone)]
 pub struct TulispValueRef {
@@ -99,6 +99,32 @@ impl TulispValueRef {
     }
     pub fn take(&self) -> TulispValue {
         self.rc.as_ref().borrow_mut().take()
+    }
+
+    pub fn deep_copy(&self) -> Result<TulispValueRef, Error> {
+        let mut ret = TulispValue::List {
+            cons: Cons::new(),
+            ctxobj: self.ctxobj(),
+            span: self.span(),
+        };
+        #[allow(unreachable_code)]
+        #[tailcall]
+        fn deep_copy_impl(val: TulispValueRef, ret: &mut TulispValue) -> Result<(), Error> {
+            if !val.is_list() {
+                *ret = val.clone_inner();
+                return Ok(());
+            }
+            let (first, rest) = (car(val.clone())?, cdr(val.clone())?);
+            ret.push_with_meta(first.clone_inner().into_ref(), val.span(), val.ctxobj())?;
+            if !rest.is_list() {
+                ret.append(rest)?;
+                return Ok(());
+            }
+            deep_copy_impl(rest, ret)
+        }
+        deep_copy_impl(self.clone(), &mut ret)?;
+        let ret = ret.into_ref();
+        Ok(ret)
     }
 }
 

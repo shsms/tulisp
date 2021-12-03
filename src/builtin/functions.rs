@@ -230,10 +230,7 @@ pub fn add(ctx: &mut Scope) {
         "mod".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             defun_args!(_ (dividend divisor) = vv);
-            binary_ops!(std::ops::Rem::rem)(
-                eval(ctx, dividend)?,
-                eval(ctx, divisor)?,
-            )
+            binary_ops!(std::ops::Rem::rem)(eval(ctx, dividend)?, eval(ctx, divisor)?)
         }))),
     );
     ctx.insert(
@@ -259,12 +256,8 @@ pub fn add(ctx: &mut Scope) {
         "expt".to_string(),
         Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
             defun_args!(_ (base pow) = vv);
-            Ok(f64::powf(
-                eval(ctx, base)?.try_into()?,
-                eval(ctx, pow)?.try_into()?,
-            )
-            .into())
-            .map(|x: TulispValue| x.into_ref())
+            Ok(f64::powf(eval(ctx, base)?.try_into()?, eval(ctx, pow)?.try_into()?).into())
+                .map(|x: TulispValue| x.into_ref())
         }))),
     );
     ctx.insert(
@@ -478,7 +471,7 @@ pub fn add(ctx: &mut Scope) {
             defun_args!(_ (first &rest rest) = vv);
             let first = eval(ctx, first)?;
             for ele in rest.iter() {
-                first.append(eval(ctx, ele)?)?;
+                first.append(eval(ctx, ele)?.deep_copy()?)?;
             }
             Ok(first)
         }))),
