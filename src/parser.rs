@@ -34,11 +34,21 @@ pub fn parse_string(ctx: &mut TulispContext, string: &str) -> Result<TulispValue
     })
 }
 
-pub fn macroexpand(ctx: &mut TulispContext, expr: TulispValueRef) -> Result<TulispValueRef, Error> {
-    match expr.clone_inner() {
-        TulispValue::List { .. } => {}
-        _ => return Ok(expr.clone()),
+pub fn macroexpand(ctx: &mut TulispContext, inp: TulispValueRef) -> Result<TulispValueRef, Error> {
+    if !inp.is_list() {
+        return Ok(inp);
+    }
+    let mut expr = TulispValue::List{
+        cons: Cons::new(),
+        ctxobj: inp.ctxobj(),
+        span: inp.span(),
     };
+    for item in inp.iter() {
+        let item = macroexpand(ctx, item)?;
+        // TODO: switch to tailcall method to propagate inner spans.
+        expr.push(item.clone())?;
+    }
+    let expr = expr.into_ref();
     let name = match car(expr.clone())?.as_ident() {
         Ok(id) => id,
         Err(_) => return Ok(expr.clone()),
