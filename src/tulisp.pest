@@ -27,10 +27,12 @@ cap = { "^" }
 percent = { "%" }
 gt = { ">" }
 lt = { "<" }
+sharp = _{ "#" }
 
 open = _{ "(" }
 close = _{ ")" }
 
+sharpquote = { sharp ~ single_quote ~ expr}
 quote = { single_quote ~ expr}
 backquote = { backtick ~ expr}
 splice = { splice_oper ~ expr}
@@ -54,6 +56,6 @@ cons = { open ~ expr ~ dot ~ expr ~ close }
 form = { open ~ (expr)* ~ close }
 
 nil = { "nil" }
-expr = _{ nil | literal | cons | form  | quote | backquote | splice | unquote  | ident }
+expr = _{ nil | literal | cons | form | sharpquote  | quote | backquote | splice | unquote  | ident }
 
 program = _{ SOI ~ (expr)+ }

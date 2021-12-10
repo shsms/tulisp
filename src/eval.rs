@@ -241,6 +241,7 @@ pub fn eval(ctx: &mut TulispContext, value: TulispValueRef) -> Result<TulispValu
             ErrorKind::TypeMismatch,
             "Splice without backquote".to_string(),
         )),
+        TulispValue::Sharpquote(vv) => Ok(vv.clone()),
     };
     // println!("{}\n  => {}", _fmt, ret.clone()?);
     ret

@@ -38,7 +38,7 @@ pub fn macroexpand(ctx: &mut TulispContext, inp: TulispValueRef) -> Result<Tulis
     if !inp.is_list() {
         return Ok(inp);
     }
-    let mut expr = TulispValue::List{
+    let mut expr = TulispValue::List {
         cons: Cons::new(),
         ctxobj: inp.ctxobj(),
         span: inp.span(),
@@ -201,6 +201,19 @@ fn parse(
                 ctx,
                 value.into_inner().peek().ok_or_else(|| {
                     Error::new(ErrorKind::ParsingError, format!("Quote inner not found"))
+                })?,
+                &MacroExpand::No,
+            )?
+            .into_ref(),
+        )),
+        Rule::sharpquote => Ok(TulispValue::Sharpquote(
+            parse(
+                ctx,
+                value.into_inner().peek().ok_or_else(|| {
+                    Error::new(
+                        ErrorKind::ParsingError,
+                        format!("Sharpquote inner not found"),
+                    )
                 })?,
                 &MacroExpand::No,
             )?

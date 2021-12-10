@@ -47,6 +47,8 @@ pub enum TulispValue {
         span: Option<Span>,
     },
     Quote(TulispValueRef),
+    /// Sharpquotes are treated as normal quotes, because there is no compilation involved.
+    Sharpquote(TulispValueRef),
     Backquote(TulispValueRef),
     Unquote(TulispValueRef),
     Splice(TulispValueRef),
@@ -131,6 +133,7 @@ impl std::fmt::Display for TulispValue {
             TulispValue::Backquote(vv) => f.write_fmt(format_args!("`{}", vv)),
             TulispValue::Unquote(vv) => f.write_fmt(format_args!(",{}", vv)),
             TulispValue::Splice(vv) => f.write_fmt(format_args!(",@{}", vv)),
+            TulispValue::Sharpquote(vv) => f.write_fmt(format_args!("#'{}", vv)),
         }
     }
 }

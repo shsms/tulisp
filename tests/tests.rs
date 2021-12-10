@@ -157,6 +157,7 @@ fn test_strings() -> Result<(), Error> {
     }
 
     tulisp_assert! { program: "(prin1-to-string 'hello)", result: r#""hello""# }
+    tulisp_assert! { program: "(prin1-to-string #'hello)", result: r#""hello""# }
     tulisp_assert! { program: "(prin1-to-string 25)", result: r#""25""# }
     tulisp_assert! { program: "(setq h 25)(prin1-to-string h)", result: r#""25""# }
     tulisp_assert! {
