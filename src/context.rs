@@ -1,6 +1,8 @@
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use crate::{
+    cons::{car, cdr},
+    defun_args,
     error::{Error, ErrorKind},
     eval::eval,
     value::TulispValue,
@@ -111,29 +113,25 @@ impl TulispContext {
             let (name, value) = if let Ok(name) = varitem.as_ident() {
                 (name, TulispValue::Nil.into_ref())
             } else if varitem.is_list() {
-                let mut iter = varitem.iter();
-                let name = iter
-                    .next()
-                    .ok_or_else(|| {
-                        Error::new(
-                            ErrorKind::Undefined,
-                            "let varitem requires name".to_string(),
-                        )
-                        .with_span(varitem.span())
-                    })?
-                    .as_ident()
-                    .map_err(|e| e.with_span(varitem.span()))?;
-                let value = iter
-                    .next()
-                    .map_or(Ok(TulispValue::Nil.into_ref()), |vv| eval(self, vv))?;
-                if iter.next().is_some() {
+                let span = varitem.span();
+                defun_args!((&optional name value &rest rest) = varitem);
+                if name.is_null() {
                     return Err(Error::new(
-                        ErrorKind::TypeMismatch,
+                        ErrorKind::Undefined,
+                        "let varitem requires name".to_string(),
+                    )
+                    .with_span(span));
+                }
+                if !rest.is_null() {
+                    return Err(Error::new(
+                        ErrorKind::Undefined,
                         "let varitem has too many values".to_string(),
                     )
-                    .with_span(varitem.span()));
+                    .with_span(span));
                 }
-                (name, value)
+                let name = name.as_ident().map_err(|e| e.with_span(span))?;
+
+                (name, eval(self, value)?)
             } else {
                 return Err(Error::new(
                     ErrorKind::SyntaxError,

@@ -1,6 +1,11 @@
 (defmacro inc (var)
   (list 'setq var (list '+ 1 var)))
 
+(let (vv (jj) (xx 10))
+  (print vv)
+  (print jj)
+  (print xx))
+
 (let ((vv 10))
   (print (macroexpand '(inc vv)))
   (print (inc vv))
