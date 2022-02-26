@@ -69,16 +69,13 @@ fn zip_function_args<E: Evaluator>(
                 ));
             }
             ret.into_ref()
+        } else if let Some(vv) = args.next() {
+            E::eval(ctx, vv)?
         } else {
-            match args.next() {
-                Some(vv) => E::eval(ctx, vv)?,
-                None => {
-                    return Err(Error::new(
-                        ErrorKind::TypeMismatch,
-                        "Too few arguments".to_string(),
-                    ))
-                }
-            }
+            return Err(Error::new(
+                ErrorKind::TypeMismatch,
+                "Too few arguments".to_string(),
+            ));
         };
         local.insert(name, Rc::new(RefCell::new(ContextObject::TulispValue(val))));
         if is_rest {
@@ -163,20 +160,20 @@ pub fn eval(ctx: &mut TulispContext, value: TulispValueRef) -> Result<TulispValu
         TulispValue::Ident(name) => {
             if name == "t" {
                 Ok(value)
-            } else {
-                match ctx.get_str(&name) {
-                    Some(obj) => match &*obj.as_ref().borrow() {
-                        ContextObject::TulispValue(vv) => Ok(vv.clone()),
-                        _ => Err(Error::new(
-                            ErrorKind::TypeMismatch,
-                            format!("variable definition is void: {}", name),
-                        )),
-                    },
-                    None => Err(Error::new(
+            } else if let Some(obj) = ctx.get_str(&name) {
+                if let ContextObject::TulispValue(vv) = &*obj.as_ref().borrow() {
+                    Ok(vv.clone())
+                } else {
+                    Err(Error::new(
                         ErrorKind::TypeMismatch,
                         format!("variable definition is void: {}", name),
-                    )),
+                    ))
                 }
+            } else {
+                Err(Error::new(
+                    ErrorKind::TypeMismatch,
+                    format!("variable definition is void: {}", name),
+                ))
             }
         }
         TulispValue::Int(_) => Ok(value),
@@ -189,44 +186,40 @@ pub fn eval(ctx: &mut TulispContext, value: TulispValueRef) -> Result<TulispValu
         TulispValue::Quote(vv) => Ok(vv.clone()),
         TulispValue::Backquote(vv) => {
             let mut ret = TulispValue::Nil;
-            match vv {
-                vv if vv.is_list() => {
-                    #[allow(unreachable_code)]
-                    #[tailcall]
-                    fn bq_eval_next(
-                        ctx: &mut TulispContext,
-                        ret: &mut TulispValue,
-                        vv: TulispValueRef,
-                    ) -> Result<(), Error> {
-                        let (first, rest) = (car(vv.clone())?, cdr(vv)?);
-                        let first_inner = first.clone_inner();
-                        let rest_inner = rest.clone_inner();
-                        if first_inner == TulispValue::Uninitialized {
-                            return Ok(());
-                        } else if let TulispValue::Unquote(vv) = first_inner {
-                            ret.push(eval(ctx, vv.clone())?)?;
-                        } else if let TulispValue::Splice(vv) = first_inner {
-                            ret.append(eval(ctx, vv.clone())?.deep_copy()?)?;
-                        } else {
-                            ret.push(eval(ctx, TulispValue::Backquote(first.clone()).into_ref())?)?;
-                        }
-                        // TODO: is Nil check necessary
-                        if let TulispValue::Unquote(vv) = rest_inner {
-                            ret.append(eval(ctx, vv.clone())?)?;
-                            return Ok(());
-                        } else if !rest.is_list() {
-                            ret.append(rest.clone())?;
-                            return Ok(());
-                        }
-                        bq_eval_next(ctx, ret, rest)
-                    }
-                    bq_eval_next(ctx, &mut ret, vv.clone())?;
-                    Ok(ret.into_ref())
-                }
-                vv => {
-                    return Ok(vv.clone());
-                }
+            if !vv.is_list() {
+                return Ok(vv.clone());
             }
+            #[allow(unreachable_code)]
+            #[tailcall]
+            fn bq_eval_next(
+                ctx: &mut TulispContext,
+                ret: &mut TulispValue,
+                vv: TulispValueRef,
+            ) -> Result<(), Error> {
+                let (first, rest) = (car(vv.clone())?, cdr(vv)?);
+                let first_inner = first.clone_inner();
+                let rest_inner = rest.clone_inner();
+                if first_inner == TulispValue::Uninitialized {
+                    return Ok(());
+                } else if let TulispValue::Unquote(vv) = first_inner {
+                    ret.push(eval(ctx, vv.clone())?)?;
+                } else if let TulispValue::Splice(vv) = first_inner {
+                    ret.append(eval(ctx, vv.clone())?.deep_copy()?)?;
+                } else {
+                    ret.push(eval(ctx, TulispValue::Backquote(first.clone()).into_ref())?)?;
+                }
+                // TODO: is Nil check necessary
+                if let TulispValue::Unquote(vv) = rest_inner {
+                    ret.append(eval(ctx, vv.clone())?)?;
+                    return Ok(());
+                } else if !rest.is_list() {
+                    ret.append(rest.clone())?;
+                    return Ok(());
+                }
+                bq_eval_next(ctx, ret, rest)
+            }
+            bq_eval_next(ctx, &mut ret, vv.clone())?;
+            Ok(ret.into_ref())
         }
         TulispValue::Unquote(_) => Err(Error::new(
             ErrorKind::TypeMismatch,
