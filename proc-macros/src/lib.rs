@@ -1,7 +1,7 @@
 use proc_macro::{self, TokenStream};
 use proc_macro2::{Ident, TokenStream as TokenStream2};
 use quote::{quote, spanned::Spanned, ToTokens};
-use syn::parse_macro_input;
+use syn::{parse_macro_input, AttributeArgs};
 use syn::{FnArg, ItemFn, PatType, ReturnType};
 
 fn parse_args(
@@ -40,24 +40,24 @@ fn parse_args(
                     have_rest_var = true;
                     if eval_args {
                         arg_extract_stmts.extend(quote! {
-                            let #pat = #crate_name::eval::eval_each(tulisp_context, value)?;
-                            let value = TulispValue::Nil;
+                            let #pat = #crate_name::eval::eval_each(__tulisp_internal_context, __tulisp_internal_value)?;
+                            let __tulisp_internal_value = TulispValue::Nil;
                         })
                     } else {
                         arg_extract_stmts.extend(quote! {
-                            let #pat = value;
-                            let value = TulispValue::Nil;
+                            let #pat = __tulisp_internal_value;
+                            let __tulisp_internal_value = TulispValue::Nil;
                         })
                     }
                     continue;
                 }
                 if eval_args {
                     arg_extract_stmts.extend(quote!{
-                        let __tulisp_internal_car = #crate_name::eval::eval(tulisp_context, #crate_name::cons::car(value.clone())?)?;
+                        let __tulisp_internal_car = #crate_name::eval::eval(__tulisp_internal_context, #crate_name::cons::car(__tulisp_internal_value.clone())?)?;
                     })
                 } else {
                     arg_extract_stmts.extend(quote! {
-                        let __tulisp_internal_car =  #crate_name::cons::car(value.clone())?;
+                        let __tulisp_internal_car =  #crate_name::cons::car(__tulisp_internal_value.clone())?;
                     })
                 }
                 let ty_extractor = match ty_str.as_str() {
@@ -89,23 +89,23 @@ fn parse_args(
 
                 arg_extract_stmts.extend(quote! {
                     let #pat = __tulisp_internal_car #ty_extractor;
-                    let value = #crate_name::cons::cdr(value)?;
+                    let __tulisp_internal_value = #crate_name::cons::cdr(__tulisp_internal_value)?;
                 });
             }
         };
     }
 
     arg_extract_stmts.extend(quote! {
-        if !value.is_null() {
+        if !__tulisp_internal_value.is_null() {
             return Err(#crate_name::error::Error::new(
                 #crate_name::error::ErrorKind::TypeMismatch,
-                format!("{}: Too many arguments", stringify!{#fn_name})));
+                format!("{}: Too many arguments: {}", stringify!{#fn_name}, __tulisp_internal_value)));
         }
     });
 
     if let Some(pat) = ctx_var_name {
-        arg_extract_stmts.extend(quote!{
-            let #pat = tulisp_context;
+        arg_extract_stmts.extend(quote! {
+            let #pat = __tulisp_internal_context;
         })
     }
 
@@ -180,14 +180,33 @@ fn gen_function_call(
 }
 
 fn tulisp_fn_impl(
-    _attr: TokenStream,
+    attr: TokenStream,
     item: TokenStream,
     crate_name: TokenStream2,
     eval_args: bool,
 ) -> TokenStream {
     let inp = parse_macro_input!(item as ItemFn);
     let fn_name = &inp.sig.ident;
-
+    let attr_args = parse_macro_input!(attr as AttributeArgs);
+    let mut add_to_ctx = None;
+    let mut fn_name_in_ctx = None;
+    for attr in attr_args {
+        match attr {
+            syn::NestedMeta::Meta(syn::Meta::NameValue(nv)) => {
+                let path = nv.path.to_token_stream().to_string();
+                let val: TokenStream2 = match nv.lit {
+                    syn::Lit::Str(ref vv) => vv.parse().unwrap(), // ("ctx must have an identifier as value."),
+                    _ => panic!("attributes must have string values"),
+                };
+                match path.as_str() {
+                    "add_to" => add_to_ctx = Some(val),
+                    "name" => fn_name_in_ctx = Some(nv.lit),
+                    e => panic!("unknown attribute: {}", e),
+                }
+            }
+            _ => panic!("attributes have to be a=,"),
+        }
+    }
     let (arg_extract_stmts, params_for_call) =
         match parse_args(&inp, &crate_name, &fn_name, eval_args) {
             Ok(vv) => vv,
@@ -198,24 +217,41 @@ fn tulisp_fn_impl(
         Err(e) => return e,
     };
 
-    let ret = quote! {
+    let mut generated = quote! {
         fn #fn_name(
-            tulisp_context: &mut #crate_name::context::TulispContext,
-            value: #crate_name::value_ref::TulispValueRef,
+            __tulisp_internal_context: &mut #crate_name::context::TulispContext,
+            __tulisp_internal_value: #crate_name::value_ref::TulispValueRef,
         ) -> Result<#crate_name::value_ref::TulispValueRef, #crate_name::error::Error> {
             use #crate_name::error::Error;
 
             #inp
 
-            let __defun_name = #crate_name::cons::car(value.clone())?;
-            let value = #crate_name::cons::cdr(value.clone())?;
+            let __defun_name = #crate_name::cons::car(__tulisp_internal_value.clone())?;
+            let __tulisp_internal_value = #crate_name::cons::cdr(__tulisp_internal_value.clone())?;
 
             #arg_extract_stmts
             #call_and_ret
         }
     };
 
-    ret.into()
+    if let Some(ctx) = add_to_ctx {
+        let ctx = Ident::new(
+            &ctx.to_token_stream().to_string(),
+            proc_macro2::Span::call_site(),
+        );
+        let name = fn_name_in_ctx.unwrap_or_else(|| {
+            syn::Lit::Str(syn::LitStr::new(
+                &fn_name.to_string(),
+                proc_macro2::Span::call_site(),
+            ))
+        });
+        generated.extend(quote! {
+            // TODO: how to avoid unwrap?
+            #ctx.set_str(#name.to_string(), ContextObject::Func(#fn_name)).unwrap();
+        })
+    }
+    // println!("{}", generated);
+    generated.into()
 }
 
 #[proc_macro_attribute]

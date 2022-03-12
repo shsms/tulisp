@@ -1,22 +1,19 @@
-use crate::cons;
-pub(crate) use crate::cons::car;
+use crate::cons::car;
 use crate::cons::cdr;
 use crate::cons::Cons;
 use crate::context::ContextObject;
-use crate::context::Scope;
 use crate::context::TulispContext;
 use crate::error::Error;
 use crate::error::ErrorKind;
 use crate::eval::eval;
 use crate::eval::eval_progn;
-use crate::parser::macroexpand;
 use crate::value::TulispValue;
 use crate::value_ref::TulispValueRef;
 use crate::{defun_args, list};
-use std::cell::RefCell;
+use proc_macros::crate_fn;
+use proc_macros::crate_fn_no_eval;
 use std::cmp::Ordering;
 use std::convert::TryInto;
-use std::rc::Rc;
 
 macro_rules! max_min_ops {
     ($oper:tt) => {{
@@ -127,406 +124,357 @@ fn mark_tail_calls(name: TulispValueRef, body: TulispValueRef) -> Result<TulispV
     Ok(ret.into_ref())
 }
 
-pub fn add(ctx: &mut Scope) {
-    ctx.insert(
-        "+".to_string(),
-        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            defun_args!(_ (&rest vv) = vv);
-            reduce_with(ctx, vv, binary_ops!(std::ops::Add::add))
-        }))),
-    );
-    ctx.insert(
-        "-".to_string(),
-        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            defun_args!(_ (&rest vv) = vv);
-            let args = vv.clone();
-            defun_args!((first &rest rest) = args);
-            if rest.is_null() {
-                let vv = binary_ops!(std::ops::Sub::sub)(
-                    TulispValue::Int(0).into_ref(),
-                    eval(ctx, first)?,
-                )?;
-                Ok(vv)
-            } else {
-                reduce_with(ctx, vv, binary_ops!(std::ops::Sub::sub))
+pub fn add(ctx: &mut TulispContext) {
+    #[crate_fn_no_eval(add_to = "ctx", name = "+")]
+    fn add(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
+        reduce_with(ctx, rest, binary_ops!(std::ops::Add::add))
+    }
+
+    #[crate_fn_no_eval(add_to = "ctx", name = "-")]
+    fn sub(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
+        let args = rest.clone();
+        defun_args!((first &rest ohne_first) = args);
+        if ohne_first.is_null() {
+            let vv =
+                binary_ops!(std::ops::Sub::sub)(TulispValue::Int(0).into_ref(), eval(ctx, first)?)?;
+            Ok(vv)
+        } else {
+            reduce_with(ctx, rest, binary_ops!(std::ops::Sub::sub))
+        }
+    }
+
+    #[crate_fn_no_eval(add_to = "ctx", name = "*")]
+    fn mul(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
+        reduce_with(ctx, rest, binary_ops!(std::ops::Mul::mul))
+    }
+
+    #[crate_fn_no_eval(add_to = "ctx", name = "/")]
+    fn div(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
+        let args = rest.clone();
+        defun_args!((_first &rest ohne_first) = args);
+        for ele in ohne_first.iter() {
+            if ele == TulispValue::Int(0) || ele == TulispValue::Float(0.0) {
+                return Err(Error::new(
+                    ErrorKind::Undefined,
+                    "Division by zero".to_string(),
+                ));
             }
-        }))),
-    );
-    ctx.insert(
-        "*".to_string(),
-        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            defun_args!(_ (&rest vv) = vv);
-            reduce_with(ctx, vv, binary_ops!(std::ops::Mul::mul))
-        }))),
-    );
-    ctx.insert(
-        "/".to_string(),
-        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            defun_args!(_ (&rest vv) = vv);
-            let args = vv.clone();
-            defun_args!((_first &rest rest) = args);
-            for ele in rest.iter() {
-                if ele == TulispValue::Int(0) || ele == TulispValue::Float(0.0) {
+        }
+        reduce_with(ctx, rest, binary_ops!(std::ops::Div::div))
+    }
+
+    // // TODO: >, >=, <, <=, equal - need to be able to support more than 2 args
+    #[crate_fn_no_eval(add_to = "ctx", name = ">")]
+    fn gt(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
+        reduce_with(ctx, rest, binary_ops!(std::cmp::PartialOrd::gt))
+    }
+
+    #[crate_fn_no_eval(add_to = "ctx", name = ">=")]
+    fn ge(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
+        reduce_with(ctx, rest, binary_ops!(std::cmp::PartialOrd::ge))
+    }
+
+    #[crate_fn_no_eval(add_to = "ctx", name = "<")]
+    fn lt(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
+        reduce_with(ctx, rest, binary_ops!(std::cmp::PartialOrd::lt))
+    }
+
+    #[crate_fn_no_eval(add_to = "ctx", name = "<=")]
+    fn le(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
+        reduce_with(ctx, rest, binary_ops!(std::cmp::PartialOrd::le))
+    }
+
+    #[crate_fn_no_eval(add_to = "ctx")]
+    fn equal(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
+        reduce_with(ctx, rest, binary_ops!(std::cmp::PartialEq::eq))
+    }
+    #[crate_fn_no_eval(add_to = "ctx")]
+    fn max(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
+        reduce_with(ctx, rest, max_min_ops!(max))
+    }
+    #[crate_fn_no_eval(add_to = "ctx")]
+    fn min(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
+        reduce_with(ctx, rest, max_min_ops!(min))
+    }
+
+    // TODO: check if r#mod works.
+    #[crate_fn(add_to = "ctx", name = "mod")]
+    fn impl_mod(
+        dividend: TulispValueRef,
+        divisor: TulispValueRef,
+    ) -> Result<TulispValueRef, Error> {
+        binary_ops!(std::ops::Rem::rem)(dividend, divisor)
+    }
+
+    #[crate_fn(add_to = "ctx")]
+    fn expt(base: TulispValueRef, pow: TulispValueRef) -> Result<TulispValueRef, Error> {
+        Ok(f64::powf(base.try_into()?, pow.try_into()?).into()).map(|x: TulispValue| x.into_ref())
+    }
+
+    #[crate_fn_no_eval(add_to = "ctx")]
+    fn concat(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
+        let mut ret = String::new();
+        for ele in rest.iter() {
+            match eval(ctx, ele.clone())?.as_string() {
+                Ok(ref s) => ret.push_str(s),
+                _ => {
                     return Err(Error::new(
-                        ErrorKind::Undefined,
-                        "Division by zero".to_string(),
-                    ));
+                        ErrorKind::TypeMismatch,
+                        format!("Not a string: {}", ele),
+                    ))
                 }
             }
-            reduce_with(ctx, vv, binary_ops!(std::ops::Div::div))
-        }))),
-    );
-    // TODO: >, >=, <, <=, equal - need to be able to support more than 2 args
-    ctx.insert(
-        ">".to_string(),
-        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            defun_args!(_ (&rest vv) = vv);
-            reduce_with(ctx, vv, binary_ops!(std::cmp::PartialOrd::gt))
-        }))),
-    );
-    ctx.insert(
-        ">=".to_string(),
-        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            defun_args!(_ (&rest vv) = vv);
-            reduce_with(ctx, vv, binary_ops!(std::cmp::PartialOrd::ge))
-        }))),
-    );
-    ctx.insert(
-        "<".to_string(),
-        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            defun_args!(_ (&rest vv) = vv);
-            reduce_with(ctx, vv, binary_ops!(std::cmp::PartialOrd::lt))
-        }))),
-    );
-    ctx.insert(
-        "<=".to_string(),
-        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            defun_args!(_ (&rest vv) = vv);
-            reduce_with(ctx, vv, binary_ops!(std::cmp::PartialOrd::le))
-        }))),
-    );
-    ctx.insert(
-        "equal".to_string(),
-        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            defun_args!(_ (&rest vv) = vv);
-            reduce_with(ctx, vv, binary_ops!(std::cmp::PartialEq::eq))
-        }))),
-    );
-    ctx.insert(
-        "max".to_string(),
-        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            defun_args!(_ (&rest vv) = vv);
-            reduce_with(ctx, vv, max_min_ops!(max))
-        }))),
-    );
-    ctx.insert(
-        "min".to_string(),
-        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            defun_args!(_ (&rest vv) = vv);
-            reduce_with(ctx, vv, max_min_ops!(min))
-        }))),
-    );
-    ctx.insert(
-        "mod".to_string(),
-        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            defun_args!(_ (dividend divisor) = vv);
-            binary_ops!(std::ops::Rem::rem)(eval(ctx, dividend)?, eval(ctx, divisor)?)
-        }))),
-    );
-    ctx.insert(
-        "concat".to_string(),
-        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            defun_args!(_ (&rest vv) = vv);
-            let mut ret = String::new();
-            for ele in vv.iter() {
-                match eval(ctx, ele.clone())?.as_string() {
-                    Ok(ref s) => ret.push_str(s),
-                    _ => {
-                        return Err(Error::new(
-                            ErrorKind::TypeMismatch,
-                            format!("Not a string: {}", ele),
-                        ))
-                    }
-                }
-            }
-            Ok(TulispValue::String(ret).into_ref())
-        }))),
-    );
-    ctx.insert(
-        "expt".to_string(),
-        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            defun_args!(_ (base pow) = vv);
-            Ok(f64::powf(eval(ctx, base)?.try_into()?, eval(ctx, pow)?.try_into()?).into())
-                .map(|x: TulispValue| x.into_ref())
-        }))),
-    );
-    ctx.insert(
-        // TODO: make more elisp compatible.
-        "print".to_string(),
-        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            defun_args!(_ (&rest vv) = vv);
-            let mut iter = vv.iter();
-            let object = iter.next();
-            if iter.next().is_some() {
-                Err(Error::new(
-                    ErrorKind::NotImplemented,
-                    "output stream currently not supported".to_string(),
-                ))
-            } else if let Some(v) = object {
-                let ret = eval(ctx, v)?;
-                println!("{}", ret);
-                Ok(ret)
-            } else {
-                Err(Error::new(
-                    ErrorKind::TypeMismatch,
-                    "Incorrect number of arguments: print, 0".to_string(),
-                ))
-            }
-        }))),
-    );
-    ctx.insert(
-        "prin1-to-string".to_string(),
-        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            defun_args!(_(arg) = vv);
-            Ok(TulispValue::String(eval(ctx, arg)?.fmt_string()).into_ref())
-        }))),
-    );
-    ctx.insert(
-        "princ".to_string(),
-        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            defun_args!(_ (&rest vv) = vv);
-            let mut iter = vv.iter();
-            let object = iter.next();
-            if iter.next().is_some() {
-                Err(Error::new(
-                    ErrorKind::NotImplemented,
-                    "output stream currently not supported".to_string(),
-                ))
-            } else if let Some(v) = object {
-                let ret = eval(ctx, v)?;
-                println!("{}", ret.fmt_string());
-                Ok(ret)
-            } else {
-                Err(Error::new(
-                    ErrorKind::TypeMismatch,
-                    "Incorrect number of arguments: print, 0".to_string(),
-                ))
-            }
-        }))),
-    );
-    ctx.insert(
-        "if".to_string(),
-        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            defun_args!(_ (condition then_body &rest else_body) = vv);
+        }
+        Ok(TulispValue::String(ret).into_ref())
+    }
+
+    #[crate_fn_no_eval(add_to = "ctx")]
+    fn print(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
+        let mut iter = rest.iter();
+        let object = iter.next();
+        if iter.next().is_some() {
+            Err(Error::new(
+                ErrorKind::NotImplemented,
+                "output stream currently not supported".to_string(),
+            ))
+        } else if let Some(v) = object {
+            let ret = eval(ctx, v)?;
+            println!("{}", ret);
+            Ok(ret)
+        } else {
+            Err(Error::new(
+                ErrorKind::TypeMismatch,
+                "Incorrect number of arguments: print, 0".to_string(),
+            ))
+        }
+    }
+
+    #[crate_fn(add_to = "ctx", name = "prin1-to-string")]
+    fn prin1_to_string(arg: TulispValueRef) -> Result<TulispValueRef, Error> {
+        Ok(TulispValue::String(arg.fmt_string()).into_ref())
+    }
+
+    #[crate_fn_no_eval(add_to = "ctx")]
+    fn princ(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
+        let mut iter = rest.iter();
+        let object = iter.next();
+        if iter.next().is_some() {
+            Err(Error::new(
+                ErrorKind::NotImplemented,
+                "output stream currently not supported".to_string(),
+            ))
+        } else if let Some(v) = object {
+            let ret = eval(ctx, v)?;
+            println!("{}", ret.fmt_string());
+            Ok(ret)
+        } else {
+            Err(Error::new(
+                ErrorKind::TypeMismatch,
+                "Incorrect number of arguments: print, 0".to_string(),
+            ))
+        }
+    }
+
+    #[crate_fn_no_eval(add_to = "ctx", name = "if")]
+    fn impl_if(
+        ctx: &mut TulispContext,
+        condition: TulispValueRef,
+        then_body: TulispValueRef,
+        rest: TulispValueRef, // else_body
+    ) -> Result<TulispValueRef, Error> {
+        if eval(ctx, condition)?.as_bool() {
+            eval(ctx, then_body)
+        } else {
+            eval_progn(ctx, rest)
+        }
+        .map(|x| x)
+    }
+    #[crate_fn_no_eval(add_to = "ctx")]
+    fn cond(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
+        for item in rest.iter() {
+            defun_args!((condition &rest body) = item);
             if eval(ctx, condition)?.as_bool() {
-                eval(ctx, then_body)
-            } else {
-                eval_progn(ctx, else_body)
+                return eval_progn(ctx, body);
             }
-            .map(|x| x)
-        }))),
-    );
-    ctx.insert(
-        "cond".to_string(),
-        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            defun_args!(_ (&rest vv) = vv);
-            for item in vv.iter() {
-                defun_args!((condition &rest body) = item);
-                if eval(ctx, condition)?.as_bool() {
-                    return eval_progn(ctx, body);
-                }
-            }
-            Ok(TulispValue::Nil.into_ref())
-        }))),
-    );
-    ctx.insert(
-        "while".to_string(),
-        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            defun_args!(_ (condition &rest body) = vv);
-            let mut result = TulispValue::Nil.into_ref();
-            while eval(ctx, condition.clone())?.as_bool() {
-                result = eval_progn(ctx, body.clone())?;
-            }
-            Ok(result)
-        }))),
-    );
-    ctx.insert(
-        "setq".to_string(),
-        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            defun_args!(_ (name value) = vv);
-            let value = eval(ctx, value)?;
-            ctx.set(name, value.clone())?;
-            Ok(value)
-        }))),
-    );
-    ctx.insert(
-        "let".to_string(),
-        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            defun_args!(_ (varlist &rest body) = vv);
-            ctx.r#let(varlist)?;
-            let ret = if body.is_list() {
-                eval_progn(ctx, body.clone())
-            } else {
-                Err(Error::new(
-                    ErrorKind::TypeMismatch,
-                    "let: expected varlist and body".to_string(),
-                ))
-            };
-            ctx.pop();
-            ret
-        }))),
-    );
+        }
+        Ok(TulispValue::Nil.into_ref())
+    }
 
-    ctx.insert(
-        "defun".to_string(),
-        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            defun_args!(_ (name args &rest body) = vv);
-            // TODO: don't discard docstring
-            let body = if car(body.clone())?.as_string().is_ok() {
-                cdr(body)?
-            } else {
-                body
-            };
-            let body = mark_tail_calls(name.clone(), body).map_err(|e| {
-                println!("mark_tail_calls error: {:?}", e);
-                e
-            })?;
-            ctx.set_str(name.as_ident()?, ContextObject::Defun { args, body })?;
-            Ok(TulispValue::Nil.into_ref())
-        }))),
-    );
+    #[crate_fn_no_eval(add_to = "ctx", name = "while")]
+    fn impl_while(
+        ctx: &mut TulispContext,
+        condition: TulispValueRef,
+        rest: TulispValueRef,
+    ) -> Result<TulispValueRef, Error> {
+        let mut result = TulispValue::Nil.into_ref();
+        while eval(ctx, condition.clone())?.as_bool() {
+            result = eval_progn(ctx, rest.clone())?;
+        }
+        Ok(result)
+    }
 
-    ctx.insert(
-        "defmacro".to_string(),
-        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            defun_args!(_ (name args &rest body) = vv);
-            // TODO: don't discard docstring
-            let body = if car(body.clone())?.as_string().is_ok() {
-                cdr(body)?
-            } else {
-                body
-            };
-            ctx.set_str(name.as_ident()?, ContextObject::Defmacro { args, body })?;
-            Ok(TulispValue::Nil.into_ref())
-        }))),
-    );
+    #[crate_fn_no_eval(add_to = "ctx")]
+    fn setq(
+        ctx: &mut TulispContext,
+        name: TulispValueRef,
+        value: TulispValueRef,
+    ) -> Result<TulispValueRef, Error> {
+        let value = eval(ctx, value)?;
+        ctx.set(name, value.clone())?;
+        Ok(value)
+    }
 
-    ctx.insert(
-        "null".to_string(),
-        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            defun_args!(_(arg) = vv);
-            let arg = eval(ctx, arg)?;
-            Ok(arg.is_null().into())
-        }))),
-    );
+    #[crate_fn_no_eval(add_to = "ctx", name = "let")]
+    fn impl_let(
+        ctx: &mut TulispContext,
+        varlist: TulispValueRef,
+        rest: TulispValueRef,
+    ) -> Result<TulispValueRef, Error> {
+        ctx.r#let(varlist)?;
+        let ret = if rest.is_list() {
+            eval_progn(ctx, rest.clone())
+        } else {
+            Err(Error::new(
+                ErrorKind::TypeMismatch,
+                "let: expected varlist and body".to_string(),
+            ))
+        };
+        ctx.pop();
+        ret
+    }
 
-    ctx.insert(
-        "eval".to_string(),
-        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            defun_args!(_(arg) = vv);
-            let arg = eval(ctx, arg)?;
-            eval(ctx, arg)
-        }))),
-    );
+    #[crate_fn_no_eval(add_to = "ctx")]
+    fn defun(
+        ctx: &mut TulispContext,
+        name: TulispValueRef,
+        args: TulispValueRef,
+        rest: TulispValueRef,
+    ) -> Result<TulispValueRef, Error> {
+        // TODO: don't discard docstring
+        let body = if car(rest.clone())?.as_string().is_ok() {
+            cdr(rest)?
+        } else {
+            rest
+        };
+        let body = mark_tail_calls(name.clone(), body).map_err(|e| {
+            println!("mark_tail_calls error: {:?}", e);
+            e
+        })?;
+        ctx.set_str(name.as_ident()?, ContextObject::Defun { args, body })?;
+        Ok(TulispValue::Nil.into_ref())
+    }
 
-    ctx.insert(
-        "macroexpand".to_string(),
-        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            defun_args!(_(name) = vv);
-            let name = eval(ctx, name)?;
-            macroexpand(ctx, name)
-        }))),
-    );
+    #[crate_fn_no_eval(add_to = "ctx")]
+    fn defmacro(
+        ctx: &mut TulispContext,
+        name: TulispValueRef,
+        args: TulispValueRef,
+        rest: TulispValueRef,
+    ) -> Result<TulispValueRef, Error> {
+        // TODO: don't discard docstring
+        let body = if car(rest.clone())?.as_string().is_ok() {
+            cdr(rest)?
+        } else {
+            rest
+        };
+        ctx.set_str(name.as_ident()?, ContextObject::Defmacro { args, body })?;
+        Ok(TulispValue::Nil.into_ref())
+    }
+
+    #[crate_fn(add_to = "ctx")]
+    fn null(arg: TulispValueRef) -> bool {
+        arg.is_null()
+    }
+
+    #[crate_fn(add_to = "ctx", name = "eval")]
+    fn impl_eval(ctx: &mut TulispContext, arg: TulispValueRef) -> Result<TulispValueRef, Error> {
+        crate::eval::eval(ctx, arg)
+    }
+
+    #[crate_fn(add_to = "ctx", name = "macroexpand")]
+    fn impl_macroexpand(
+        ctx: &mut TulispContext,
+        name: TulispValueRef,
+    ) -> Result<TulispValueRef, Error> {
+        crate::parser::macroexpand(ctx, name)
+    }
 
     // List functions
-    ctx.insert(
-        "car".to_string(),
-        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            defun_args!(_(name) = vv);
-            Ok(car(eval(ctx, name)?)?.to_owned())
-        }))),
-    );
 
-    ctx.insert(
-        "cdr".to_string(),
-        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            defun_args!(_(name) = vv);
-            Ok(cdr(eval(ctx, name)?)?.to_owned())
-        }))),
-    );
+    #[crate_fn(add_to = "ctx", name = "car")]
+    fn impl_car(name: TulispValueRef) -> Result<TulispValueRef, Error> {
+        crate::cons::car(name)
+    }
 
-    ctx.insert(
-        "cons".to_string(),
-        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            defun_args!(_ (car cdr) = vv);
-            let car = eval(ctx, car)?;
-            let cdr = eval(ctx, cdr)?;
-            Ok(cons::cons(car, cdr))
-        }))),
-    );
+    #[crate_fn(add_to = "ctx", name = "cdr")]
+    fn impl_cdr(name: TulispValueRef) -> Result<TulispValueRef, Error> {
+        crate::cons::cdr(name)
+    }
 
-    ctx.insert(
-        "append".to_string(),
-        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            defun_args!(_ (first &rest rest) = vv);
-            let first = eval(ctx, first)?;
-            for ele in rest.iter() {
-                first.append(eval(ctx, ele)?.deep_copy()?)?;
+    #[crate_fn(add_to = "ctx", name = "cons")]
+    fn impl_cons(car: TulispValueRef, cdr: TulispValueRef) -> TulispValueRef {
+        crate::cons::cons(car, cdr)
+    }
+
+    #[crate_fn_no_eval(add_to = "ctx")]
+    fn append(
+        ctx: &mut TulispContext,
+        first: TulispValueRef,
+        rest: TulispValueRef,
+    ) -> Result<TulispValueRef, Error> {
+        let first = eval(ctx, first)?;
+        for ele in rest.iter() {
+            first.append(eval(ctx, ele)?.deep_copy()?)?;
+        }
+        Ok(first)
+    }
+
+    #[crate_fn_no_eval(add_to = "ctx")]
+    fn list(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
+        let (ctxobj, span) = (rest.ctxobj(), rest.span());
+        let mut cons = Cons::new();
+        for ele in rest.iter() {
+            cons.push(eval(ctx, ele)?)?;
+        }
+        Ok(TulispValue::List { cons, ctxobj, span }.into_ref())
+    }
+
+    #[crate_fn(add_to = "ctx")]
+    fn listp(arg: TulispValueRef) -> bool {
+        arg.is_list()
+    }
+
+    #[crate_fn_no_eval(add_to = "ctx")]
+    fn sort(
+        ctx: &mut TulispContext,
+        seq: TulispValueRef,
+        pred: TulispValueRef,
+    ) -> Result<TulispValueRef, Error> {
+        let pred = eval(ctx, pred)?;
+        let pred = ctx.get(pred.clone()).ok_or_else(|| {
+            Error::new(ErrorKind::Undefined, format!("Unknown predicate: {}", pred))
+        })?;
+        let seq = eval(ctx, seq)?;
+        let mut vec: Vec<_> = seq.iter().map(|v| v.clone()).collect();
+        vec.sort_by(|v1, v2| {
+            let vv = list!(,TulispValue::Nil.into_ref() ,v1.clone() ,v2.clone()).unwrap();
+            vv.use_ctxobj(Some(pred.clone()));
+
+            if eval(ctx, vv)
+                .unwrap_or(TulispValue::Nil.into_ref())
+                .as_bool()
+            {
+                Ordering::Less
+            } else {
+                Ordering::Equal
             }
-            Ok(first)
-        }))),
-    );
+        });
+        let ret = vec
+            .iter()
+            .fold(list!(), |v1, v2| list!(,@v1 ,(*v2).clone()).unwrap());
+        Ok(ret)
+    }
 
-    ctx.insert(
-        "list".to_string(),
-        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            defun_args!(_ (&rest vv) = vv);
-            let (ctxobj, span) = (vv.ctxobj(), vv.span());
-            let mut cons = Cons::new();
-            for ele in vv.iter() {
-                cons.push(eval(ctx, ele)?)?;
-            }
-            Ok(TulispValue::List { cons, ctxobj, span }.into_ref())
-        }))),
-    );
-
-    ctx.insert(
-        "listp".to_string(),
-        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            defun_args!(_(arg) = vv);
-            Ok(eval(ctx, arg)?.is_list().into())
-        }))),
-    );
-
-    ctx.insert(
-        "sort".to_string(),
-        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-            defun_args!(_ (seq pred) = vv);
-            let pred = eval(ctx, pred)?;
-            let pred = ctx.get(pred.clone()).ok_or_else(|| {
-                Error::new(ErrorKind::Undefined, format!("Unknown predicate: {}", pred))
-            })?;
-            let seq = eval(ctx, seq)?;
-            let mut vec: Vec<_> = seq.iter().map(|v| v.clone()).collect();
-            vec.sort_by(|v1, v2| {
-                let vv = list!(,TulispValue::Nil.into_ref() ,v1.clone() ,v2.clone()).unwrap();
-                vv.use_ctxobj(Some(pred.clone()));
-
-                if eval(ctx, vv)
-                    .unwrap_or(TulispValue::Nil.into_ref())
-                    .as_bool()
-                {
-                    Ordering::Less
-                } else {
-                    Ordering::Equal
-                }
-            });
-            let ret = vec
-                .iter()
-                .fold(list!(), |v1, v2| list!(,@v1 ,(*v2).clone()).unwrap());
-            Ok(ret)
-        }))),
-    );
     /*
     ctx.insert(
         "".to_string(),

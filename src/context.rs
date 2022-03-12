@@ -84,7 +84,7 @@ impl TulispContext {
             Some(m) => *m.as_ref().borrow_mut() = value,
             None => match self.0.first_mut() {
                 Some(f) => {
-                    f.insert(name.clone(), Rc::new(RefCell::new(value)));
+                    f.insert(name, Rc::new(RefCell::new(value)));
                 }
                 None => {
                     return Err(Error::new(
@@ -96,6 +96,7 @@ impl TulispContext {
         }
         Ok(())
     }
+
     pub fn set(&mut self, name: TulispValueRef, value: TulispValueRef) -> Result<(), Error> {
         if let Ok(name) = name.as_ident() {
             self.set_str(name.clone(), ContextObject::TulispValue(value))

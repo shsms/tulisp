@@ -1,11 +1,11 @@
+use proc_macros::crate_fn_no_eval;
+
 use crate::cons::{car, cdr, Cons};
-use crate::context::{ContextObject, Scope, TulispContext};
+use crate::context::{ContextObject, TulispContext};
 use crate::error::Error;
 use crate::value::TulispValue::{self, Nil};
 use crate::value_ref::TulispValueRef;
 use crate::{defun_args, list};
-use std::cell::RefCell;
-use std::rc::Rc;
 
 fn thread_first(ctx: &mut TulispContext, vv: TulispValueRef) -> Result<TulispValueRef, Error> {
     defun_args!(_name (x &optional form &rest more) = vv);
@@ -39,54 +39,54 @@ fn thread_last(ctx: &mut TulispContext, vv: TulispValueRef) -> Result<TulispValu
     }
 }
 
-pub fn add(ctx: &mut Scope) {
-    ctx.insert(
-        "->".to_string(),
-        Rc::new(RefCell::new(ContextObject::Macro(thread_first))),
-    );
-    ctx.insert(
-        "thread-first".to_string(),
-        Rc::new(RefCell::new(ContextObject::Macro(thread_first))),
-    );
+#[crate_fn_no_eval]
+fn let_star(
+    ctx: &mut TulispContext,
+    varlist: TulispValueRef,
+    rest: TulispValueRef,
+) -> Result<TulispValueRef, Error> {
+    fn unwrap_varlist(
+        ctx: &mut TulispContext,
+        varlist: TulispValueRef,
+        body: TulispValueRef,
+    ) -> Result<TulispValueRef, Error> {
+        defun_args!((nextvar &rest rest) = varlist);
 
-    ctx.insert(
-        "->>".to_string(),
-        Rc::new(RefCell::new(ContextObject::Macro(thread_last))),
-    );
-    ctx.insert(
-        "thread-last".to_string(),
-        Rc::new(RefCell::new(ContextObject::Macro(thread_last))),
-    );
-
-    ctx.insert(
-        "let*".to_string(),
-        Rc::new(RefCell::new(ContextObject::Macro(|ctx, vv| {
-            defun_args!(_name (varlist &rest body) = vv);
-            fn unwrap_varlist(
-                ctx: &mut TulispContext,
-                varlist: TulispValueRef,
-                body: TulispValueRef,
-            ) -> Result<TulispValueRef, Error> {
-                defun_args!((nextvar &rest rest) = varlist);
-
-                let mut ret = Cons::new();
-                ret.push(TulispValue::Ident("let".to_string()).into_ref())?
-                    .push(list!(,nextvar)?)?;
-                if rest != TulispValue::Nil {
-                    ret.push(unwrap_varlist(ctx, rest, body)?)?;
-                } else {
-                    for ele in body.iter() {
-                        ret.push(ele.clone())?;
-                    }
-                }
-                Ok(TulispValue::List {
-                    cons: ret,
-                    ctxobj: ctx.get_str(&"let".to_string()),
-                    span: None,
-                }
-                .into_ref())
+        let mut ret = Cons::new();
+        ret.push(TulispValue::Ident("let".to_string()).into_ref())?
+            .push(list!(,nextvar)?)?;
+        if rest != TulispValue::Nil {
+            ret.push(unwrap_varlist(ctx, rest, body)?)?;
+        } else {
+            for ele in body.iter() {
+                ret.push(ele.clone())?;
             }
-            unwrap_varlist(ctx, varlist, body)
-        }))),
-    );
+        }
+        Ok(TulispValue::List {
+            cons: ret,
+            ctxobj: ctx.get_str(&"let".to_string()),
+            span: None,
+        }
+        .into_ref())
+    }
+    unwrap_varlist(ctx, varlist, rest)
+}
+
+pub fn add(ctx: &mut TulispContext) {
+    // TODO: crate_fn needs to implement Optional, before threading macros can be transitioned.
+    ctx.set_str("->".to_string(), ContextObject::Macro(thread_first))
+        .unwrap();
+    ctx.set_str(
+        "thread-first".to_string(),
+        ContextObject::Macro(thread_first),
+    )
+    .unwrap();
+
+    ctx.set_str("->>".to_string(), ContextObject::Macro(thread_last))
+        .unwrap();
+    ctx.set_str("thread-last".to_string(), ContextObject::Macro(thread_last))
+        .unwrap();
+
+    ctx.set_str("let*".to_string(), ContextObject::Macro(let_star))
+        .unwrap();
 }

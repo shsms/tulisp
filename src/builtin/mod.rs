@@ -6,8 +6,8 @@ mod functions;
 mod macros;
 
 pub fn new_context() -> TulispContext {
-    let mut ctx = HashMap::new();
+    let mut ctx =     TulispContext::new(HashMap::new());
     functions::add(&mut ctx);
     macros::add(&mut ctx);
-    TulispContext::new(ctx)
+    ctx
 }
