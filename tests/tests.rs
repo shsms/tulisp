@@ -192,6 +192,16 @@ fn test_lists() -> Result<(), Error> {
         result: "(12 20 30 (20 30))",
     }
 
+    tulisp_assert!{
+        program: "(listp '(20))",
+        result: "t",
+    }
+
+    tulisp_assert!{
+        program: "(listp '20)",
+        result: "nil",
+    }
+
     Ok(())
 }
 #[test]
