@@ -291,9 +291,9 @@ impl TulispValue {
         }
     }
 
-    pub fn as_string(&self) -> Result<String, Error> {
+    pub fn as_str(&self) -> Result<&str, Error> {
         match self {
-            TulispValue::String(s) => Ok(s.to_owned()),
+            TulispValue::String(s) => Ok(s),
             _ => Err(Error::new(
                 ErrorKind::TypeMismatch,
                 format!("Expected string: {}", self),
@@ -373,6 +373,12 @@ impl From<i64> for TulispValue {
 impl From<f64> for TulispValue {
     fn from(vv: f64) -> Self {
         TulispValue::Float(vv)
+    }
+}
+
+impl From<&str> for TulispValue {
+    fn from(vv: &str) -> Self {
+        TulispValue::String(vv.to_owned())
     }
 }
 

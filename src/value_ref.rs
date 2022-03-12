@@ -55,7 +55,7 @@ impl TulispValueRef {
         self.rc.as_ref().borrow().is_list()
     }
     pub fn as_string(&self) -> Result<String, Error> {
-        self.rc.as_ref().borrow().as_string()
+        self.rc.as_ref().borrow().as_str().map(|x| x.to_owned())
     }
     pub fn is_null(&self) -> bool {
         self.rc.as_ref().borrow().is_null()
@@ -158,6 +158,12 @@ impl From<i64> for TulispValueRef {
 
 impl From<f64> for TulispValueRef {
     fn from(vv: f64) -> Self {
+        TulispValue::from(vv).into_ref()
+    }
+}
+
+impl From<&str> for TulispValueRef {
+    fn from(vv: &str) -> Self {
         TulispValue::from(vv).into_ref()
     }
 }
