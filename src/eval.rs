@@ -241,12 +241,12 @@ pub fn eval(ctx: &mut TulispContext, value: TulispValueRef) -> Result<TulispValu
 }
 
 #[allow(dead_code)]
-pub fn eval_each(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue, Error> {
+pub fn eval_each(ctx: &mut TulispContext, value: TulispValueRef) -> Result<TulispValueRef, Error> {
     let mut ret = TulispValue::Nil;
     for val in value.iter() {
         ret.push(eval(ctx, val)?)?;
     }
-    Ok(ret)
+    Ok(ret.into_ref())
 }
 
 pub fn eval_progn(ctx: &mut TulispContext, value: TulispValueRef) -> Result<TulispValueRef, Error> {
