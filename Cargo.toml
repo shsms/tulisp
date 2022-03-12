@@ -17,3 +17,4 @@ path = "src/lib.rs"
 pest = "^2.1.3"
 pest_derive = "^2.1.0"
 tailcall = "0.1.6"
+proc-macros = { path = "proc-macros" }
