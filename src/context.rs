@@ -4,7 +4,7 @@ use crate::{
     cons::{car, cdr},
     defun_args,
     error::{Error, ErrorKind},
-    eval::eval,
+    eval::{eval, eval_string, eval_progn},
     value::TulispValue,
     value_ref::TulispValueRef,
 };
@@ -50,7 +50,7 @@ pub struct TulispContext(Vec<Scope>);
 
 impl TulispContext {
     /// Creates a TulispContext with an empty global scope.
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self(vec![Scope::default()])
     }
 
@@ -152,5 +152,23 @@ impl TulispContext {
         self.0.push(local);
 
         Ok(())
+    }
+
+    pub fn eval(&mut self, value: TulispValueRef) -> Result<TulispValueRef, Error> {
+        eval(self, value)
+    }
+
+    pub fn eval_string(&mut self, string: &str) -> Result<TulispValueRef, Error> {
+        eval_string(self, string)
+    }
+
+    pub fn eval_progn(&mut self, value: TulispValueRef) -> Result<TulispValueRef, Error> {
+        eval_progn(self, value)
+    }
+    pub fn eval_each(&mut self, value: TulispValueRef) -> Result<TulispValueRef, Error> {
+        crate::eval::eval_each(self, value)
+    }
+    pub fn eval_file(&mut self, filename: &str) -> Result<TulispValueRef, Error> {
+        crate::eval::eval_file(self, filename)
     }
 }

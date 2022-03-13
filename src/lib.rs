@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate pest_derive;
 
-pub mod builtin;
+mod builtin;
 pub mod cons;
 pub mod context;
 pub mod error;
@@ -11,3 +11,5 @@ pub mod value;
 
 pub mod macros;
 pub mod value_ref;
+
+pub use builtin::new_context;

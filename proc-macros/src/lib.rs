@@ -53,7 +53,7 @@ fn parse_args(
                 }
                 if eval_args {
                     arg_extract_stmts.extend(quote!{
-                        let __tulisp_internal_car = #crate_name::eval::eval(__tulisp_internal_context, #crate_name::cons::car(__tulisp_internal_value.clone())?)?;
+                        let __tulisp_internal_car = __tulisp_internal_context.eval(#crate_name::cons::car(__tulisp_internal_value.clone())?)?;
                     })
                 } else {
                     arg_extract_stmts.extend(quote! {

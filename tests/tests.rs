@@ -1,10 +1,10 @@
 use tulisp::parser::parse_string;
-use tulisp::{builtin::new_context, cons::*, error::Error, eval::eval_string};
+use tulisp::{cons::*, error::Error};
 
 macro_rules! tulisp_assert {
     (program:$input:expr, result:$result:expr $(,)?) => {
-        let mut ctx = new_context();
-        let output = eval_string(&mut ctx, $input)?;
+        let mut ctx = tulisp::new_context();
+        let output = ctx.eval_string($input)?;
         let expected = parse_string(&mut ctx, $result)?;
         let expected = car(expected.into_ref())?;
         assert!(
@@ -16,8 +16,8 @@ macro_rules! tulisp_assert {
         );
     };
     (program:$input:expr, error:$desc:expr $(,)?) => {
-        let mut ctx = new_context();
-        let output = eval_string(&mut ctx, $input);
+        let mut ctx = tulisp::new_context();
+        let output = ctx.eval_string($input);
         assert!(output.is_err());
         assert_eq!(output.unwrap_err().to_string(), $desc);
     };

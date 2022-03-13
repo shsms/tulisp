@@ -154,7 +154,7 @@ fn eval_form(ctx: &mut TulispContext, val: TulispValueRef) -> Result<TulispValue
     }
 }
 
-pub fn eval(ctx: &mut TulispContext, value: TulispValueRef) -> Result<TulispValueRef, Error> {
+pub(crate) fn eval(ctx: &mut TulispContext, value: TulispValueRef) -> Result<TulispValueRef, Error> {
     let ret = match value.clone_inner() {
         TulispValue::Nil => Ok(value),
         TulispValue::Ident(name) => {
@@ -240,8 +240,7 @@ pub fn eval(ctx: &mut TulispContext, value: TulispValueRef) -> Result<TulispValu
     ret
 }
 
-#[allow(dead_code)]
-pub fn eval_each(ctx: &mut TulispContext, value: TulispValueRef) -> Result<TulispValueRef, Error> {
+pub(crate) fn eval_each(ctx: &mut TulispContext, value: TulispValueRef) -> Result<TulispValueRef, Error> {
     let mut ret = TulispValue::Nil;
     for val in value.iter() {
         ret.push(eval(ctx, val)?)?;
@@ -249,7 +248,7 @@ pub fn eval_each(ctx: &mut TulispContext, value: TulispValueRef) -> Result<Tulis
     Ok(ret.into_ref())
 }
 
-pub fn eval_progn(ctx: &mut TulispContext, value: TulispValueRef) -> Result<TulispValueRef, Error> {
+pub(crate) fn eval_progn(ctx: &mut TulispContext, value: TulispValueRef) -> Result<TulispValueRef, Error> {
     value
         .iter()
         .fold(Ok(TulispValue::Nil.into_ref()), |v1, v2| {
@@ -257,12 +256,12 @@ pub fn eval_progn(ctx: &mut TulispContext, value: TulispValueRef) -> Result<Tuli
         })
 }
 
-pub fn eval_string(ctx: &mut TulispContext, string: &str) -> Result<TulispValueRef, Error> {
+pub(crate) fn eval_string(ctx: &mut TulispContext, string: &str) -> Result<TulispValueRef, Error> {
     let vv = parse_string(ctx, string)?.into_ref();
     eval_progn(ctx, vv)
 }
 
-pub fn eval_file(ctx: &mut TulispContext, filename: &str) -> Result<TulispValueRef, Error> {
+pub(crate) fn eval_file(ctx: &mut TulispContext, filename: &str) -> Result<TulispValueRef, Error> {
     let contents = fs::read_to_string(filename).expect("Something went wrong reading the file");
     eval_string(ctx, &contents)
 }
