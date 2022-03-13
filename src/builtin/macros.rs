@@ -53,7 +53,7 @@ fn let_star(
         defun_args!((nextvar &rest rest) = varlist);
 
         let mut ret = Cons::new();
-        ret.push(TulispValue::Ident("let".to_string()).into_ref())?
+        ret.push(TulispValue::ident_from("let".to_string(), None).into_ref())?
             .push(list!(,nextvar)?)?;
         if rest != TulispValue::Nil {
             ret.push(unwrap_varlist(ctx, rest, body)?)?;

@@ -90,7 +90,7 @@ fn locate_all_func(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispV
 
 fn locate_func(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispValue, Error> {
     let name = match car(expr.clone().into_ref())?.clone_inner() {
-        TulispValue::Ident(ident) => ident.to_string(),
+        TulispValue::Ident { value, ..} => value.to_string(),
         _ => return Ok(expr),
     };
     match ctx.get_str(&name) {
@@ -141,7 +141,7 @@ fn parse(
             }
             .into_ref();
             let name = match car(expr.clone())?.clone_inner() {
-                TulispValue::Ident(ident) => ident.to_string(),
+                TulispValue::Ident { value, .. } => value.to_string(),
                 _ => return Ok(expr.clone_inner()),
             };
             if name == "defun" || name == "defmacro" {
@@ -165,8 +165,9 @@ fn parse(
                 .fold(Ok(()), |v1, v2| v1.and(v2))?;
             Ok(list)
         }
-        Rule::backquote => Ok(TulispValue::Backquote(
-            parse(
+        Rule::backquote => Ok(TulispValue::Backquote {
+            span: Some(value.as_span().into()),
+            value: parse(
                 ctx,
                 value.into_inner().peek().ok_or_else(|| {
                     Error::new(
@@ -181,9 +182,10 @@ fn parse(
                 },
             )?
             .into_ref(),
-        )),
-        Rule::unquote => Ok(TulispValue::Unquote(
-            parse(
+        }),
+        Rule::unquote => Ok(TulispValue::Unquote {
+            span: Some(value.as_span().into()),
+            value: parse(
                 ctx,
                 value.into_inner().peek().ok_or_else(|| {
                     Error::new(ErrorKind::ParsingError, format!("Unquote inner not found"))
@@ -195,9 +197,10 @@ fn parse(
                 },
             )?
             .into_ref(),
-        )),
-        Rule::quote => Ok(TulispValue::Quote(
-            parse(
+        }),
+        Rule::quote => Ok(TulispValue::Quote {
+            span: Some(value.as_span().into()),
+            value: parse(
                 ctx,
                 value.into_inner().peek().ok_or_else(|| {
                     Error::new(ErrorKind::ParsingError, format!("Quote inner not found"))
@@ -205,9 +208,10 @@ fn parse(
                 &MacroExpand::No,
             )?
             .into_ref(),
-        )),
-        Rule::sharpquote => Ok(TulispValue::Sharpquote(
-            parse(
+        }),
+        Rule::sharpquote => Ok(TulispValue::Sharpquote {
+            span: Some(value.as_span().into()),
+            value: parse(
                 ctx,
                 value.into_inner().peek().ok_or_else(|| {
                     Error::new(
@@ -218,9 +222,10 @@ fn parse(
                 &MacroExpand::No,
             )?
             .into_ref(),
-        )),
-        Rule::splice => Ok(TulispValue::Splice(
-            parse(
+        }),
+        Rule::splice => Ok(TulispValue::Splice {
+            span: Some(value.as_span().into()),
+            value: parse(
                 ctx,
                 value.into_inner().peek().ok_or_else(|| {
                     Error::new(ErrorKind::ParsingError, format!("Splice inner not found"))
@@ -232,23 +237,35 @@ fn parse(
                 },
             )?
             .into_ref(),
-        )),
+        }),
         Rule::nil => Ok(TulispValue::Nil),
-        Rule::ident => Ok(TulispValue::Ident(value.as_span().as_str().to_string())),
-        Rule::integer => Ok(TulispValue::Int(value.as_span().as_str().parse().map_err(
-            |e: std::num::ParseIntError| Error::new(ErrorKind::ParsingError, e.to_string()),
-        )?)),
-        Rule::float => Ok(TulispValue::Float(
-            value
+        Rule::ident => Ok(TulispValue::Ident {
+            value: value.as_span().as_str().to_string(),
+            span: Some(value.as_span().into()),
+        }),
+        Rule::integer => Ok(TulispValue::Int {
+            value: value
                 .as_span()
                 .as_str()
                 .parse()
-                .map_err(|e: std::num::ParseFloatError| {
+                .map_err(|e: std::num::ParseIntError| {
                     Error::new(ErrorKind::ParsingError, e.to_string())
                 })?,
-        )),
-        Rule::string => Ok(TulispValue::String(
-            value
+            span: Some(value.as_span().into()),
+        }),
+        Rule::float => {
+            Ok(TulispValue::Float {
+                value: value.as_span().as_str().parse().map_err(
+                    |e: std::num::ParseFloatError| {
+                        Error::new(ErrorKind::ParsingError, e.to_string())
+                    },
+                )?,
+                span: Some(value.as_span().into()),
+            })
+        }
+        Rule::string => Ok(TulispValue::String {
+            span: Some(value.as_span().into()),
+            value: value
                 .into_inner()
                 .peek()
                 .ok_or_else(|| {
@@ -260,7 +277,7 @@ fn parse(
                 .as_span()
                 .as_str()
                 .to_string(),
-        )),
+        }),
         e => Err(Error::new(
             ErrorKind::ParsingError,
             format!("unknown rule {:?}", e),

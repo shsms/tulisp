@@ -92,7 +92,7 @@ fn mark_tail_calls(name: TulispValueRef, body: TulispValueRef) -> Result<TulispV
         .append(cdr(tail)?)?
         .to_owned()
         .into_ref();
-        list!(,TulispValue::Ident("list".to_string()).into_ref()
+        list!(,TulispValue::ident_from("list".to_string(),  None).into_ref()
               ,TulispValue::Bounce.into_ref()
               ,@ret_tail)?
     } else if tail_name_str == "progn" {
@@ -136,7 +136,7 @@ pub fn add(ctx: &mut TulispContext) {
         defun_args!((first &rest ohne_first) = args);
         if ohne_first.is_null() {
             let vv =
-                binary_ops!(std::ops::Sub::sub)(TulispValue::Int(0).into_ref(), eval(ctx, first)?)?;
+                binary_ops!(std::ops::Sub::sub)(0.into(), eval(ctx, first)?)?;
             Ok(vv)
         } else {
             reduce_with(ctx, rest, binary_ops!(std::ops::Sub::sub))
@@ -153,7 +153,7 @@ pub fn add(ctx: &mut TulispContext) {
         let args = rest.clone();
         defun_args!((_first &rest ohne_first) = args);
         for ele in ohne_first.iter() {
-            if ele == TulispValue::Int(0) || ele == TulispValue::Float(0.0) {
+            if ele == TulispValue::from(0) || ele == TulispValue::from(0.0) {
                 return Err(Error::new(
                     ErrorKind::Undefined,
                     "Division by zero".to_string(),
@@ -225,7 +225,7 @@ pub fn add(ctx: &mut TulispContext) {
                 }
             }
         }
-        Ok(TulispValue::String(ret).into_ref())
+        Ok(TulispValue::from(ret).into_ref())
     }
 
     #[crate_fn_no_eval(add_to = "ctx")]
@@ -251,7 +251,7 @@ pub fn add(ctx: &mut TulispContext) {
 
     #[crate_fn(add_to = "ctx", name = "prin1-to-string")]
     fn prin1_to_string(arg: TulispValueRef) -> Result<TulispValueRef, Error> {
-        Ok(TulispValue::String(arg.fmt_string()).into_ref())
+        Ok(TulispValue::from(arg.fmt_string()).into_ref())
     }
 
     #[crate_fn_no_eval(add_to = "ctx")]

@@ -154,40 +154,42 @@ fn eval_form(ctx: &mut TulispContext, val: TulispValueRef) -> Result<TulispValue
     }
 }
 
-pub(crate) fn eval(ctx: &mut TulispContext, value: TulispValueRef) -> Result<TulispValueRef, Error> {
-    let ret = match value.clone_inner() {
-        TulispValue::Nil => Ok(value),
-        TulispValue::Ident(name) => {
-            if name == "t" {
-                Ok(value)
-            } else if let Some(obj) = ctx.get_str(&name) {
+pub(crate) fn eval(ctx: &mut TulispContext, expr: TulispValueRef) -> Result<TulispValueRef, Error> {
+    let ret = match expr.clone_inner() {
+        TulispValue::Nil => Ok(expr),
+        TulispValue::Ident { value, span } => {
+            if value == "t" {
+                Ok(expr)
+            } else if let Some(obj) = ctx.get_str(&value) {
                 if let ContextObject::TulispValue(vv) = &*obj.as_ref().borrow() {
                     Ok(vv.clone())
                 } else {
                     Err(Error::new(
                         ErrorKind::TypeMismatch,
-                        format!("variable definition is void: {}", name),
-                    ))
+                        format!("variable definition is void: {}", value),
+                    )
+                    .with_span(span))
                 }
             } else {
                 Err(Error::new(
                     ErrorKind::TypeMismatch,
-                    format!("variable definition is void: {}", name),
-                ))
+                    format!("variable definition is void: {}", value),
+                )
+                .with_span(span))
             }
         }
-        TulispValue::Int(_) => Ok(value),
-        TulispValue::Float(_) => Ok(value),
-        TulispValue::String(_) => Ok(value),
-        TulispValue::List { span, .. } => eval_form(ctx, value).map_err(|e| {
+        TulispValue::Int { .. } => Ok(expr),
+        TulispValue::Float { .. } => Ok(expr),
+        TulispValue::String { .. } => Ok(expr),
+        TulispValue::List { span, .. } => eval_form(ctx, expr).map_err(|e| {
             let span = e.span().or_else(|| span.clone());
             e.with_span(span)
         }),
-        TulispValue::Quote(vv) => Ok(vv.clone()),
-        TulispValue::Backquote(vv) => {
+        TulispValue::Quote { value, .. } => Ok(value.clone()),
+        TulispValue::Backquote { value, span } => {
             let mut ret = TulispValue::Nil;
-            if !vv.is_list() {
-                return Ok(vv.clone());
+            if !value.is_list() {
+                return Ok(value.clone());
             }
             #[allow(unreachable_code)]
             #[tailcall]
@@ -201,16 +203,31 @@ pub(crate) fn eval(ctx: &mut TulispContext, value: TulispValueRef) -> Result<Tul
                 let rest_inner = rest.clone_inner();
                 if first_inner == TulispValue::Uninitialized {
                     return Ok(());
-                } else if let TulispValue::Unquote(vv) = first_inner {
-                    ret.push(eval(ctx, vv.clone())?)?;
-                } else if let TulispValue::Splice(vv) = first_inner {
-                    ret.append(eval(ctx, vv.clone())?.deep_copy()?)?;
+                } else if let TulispValue::Unquote { value, span } = first_inner {
+                    ret.push(eval(ctx, value.clone()).map_err(|e| e.with_span(span.clone()))?)
+                        .map_err(|e| e.with_span(span))?;
+                } else if let TulispValue::Splice { value, span } = first_inner {
+                    ret.append(
+                        eval(ctx, value.clone())
+                            .map_err(|e| e.with_span(span.clone()))?
+                            .deep_copy()
+                            .map_err(|e| e.with_span(span.clone()))?,
+                    )
+                    .map_err(|e| e.with_span(span))?;
                 } else {
-                    ret.push(eval(ctx, TulispValue::Backquote(first.clone()).into_ref())?)?;
+                    ret.push(eval(
+                        ctx,
+                        TulispValue::Backquote {
+                            value: first.clone(),
+                            span: None,
+                        }
+                        .into_ref(),
+                    )?)?;
                 }
                 // TODO: is Nil check necessary
-                if let TulispValue::Unquote(vv) = rest_inner {
-                    ret.append(eval(ctx, vv.clone())?)?;
+                if let TulispValue::Unquote { value, span } = rest_inner {
+                    ret.append(eval(ctx, value.clone()).map_err(|e| e.with_span(span.clone()))?)
+                        .map_err(|e| e.with_span(span))?;
                     return Ok(());
                 } else if !rest.is_list() {
                     ret.append(rest.clone())?;
@@ -218,10 +235,10 @@ pub(crate) fn eval(ctx: &mut TulispContext, value: TulispValueRef) -> Result<Tul
                 }
                 bq_eval_next(ctx, ret, rest)
             }
-            bq_eval_next(ctx, &mut ret, vv.clone())?;
+            bq_eval_next(ctx, &mut ret, value.clone()).map_err(|e| e.with_span(span))?;
             Ok(ret.into_ref())
         }
-        TulispValue::Unquote(_) => Err(Error::new(
+        TulispValue::Unquote {..} => Err(Error::new(
             ErrorKind::TypeMismatch,
             "Unquote without backquote".to_string(),
         )),
@@ -229,18 +246,21 @@ pub(crate) fn eval(ctx: &mut TulispContext, value: TulispValueRef) -> Result<Tul
             ErrorKind::Uninitialized,
             "Attempt to process uninitialized value".to_string(),
         )),
-        TulispValue::Bounce => Ok(value),
-        TulispValue::Splice(_) => Err(Error::new(
+        TulispValue::Bounce => Ok(expr),
+        TulispValue::Splice {..} => Err(Error::new(
             ErrorKind::TypeMismatch,
             "Splice without backquote".to_string(),
         )),
-        TulispValue::Sharpquote(vv) => Ok(vv.clone()),
+        TulispValue::Sharpquote { value, ..} => Ok(value.clone()),
     };
     // println!("{}\n  => {}", _fmt, ret.clone()?);
     ret
 }
 
-pub(crate) fn eval_each(ctx: &mut TulispContext, value: TulispValueRef) -> Result<TulispValueRef, Error> {
+pub(crate) fn eval_each(
+    ctx: &mut TulispContext,
+    value: TulispValueRef,
+) -> Result<TulispValueRef, Error> {
     let mut ret = TulispValue::Nil;
     for val in value.iter() {
         ret.push(eval(ctx, val)?)?;
@@ -248,7 +268,10 @@ pub(crate) fn eval_each(ctx: &mut TulispContext, value: TulispValueRef) -> Resul
     Ok(ret.into_ref())
 }
 
-pub(crate) fn eval_progn(ctx: &mut TulispContext, value: TulispValueRef) -> Result<TulispValueRef, Error> {
+pub(crate) fn eval_progn(
+    ctx: &mut TulispContext,
+    value: TulispValueRef,
+) -> Result<TulispValueRef, Error> {
     value
         .iter()
         .fold(Ok(TulispValue::Nil.into_ref()), |v1, v2| {

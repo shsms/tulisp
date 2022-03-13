@@ -48,7 +48,9 @@ impl Error {
         }
     }
     pub fn with_span(mut self, span: Option<Span>) -> Self {
-        self.span = span;
+        if self.span == None {
+            self.span = span;
+        }
         self
     }
 

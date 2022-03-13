@@ -37,35 +37,64 @@ impl From<pest::Span<'_>> for Span {
 pub enum TulispValue {
     Uninitialized,
     Nil,
-    Ident(String),
-    Int(i64),
-    Float(f64),
-    String(String),
+    Ident {
+        value: String,
+        span: Option<Span>,
+    },
+    Int {
+        value: i64,
+        span: Option<Span>,
+    },
+    Float {
+        value: f64,
+        span: Option<Span>,
+    },
+    String {
+        value: String,
+        span: Option<Span>,
+    },
     List {
         cons: Cons,
         ctxobj: Option<Rc<RefCell<ContextObject>>>,
         span: Option<Span>,
     },
-    Quote(TulispValueRef),
+    Quote {
+        value: TulispValueRef,
+        span: Option<Span>,
+    },
     /// Sharpquotes are treated as normal quotes, because there is no compilation involved.
-    Sharpquote(TulispValueRef),
-    Backquote(TulispValueRef),
-    Unquote(TulispValueRef),
-    Splice(TulispValueRef),
+    Sharpquote {
+        value: TulispValueRef,
+        span: Option<Span>,
+    },
+    Backquote {
+        value: TulispValueRef,
+        span: Option<Span>,
+    },
+    Unquote {
+        value: TulispValueRef,
+        span: Option<Span>,
+    },
+    Splice {
+        value: TulispValueRef,
+        span: Option<Span>,
+    },
     Bounce,
 }
 
 impl PartialEq for TulispValue {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::Ident(l0), Self::Ident(r0)) => l0 == r0,
-            (Self::Int(l0), Self::Int(r0)) => l0 == r0,
-            (Self::Float(l0), Self::Float(r0)) => l0 == r0,
-            (Self::String(l0), Self::String(r0)) => l0 == r0,
-            (Self::List { cons: l0, .. }, Self::List { cons: r0, .. }) => l0 == r0,
-            (Self::Quote(l0), Self::Quote(r0)) => l0 == r0,
-            (Self::Backquote(l0), Self::Backquote(r0)) => l0 == r0,
-            (Self::Unquote(l0), Self::Unquote(r0)) => l0 == r0,
+            (Self::Ident { value: l0, .. }, Self::Ident { value: r0, .. }) => l0 == r0,
+            (Self::Int { value: l0, .. }, Self::Int { value: r0, .. }) => l0 == r0,
+            (Self::Float { value: l0, .. }, Self::Float { value: r0, .. }) => l0 == r0,
+            (Self::String { value: l0, .. }, Self::String { value: r0, .. }) => l0 == r0,
+            (Self::List { cons: l_cons, .. }, Self::List { cons: r_cons, .. }) => l_cons == r_cons,
+            (Self::Quote { value: l0, .. }, Self::Quote { value: r0, .. }) => l0 == r0,
+            (Self::Sharpquote { value: l0, .. }, Self::Sharpquote { value: r0, .. }) => l0 == r0,
+            (Self::Backquote { value: l0, .. }, Self::Backquote { value: r0, .. }) => l0 == r0,
+            (Self::Unquote { value: l0, .. }, Self::Unquote { value: r0, .. }) => l0 == r0,
+            (Self::Splice { value: l0, .. }, Self::Splice { value: r0, .. }) => l0 == r0,
             _ => core::mem::discriminant(self) == core::mem::discriminant(other),
         }
     }
@@ -73,7 +102,10 @@ impl PartialEq for TulispValue {
 
 macro_rules! TRUE {
     () => {
-        TulispValue::Ident(String::from("t"))
+        TulispValue::Ident {
+            value: String::from("t"),
+            span: None,
+        }
     };
 }
 
@@ -88,11 +120,11 @@ impl std::fmt::Display for TulispValue {
         match self {
             TulispValue::Uninitialized => f.write_str(""),
             TulispValue::Bounce => f.write_str("Bounce"),
-            TulispValue::Nil => f.write_str("nil"),
-            TulispValue::Ident(vv) => f.write_str(vv),
-            TulispValue::Int(vv) => f.write_fmt(format_args!("{}", vv)),
-            TulispValue::Float(vv) => f.write_fmt(format_args!("{}", vv)),
-            TulispValue::String(vv) => f.write_fmt(format_args!(r#""{}""#, vv)),
+            TulispValue::Nil { .. } => f.write_str("nil"),
+            TulispValue::Ident { value, .. } => f.write_str(value),
+            TulispValue::Int { value, .. } => f.write_fmt(format_args!("{}", value)),
+            TulispValue::Float { value, .. } => f.write_fmt(format_args!("{}", value)),
+            TulispValue::String { value, .. } => f.write_fmt(format_args!(r#""{}""#, value)),
             vv @ TulispValue::List { .. } => {
                 let mut ret = String::from("(");
                 let mut add_space = false;
@@ -129,16 +161,20 @@ impl std::fmt::Display for TulispValue {
                 ret.push(')');
                 f.write_str(&ret)
             }
-            TulispValue::Quote(vv) => f.write_fmt(format_args!("'{}", vv)),
-            TulispValue::Backquote(vv) => f.write_fmt(format_args!("`{}", vv)),
-            TulispValue::Unquote(vv) => f.write_fmt(format_args!(",{}", vv)),
-            TulispValue::Splice(vv) => f.write_fmt(format_args!(",@{}", vv)),
-            TulispValue::Sharpquote(vv) => f.write_fmt(format_args!("#'{}", vv)),
+            TulispValue::Quote { value, .. } => f.write_fmt(format_args!("'{}", value)),
+            TulispValue::Backquote { value, .. } => f.write_fmt(format_args!("`{}", value)),
+            TulispValue::Unquote { value, .. } => f.write_fmt(format_args!(",{}", value)),
+            TulispValue::Splice { value, .. } => f.write_fmt(format_args!(",@{}", value)),
+            TulispValue::Sharpquote { value, .. } => f.write_fmt(format_args!("#'{}", value)),
         }
     }
 }
 
 impl TulispValue {
+    pub fn ident_from(value: String, span: Option<Span>) -> TulispValue {
+        TulispValue::Ident { value, span }
+    }
+
     pub fn iter(&self) -> cons::ConsIter {
         match self {
             TulispValue::List { cons, .. } => cons.iter(),
@@ -173,7 +209,7 @@ impl TulispValue {
             Err(Error::new(
                 ErrorKind::TypeMismatch,
                 "unable to push".to_string(),
-            ))
+            ).with_span(self.span()))
         }
     }
 
@@ -194,7 +230,7 @@ impl TulispValue {
             Err(Error::new(
                 ErrorKind::TypeMismatch,
                 format!("unable to append: {}", val),
-            ))
+            ).with_span(self.span()))
         }
     }
 
@@ -225,42 +261,42 @@ impl TulispValue {
 
     pub fn as_ident(&self) -> Result<String, Error> {
         match self {
-            TulispValue::Ident(ident) => Ok(ident.to_string()),
+            TulispValue::Ident { value, .. } => Ok(value.to_string()),
             _ => Err(Error::new(
                 ErrorKind::TypeMismatch,
-                format!("Expected ident: {:?}", self),
-            )),
+                format!("Expected ident: {}", self),
+            ).with_span(self.span())),
         }
     }
 
     pub fn as_float(&self) -> Result<f64, Error> {
         match self {
-            TulispValue::Float(s) => Ok(*s),
+            TulispValue::Float { value, .. } => Ok(*value),
             t => Err(Error::new(
                 ErrorKind::TypeMismatch,
                 format!("Expected number, got: {:?}", t),
-            )),
+            ).with_span(self.span())),
         }
     }
 
     pub fn try_float(&self) -> Result<f64, Error> {
         match self {
-            TulispValue::Float(s) => Ok(*s),
-            TulispValue::Int(s) => Ok(*s as f64),
+            TulispValue::Float { value, .. } => Ok(*value),
+            TulispValue::Int { value, .. } => Ok(*value as f64),
             t => Err(Error::new(
                 ErrorKind::TypeMismatch,
                 format!("Expected number, got: {:?}", t),
-            )),
+            ).with_span(self.span())),
         }
     }
 
     pub fn as_int(&self) -> Result<i64, Error> {
         match self {
-            TulispValue::Int(s) => Ok(*s),
+            TulispValue::Int { value, .. } => Ok(*value),
             t => Err(Error::new(
                 ErrorKind::TypeMismatch,
                 format!("Expected integer: {:?}", t),
-            )),
+            ).with_span(self.span())),
         }
     }
     pub fn as_bool(&self) -> bool {
@@ -293,11 +329,11 @@ impl TulispValue {
 
     pub fn as_str(&self) -> Result<&str, Error> {
         match self {
-            TulispValue::String(s) => Ok(s),
+            TulispValue::String { value, .. } => Ok(value),
             _ => Err(Error::new(
                 ErrorKind::TypeMismatch,
                 format!("Expected string: {}", self),
-            )),
+            ).with_span(self.span())),
         }
     }
 
@@ -318,7 +354,7 @@ impl TulispValue {
 
     pub fn fmt_string(&self) -> String {
         match self {
-            TulispValue::String(vv) => vv.to_string(),
+            TulispValue::String { value, .. } => value.to_owned(),
             s => s.to_string(),
         }
     }
@@ -333,6 +369,15 @@ impl TulispValue {
     pub fn span(&self) -> Option<Span> {
         match self {
             TulispValue::List { span, .. } => span.to_owned(),
+            TulispValue::Ident { span, .. } => span.to_owned(),
+            TulispValue::Int { span, .. } => span.to_owned(),
+            TulispValue::Float { span, .. } => span.to_owned(),
+            TulispValue::String { span, .. } => span.to_owned(),
+            TulispValue::Quote { span, .. } => span.to_owned(),
+            TulispValue::Sharpquote { span, .. } => span.to_owned(),
+            TulispValue::Backquote { span, .. } => span.to_owned(),
+            TulispValue::Unquote { span, .. } => span.to_owned(),
+            TulispValue::Splice { span, .. } => span.to_owned(),
             _ => None,
         }
     }
@@ -365,26 +410,35 @@ impl Into<bool> for TulispValue {
 }
 
 impl From<i64> for TulispValue {
-    fn from(vv: i64) -> Self {
-        TulispValue::Int(vv)
+    fn from(value: i64) -> Self {
+        TulispValue::Int { value, span: None }
     }
 }
 
 impl From<f64> for TulispValue {
-    fn from(vv: f64) -> Self {
-        TulispValue::Float(vv)
+    fn from(value: f64) -> Self {
+        TulispValue::Float { value, span: None }
     }
 }
 
 impl From<&str> for TulispValue {
-    fn from(vv: &str) -> Self {
-        TulispValue::String(vv.to_owned())
+    fn from(value: &str) -> Self {
+        TulispValue::String {
+            value: value.to_owned(),
+            span: None,
+        }
+    }
+}
+
+impl From<String> for TulispValue {
+    fn from(value: String) -> Self {
+        TulispValue::String { value, span: None }
     }
 }
 
 impl From<bool> for TulispValue {
-    fn from(vv: bool) -> Self {
-        match vv {
+    fn from(value: bool) -> Self {
+        match value {
             true => TRUE!(),
             false => FALSE!(),
         }

@@ -184,7 +184,7 @@ fn test_lists() -> Result<(), Error> {
 
     tulisp_assert! {
         program: "(setq items (append items '(10)))",
-        error: "ERROR:TypeMismatch: variable definition is void: items, in Some(Span { start: 12, end: 32 })",
+        error: "ERROR:TypeMismatch: variable definition is void: items, in Some(Span { start: 20, end: 25 })",
     }
 
     tulisp_assert! {
@@ -248,11 +248,11 @@ fn test_let() -> Result<(), Error> {
     }
     tulisp_assert! {
         program: "(let ((vv (+ 55 1)) (jj 20)) (append kk (+ vv jj 1)))",
-        error: "ERROR:TypeMismatch: variable definition is void: kk, in Some(Span { start: 29, end: 52 })",
+        error: "ERROR:TypeMismatch: variable definition is void: kk, in Some(Span { start: 37, end: 39 })",
     }
     tulisp_assert! {
         program: "(let ((22 (+ 55 1)) (jj 20)) (+ vv jj 1))",
-        error: "ERROR:TypeMismatch: Expected ident: Int(22), in Some(Span { start: 6, end: 19 })",
+        error: "ERROR:TypeMismatch: Expected ident: 22, in Some(Span { start: 7, end: 9 })",
     }
     tulisp_assert! {
         program: "(let (18 (vv (+ 55 1)) (jj 20)) (+ vv jj 1))",
