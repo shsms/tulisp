@@ -61,10 +61,8 @@ fn parse_args(
                     })
                 }
                 let ty_extractor = match ty_str.as_str() {
-                    "i64" => quote! {.as_int()?},
-                    "f64" => quote! {.as_float()?},
-                    "String" => quote! {.as_string()?},
-                    "TulispValueRef" => quote!(),
+                    "i64" | "f64" | "String" | "bool" => quote! {.try_into()?},
+                    "TulispValueRef" => quote! {.into()},
                     "& mut TulispContext" => {
                         if arg_pos == 0 {
                             ctx_var_name = Some(pat);
@@ -247,7 +245,7 @@ fn tulisp_fn_impl(
         });
         generated.extend(quote! {
             // TODO: how to avoid unwrap?
-            #ctx.set_str(#name.to_string(), ContextObject::Func(#fn_name)).unwrap();
+            #ctx.set_str(#name.to_string(), #crate_name::context::ContextObject::Func(#fn_name)).unwrap();
         })
     }
     // println!("{}", generated);

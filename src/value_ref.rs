@@ -176,3 +176,9 @@ impl From<bool> for TulispValueRef {
         TulispValue::from(vv).into_ref()
     }
 }
+
+impl From<TulispValue> for TulispValueRef {
+    fn from(vv: TulispValue) -> Self {
+        vv.into_ref()
+    }
+}
