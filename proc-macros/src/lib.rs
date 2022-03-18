@@ -16,6 +16,20 @@ fn parse_args(
     let mut arg_pos = -1;
     let mut ctx_var_name = None;
 
+    let type_err = |tt: &Box<syn::Type>| {
+        const ALLOWED_TYPES: &str = "i64, f64, String or TulispValueRef";
+        Err(syn::Error::new(
+            tt.__span(),
+            format!(
+                "Expected arg types types: {}, but got: {}",
+                ALLOWED_TYPES,
+                tt.to_token_stream().to_string()
+            ),
+        )
+        .to_compile_error()
+        .into())
+    };
+    let mut has_optional = false;
     let args = &inp.sig.inputs;
     for arg in args.iter() {
         arg_pos += 1;
@@ -27,30 +41,78 @@ fn parse_args(
             .to_compile_error()
             .into());
         }
+        let mut optional = false;
         match arg {
             FnArg::Receiver(_) => {
                 panic!("Tulisp functions can't have `self` receivers.");
             }
             FnArg::Typed(arg) => {
                 let PatType { pat, ty, .. } = arg;
-                let ty_str = ty.to_token_stream().to_string();
+                let ty_str = match &**ty {
+                    syn::Type::Path(tp) => {
+                        let sgmt = tp.path.segments.last().unwrap();
+                        let tp_str = sgmt.ident.to_string();
+                        let out_tp = if tp_str != "Option" {
+                            tp_str
+                        } else {
+                            has_optional = true;
+                            optional = true;
+                            match &sgmt.arguments {
+                                syn::PathArguments::AngleBracketed(b) => {
+                                    b.args.last().to_token_stream().to_string()
+                                }
+                                _ => return type_err(ty),
+                            }
+                        };
+                        out_tp
+                    }
+                    syn::Type::Reference(tr) => {
+                        String::from("&")
+                            + (&tr.mutability.and(Some("mut ")).unwrap_or(" ")).to_owned()
+                            + match &*tr.elem {
+                                syn::Type::Path(tp) => tp
+                                    .path
+                                    .segments
+                                    .last()
+                                    .unwrap()
+                                    .to_token_stream()
+                                    .to_string(),
+                                _ => return type_err(ty),
+                            }
+                            .as_str()
+                    }
+                    _ => todo!(),
+                };
                 params_for_call.extend(quote! {#pat , });
 
-                if pat.to_token_stream().to_string() == "rest" && ty_str == "TulispValueRef" {
+                if pat.to_token_stream().to_string() == "rest"
+                    && ty_str == "TulispValueRef"
+                    && !optional
+                {
                     have_rest_var = true;
                     if eval_args {
                         arg_extract_stmts.extend(quote! {
                             let #pat = #crate_name::eval::eval_each(__tulisp_internal_context, __tulisp_internal_value)?;
-                            let __tulisp_internal_value = TulispValue::Nil;
+                            let __tulisp_internal_value = #crate_name::value::TulispValue::Nil;
                         })
                     } else {
                         arg_extract_stmts.extend(quote! {
                             let #pat = __tulisp_internal_value;
-                            let __tulisp_internal_value = TulispValue::Nil;
+                            let __tulisp_internal_value = #crate_name::value::TulispValue::Nil;
                         })
                     }
                     continue;
                 }
+
+                if has_optional && !optional {
+                    return Err(syn::Error::new(
+                        ty.__span(),
+                        "Can't have non-optional arguments following an optional argument.",
+                    )
+                    .to_compile_error()
+                    .into());
+                }
+
                 if eval_args {
                     arg_extract_stmts.extend(quote!{
                         let __tulisp_internal_car = __tulisp_internal_context.eval(#crate_name::cons::car(__tulisp_internal_value.clone())?)?;
@@ -61,9 +123,21 @@ fn parse_args(
                     })
                 }
                 let ty_extractor = match ty_str.as_str() {
-                    "i64" | "f64" | "String" | "bool" => quote! {.try_into()?},
-                    "TulispValueRef" => quote! {.into()},
-                    "& mut TulispContext" => {
+                    "i64" | "f64" | "String" | "bool" => {
+                        if optional {
+                            quote! {(|x: #crate_name::value_ref::TulispValueRef|if x == #crate_name::value::TulispValue::Nil { Ok(None)} else {Ok(Some(x.try_into()?))})}
+                        } else {
+                            quote! {(|x: #crate_name::value_ref::TulispValueRef| x.try_into()?)}
+                        }
+                    }
+                    "TulispValueRef" => {
+                        if optional {
+                            quote! {(|x: #crate_name::value_ref::TulispValueRef|if x == #crate_name::value::TulispValue::Nil { Ok(None)} else {Ok(x.into())})}
+                        } else {
+                            quote! {(|x: #crate_name::value_ref::TulispValueRef| Ok(x.into()))}
+                        }
+                    }
+                    "&mut TulispContext" => {
                         if arg_pos == 0 {
                             ctx_var_name = Some(pat);
                             continue;
@@ -86,7 +160,7 @@ fn parse_args(
                 };
 
                 arg_extract_stmts.extend(quote! {
-                    let #pat = __tulisp_internal_car #ty_extractor;
+                    let #pat = #ty_extractor(__tulisp_internal_car)? ;
                     let __tulisp_internal_value = #crate_name::cons::cdr(__tulisp_internal_value)?;
                 });
             }
@@ -111,6 +185,7 @@ fn parse_args(
 }
 
 fn gen_function_call(
+    crate_name: &TokenStream2,
     fn_name: &Ident,
     params_for_call: TokenStream2,
     ret_type: &ReturnType,
@@ -131,7 +206,7 @@ fn gen_function_call(
     };
 
     let call_and_ret = match ret_type {
-        syn::ReturnType::Default => quote! {#fn_name(#params_for_call); Ok(TulispValue::Nil)},
+        syn::ReturnType::Default => quote! {#fn_name(#params_for_call); Ok(#crate_name::value::TulispValue::Nil)},
         syn::ReturnType::Type(_, tt) => match &**tt {
             syn::Type::Path(tp) => {
                 let seg = tp.path.segments.last().unwrap();
@@ -210,7 +285,7 @@ fn tulisp_fn_impl(
             Ok(vv) => vv,
             Err(e) => return e,
         };
-    let call_and_ret = match gen_function_call(fn_name, params_for_call, &inp.sig.output) {
+    let call_and_ret = match gen_function_call(&crate_name, fn_name, params_for_call, &inp.sig.output) {
         Ok(vv) => vv,
         Err(e) => return e,
     };
@@ -247,6 +322,9 @@ fn tulisp_fn_impl(
             // TODO: how to avoid unwrap?
             #ctx.set_str(#name.to_string(), #crate_name::context::ContextObject::Func(#fn_name)).unwrap();
         })
+    }
+    if fn_name.to_string() == "thread_first" {
+        println!("{}", generated);
     }
     // println!("{}", generated);
     generated.into()
