@@ -58,30 +58,25 @@ macro_rules! defun_args {
         defun_args!(@optvar $vv, $var);
         defun_args!(@optvar $vv, $($vars)+)
     };
-    (($($vars:ident)+) = $vv:ident) => {
+    (@impl ($($vars:ident)+) = $vv:ident) => {
         defun_args!(@reqr $vv, $($vars)+);
         defun_args!(@no-rest $vv);
     };
-    (($($vars:ident)* &optional $($optvars:ident)+) = $vv:ident) => {
+    (@impl ($($vars:ident)* &optional $($optvars:ident)+) = $vv:ident) => {
 	defun_args!(@reqr $vv, $($vars)*);
         defun_args!(@optvar $vv, $($optvars)+);
         defun_args!(@no-rest $vv);
     };
-    (($($vars:ident)* &rest $rest:ident) = $vv:ident) => {
+    (@impl ($($vars:ident)* &rest $rest:ident) = $vv:ident) => {
 	defun_args!(@reqr $vv, $($vars)*);
         defun_args!(@rest $rest $vv);
     };
-    (($($vars:ident)* &optional $($optvars:ident)+ &rest $rest:ident) = $vv:ident) => {
+    (@impl ($($vars:ident)* &optional $($optvars:ident)+ &rest $rest:ident) = $vv:ident) => {
 	defun_args!(@reqr $vv, $($vars)*);
         defun_args!(@optvar $vv, $($optvars)+);
         defun_args!(@rest $rest $vv);
     };
-    (_ ($($rest:tt)*) = $vv:ident) => {
-        let $vv = cdr($vv)?;
-        defun_args!(($($rest)*) = $vv);
+    (($($rest:tt)*) = $vv:ident) => {
+        defun_args!(@impl ($($rest)*) = $vv);
     };
-    ($defun_name:ident ($($rest:tt)*) = $vv:ident) => {
-        let $defun_name = car($vv.clone())?;
-        defun_args!(_ ($($rest)*) = $vv);
-    }
 }

@@ -8,7 +8,7 @@ use crate::value_ref::TulispValueRef;
 use crate::{defun_args, list};
 
 fn thread_first(ctx: &mut TulispContext, vv: TulispValueRef) -> Result<TulispValueRef, Error> {
-    defun_args!(_name (x &optional form &rest more) = vv);
+    defun_args!((_name x &optional form &rest more) = vv);
     if form.is_null() {
         Ok(x.clone())
     } else if more.is_null() {
@@ -24,7 +24,7 @@ fn thread_first(ctx: &mut TulispContext, vv: TulispValueRef) -> Result<TulispVal
 }
 
 fn thread_last(ctx: &mut TulispContext, vv: TulispValueRef) -> Result<TulispValueRef, Error> {
-    defun_args!(_name (x &optional form &rest more) = vv);
+    defun_args!((_name x &optional form &rest more) = vv);
     if form.is_null() {
         Ok(x.clone())
     } else if more.is_null() {

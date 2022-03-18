@@ -98,7 +98,7 @@ fn mark_tail_calls(name: TulispValueRef, body: TulispValueRef) -> Result<TulispV
     } else if tail_name_str == "progn" {
         mark_tail_calls(name, cdr(tail)?)?
     } else if tail_name_str == "if" {
-        defun_args!(_ (condition then_body &rest else_body) = tail);
+        defun_args!((_if condition then_body &rest else_body) = tail);
         list!(,tail_ident.clone()
               ,condition.clone()
               ,car(mark_tail_calls(
@@ -108,7 +108,7 @@ fn mark_tail_calls(name: TulispValueRef, body: TulispValueRef) -> Result<TulispV
               ,@mark_tail_calls(name, else_body)?
         )?
     } else if tail_name_str == "cond" {
-        defun_args!(_ (&rest conds) = tail);
+        defun_args!((_cond &rest conds) = tail);
         let mut ret = list!(,tail_ident.clone())?;
         for cond in conds.iter() {
             defun_args!((condition &rest body) = cond);
