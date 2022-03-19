@@ -113,15 +113,6 @@ fn parse_args(
                     .into());
                 }
 
-                if eval_args {
-                    arg_extract_stmts.extend(quote!{
-                        let __tulisp_internal_car = __tulisp_internal_context.eval(#crate_name::cons::car(__tulisp_internal_value.clone())?)?;
-                    })
-                } else {
-                    arg_extract_stmts.extend(quote! {
-                        let __tulisp_internal_car =  #crate_name::cons::car(__tulisp_internal_value.clone())?;
-                    })
-                }
                 let ty_extractor = match ty_str.as_str() {
                     "i64" | "f64" | "String" | "bool" => {
                         if optional {
@@ -158,6 +149,16 @@ fn parse_args(
                         .into());
                     }
                 };
+
+                if eval_args {
+                    arg_extract_stmts.extend(quote!{
+                        let __tulisp_internal_car = __tulisp_internal_context.eval(#crate_name::cons::car(__tulisp_internal_value.clone())?)?;
+                    })
+                } else {
+                    arg_extract_stmts.extend(quote! {
+                        let __tulisp_internal_car =  #crate_name::cons::car(__tulisp_internal_value.clone())?;
+                    })
+                }
 
                 arg_extract_stmts.extend(quote! {
                     let #pat = #ty_extractor(__tulisp_internal_car)? ;
