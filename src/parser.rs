@@ -90,7 +90,7 @@ fn locate_all_func(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispV
 
 fn locate_func(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispValue, Error> {
     let name = match car(expr.clone().into_ref())?.clone_inner() {
-        TulispValue::Ident { value, ..} => value.to_string(),
+        TulispValue::Ident { value, .. } => value.to_string(),
         _ => return Ok(expr),
     };
     match ctx.get_str(&name) {

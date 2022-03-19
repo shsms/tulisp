@@ -238,7 +238,7 @@ pub(crate) fn eval(ctx: &mut TulispContext, expr: TulispValueRef) -> Result<Tuli
             bq_eval_next(ctx, &mut ret, value.clone()).map_err(|e| e.with_span(span))?;
             Ok(ret.into_ref())
         }
-        TulispValue::Unquote {..} => Err(Error::new(
+        TulispValue::Unquote { .. } => Err(Error::new(
             ErrorKind::TypeMismatch,
             "Unquote without backquote".to_string(),
         )),
@@ -247,11 +247,11 @@ pub(crate) fn eval(ctx: &mut TulispContext, expr: TulispValueRef) -> Result<Tuli
             "Attempt to process uninitialized value".to_string(),
         )),
         TulispValue::Bounce => Ok(expr),
-        TulispValue::Splice {..} => Err(Error::new(
+        TulispValue::Splice { .. } => Err(Error::new(
             ErrorKind::TypeMismatch,
             "Splice without backquote".to_string(),
         )),
-        TulispValue::Sharpquote { value, ..} => Ok(value.clone()),
+        TulispValue::Sharpquote { value, .. } => Ok(value.clone()),
     };
     // println!("{}\n  => {}", _fmt, ret.clone()?);
     ret

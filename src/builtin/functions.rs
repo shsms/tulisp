@@ -135,8 +135,7 @@ pub fn add(ctx: &mut TulispContext) {
         let args = rest.clone();
         destruct_bind!((first &rest ohne_first) = args);
         if ohne_first.is_null() {
-            let vv =
-                binary_ops!(std::ops::Sub::sub)(0.into(), eval(ctx, first)?)?;
+            let vv = binary_ops!(std::ops::Sub::sub)(0.into(), eval(ctx, first)?)?;
             Ok(vv)
         } else {
             reduce_with(ctx, rest, binary_ops!(std::ops::Sub::sub))

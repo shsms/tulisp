@@ -207,7 +207,9 @@ fn gen_function_call(
     };
 
     let call_and_ret = match ret_type {
-        syn::ReturnType::Default => quote! {#fn_name(#params_for_call); Ok(#crate_name::value::TulispValue::Nil)},
+        syn::ReturnType::Default => {
+            quote! {#fn_name(#params_for_call); Ok(#crate_name::value::TulispValue::Nil)}
+        }
         syn::ReturnType::Type(_, tt) => match &**tt {
             syn::Type::Path(tp) => {
                 let seg = tp.path.segments.last().unwrap();
@@ -287,10 +289,11 @@ fn tulisp_fn_impl(
             Ok(vv) => vv,
             Err(e) => return e,
         };
-    let call_and_ret = match gen_function_call(&crate_name, fn_name, params_for_call, &inp.sig.output) {
-        Ok(vv) => vv,
-        Err(e) => return e,
-    };
+    let call_and_ret =
+        match gen_function_call(&crate_name, fn_name, params_for_call, &inp.sig.output) {
+            Ok(vv) => vv,
+            Err(e) => return e,
+        };
 
     let mut generated = quote! {
         fn #fn_name(
@@ -330,10 +333,7 @@ fn tulisp_fn_impl(
             #ctx.set_str(#name.to_string(), #crate_name::context::ContextObject::#ctxobj_type(#fn_name)).unwrap();
         })
     }
-    if fn_name.to_string() == "thread_first" {
-        println!("{}", generated);
-    }
-    // println!("{}", generated);
+
     generated.into()
 }
 

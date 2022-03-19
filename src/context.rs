@@ -4,7 +4,7 @@ use crate::{
     cons::{car, cdr},
     destruct_bind,
     error::{Error, ErrorKind},
-    eval::{eval, eval_string, eval_progn},
+    eval::{eval, eval_progn, eval_string},
     value::TulispValue,
     value_ref::TulispValueRef,
 };

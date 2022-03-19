@@ -206,10 +206,10 @@ impl TulispValue {
             };
             Ok(self)
         } else {
-            Err(Error::new(
-                ErrorKind::TypeMismatch,
-                "unable to push".to_string(),
-            ).with_span(self.span()))
+            Err(
+                Error::new(ErrorKind::TypeMismatch, "unable to push".to_string())
+                    .with_span(self.span()),
+            )
         }
     }
 
@@ -230,7 +230,8 @@ impl TulispValue {
             Err(Error::new(
                 ErrorKind::TypeMismatch,
                 format!("unable to append: {}", val),
-            ).with_span(self.span()))
+            )
+            .with_span(self.span()))
         }
     }
 
@@ -262,10 +263,10 @@ impl TulispValue {
     pub fn as_ident(&self) -> Result<String, Error> {
         match self {
             TulispValue::Ident { value, .. } => Ok(value.to_string()),
-            _ => Err(Error::new(
-                ErrorKind::TypeMismatch,
-                format!("Expected ident: {}", self),
-            ).with_span(self.span())),
+            _ => Err(
+                Error::new(ErrorKind::TypeMismatch, format!("Expected ident: {}", self))
+                    .with_span(self.span()),
+            ),
         }
     }
 
@@ -275,7 +276,8 @@ impl TulispValue {
             t => Err(Error::new(
                 ErrorKind::TypeMismatch,
                 format!("Expected number, got: {:?}", t),
-            ).with_span(self.span())),
+            )
+            .with_span(self.span())),
         }
     }
 
@@ -286,7 +288,8 @@ impl TulispValue {
             t => Err(Error::new(
                 ErrorKind::TypeMismatch,
                 format!("Expected number, got: {:?}", t),
-            ).with_span(self.span())),
+            )
+            .with_span(self.span())),
         }
     }
 
@@ -296,7 +299,8 @@ impl TulispValue {
             t => Err(Error::new(
                 ErrorKind::TypeMismatch,
                 format!("Expected integer: {:?}", t),
-            ).with_span(self.span())),
+            )
+            .with_span(self.span())),
         }
     }
     pub fn as_bool(&self) -> bool {
@@ -333,7 +337,8 @@ impl TulispValue {
             _ => Err(Error::new(
                 ErrorKind::TypeMismatch,
                 format!("Expected string: {}", self),
-            ).with_span(self.span())),
+            )
+            .with_span(self.span())),
         }
     }
 
