@@ -118,7 +118,7 @@ fn parse_args(
                         if optional {
                             quote! {(|x: #crate_name::value_ref::TulispValueRef|if x == #crate_name::value::TulispValue::Nil { Ok(None)} else {Ok(Some(x.try_into()?))})}
                         } else {
-                            quote! {(|x: #crate_name::value_ref::TulispValueRef| x.try_into()?)}
+                            quote! {(|x: #crate_name::value_ref::TulispValueRef| x.try_into())}
                         }
                     }
                     "TulispValueRef" => {
