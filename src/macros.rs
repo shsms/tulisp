@@ -25,14 +25,14 @@ macro_rules! list {
 }
 
 #[macro_export]
-macro_rules! defun_args {
+macro_rules! destruct_bind {
     (@reqr $vv:ident, $var:ident) => {
         let $var = car($vv.clone())?;
         let $vv = cdr($vv)?;
     };
     (@reqr $vv:ident, $var:ident $($vars:tt)+) => {
-        defun_args!(@reqr $vv, $var);
-        defun_args!(@reqr $vv, $($vars)+);
+        destruct_bind!(@reqr $vv, $var);
+        destruct_bind!(@reqr $vv, $($vars)+);
     };
     (@reqr $vv:ident,) => {};
     (@no-rest $vv:ident) => {
@@ -55,28 +55,28 @@ macro_rules! defun_args {
         };
     };
     (@optvar $vv:ident, $var:ident $($vars:ident)+) => {
-        defun_args!(@optvar $vv, $var);
-        defun_args!(@optvar $vv, $($vars)+)
+        destruct_bind!(@optvar $vv, $var);
+        destruct_bind!(@optvar $vv, $($vars)+)
     };
     (@impl ($($vars:ident)+) = $vv:ident) => {
-        defun_args!(@reqr $vv, $($vars)+);
-        defun_args!(@no-rest $vv);
+        destruct_bind!(@reqr $vv, $($vars)+);
+        destruct_bind!(@no-rest $vv);
     };
     (@impl ($($vars:ident)* &optional $($optvars:ident)+) = $vv:ident) => {
-	defun_args!(@reqr $vv, $($vars)*);
-        defun_args!(@optvar $vv, $($optvars)+);
-        defun_args!(@no-rest $vv);
+	destruct_bind!(@reqr $vv, $($vars)*);
+        destruct_bind!(@optvar $vv, $($optvars)+);
+        destruct_bind!(@no-rest $vv);
     };
     (@impl ($($vars:ident)* &rest $rest:ident) = $vv:ident) => {
-	defun_args!(@reqr $vv, $($vars)*);
-        defun_args!(@rest $rest $vv);
+	destruct_bind!(@reqr $vv, $($vars)*);
+        destruct_bind!(@rest $rest $vv);
     };
     (@impl ($($vars:ident)* &optional $($optvars:ident)+ &rest $rest:ident) = $vv:ident) => {
-	defun_args!(@reqr $vv, $($vars)*);
-        defun_args!(@optvar $vv, $($optvars)+);
-        defun_args!(@rest $rest $vv);
+	destruct_bind!(@reqr $vv, $($vars)*);
+        destruct_bind!(@optvar $vv, $($optvars)+);
+        destruct_bind!(@rest $rest $vv);
     };
     (($($rest:tt)*) = $vv:ident) => {
-        defun_args!(@impl ($($rest)*) = $vv);
+        destruct_bind!(@impl ($($rest)*) = $vv);
     };
 }

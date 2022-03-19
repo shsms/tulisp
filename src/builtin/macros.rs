@@ -5,10 +5,10 @@ use crate::context::{ContextObject, TulispContext};
 use crate::error::Error;
 use crate::value::TulispValue::{self, Nil};
 use crate::value_ref::TulispValueRef;
-use crate::{defun_args, list};
+use crate::{destruct_bind, list};
 
 fn thread_first(ctx: &mut TulispContext, vv: TulispValueRef) -> Result<TulispValueRef, Error> {
-    defun_args!((_name x &optional form &rest more) = vv);
+    destruct_bind!((_name x &optional form &rest more) = vv);
     if form.is_null() {
         Ok(x.clone())
     } else if more.is_null() {
@@ -24,7 +24,7 @@ fn thread_first(ctx: &mut TulispContext, vv: TulispValueRef) -> Result<TulispVal
 }
 
 fn thread_last(ctx: &mut TulispContext, vv: TulispValueRef) -> Result<TulispValueRef, Error> {
-    defun_args!((_name x &optional form &rest more) = vv);
+    destruct_bind!((_name x &optional form &rest more) = vv);
     if form.is_null() {
         Ok(x.clone())
     } else if more.is_null() {
@@ -50,7 +50,7 @@ fn let_star(
         varlist: TulispValueRef,
         body: TulispValueRef,
     ) -> Result<TulispValueRef, Error> {
-        defun_args!((nextvar &rest rest) = varlist);
+        destruct_bind!((nextvar &rest rest) = varlist);
 
         let mut ret = Cons::new();
         ret.push(TulispValue::ident_from("let".to_string(), None).into_ref())?

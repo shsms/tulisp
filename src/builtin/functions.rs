@@ -9,7 +9,7 @@ use crate::eval::eval;
 use crate::eval::eval_progn;
 use crate::value::TulispValue;
 use crate::value_ref::TulispValueRef;
-use crate::{defun_args, list};
+use crate::{destruct_bind, list};
 use proc_macros::crate_fn;
 use proc_macros::crate_fn_no_eval;
 use std::cmp::Ordering;
@@ -98,7 +98,7 @@ fn mark_tail_calls(name: TulispValueRef, body: TulispValueRef) -> Result<TulispV
     } else if tail_name_str == "progn" {
         mark_tail_calls(name, cdr(tail)?)?
     } else if tail_name_str == "if" {
-        defun_args!((_if condition then_body &rest else_body) = tail);
+        destruct_bind!((_if condition then_body &rest else_body) = tail);
         list!(,tail_ident.clone()
               ,condition.clone()
               ,car(mark_tail_calls(
@@ -108,10 +108,10 @@ fn mark_tail_calls(name: TulispValueRef, body: TulispValueRef) -> Result<TulispV
               ,@mark_tail_calls(name, else_body)?
         )?
     } else if tail_name_str == "cond" {
-        defun_args!((_cond &rest conds) = tail);
+        destruct_bind!((_cond &rest conds) = tail);
         let mut ret = list!(,tail_ident.clone())?;
         for cond in conds.iter() {
-            defun_args!((condition &rest body) = cond);
+            destruct_bind!((condition &rest body) = cond);
             ret = list!(,@ret
                         ,list!(,condition.clone()
                                ,@mark_tail_calls(name.clone(), body)?)?)?;
@@ -133,7 +133,7 @@ pub fn add(ctx: &mut TulispContext) {
     #[crate_fn_no_eval(add_to = "ctx", name = "-")]
     fn sub(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
         let args = rest.clone();
-        defun_args!((first &rest ohne_first) = args);
+        destruct_bind!((first &rest ohne_first) = args);
         if ohne_first.is_null() {
             let vv =
                 binary_ops!(std::ops::Sub::sub)(0.into(), eval(ctx, first)?)?;
@@ -151,7 +151,7 @@ pub fn add(ctx: &mut TulispContext) {
     #[crate_fn_no_eval(add_to = "ctx", name = "/")]
     fn div(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
         let args = rest.clone();
-        defun_args!((_first &rest ohne_first) = args);
+        destruct_bind!((_first &rest ohne_first) = args);
         for ele in ohne_first.iter() {
             if ele == TulispValue::from(0) || ele == TulispValue::from(0.0) {
                 return Err(Error::new(
@@ -292,7 +292,7 @@ pub fn add(ctx: &mut TulispContext) {
     #[crate_fn_no_eval(add_to = "ctx")]
     fn cond(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
         for item in rest.iter() {
-            defun_args!((condition &rest body) = item);
+            destruct_bind!((condition &rest body) = item);
             if eval(ctx, condition)?.as_bool() {
                 return eval_progn(ctx, body);
             }

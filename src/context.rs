@@ -2,7 +2,7 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use crate::{
     cons::{car, cdr},
-    defun_args,
+    destruct_bind,
     error::{Error, ErrorKind},
     eval::{eval, eval_string, eval_progn},
     value::TulispValue,
@@ -116,7 +116,7 @@ impl TulispContext {
                 (name, TulispValue::Nil.into_ref())
             } else if varitem.is_list() {
                 let span = varitem.span();
-                defun_args!((&optional name value &rest rest) = varitem);
+                destruct_bind!((&optional name value &rest rest) = varitem);
                 if name.is_null() {
                     return Err(Error::new(
                         ErrorKind::Undefined,
