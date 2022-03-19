@@ -125,12 +125,12 @@ fn mark_tail_calls(name: TulispValueRef, body: TulispValueRef) -> Result<TulispV
 }
 
 pub fn add(ctx: &mut TulispContext) {
-    #[crate_fn_no_eval(add_to = "ctx", name = "+")]
+    #[crate_fn_no_eval(add_func = "ctx", name = "+")]
     fn add(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
         reduce_with(ctx, rest, binary_ops!(std::ops::Add::add))
     }
 
-    #[crate_fn_no_eval(add_to = "ctx", name = "-")]
+    #[crate_fn_no_eval(add_func = "ctx", name = "-")]
     fn sub(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
         let args = rest.clone();
         destruct_bind!((first &rest ohne_first) = args);
@@ -143,12 +143,12 @@ pub fn add(ctx: &mut TulispContext) {
         }
     }
 
-    #[crate_fn_no_eval(add_to = "ctx", name = "*")]
+    #[crate_fn_no_eval(add_func = "ctx", name = "*")]
     fn mul(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
         reduce_with(ctx, rest, binary_ops!(std::ops::Mul::mul))
     }
 
-    #[crate_fn_no_eval(add_to = "ctx", name = "/")]
+    #[crate_fn_no_eval(add_func = "ctx", name = "/")]
     fn div(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
         let args = rest.clone();
         destruct_bind!((_first &rest ohne_first) = args);
@@ -164,41 +164,41 @@ pub fn add(ctx: &mut TulispContext) {
     }
 
     // // TODO: >, >=, <, <=, equal - need to be able to support more than 2 args
-    #[crate_fn_no_eval(add_to = "ctx", name = ">")]
+    #[crate_fn_no_eval(add_func = "ctx", name = ">")]
     fn gt(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
         reduce_with(ctx, rest, binary_ops!(std::cmp::PartialOrd::gt))
     }
 
-    #[crate_fn_no_eval(add_to = "ctx", name = ">=")]
+    #[crate_fn_no_eval(add_func = "ctx", name = ">=")]
     fn ge(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
         reduce_with(ctx, rest, binary_ops!(std::cmp::PartialOrd::ge))
     }
 
-    #[crate_fn_no_eval(add_to = "ctx", name = "<")]
+    #[crate_fn_no_eval(add_func = "ctx", name = "<")]
     fn lt(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
         reduce_with(ctx, rest, binary_ops!(std::cmp::PartialOrd::lt))
     }
 
-    #[crate_fn_no_eval(add_to = "ctx", name = "<=")]
+    #[crate_fn_no_eval(add_func = "ctx", name = "<=")]
     fn le(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
         reduce_with(ctx, rest, binary_ops!(std::cmp::PartialOrd::le))
     }
 
-    #[crate_fn_no_eval(add_to = "ctx")]
+    #[crate_fn_no_eval(add_func = "ctx")]
     fn equal(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
         reduce_with(ctx, rest, binary_ops!(std::cmp::PartialEq::eq))
     }
-    #[crate_fn_no_eval(add_to = "ctx")]
+    #[crate_fn_no_eval(add_func = "ctx")]
     fn max(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
         reduce_with(ctx, rest, max_min_ops!(max))
     }
-    #[crate_fn_no_eval(add_to = "ctx")]
+    #[crate_fn_no_eval(add_func = "ctx")]
     fn min(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
         reduce_with(ctx, rest, max_min_ops!(min))
     }
 
     // TODO: check if r#mod works.
-    #[crate_fn(add_to = "ctx", name = "mod")]
+    #[crate_fn(add_func = "ctx", name = "mod")]
     fn impl_mod(
         dividend: TulispValueRef,
         divisor: TulispValueRef,
@@ -206,12 +206,12 @@ pub fn add(ctx: &mut TulispContext) {
         binary_ops!(std::ops::Rem::rem)(dividend, divisor)
     }
 
-    #[crate_fn(add_to = "ctx")]
+    #[crate_fn(add_func = "ctx")]
     fn expt(base: TulispValueRef, pow: TulispValueRef) -> Result<TulispValueRef, Error> {
         Ok(f64::powf(base.try_into()?, pow.try_into()?).into()).map(|x: TulispValue| x.into_ref())
     }
 
-    #[crate_fn_no_eval(add_to = "ctx")]
+    #[crate_fn_no_eval(add_func = "ctx")]
     fn concat(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
         let mut ret = String::new();
         for ele in rest.iter() {
@@ -228,7 +228,7 @@ pub fn add(ctx: &mut TulispContext) {
         Ok(TulispValue::from(ret).into_ref())
     }
 
-    #[crate_fn_no_eval(add_to = "ctx")]
+    #[crate_fn_no_eval(add_func = "ctx")]
     fn print(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
         let mut iter = rest.iter();
         let object = iter.next();
@@ -249,12 +249,12 @@ pub fn add(ctx: &mut TulispContext) {
         }
     }
 
-    #[crate_fn(add_to = "ctx", name = "prin1-to-string")]
+    #[crate_fn(add_func = "ctx", name = "prin1-to-string")]
     fn prin1_to_string(arg: TulispValueRef) -> Result<TulispValueRef, Error> {
         Ok(TulispValue::from(arg.fmt_string()).into_ref())
     }
 
-    #[crate_fn_no_eval(add_to = "ctx")]
+    #[crate_fn_no_eval(add_func = "ctx")]
     fn princ(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
         let mut iter = rest.iter();
         let object = iter.next();
@@ -275,7 +275,7 @@ pub fn add(ctx: &mut TulispContext) {
         }
     }
 
-    #[crate_fn_no_eval(add_to = "ctx", name = "if")]
+    #[crate_fn_no_eval(add_func = "ctx", name = "if")]
     fn impl_if(
         ctx: &mut TulispContext,
         condition: TulispValueRef,
@@ -289,7 +289,7 @@ pub fn add(ctx: &mut TulispContext) {
         }
         .map(|x| x)
     }
-    #[crate_fn_no_eval(add_to = "ctx")]
+    #[crate_fn_no_eval(add_func = "ctx")]
     fn cond(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
         for item in rest.iter() {
             destruct_bind!((condition &rest body) = item);
@@ -300,7 +300,7 @@ pub fn add(ctx: &mut TulispContext) {
         Ok(TulispValue::Nil.into_ref())
     }
 
-    #[crate_fn_no_eval(add_to = "ctx", name = "while")]
+    #[crate_fn_no_eval(add_func = "ctx", name = "while")]
     fn impl_while(
         ctx: &mut TulispContext,
         condition: TulispValueRef,
@@ -313,7 +313,7 @@ pub fn add(ctx: &mut TulispContext) {
         Ok(result)
     }
 
-    #[crate_fn_no_eval(add_to = "ctx")]
+    #[crate_fn_no_eval(add_func = "ctx")]
     fn setq(
         ctx: &mut TulispContext,
         name: TulispValueRef,
@@ -324,7 +324,7 @@ pub fn add(ctx: &mut TulispContext) {
         Ok(value)
     }
 
-    #[crate_fn_no_eval(add_to = "ctx", name = "let")]
+    #[crate_fn_no_eval(add_func = "ctx", name = "let")]
     fn impl_let(
         ctx: &mut TulispContext,
         varlist: TulispValueRef,
@@ -343,7 +343,7 @@ pub fn add(ctx: &mut TulispContext) {
         ret
     }
 
-    #[crate_fn_no_eval(add_to = "ctx")]
+    #[crate_fn_no_eval(add_func = "ctx")]
     fn defun(
         ctx: &mut TulispContext,
         name: TulispValueRef,
@@ -364,7 +364,7 @@ pub fn add(ctx: &mut TulispContext) {
         Ok(TulispValue::Nil.into_ref())
     }
 
-    #[crate_fn_no_eval(add_to = "ctx")]
+    #[crate_fn_no_eval(add_func = "ctx")]
     fn defmacro(
         ctx: &mut TulispContext,
         name: TulispValueRef,
@@ -381,17 +381,17 @@ pub fn add(ctx: &mut TulispContext) {
         Ok(TulispValue::Nil.into_ref())
     }
 
-    #[crate_fn(add_to = "ctx")]
+    #[crate_fn(add_func = "ctx")]
     fn null(arg: TulispValueRef) -> bool {
         arg.is_null()
     }
 
-    #[crate_fn(add_to = "ctx", name = "eval")]
+    #[crate_fn(add_func = "ctx", name = "eval")]
     fn impl_eval(ctx: &mut TulispContext, arg: TulispValueRef) -> Result<TulispValueRef, Error> {
         crate::eval::eval(ctx, arg)
     }
 
-    #[crate_fn(add_to = "ctx", name = "macroexpand")]
+    #[crate_fn(add_func = "ctx", name = "macroexpand")]
     fn impl_macroexpand(
         ctx: &mut TulispContext,
         name: TulispValueRef,
@@ -401,22 +401,22 @@ pub fn add(ctx: &mut TulispContext) {
 
     // List functions
 
-    #[crate_fn(add_to = "ctx", name = "car")]
+    #[crate_fn(add_func = "ctx", name = "car")]
     fn impl_car(name: TulispValueRef) -> Result<TulispValueRef, Error> {
         crate::cons::car(name)
     }
 
-    #[crate_fn(add_to = "ctx", name = "cdr")]
+    #[crate_fn(add_func = "ctx", name = "cdr")]
     fn impl_cdr(name: TulispValueRef) -> Result<TulispValueRef, Error> {
         crate::cons::cdr(name)
     }
 
-    #[crate_fn(add_to = "ctx", name = "cons")]
+    #[crate_fn(add_func = "ctx", name = "cons")]
     fn impl_cons(car: TulispValueRef, cdr: TulispValueRef) -> TulispValueRef {
         crate::cons::cons(car, cdr)
     }
 
-    #[crate_fn_no_eval(add_to = "ctx")]
+    #[crate_fn_no_eval(add_func = "ctx")]
     fn append(
         ctx: &mut TulispContext,
         first: TulispValueRef,
@@ -429,7 +429,7 @@ pub fn add(ctx: &mut TulispContext) {
         Ok(first)
     }
 
-    #[crate_fn_no_eval(add_to = "ctx")]
+    #[crate_fn_no_eval(add_func = "ctx")]
     fn list(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
         let (ctxobj, span) = (rest.ctxobj(), rest.span());
         let mut cons = Cons::new();
@@ -439,12 +439,12 @@ pub fn add(ctx: &mut TulispContext) {
         Ok(TulispValue::List { cons, ctxobj, span }.into_ref())
     }
 
-    #[crate_fn(add_to = "ctx")]
+    #[crate_fn(add_func = "ctx")]
     fn listp(arg: TulispValueRef) -> bool {
         arg.is_list()
     }
 
-    #[crate_fn_no_eval(add_to = "ctx")]
+    #[crate_fn_no_eval(add_func = "ctx")]
     fn sort(
         ctx: &mut TulispContext,
         seq: TulispValueRef,

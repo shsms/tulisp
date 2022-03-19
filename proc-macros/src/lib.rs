@@ -273,7 +273,8 @@ fn tulisp_fn_impl(
                     _ => panic!("attributes must have string values"),
                 };
                 match path.as_str() {
-                    "add_to" => add_to_ctx = Some(val),
+                    "add_func" => add_to_ctx = Some((val, false)),
+                    "add_macro" => add_to_ctx = Some((val, true)),
                     "name" => fn_name_in_ctx = Some(nv.lit),
                     e => panic!("unknown attribute: {}", e),
                 }
@@ -308,7 +309,7 @@ fn tulisp_fn_impl(
         }
     };
 
-    if let Some(ctx) = add_to_ctx {
+    if let Some((ctx, add_macro)) = add_to_ctx {
         let ctx = Ident::new(
             &ctx.to_token_stream().to_string(),
             proc_macro2::Span::call_site(),
@@ -319,9 +320,14 @@ fn tulisp_fn_impl(
                 proc_macro2::Span::call_site(),
             ))
         });
+        let ctxobj_type = if add_macro {
+            quote! {Macro}
+        } else {
+            quote! {Func}
+        };
         generated.extend(quote! {
             // TODO: how to avoid unwrap?
-            #ctx.set_str(#name.to_string(), #crate_name::context::ContextObject::Func(#fn_name)).unwrap();
+            #ctx.set_str(#name.to_string(), #crate_name::context::ContextObject::#ctxobj_type(#fn_name)).unwrap();
         })
     }
     if fn_name.to_string() == "thread_first" {
