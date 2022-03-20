@@ -429,6 +429,24 @@ pub fn add(ctx: &mut TulispContext) {
     }
 
     #[crate_fn_no_eval(add_func = "ctx")]
+    fn dolist(ctx: &mut TulispContext, spec: TulispValueRef, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
+        destruct_bind!((var list &optional result) = spec);
+        let body = rest;
+        let mut list = ctx.eval(list)?;
+        while list.as_bool() {
+            let varlist = TulispValue::Nil.into_ref().push(
+                TulispValue::Nil.into_ref().push(var.clone())?.push(car(list.clone())?)?.clone()
+            )?.clone();
+            ctx.r#let(varlist)?;
+            let eval_res = ctx.eval_progn(body.clone());
+            ctx.pop();
+            eval_res?;
+            list = cdr(list)?;
+        }
+        ctx.eval(result)
+    }
+
+    #[crate_fn_no_eval(add_func = "ctx")]
     fn list(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
         let (ctxobj, span) = (rest.ctxobj(), rest.span());
         let mut cons = Cons::new();
