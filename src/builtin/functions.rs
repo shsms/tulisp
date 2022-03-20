@@ -429,14 +429,25 @@ pub fn add(ctx: &mut TulispContext) {
     }
 
     #[crate_fn_no_eval(add_func = "ctx")]
-    fn dolist(ctx: &mut TulispContext, spec: TulispValueRef, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
+    fn dolist(
+        ctx: &mut TulispContext,
+        spec: TulispValueRef,
+        rest: TulispValueRef,
+    ) -> Result<TulispValueRef, Error> {
         destruct_bind!((var list &optional result) = spec);
         let body = rest;
         let mut list = ctx.eval(list)?;
         while list.as_bool() {
-            let varlist = TulispValue::Nil.into_ref().push(
-                TulispValue::Nil.into_ref().push(var.clone())?.push(car(list.clone())?)?.clone()
-            )?.clone();
+            let varlist = TulispValue::Nil
+                .into_ref()
+                .push(
+                    TulispValue::Nil
+                        .into_ref()
+                        .push(var.clone())?
+                        .push(car(list.clone())?)?
+                        .clone(),
+                )?
+                .clone();
             ctx.r#let(varlist)?;
             let eval_res = ctx.eval_progn(body.clone());
             ctx.pop();
@@ -490,6 +501,56 @@ pub fn add(ctx: &mut TulispContext) {
             .iter()
             .fold(list!(), |v1, v2| list!(,@v1 ,(*v2).clone()).unwrap());
         Ok(ret)
+    }
+
+    // alist functions
+    fn assoc_impl(
+        key: TulispValueRef,
+        alist: TulispValueRef,
+        // testfn: Option<TulispValueRef>, // TODO: implement testfn support
+    ) -> Result<TulispValueRef, Error> {
+        if !alist.is_list() {
+            return Err(
+                Error::new(ErrorKind::TypeMismatch, "expected alist".to_owned())
+                    .with_span(alist.span()),
+            );
+        }
+        for kvpair in alist.iter() {
+            if !kvpair.is_list() {
+                return Err(Error::new(
+                    ErrorKind::TypeMismatch,
+                    "expected cons inside alist".to_owned(),
+                )
+                .with_span(kvpair.span()));
+            }
+            if car(kvpair.clone())? == key {
+                return Ok(kvpair);
+            }
+        }
+        return Ok(TulispValue::Nil.into());
+    }
+
+    #[crate_fn(add_func = "ctx")]
+    fn assoc(key: TulispValueRef, alist: TulispValueRef) -> Result<TulispValueRef, Error> {
+        assoc_impl(key, alist)
+    }
+
+    #[crate_fn(add_func = "ctx", name = "alist-get")]
+    fn alist_get(
+        key: TulispValueRef,
+        alist: TulispValueRef,
+        // default_value: Option<TulispValueRef>,
+        // _remove: Option<TulispValueRef>, // TODO: implement remove, testfn support
+        // _testfn: Option<TulispValueRef>,
+    ) -> Result<TulispValueRef, Error> {
+        let default_value = None;
+
+        let x = assoc_impl(key, alist)?;
+        if x.as_bool() {
+            cdr(x)
+        } else {
+            Ok(default_value.unwrap_or_else(|| TulispValue::Nil.into_ref()))
+        }
     }
 
     /*
