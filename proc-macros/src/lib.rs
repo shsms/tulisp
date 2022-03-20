@@ -150,6 +150,7 @@ fn parse_args(
                     }
                 };
 
+                // TODO: if optional, get car only if is_list
                 if eval_args {
                     arg_extract_stmts.extend(quote!{
                         let __tulisp_internal_car = __tulisp_internal_context.eval(#crate_name::cons::car(__tulisp_internal_value.clone())?)?;
