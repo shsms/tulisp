@@ -148,7 +148,7 @@ pub fn car(cons: TulispValueRef) -> Result<TulispValueRef, Error> {
         Err(Error::new(
             ErrorKind::TypeMismatch,
             format!("car: Not a Cons: {:?}", cons),
-        ))
+        ).with_span(cons.span()))
     }
 }
 
@@ -159,7 +159,7 @@ pub fn cdr(cons: TulispValueRef) -> Result<TulispValueRef, Error> {
         Err(Error::new(
             ErrorKind::TypeMismatch,
             format!("cdr: Not a Cons: {:?}", cons),
-        ))
+        ).with_span(cons.span()))
     }
 }
 
