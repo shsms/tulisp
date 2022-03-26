@@ -272,11 +272,11 @@ pub(crate) fn eval_progn(
     ctx: &mut TulispContext,
     value: TulispValueRef,
 ) -> Result<TulispValueRef, Error> {
-    value
-        .iter()
-        .fold(Ok(TulispValue::Nil.into_ref()), |v1, v2| {
-            v1.and(eval(ctx, v2))
-        })
+    let mut ret = TulispValue::Nil.into_ref();
+    for val in value.iter() {
+        ret = eval(ctx, val)?;
+    }
+    return Ok(ret);
 }
 
 pub(crate) fn eval_string(ctx: &mut TulispContext, string: &str) -> Result<TulispValueRef, Error> {
