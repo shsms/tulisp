@@ -207,7 +207,7 @@ pub fn add(ctx: &mut TulispContext) {
 
     #[crate_fn(add_func = "ctx")]
     fn expt(base: TulispValueRef, pow: TulispValueRef) -> Result<TulispValueRef, Error> {
-        Ok(f64::powf(base.try_into()?, pow.try_into()?).into()).map(|x: TulispValue| x.into_ref())
+        Ok(f64::powf(base.try_into()?, pow.try_into()?).into())
     }
 
     #[crate_fn_no_eval(add_func = "ctx")]
