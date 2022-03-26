@@ -8,6 +8,7 @@ pub enum ErrorKind {
     Undefined,
     Uninitialized,
     SyntaxError,
+    MissingArgument,
 }
 
 impl std::fmt::Display for ErrorKind {
@@ -19,6 +20,7 @@ impl std::fmt::Display for ErrorKind {
             ErrorKind::Undefined => f.write_str("Undefined"),
             ErrorKind::Uninitialized => f.write_str("Uninitialized"),
             ErrorKind::SyntaxError => f.write_str("SyntaxError"),
+            ErrorKind::MissingArgument => f.write_str("MissingArgument"),
         }
     }
 }

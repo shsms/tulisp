@@ -7,7 +7,7 @@ use syn::{FnArg, ItemFn, PatType, ReturnType};
 fn parse_args(
     inp: &ItemFn,
     crate_name: &TokenStream2,
-    fn_name: &Ident,
+    fn_name: &syn::Lit,
     eval_args: bool,
 ) -> Result<(TokenStream2, TokenStream2), TokenStream> {
     let mut arg_extract_stmts = quote!();
@@ -150,21 +150,48 @@ fn parse_args(
                     }
                 };
 
-                // TODO: if optional, get car only if is_list
+                let car_extractor = if optional {
+                    quote! {
+                        #crate_name::cons::car(__tulisp_internal_value.clone()).
+                            or(Ok(#crate_name::value::TulispValue::Nil.into()))?
+                    }
+                } else {
+                    quote! {
+                        #crate_name::cons::car(__tulisp_internal_value.clone()).
+                        map_err(|e| #crate_name::error::Error::new(
+                            #crate_name::error::ErrorKind::MissingArgument,
+                            format!("Missing argument for required parameter '{}', in call to '{}'",
+                                    stringify!(#pat),
+                                    #fn_name
+                            ),
+                        ))?
+                    }
+                };
+
                 if eval_args {
-                    arg_extract_stmts.extend(quote!{
-                        let __tulisp_internal_car = __tulisp_internal_context.eval(#crate_name::cons::car(__tulisp_internal_value.clone())?)?;
+                    arg_extract_stmts.extend(quote! {
+                        let __tulisp_internal_car = __tulisp_internal_context.eval(#car_extractor)?;
                     })
                 } else {
                     arg_extract_stmts.extend(quote! {
-                        let __tulisp_internal_car =  #crate_name::cons::car(__tulisp_internal_value.clone())?;
+                        let __tulisp_internal_car =  #car_extractor;
                     })
                 }
 
                 arg_extract_stmts.extend(quote! {
                     let #pat = #ty_extractor(__tulisp_internal_car)? ;
-                    let __tulisp_internal_value = #crate_name::cons::cdr(__tulisp_internal_value)?;
                 });
+
+                if optional {
+                    arg_extract_stmts.extend(quote!{
+                        let __tulisp_internal_value = #crate_name::cons::cdr(__tulisp_internal_value).
+                            or(Ok(#crate_name::value::TulispValue::Nil.into()))?;
+                    });
+                } else {
+                    arg_extract_stmts.extend(quote!{
+                        let __tulisp_internal_value = #crate_name::cons::cdr(__tulisp_internal_value)?;
+                    });
+                }
             }
         };
     }
@@ -173,7 +200,7 @@ fn parse_args(
         if !__tulisp_internal_value.is_null() {
             return Err(#crate_name::error::Error::new(
                 #crate_name::error::ErrorKind::TypeMismatch,
-                format!("{}: Too many arguments: {}", stringify!{#fn_name}, __tulisp_internal_value)));
+                format!("{}: Too many arguments: {}", #fn_name, __tulisp_internal_value)));
         }
     });
 
@@ -285,8 +312,14 @@ fn tulisp_fn_impl(
             _ => panic!("attributes have to be a=,"),
         }
     }
+    let tulisp_fn_name = fn_name_in_ctx.unwrap_or_else(|| {
+        syn::Lit::Str(syn::LitStr::new(
+            &fn_name.to_string(),
+            proc_macro2::Span::call_site(),
+        ))
+    });
     let (arg_extract_stmts, params_for_call) =
-        match parse_args(&inp, &crate_name, &fn_name, eval_args) {
+        match parse_args(&inp, &crate_name, &tulisp_fn_name, eval_args) {
             Ok(vv) => vv,
             Err(e) => return e,
         };
@@ -318,12 +351,6 @@ fn tulisp_fn_impl(
             &ctx.to_token_stream().to_string(),
             proc_macro2::Span::call_site(),
         );
-        let name = fn_name_in_ctx.unwrap_or_else(|| {
-            syn::Lit::Str(syn::LitStr::new(
-                &fn_name.to_string(),
-                proc_macro2::Span::call_site(),
-            ))
-        });
         let ctxobj_type = if add_macro {
             quote! {Macro}
         } else {
@@ -331,7 +358,7 @@ fn tulisp_fn_impl(
         };
         generated.extend(quote! {
             // TODO: how to avoid unwrap?
-            #ctx.set_str(#name.to_string(), #crate_name::context::ContextObject::#ctxobj_type(#fn_name)).unwrap();
+            #ctx.set_str(#tulisp_fn_name.to_string(), #crate_name::context::ContextObject::#ctxobj_type(#fn_name)).unwrap();
         })
     }
 

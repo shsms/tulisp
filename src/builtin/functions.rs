@@ -507,7 +507,7 @@ pub fn add(ctx: &mut TulispContext) {
     fn assoc_impl(
         key: TulispValueRef,
         alist: TulispValueRef,
-        // testfn: Option<TulispValueRef>, // TODO: implement testfn support
+        _testfn: Option<TulispValueRef>, // TODO: implement testfn support
     ) -> Result<TulispValueRef, Error> {
         if !alist.is_list() {
             return Err(
@@ -531,21 +531,23 @@ pub fn add(ctx: &mut TulispContext) {
     }
 
     #[crate_fn(add_func = "ctx")]
-    fn assoc(key: TulispValueRef, alist: TulispValueRef) -> Result<TulispValueRef, Error> {
-        assoc_impl(key, alist)
+    fn assoc(
+        key: TulispValueRef,
+        alist: TulispValueRef,
+        testfn: Option<TulispValueRef>,
+    ) -> Result<TulispValueRef, Error> {
+        assoc_impl(key, alist, testfn)
     }
 
     #[crate_fn(add_func = "ctx", name = "alist-get")]
     fn alist_get(
         key: TulispValueRef,
         alist: TulispValueRef,
-        // default_value: Option<TulispValueRef>,
-        // _remove: Option<TulispValueRef>, // TODO: implement remove, testfn support
-        // _testfn: Option<TulispValueRef>,
+        default_value: Option<TulispValueRef>,
+        _remove: Option<TulispValueRef>, // TODO: implement remove, testfn support
+        testfn: Option<TulispValueRef>,
     ) -> Result<TulispValueRef, Error> {
-        let default_value = None;
-
-        let x = assoc_impl(key, alist)?;
+        let x = assoc_impl(key, alist, testfn)?;
         if x.as_bool() {
             cdr(x)
         } else {
