@@ -30,10 +30,11 @@ fn test_if() -> Result<(), Error> {
     tulisp_assert! { program: "(if (> 20 10) 10 20)", result: "10" }
     tulisp_assert! { program: "(if (> 10 20) 10 20)", result: "20" }
     tulisp_assert! { program: r##"
-    (defun cf (vv)
-      (cond ((> vv 45) 'gt45)
-            ((> vv 5) 'gt5)))
-    (list (cf 2) (cf 200) (cf 8))
+       (defun cf (vv)
+         (cond ((> vv 45) 'gt45)
+               ((> vv 5) 'gt5)))
+
+       (list (cf 2) (cf 200) (cf 8))
     "##, result: r#"(nil gt45 gt5)"#}
     Ok(())
 }
@@ -49,20 +50,36 @@ fn test_defun() -> Result<(), Error> {
         result: "30",
     }
     tulisp_assert! {
-        program: "(defun add (x &optional y z) (+ x (if y y 0) (if z z 0))) (add (add 100) (add 10 20) (add 1 2 3))",
-        result: "136",
+        program: r##"
+            (defun add (x &optional y z)
+              (+ x
+                 (if y y -10)
+                 (if z z -10)))
+
+            (add
+             (add 100)
+             (add 10 20)
+             (add 1 2 3))
+        "##,
+        result: "106",
     }
     tulisp_assert! {
-        program: "(defun add (x &rest y) (if y (append y (list x)) (list x))) (list (add 100) (add 10 20) (add 1 2 3))",
+        program: r##"
+            (defun add (x &rest y)
+             (if y
+                 (append y (list x))
+               (list x)))
+
+            (list (add 100) (add 10 20) (add 1 2 3))
+        "##,
         result: "((100) (20 10) (2 3 1))",
     }
     tulisp_assert! {
-        // TODO: incorrect span location
         program: "(defun j (&rest x y) nil) (j)",
-        error: "ERROR:TypeMismatch: Too many &rest parameters, in Some(Span { start: 26, end: 29 })",
+        error: "ERROR:TypeMismatch: Too many &rest parameters, in Some(Span { start: 18, end: 19 })",
     }
     tulisp_assert! {
-        program: "(defun j (&rest x) x) (list (j) (j 10) (j 100 200))",
+        program: r##"(defun j (&rest x) x) (list (j) (j 10) (j 100 200))"##,
         result: "(nil (10) (100 200))",
     }
     tulisp_assert! {
@@ -78,14 +95,12 @@ fn test_defun() -> Result<(), Error> {
     result: "((100) (30) (6 4 5))",
         }
     tulisp_assert! {
-        // TODO: incorrect span location
         program: "(defun add (x y) (+ x y)) (add 10)",
         error: "ERROR:TypeMismatch: Too few arguments, in Some(Span { start: 26, end: 34 })",
     }
     tulisp_assert! {
-        // TODO: incorrect span location
         program: "(defun add (x y) (+ x y)) (add 10 20 30)",
-        error: "ERROR:TypeMismatch: Too many arguments, in Some(Span { start: 26, end: 40 })",
+        error: "ERROR:TypeMismatch: Too many arguments, in Some(Span { start: 37, end: 39 })",
     }
     tulisp_assert! {
         program: "(defmacro num ()  4) (macroexpand '(num))",
@@ -100,14 +115,12 @@ fn test_defun() -> Result<(), Error> {
         result: "5",
     }
     tulisp_assert! {
-        // TODO: incorrect span location
         program: "(defmacro inc (var)  (list 'setq var (list '+ 1 var))) (let ((x 4)) (inc))",
-        error: "ERROR:TypeMismatch: Too few arguments, in None",
+        error: "ERROR:TypeMismatch: Too few arguments, in Some(Span { start: 68, end: 73 })",
     }
     tulisp_assert! {
-        // TODO: incorrect span location
         program: "(defmacro inc (var)  (list 'setq var (list '+ 1 var))) (let ((x 4)) (inc 4 5))",
-        error: "ERROR:TypeMismatch: Too many arguments, in None",
+        error: "ERROR:TypeMismatch: Too many arguments, in Some(Span { start: 75, end: 76 })",
     }
     tulisp_assert! {
         program: r##"
@@ -204,6 +217,7 @@ fn test_lists() -> Result<(), Error> {
 
     Ok(())
 }
+
 #[test]
 fn test_math() -> Result<(), Error> {
     tulisp_assert! {

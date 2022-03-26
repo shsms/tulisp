@@ -62,11 +62,12 @@ fn zip_function_args<E: Evaluator>(
             while let Some(arg) = args.next() {
                 ret.push(E::eval(ctx, arg)?)?;
             }
-            if params.next().is_some() {
+            if let Some(nn) = params.next() {
                 return Err(Error::new(
                     ErrorKind::TypeMismatch,
                     "Too many &rest parameters".to_string(),
-                ));
+                )
+                .with_span(nn.span()));
             }
             ret.into_ref()
         } else if let Some(vv) = args.next() {
@@ -82,11 +83,11 @@ fn zip_function_args<E: Evaluator>(
             break;
         }
     }
-    if args.next().is_some() {
-        return Err(Error::new(
-            ErrorKind::TypeMismatch,
-            "Too many arguments".to_string(),
-        ));
+    if let Some(nn) = args.next() {
+        return Err(
+            Error::new(ErrorKind::TypeMismatch, "Too many arguments".to_string())
+                .with_span(nn.span()),
+        );
     }
     Ok(local)
 }
@@ -181,10 +182,7 @@ pub(crate) fn eval(ctx: &mut TulispContext, expr: TulispValueRef) -> Result<Tuli
         TulispValue::Int { .. } => Ok(expr),
         TulispValue::Float { .. } => Ok(expr),
         TulispValue::String { .. } => Ok(expr),
-        TulispValue::List { span, .. } => eval_form(ctx, expr).map_err(|e| {
-            let span = e.span().or_else(|| span.clone());
-            e.with_span(span)
-        }),
+        TulispValue::List { span, .. } => eval_form(ctx, expr).map_err(|e| e.with_span(span)),
         TulispValue::Quote { value, .. } => Ok(value.clone()),
         TulispValue::Backquote { value, span } => {
             let mut ret = TulispValue::Nil;

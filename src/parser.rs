@@ -60,7 +60,8 @@ pub fn macroexpand(ctx: &mut TulispContext, inp: TulispValueRef) -> Result<Tulis
                 macroexpand(ctx, expansion)
             }
             ContextObject::Defmacro { args, body } => {
-                let expansion = eval_defmacro(ctx, args.clone(), body.clone(), cdr(expr)?)?;
+                let expansion = eval_defmacro(ctx, args.clone(), body.clone(), cdr(expr)?)
+                    .map_err(|e| e.with_span(inp.span()))?;
                 macroexpand(ctx, expansion)
             }
             _ => Ok(expr),
