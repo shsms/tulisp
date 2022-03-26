@@ -54,7 +54,7 @@ impl TulispValueRef {
     pub fn is_bounce(&self) -> bool {
         self.rc.as_ref().borrow().is_bounce()
     }
-    pub fn is_list(&self) -> bool {
+    pub fn is_cons(&self) -> bool {
         self.rc.as_ref().borrow().is_list()
     }
     pub fn as_string(&self) -> Result<String, Error> {
@@ -113,13 +113,13 @@ impl TulispValueRef {
         #[allow(unreachable_code)]
         #[tailcall]
         fn deep_copy_impl(val: TulispValueRef, ret: &mut TulispValue) -> Result<(), Error> {
-            if !val.is_list() {
+            if !val.is_cons() {
                 *ret = val.clone_inner();
                 return Ok(());
             }
             let (first, rest) = (car(val.clone())?, cdr(val.clone())?);
             ret.push_with_meta(first.clone_inner().into_ref(), val.span(), val.ctxobj())?;
-            if !rest.is_list() {
+            if !rest.is_cons() {
                 ret.append(rest)?;
                 return Ok(());
             }

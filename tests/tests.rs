@@ -206,12 +206,12 @@ fn test_lists() -> Result<(), Error> {
     }
 
     tulisp_assert! {
-        program: "(listp '(20))",
+        program: "(consp '(20))",
         result: "t",
     }
 
     tulisp_assert! {
-        program: "(listp '20)",
+        program: "(consp '20)",
         result: "nil",
     }
 

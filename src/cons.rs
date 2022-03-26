@@ -42,7 +42,7 @@ impl Cons {
         }
         let mut last = self.cdr.clone();
 
-        while last.is_list() {
+        while last.is_cons() {
             last = cdr(last)?;
         }
         if last == TulispValue::Uninitialized {
@@ -77,7 +77,7 @@ impl Cons {
         }
         let mut last = self.cdr.clone();
 
-        while last.is_list() {
+        while last.is_cons() {
             last = cdr(last)?;
         }
         if last == TulispValue::Uninitialized {
@@ -106,7 +106,7 @@ impl Cons {
 
 impl Drop for Cons {
     fn drop(&mut self) {
-        if self.cdr.strong_count() > 1 || !self.cdr.is_list() {
+        if self.cdr.strong_count() > 1 || !self.cdr.is_cons() {
             return;
         }
         let mut cdr = self.cdr.take();
@@ -147,8 +147,9 @@ pub fn car(cons: TulispValueRef) -> Result<TulispValueRef, Error> {
     } else {
         Err(Error::new(
             ErrorKind::TypeMismatch,
-            format!("car: Not a Cons: {:?}", cons),
-        ).with_span(cons.span()))
+            format!("car: Not a Cons: {}", cons),
+        )
+        .with_span(cons.span()))
     }
 }
 
@@ -158,8 +159,9 @@ pub fn cdr(cons: TulispValueRef) -> Result<TulispValueRef, Error> {
     } else {
         Err(Error::new(
             ErrorKind::TypeMismatch,
-            format!("cdr: Not a Cons: {:?}", cons),
-        ).with_span(cons.span()))
+            format!("cdr: Not a Cons: {}", cons),
+        )
+        .with_span(cons.span()))
     }
 }
 

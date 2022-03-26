@@ -151,7 +151,7 @@ impl std::fmt::Display for TulispValue {
                     }
                     if rest == TulispValue::Nil || rest == TulispValue::Uninitialized {
                         return Ok(());
-                    } else if !rest.is_list() {
+                    } else if !rest.is_cons() {
                         ret.push_str(&format!(" . {}", rest));
                         return Ok(());
                     };

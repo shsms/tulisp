@@ -35,7 +35,7 @@ pub fn parse_string(ctx: &mut TulispContext, string: &str) -> Result<TulispValue
 }
 
 pub fn macroexpand(ctx: &mut TulispContext, inp: TulispValueRef) -> Result<TulispValueRef, Error> {
-    if !inp.is_list() {
+    if !inp.is_cons() {
         return Ok(inp);
     }
     let mut expr = TulispValue::List {

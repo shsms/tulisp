@@ -186,7 +186,7 @@ pub(crate) fn eval(ctx: &mut TulispContext, expr: TulispValueRef) -> Result<Tuli
         TulispValue::Quote { value, .. } => Ok(value.clone()),
         TulispValue::Backquote { value, span } => {
             let mut ret = TulispValue::Nil;
-            if !value.is_list() {
+            if !value.is_cons() {
                 return Ok(value.clone());
             }
             #[allow(unreachable_code)]
@@ -227,7 +227,7 @@ pub(crate) fn eval(ctx: &mut TulispContext, expr: TulispValueRef) -> Result<Tuli
                     ret.append(eval(ctx, value.clone()).map_err(|e| e.with_span(span.clone()))?)
                         .map_err(|e| e.with_span(span))?;
                     return Ok(());
-                } else if !rest.is_list() {
+                } else if !rest.is_cons() {
                     ret.append(rest.clone())?;
                     return Ok(());
                 }

@@ -73,10 +73,10 @@ fn mark_tail_calls(name: TulispValueRef, body: TulispValueRef) -> Result<TulispV
         ret.push(tail)?;
         tail = next;
     }
-    if !tail.is_list() {
+    if !tail.is_cons() {
         return Ok(body.clone());
     }
-    let span = if tail.is_list() {
+    let span = if tail.is_cons() {
         tail.span()
     } else {
         return Ok(tail.clone());
@@ -196,7 +196,6 @@ pub fn add(ctx: &mut TulispContext) {
         reduce_with(ctx, rest, max_min_ops!(min))
     }
 
-    // TODO: check if r#mod works.
     #[crate_fn(add_func = "ctx", name = "mod")]
     fn impl_mod(
         dividend: TulispValueRef,
@@ -288,6 +287,7 @@ pub fn add(ctx: &mut TulispContext) {
         }
         .map(|x| x)
     }
+
     #[crate_fn_no_eval(add_func = "ctx")]
     fn cond(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
         for item in rest.iter() {
@@ -330,7 +330,7 @@ pub fn add(ctx: &mut TulispContext) {
         rest: TulispValueRef,
     ) -> Result<TulispValueRef, Error> {
         ctx.r#let(varlist)?;
-        let ret = if rest.is_list() {
+        let ret = if rest.is_cons() {
             eval_progn(ctx, rest.clone())
         } else {
             Err(Error::new(
@@ -468,8 +468,8 @@ pub fn add(ctx: &mut TulispContext) {
     }
 
     #[crate_fn(add_func = "ctx")]
-    fn listp(arg: TulispValueRef) -> bool {
-        arg.is_list()
+    fn consp(arg: TulispValueRef) -> bool {
+        arg.is_cons()
     }
 
     #[crate_fn_no_eval(add_func = "ctx")]
@@ -509,14 +509,14 @@ pub fn add(ctx: &mut TulispContext) {
         alist: TulispValueRef,
         _testfn: Option<TulispValueRef>, // TODO: implement testfn support
     ) -> Result<TulispValueRef, Error> {
-        if !alist.is_list() {
+        if !alist.is_cons() {
             return Err(
                 Error::new(ErrorKind::TypeMismatch, "expected alist".to_owned())
                     .with_span(alist.span()),
             );
         }
         for kvpair in alist.iter() {
-            if !kvpair.is_list() {
+            if !kvpair.is_cons() {
                 return Err(Error::new(
                     ErrorKind::TypeMismatch,
                     "expected cons inside alist".to_owned(),

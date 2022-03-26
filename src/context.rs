@@ -114,7 +114,7 @@ impl TulispContext {
         for varitem in varlist.iter() {
             let (name, value) = if let Ok(name) = varitem.as_ident() {
                 (name, TulispValue::Nil.into_ref())
-            } else if varitem.is_list() {
+            } else if varitem.is_cons() {
                 let span = varitem.span();
                 destruct_bind!((&optional name value &rest rest) = varitem);
                 if name.is_null() {
