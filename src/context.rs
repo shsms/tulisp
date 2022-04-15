@@ -1,10 +1,11 @@
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, fs, rc::Rc};
 
 use crate::{
     cons::{car, cdr},
     destruct_bind,
     error::{Error, ErrorKind},
-    eval::{eval, eval_progn, eval_string},
+    eval::eval,
+    parser::parse_string,
     value::TulispValue,
     value_ref::TulispValueRef,
 };
@@ -65,7 +66,7 @@ impl TulispContext {
     pub fn get_str(&self, name: &str) -> Option<Rc<RefCell<ContextObject>>> {
         for ele in self.0.iter().rev() {
             if let Some(vv) = ele.get(name) {
-                return Some(vv.clone())
+                return Some(vv.clone());
             }
         }
         None
@@ -158,16 +159,28 @@ impl TulispContext {
     }
 
     pub fn eval_string(&mut self, string: &str) -> Result<TulispValueRef, Error> {
-        eval_string(self, string)
+        let vv = parse_string(self, string)?.into_ref();
+        self.eval_progn(vv)
     }
 
     pub fn eval_progn(&mut self, value: TulispValueRef) -> Result<TulispValueRef, Error> {
-        eval_progn(self, value)
+        let mut ret = TulispValue::Nil.into_ref();
+        for val in value.iter() {
+            ret = eval(self, val)?;
+        }
+        Ok(ret)
     }
+
     pub fn eval_each(&mut self, value: TulispValueRef) -> Result<TulispValueRef, Error> {
-        crate::eval::eval_each(self, value)
+        let mut ret = TulispValue::Nil;
+        for val in value.iter() {
+            ret.push(eval(self, val)?)?;
+        }
+        Ok(ret.into_ref())
     }
+
     pub fn eval_file(&mut self, filename: &str) -> Result<TulispValueRef, Error> {
-        crate::eval::eval_file(self, filename)
+        let contents = fs::read_to_string(filename).expect("Something went wrong reading the file");
+        self.eval_string(&contents)
     }
 }

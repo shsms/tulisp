@@ -1,4 +1,4 @@
-use std::{cell::RefCell, collections::HashMap, fs, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use tailcall::tailcall;
 
@@ -6,7 +6,7 @@ use crate::{
     cons::{car, cdr},
     context::{ContextObject, Scope, TulispContext},
     error::{Error, ErrorKind},
-    parser::{macroexpand, parse_string},
+    parser::macroexpand,
     value::TulispValue,
     value_ref::TulispValueRef,
 };
@@ -100,12 +100,12 @@ fn eval_function<E: Evaluator>(
 ) -> Result<TulispValueRef, Error> {
     let local = zip_function_args::<E>(ctx, params, args)?;
     ctx.push(local);
-    let result = eval_progn(ctx, body)?;
+    let result = ctx.eval_progn(body)?;
     ctx.pop();
     Ok(result)
 }
 
-pub fn eval_defun(
+fn eval_defun(
     ctx: &mut TulispContext,
     params: TulispValueRef,
     body: TulispValueRef,
@@ -118,7 +118,7 @@ pub fn eval_defun(
     Ok(result)
 }
 
-pub fn eval_defmacro(
+pub(crate) fn eval_defmacro(
     ctx: &mut TulispContext,
     params: TulispValueRef,
     body: TulispValueRef,
@@ -251,38 +251,5 @@ pub(crate) fn eval(ctx: &mut TulispContext, expr: TulispValueRef) -> Result<Tuli
         )),
         TulispValue::Sharpquote { value, .. } => Ok(value),
     };
-    // println!("{}\n  => {}", _fmt, ret.clone()?);
     ret
-}
-
-pub(crate) fn eval_each(
-    ctx: &mut TulispContext,
-    value: TulispValueRef,
-) -> Result<TulispValueRef, Error> {
-    let mut ret = TulispValue::Nil;
-    for val in value.iter() {
-        ret.push(eval(ctx, val)?)?;
-    }
-    Ok(ret.into_ref())
-}
-
-pub(crate) fn eval_progn(
-    ctx: &mut TulispContext,
-    value: TulispValueRef,
-) -> Result<TulispValueRef, Error> {
-    let mut ret = TulispValue::Nil.into_ref();
-    for val in value.iter() {
-        ret = eval(ctx, val)?;
-    }
-    Ok(ret)
-}
-
-pub(crate) fn eval_string(ctx: &mut TulispContext, string: &str) -> Result<TulispValueRef, Error> {
-    let vv = parse_string(ctx, string)?.into_ref();
-    eval_progn(ctx, vv)
-}
-
-pub(crate) fn eval_file(ctx: &mut TulispContext, filename: &str) -> Result<TulispValueRef, Error> {
-    let contents = fs::read_to_string(filename).expect("Something went wrong reading the file");
-    eval_string(ctx, &contents)
 }

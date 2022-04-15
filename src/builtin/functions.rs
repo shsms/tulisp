@@ -6,7 +6,6 @@ use crate::context::TulispContext;
 use crate::error::Error;
 use crate::error::ErrorKind;
 use crate::eval::eval;
-use crate::eval::eval_progn;
 use crate::value::TulispValue;
 use crate::value_ref::TulispValueRef;
 use crate::{destruct_bind, list};
@@ -283,7 +282,7 @@ pub fn add(ctx: &mut TulispContext) {
         if eval(ctx, condition)?.as_bool() {
             eval(ctx, then_body)
         } else {
-            eval_progn(ctx, rest)
+            ctx.eval_progn(rest)
         }
     }
 
@@ -292,7 +291,7 @@ pub fn add(ctx: &mut TulispContext) {
         for item in rest.iter() {
             destruct_bind!((condition &rest body) = item);
             if eval(ctx, condition)?.as_bool() {
-                return eval_progn(ctx, body);
+                return ctx.eval_progn(body);
             }
         }
         Ok(TulispValue::Nil.into_ref())
@@ -306,7 +305,7 @@ pub fn add(ctx: &mut TulispContext) {
     ) -> Result<TulispValueRef, Error> {
         let mut result = TulispValue::Nil.into_ref();
         while eval(ctx, condition.clone())?.as_bool() {
-            result = eval_progn(ctx, rest.clone())?;
+            result = ctx.eval_progn(rest.clone())?;
         }
         Ok(result)
     }
@@ -330,7 +329,7 @@ pub fn add(ctx: &mut TulispContext) {
     ) -> Result<TulispValueRef, Error> {
         ctx.r#let(varlist)?;
         let ret = if rest.is_cons() {
-            eval_progn(ctx, rest)
+            ctx.eval_progn(rest)
         } else {
             Err(Error::new(
                 ErrorKind::TypeMismatch,
