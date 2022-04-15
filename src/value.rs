@@ -318,17 +318,11 @@ impl TulispValue {
     }
 
     pub fn is_bounce(&self) -> bool {
-        match self {
-            TulispValue::Bounce => true,
-            _ => false,
-        }
+        matches!(self, TulispValue::Bounce)
     }
 
-    pub fn is_list(&self) -> bool {
-        match self {
-            TulispValue::List { .. } => true,
-            _ => false,
-        }
+    pub fn is_cons(&self) -> bool {
+        matches!(self, TulispValue::List { .. })
     }
 
     pub fn as_str(&self) -> Result<&str, Error> {
@@ -351,9 +345,8 @@ impl TulispValue {
     }
 
     pub fn use_ctxobj(&mut self, co: Option<Rc<RefCell<ContextObject>>>) {
-        match self {
-            TulispValue::List { ctxobj, .. } => *ctxobj = co,
-            _ => {}
+        if let TulispValue::List { ctxobj, .. } = self {
+            *ctxobj = co
         }
     }
 

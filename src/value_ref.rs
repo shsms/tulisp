@@ -55,7 +55,7 @@ impl TulispValueRef {
         self.rc.as_ref().borrow().is_bounce()
     }
     pub fn is_cons(&self) -> bool {
-        self.rc.as_ref().borrow().is_list()
+        self.rc.as_ref().borrow().is_cons()
     }
     pub fn as_string(&self) -> Result<String, Error> {
         self.rc.as_ref().borrow().as_str().map(|x| x.to_owned())

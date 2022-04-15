@@ -64,9 +64,8 @@ impl TulispContext {
 
     pub fn get_str(&self, name: &str) -> Option<Rc<RefCell<ContextObject>>> {
         for ele in self.0.iter().rev() {
-            match ele.get(name) {
-                Some(vv) => return Some(vv.clone()),
-                None => {}
+            if let Some(vv) = ele.get(name) {
+                return Some(vv.clone())
             }
         }
         None
@@ -100,7 +99,7 @@ impl TulispContext {
 
     pub fn set(&mut self, name: TulispValueRef, value: TulispValueRef) -> Result<(), Error> {
         if let Ok(name) = name.as_ident() {
-            self.set_str(name.clone(), ContextObject::TulispValue(value))
+            self.set_str(name, ContextObject::TulispValue(value))
         } else {
             Err(Error::new(
                 ErrorKind::TypeMismatch,

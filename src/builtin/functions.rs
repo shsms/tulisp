@@ -59,7 +59,7 @@ fn reduce_with(
     list.iter()
         .map(|x| eval(ctx, x))
         .reduce(|v1, v2| method(v1?, v2?))
-        .unwrap_or(Err(Error::new(
+        .unwrap_or_else(||Err(Error::new(
             ErrorKind::TypeMismatch,
             "Incorrect number of arguments: 0".to_string(),
         )))
@@ -69,17 +69,17 @@ fn mark_tail_calls(name: TulispValueRef, body: TulispValueRef) -> Result<TulispV
     let mut ret = TulispValue::Nil;
     let mut body_iter = body.iter();
     let mut tail = body_iter.next().unwrap(); // TODO: make safe
-    while let Some(next) = body_iter.next() {
+    for next in body_iter {
         ret.push(tail)?;
         tail = next;
     }
     if !tail.is_cons() {
-        return Ok(body.clone());
+        return Ok(body);
     }
     let span = if tail.is_cons() {
         tail.span()
     } else {
-        return Ok(tail.clone());
+        return Ok(tail);
     };
     let tail_ident = car(tail.clone())?;
     let tail_name_str = tail_ident.as_ident()?;
@@ -99,17 +99,17 @@ fn mark_tail_calls(name: TulispValueRef, body: TulispValueRef) -> Result<TulispV
         mark_tail_calls(name, cdr(tail)?)?
     } else if tail_name_str == "if" {
         destruct_bind!((_if condition then_body &rest else_body) = tail);
-        list!(,tail_ident.clone()
+        list!(,tail_ident
               ,condition.clone()
               ,car(mark_tail_calls(
                   name.clone(),
                   list!(,then_body)?
-              )?)?.to_owned()
+              )?)?
               ,@mark_tail_calls(name, else_body)?
         )?
     } else if tail_name_str == "cond" {
         destruct_bind!((_cond &rest conds) = tail);
-        let mut ret = list!(,tail_ident.clone())?;
+        let mut ret = list!(,tail_ident)?;
         for cond in conds.iter() {
             destruct_bind!((condition &rest body) = cond);
             ret = list!(,@ret
@@ -118,7 +118,7 @@ fn mark_tail_calls(name: TulispValueRef, body: TulispValueRef) -> Result<TulispV
         }
         ret
     } else {
-        tail.clone()
+        tail
     };
     ret.push(new_tail)?;
     Ok(ret.into_ref())
@@ -285,7 +285,6 @@ pub fn add(ctx: &mut TulispContext) {
         } else {
             eval_progn(ctx, rest)
         }
-        .map(|x| x)
     }
 
     #[crate_fn_no_eval(add_func = "ctx")]
@@ -331,7 +330,7 @@ pub fn add(ctx: &mut TulispContext) {
     ) -> Result<TulispValueRef, Error> {
         ctx.r#let(varlist)?;
         let ret = if rest.is_cons() {
-            eval_progn(ctx, rest.clone())
+            eval_progn(ctx, rest)
         } else {
             Err(Error::new(
                 ErrorKind::TypeMismatch,
@@ -483,13 +482,13 @@ pub fn add(ctx: &mut TulispContext) {
             Error::new(ErrorKind::Undefined, format!("Unknown predicate: {}", pred))
         })?;
         let seq = eval(ctx, seq)?;
-        let mut vec: Vec<_> = seq.iter().map(|v| v.clone()).collect();
+        let mut vec: Vec<_> = seq.iter().collect();
         vec.sort_by(|v1, v2| {
             let vv = list!(,TulispValue::Nil.into_ref() ,v1.clone() ,v2.clone()).unwrap();
             vv.use_ctxobj(Some(pred.clone()));
 
             if eval(ctx, vv)
-                .unwrap_or(TulispValue::Nil.into_ref())
+                .unwrap_or_else(|_|TulispValue::Nil.into_ref())
                 .as_bool()
             {
                 Ordering::Less
@@ -527,7 +526,7 @@ pub fn add(ctx: &mut TulispContext) {
                 return Ok(kvpair);
             }
         }
-        return Ok(TulispValue::Nil.into());
+        Ok(TulispValue::Nil.into())
     }
 
     #[crate_fn(add_func = "ctx")]

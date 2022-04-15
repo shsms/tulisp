@@ -25,7 +25,7 @@ impl Evaluator for Eval {
 struct DummyEval;
 impl Evaluator for DummyEval {
     fn eval(_ctx: &mut TulispContext, value: TulispValueRef) -> Result<TulispValueRef, Error> {
-        Ok(value.clone())
+        Ok(value)
     }
 }
 
@@ -59,7 +59,7 @@ fn zip_function_args<E: Evaluator>(
             }
         } else if is_rest {
             let mut ret = TulispValue::Nil;
-            while let Some(arg) = args.next() {
+            for arg in args.by_ref() {
                 ret.push(E::eval(ctx, arg)?)?;
             }
             if let Some(nn) = params.next() {
@@ -140,7 +140,7 @@ fn eval_form(ctx: &mut TulispContext, val: TulispValueRef) -> Result<TulispValue
                 eval_defun(ctx, args.clone(), body.clone(), cdr(val)?)
             }
             ContextObject::Macro(_) | ContextObject::Defmacro { .. } => {
-                let expanded = macroexpand(ctx, val.clone())?;
+                let expanded = macroexpand(ctx, val)?;
                 eval(ctx, expanded)
             }
             _ => Err(
@@ -183,11 +183,11 @@ pub(crate) fn eval(ctx: &mut TulispContext, expr: TulispValueRef) -> Result<Tuli
         TulispValue::Float { .. } => Ok(expr),
         TulispValue::String { .. } => Ok(expr),
         TulispValue::List { span, .. } => eval_form(ctx, expr).map_err(|e| e.with_span(span)),
-        TulispValue::Quote { value, .. } => Ok(value.clone()),
+        TulispValue::Quote { value, .. } => Ok(value),
         TulispValue::Backquote { value, span } => {
             let mut ret = TulispValue::Nil;
             if !value.is_cons() {
-                return Ok(value.clone());
+                return Ok(value);
             }
             #[allow(unreachable_code)]
             #[tailcall]
@@ -224,16 +224,16 @@ pub(crate) fn eval(ctx: &mut TulispContext, expr: TulispValueRef) -> Result<Tuli
                 }
                 // TODO: is Nil check necessary
                 if let TulispValue::Unquote { value, span } = rest_inner {
-                    ret.append(eval(ctx, value.clone()).map_err(|e| e.with_span(span.clone()))?)
+                    ret.append(eval(ctx, value).map_err(|e| e.with_span(span.clone()))?)
                         .map_err(|e| e.with_span(span))?;
                     return Ok(());
                 } else if !rest.is_cons() {
-                    ret.append(rest.clone())?;
+                    ret.append(rest)?;
                     return Ok(());
                 }
                 bq_eval_next(ctx, ret, rest)
             }
-            bq_eval_next(ctx, &mut ret, value.clone()).map_err(|e| e.with_span(span))?;
+            bq_eval_next(ctx, &mut ret, value).map_err(|e| e.with_span(span))?;
             Ok(ret.into_ref())
         }
         TulispValue::Unquote { .. } => Err(Error::new(
@@ -249,7 +249,7 @@ pub(crate) fn eval(ctx: &mut TulispContext, expr: TulispValueRef) -> Result<Tuli
             ErrorKind::TypeMismatch,
             "Splice without backquote".to_string(),
         )),
-        TulispValue::Sharpquote { value, .. } => Ok(value.clone()),
+        TulispValue::Sharpquote { value, .. } => Ok(value),
     };
     // println!("{}\n  => {}", _fmt, ret.clone()?);
     ret
@@ -274,7 +274,7 @@ pub(crate) fn eval_progn(
     for val in value.iter() {
         ret = eval(ctx, val)?;
     }
-    return Ok(ret);
+    Ok(ret)
 }
 
 pub(crate) fn eval_string(ctx: &mut TulispContext, string: &str) -> Result<TulispValueRef, Error> {

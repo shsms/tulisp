@@ -69,7 +69,7 @@ impl Cons {
                 *self = cons;
             } else {
                 *self = Cons {
-                    car: val.clone(),
+                    car: val,
                     cdr: TulispValue::Uninitialized.into_ref(),
                 };
             }

@@ -51,7 +51,7 @@ pub fn macroexpand(ctx: &mut TulispContext, inp: TulispValueRef) -> Result<Tulis
     let expr = expr.into_ref();
     let name = match car(expr.clone())?.as_ident() {
         Ok(id) => id,
-        Err(_) => return Ok(expr.clone()),
+        Err(_) => return Ok(expr),
     };
     match ctx.get_str(&name) {
         Some(item) => match &*item.as_ref().borrow() {
@@ -91,7 +91,7 @@ fn locate_all_func(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispV
 
 fn locate_func(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispValue, Error> {
     let name = match car(expr.clone().into_ref())?.clone_inner() {
-        TulispValue::Ident { value, .. } => value.to_string(),
+        TulispValue::Ident { value, .. } => value,
         _ => return Ok(expr),
     };
     match ctx.get_str(&name) {
@@ -142,7 +142,7 @@ fn parse(
             }
             .into_ref();
             let name = match car(expr.clone())?.clone_inner() {
-                TulispValue::Ident { value, .. } => value.to_string(),
+                TulispValue::Ident { value, .. } => value,
                 _ => return Ok(expr.clone_inner()),
             };
             if name == "defun" || name == "defmacro" {
@@ -173,7 +173,7 @@ fn parse(
                 value.into_inner().peek().ok_or_else(|| {
                     Error::new(
                         ErrorKind::ParsingError,
-                        format!("Backquote inner not found"),
+                        "Backquote inner not found".to_string(),
                     )
                 })?,
                 if *expand_macros != MacroExpand::No {
@@ -189,7 +189,7 @@ fn parse(
             value: parse(
                 ctx,
                 value.into_inner().peek().ok_or_else(|| {
-                    Error::new(ErrorKind::ParsingError, format!("Unquote inner not found"))
+                    Error::new(ErrorKind::ParsingError, "Unquote inner not found".to_string())
                 })?,
                 if *expand_macros != MacroExpand::No {
                     &MacroExpand::Yes
@@ -204,7 +204,7 @@ fn parse(
             value: parse(
                 ctx,
                 value.into_inner().peek().ok_or_else(|| {
-                    Error::new(ErrorKind::ParsingError, format!("Quote inner not found"))
+                    Error::new(ErrorKind::ParsingError, "Quote inner not found".to_string())
                 })?,
                 &MacroExpand::No,
             )?
@@ -217,7 +217,7 @@ fn parse(
                 value.into_inner().peek().ok_or_else(|| {
                     Error::new(
                         ErrorKind::ParsingError,
-                        format!("Sharpquote inner not found"),
+                        "Sharpquote inner not found".to_string(),
                     )
                 })?,
                 &MacroExpand::No,
@@ -229,7 +229,7 @@ fn parse(
             value: parse(
                 ctx,
                 value.into_inner().peek().ok_or_else(|| {
-                    Error::new(ErrorKind::ParsingError, format!("Splice inner not found"))
+                    Error::new(ErrorKind::ParsingError, "Splice inner not found".to_string())
                 })?,
                 if *expand_macros != MacroExpand::No {
                     &MacroExpand::Yes
@@ -272,7 +272,7 @@ fn parse(
                 .ok_or_else(|| {
                     Error::new(
                         ErrorKind::ParsingError,
-                        format!("parsing error: string inner not found"),
+                        "parsing error: string inner not found".to_string(),
                     )
                 })?
                 .as_span()

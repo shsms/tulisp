@@ -10,12 +10,12 @@ use crate::{destruct_bind, list};
 fn thread_first(ctx: &mut TulispContext, vv: TulispValueRef) -> Result<TulispValueRef, Error> {
     destruct_bind!((_name x &optional form &rest more) = vv);
     if form.is_null() {
-        Ok(x.clone())
+        Ok(x)
     } else if more.is_null() {
         if form.is_cons() {
             Ok(list!(,car(form.clone())? ,x.clone() ,@cdr(form.clone())?)?)
         } else {
-            Ok(list!(,form.clone() ,x.clone())?)
+            Ok(list!(,form ,x.clone())?)
         }
     } else {
         let inner = thread_first(ctx, list!(,Nil.into_ref() ,x.clone() ,form.clone())?)?;
@@ -26,12 +26,12 @@ fn thread_first(ctx: &mut TulispContext, vv: TulispValueRef) -> Result<TulispVal
 fn thread_last(ctx: &mut TulispContext, vv: TulispValueRef) -> Result<TulispValueRef, Error> {
     destruct_bind!((_name x &optional form &rest more) = vv);
     if form.is_null() {
-        Ok(x.clone())
+        Ok(x)
     } else if more.is_null() {
         if form.is_cons() {
-            Ok(list!(,@form.clone() ,x.clone())?)
+            Ok(list!(,@form ,x.clone())?)
         } else {
-            Ok(list!(,form.clone() ,x.clone())?)
+            Ok(list!(,form ,x.clone())?)
         }
     } else {
         let inner = thread_last(ctx, list!(,Nil.into_ref() ,x.clone() ,form.clone())?)?;
@@ -64,7 +64,7 @@ fn let_star(
         }
         Ok(TulispValue::List {
             cons: ret,
-            ctxobj: ctx.get_str(&"let".to_string()),
+            ctxobj: ctx.get_str("let"),
             span: None,
         }
         .into_ref())
