@@ -374,3 +374,13 @@ fn test_threading_macros() -> Result<(), Error> {
 
     Ok(())
 }
+
+#[test]
+fn test_typed_iter() -> Result<(), Error> {
+    let mut ctx = tulisp::new_context();
+
+    let list = ctx.eval_string("(list 10 20 30)").unwrap();
+    let iter: Iter<i64> = list.iter();
+    assert_eq!(iter.collect::<Vec<i64>>(), vec![10, 20, 30]);
+    Ok(())
+}

@@ -45,6 +45,9 @@ impl TulispValueRef {
     pub fn base_iter(&self) -> cons::BaseIter {
         self.rc.as_ref().borrow().base_iter()
     }
+    pub fn iter<T: std::convert::TryFrom<TulispValueRef>>(&self) -> cons::Iter<T> {
+        cons::Iter::new(self.base_iter())
+    }
     pub fn push(&self, val: TulispValueRef) -> Result<&TulispValueRef, Error> {
         self.rc.as_ref().borrow_mut().push(val).map(|_| self)
     }

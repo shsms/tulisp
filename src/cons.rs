@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::marker::PhantomData;
 use std::rc::Rc;
 
 use crate::context::ContextObject;
@@ -137,6 +138,31 @@ impl Iterator for BaseIter {
         } else {
             self.next = Cons::new();
             Some(car)
+        }
+    }
+}
+
+pub struct Iter<T: std::convert::TryFrom<TulispValueRef>> {
+    iter: BaseIter,
+    _d: PhantomData<T>,
+}
+
+impl<T: std::convert::TryFrom<TulispValueRef>> Iter<T> {
+    pub fn new(iter: BaseIter) -> Self{Self{iter, _d: Default::default()}}
+}
+
+impl<T: std::convert::TryFrom<TulispValueRef>> Iterator for Iter<T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(vv) = self.iter.next() {
+            if let Ok(rr) = vv.try_into() {
+                Some(rr)
+            } else {
+                std::panic::panic_any("Iter: unexpected type")
+            }
+        } else {
+            None
         }
     }
 }
