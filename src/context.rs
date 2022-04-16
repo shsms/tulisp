@@ -111,7 +111,7 @@ impl TulispContext {
 
     pub fn r#let(&mut self, varlist: TulispValueRef) -> Result<(), Error> {
         let mut local = HashMap::new();
-        for varitem in varlist.iter() {
+        for varitem in varlist.base_iter() {
             let (name, value) = if let Ok(name) = varitem.as_ident() {
                 (name, TulispValue::Nil.into_ref())
             } else if varitem.is_cons() {
@@ -165,7 +165,7 @@ impl TulispContext {
 
     pub fn eval_progn(&mut self, value: TulispValueRef) -> Result<TulispValueRef, Error> {
         let mut ret = TulispValue::Nil.into_ref();
-        for val in value.iter() {
+        for val in value.base_iter() {
             ret = eval(self, val)?;
         }
         Ok(ret)
@@ -173,7 +173,7 @@ impl TulispContext {
 
     pub fn eval_each(&mut self, value: TulispValueRef) -> Result<TulispValueRef, Error> {
         let mut ret = TulispValue::Nil;
-        for val in value.iter() {
+        for val in value.base_iter() {
             ret.push(eval(self, val)?)?;
         }
         Ok(ret.into_ref())

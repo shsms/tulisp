@@ -55,7 +55,7 @@ fn reduce_with(
     list: TulispValueRef,
     method: fn(TulispValueRef, TulispValueRef) -> Result<TulispValueRef, Error>,
 ) -> Result<TulispValueRef, Error> {
-    list.iter()
+    list.base_iter()
         .map(|x| eval(ctx, x))
         .reduce(|v1, v2| method(v1?, v2?))
         .unwrap_or_else(||Err(Error::new(
@@ -66,7 +66,7 @@ fn reduce_with(
 
 fn mark_tail_calls(name: TulispValueRef, body: TulispValueRef) -> Result<TulispValueRef, Error> {
     let mut ret = TulispValue::Nil;
-    let mut body_iter = body.iter();
+    let mut body_iter = body.base_iter();
     let mut tail = body_iter.next().unwrap(); // TODO: make safe
     for next in body_iter {
         ret.push(tail)?;
@@ -109,7 +109,7 @@ fn mark_tail_calls(name: TulispValueRef, body: TulispValueRef) -> Result<TulispV
     } else if tail_name_str == "cond" {
         destruct_bind!((_cond &rest conds) = tail);
         let mut ret = list!(,tail_ident)?;
-        for cond in conds.iter() {
+        for cond in conds.base_iter() {
             destruct_bind!((condition &rest body) = cond);
             ret = list!(,@ret
                         ,list!(,condition.clone()
@@ -150,7 +150,7 @@ pub fn add(ctx: &mut TulispContext) {
     fn div(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
         let args = rest.clone();
         destruct_bind!((_first &rest ohne_first) = args);
-        for ele in ohne_first.iter() {
+        for ele in ohne_first.base_iter() {
             if ele == TulispValue::from(0) || ele == TulispValue::from(0.0) {
                 return Err(Error::new(
                     ErrorKind::Undefined,
@@ -211,7 +211,7 @@ pub fn add(ctx: &mut TulispContext) {
     #[crate_fn_no_eval(add_func = "ctx")]
     fn concat(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
         let mut ret = String::new();
-        for ele in rest.iter() {
+        for ele in rest.base_iter() {
             match eval(ctx, ele.clone())?.as_string() {
                 Ok(ref s) => ret.push_str(s),
                 _ => {
@@ -227,7 +227,7 @@ pub fn add(ctx: &mut TulispContext) {
 
     #[crate_fn_no_eval(add_func = "ctx")]
     fn print(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
-        let mut iter = rest.iter();
+        let mut iter = rest.base_iter();
         let object = iter.next();
         if iter.next().is_some() {
             Err(Error::new(
@@ -253,7 +253,7 @@ pub fn add(ctx: &mut TulispContext) {
 
     #[crate_fn_no_eval(add_func = "ctx")]
     fn princ(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
-        let mut iter = rest.iter();
+        let mut iter = rest.base_iter();
         let object = iter.next();
         if iter.next().is_some() {
             Err(Error::new(
@@ -288,7 +288,7 @@ pub fn add(ctx: &mut TulispContext) {
 
     #[crate_fn_no_eval(add_func = "ctx")]
     fn cond(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
-        for item in rest.iter() {
+        for item in rest.base_iter() {
             destruct_bind!((condition &rest body) = item);
             if eval(ctx, condition)?.as_bool() {
                 return ctx.eval_progn(body);
@@ -420,7 +420,7 @@ pub fn add(ctx: &mut TulispContext) {
         rest: TulispValueRef,
     ) -> Result<TulispValueRef, Error> {
         let first = eval(ctx, first)?;
-        for ele in rest.iter() {
+        for ele in rest.base_iter() {
             first.append(eval(ctx, ele)?.deep_copy()?)?;
         }
         Ok(first)
@@ -459,7 +459,7 @@ pub fn add(ctx: &mut TulispContext) {
     fn list(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
         let (ctxobj, span) = (rest.ctxobj(), rest.span());
         let mut cons = Cons::new();
-        for ele in rest.iter() {
+        for ele in rest.base_iter() {
             cons.push(eval(ctx, ele)?)?;
         }
         Ok(TulispValue::List { cons, ctxobj, span }.into_ref())
@@ -481,7 +481,7 @@ pub fn add(ctx: &mut TulispContext) {
             Error::new(ErrorKind::Undefined, format!("Unknown predicate: {}", pred))
         })?;
         let seq = eval(ctx, seq)?;
-        let mut vec: Vec<_> = seq.iter().collect();
+        let mut vec: Vec<_> = seq.base_iter().collect();
         vec.sort_by(|v1, v2| {
             let vv = list!(,TulispValue::Nil.into_ref() ,v1.clone() ,v2.clone()).unwrap();
             vv.use_ctxobj(Some(pred.clone()));
@@ -513,7 +513,7 @@ pub fn add(ctx: &mut TulispContext) {
                     .with_span(alist.span()),
             );
         }
-        for kvpair in alist.iter() {
+        for kvpair in alist.base_iter() {
             if !kvpair.is_cons() {
                 return Err(Error::new(
                     ErrorKind::TypeMismatch,

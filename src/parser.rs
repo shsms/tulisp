@@ -43,7 +43,7 @@ pub fn macroexpand(ctx: &mut TulispContext, inp: TulispValueRef) -> Result<Tulis
         ctxobj: inp.ctxobj(),
         span: inp.span(),
     };
-    for item in inp.iter() {
+    for item in inp.base_iter() {
         let item = macroexpand(ctx, item)?;
         // TODO: switch to tailcall method to propagate inner spans.
         expr.push(item.clone())?;
@@ -72,7 +72,7 @@ pub fn macroexpand(ctx: &mut TulispContext, inp: TulispValueRef) -> Result<Tulis
 
 fn locate_all_func(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispValue, Error> {
     let mut ret = Cons::new();
-    for ele in expr.iter() {
+    for ele in expr.base_iter() {
         let next = match ele.clone_inner() {
             e @ TulispValue::List { ctxobj: None, .. } => {
                 let next = locate_all_func(ctx, e.to_owned())?;

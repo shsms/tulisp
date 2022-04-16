@@ -34,8 +34,8 @@ fn zip_function_args<E: Evaluator>(
     params: TulispValueRef,
     args: TulispValueRef,
 ) -> Result<Scope, Error> {
-    let mut args = args.iter();
-    let mut params = params.iter();
+    let mut args = args.base_iter();
+    let mut params = params.base_iter();
     let mut local = HashMap::new();
     let mut is_opt = false;
     let mut is_rest = false;

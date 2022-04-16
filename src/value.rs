@@ -175,7 +175,7 @@ impl TulispValue {
         TulispValue::Ident { value, span }
     }
 
-    pub fn iter(&self) -> cons::ConsIter {
+    pub fn base_iter(&self) -> cons::BaseIter {
         match self {
             TulispValue::List { cons, .. } => cons.iter(),
             _ => Cons::new().iter(),

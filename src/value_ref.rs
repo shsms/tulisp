@@ -42,8 +42,8 @@ impl TulispValueRef {
     pub fn assign(&self, vv: TulispValue) {
         *self.rc.as_ref().borrow_mut() = vv
     }
-    pub fn iter(&self) -> cons::ConsIter {
-        self.rc.as_ref().borrow().iter()
+    pub fn base_iter(&self) -> cons::BaseIter {
+        self.rc.as_ref().borrow().base_iter()
     }
     pub fn push(&self, val: TulispValueRef) -> Result<&TulispValueRef, Error> {
         self.rc.as_ref().borrow_mut().push(val).map(|_| self)

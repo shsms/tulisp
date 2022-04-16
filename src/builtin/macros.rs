@@ -58,7 +58,7 @@ fn let_star(
         if rest != TulispValue::Nil {
             ret.push(unwrap_varlist(ctx, rest, body)?)?;
         } else {
-            for ele in body.iter() {
+            for ele in body.base_iter() {
                 ret.push(ele.clone())?;
             }
         }

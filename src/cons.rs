@@ -91,8 +91,8 @@ impl Cons {
         Ok(self)
     }
 
-    pub fn iter(&self) -> ConsIter {
-        ConsIter { next: self.clone() }
+    pub fn iter(&self) -> BaseIter {
+        BaseIter { next: self.clone() }
     }
 
     pub(crate) fn car(&self) -> TulispValueRef {
@@ -119,11 +119,11 @@ impl Drop for Cons {
     }
 }
 
-pub struct ConsIter {
+pub struct BaseIter {
     next: Cons,
 }
 
-impl Iterator for ConsIter {
+impl Iterator for BaseIter {
     type Item = TulispValueRef;
 
     fn next(&mut self) -> Option<Self::Item> {
