@@ -401,9 +401,11 @@ impl TryInto<i64> for TulispValue {
     }
 }
 
-impl Into<bool> for TulispValue {
-    fn into(self) -> bool {
-        self.as_bool()
+impl TryFrom<TulispValue> for bool {
+    type Error = Error;
+
+    fn try_from(value: TulispValue) -> Result<Self, Self::Error> {
+        Ok(value.as_bool())
     }
 }
 

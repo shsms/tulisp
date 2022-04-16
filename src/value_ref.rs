@@ -4,7 +4,7 @@ use crate::{
     error::Error,
     value::{Span, TulispValue},
 };
-use std::{cell::RefCell, convert::TryInto, rc::Rc};
+use std::{cell::RefCell, rc::Rc};
 use tailcall::tailcall;
 
 #[derive(Debug, Clone)]
@@ -131,25 +131,35 @@ impl TulispValueRef {
     }
 }
 
-impl TryInto<f64> for TulispValueRef {
+impl TryFrom<TulispValueRef> for f64 {
     type Error = Error;
 
-    fn try_into(self) -> Result<f64, Error> {
-        self.rc.as_ref().borrow().try_float()
+    fn try_from(value: TulispValueRef) -> Result<Self, Self::Error> {
+        value.rc.as_ref().borrow().try_float()
     }
 }
 
-impl TryInto<i64> for TulispValueRef {
-    type Error = Error;
+impl TryFrom<TulispValueRef> for i64 {
+    type Error= Error;
 
-    fn try_into(self) -> Result<i64, Error> {
-        self.rc.as_ref().borrow().as_int()
+    fn try_from(value: TulispValueRef) -> Result<Self, Self::Error> {
+        value.rc.as_ref().borrow().as_int()
     }
 }
 
-impl Into<bool> for TulispValueRef {
-    fn into(self) -> bool {
-        self.rc.as_ref().borrow().as_bool()
+impl TryFrom<TulispValueRef> for String {
+    type Error = Error;
+
+    fn try_from(value: TulispValueRef) -> Result<Self, Self::Error> {
+        value.as_string()
+    }
+}
+
+impl TryFrom<TulispValueRef> for bool {
+    type Error = Error;
+
+    fn try_from(value: TulispValueRef) -> Result<Self, Self::Error> {
+        Ok(value.as_bool())
     }
 }
 
