@@ -381,6 +381,6 @@ fn test_typed_iter() -> Result<(), Error> {
 
     let list = ctx.eval_string("(list 10 20 30)").unwrap();
     let iter: Iter<i64> = list.iter();
-    assert_eq!(iter.collect::<Vec<i64>>(), vec![10, 20, 30]);
+    assert_eq!(iter.map(|x| x.unwrap()).collect::<Vec<i64>>(), vec![10, 20, 30]);
     Ok(())
 }

@@ -148,22 +148,28 @@ pub struct Iter<T: std::convert::TryFrom<TulispValueRef>> {
 }
 
 impl<T: std::convert::TryFrom<TulispValueRef>> Iter<T> {
-    pub fn new(iter: BaseIter) -> Self{Self{iter, _d: Default::default()}}
+    pub fn new(iter: BaseIter) -> Self {
+        Self {
+            iter,
+            _d: Default::default(),
+        }
+    }
 }
 
-impl<T: std::convert::TryFrom<TulispValueRef>> Iterator for Iter<T> {
-    type Item = T;
+impl<T: 'static + std::convert::TryFrom<TulispValueRef>> Iterator for Iter<T> {
+    type Item = Result<T, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(vv) = self.iter.next() {
-            if let Ok(rr) = vv.try_into() {
-                Some(rr)
-            } else {
-                std::panic::panic_any("Iter: unexpected type")
-            }
-        } else {
-            None
-        }
+        self.iter.next().map(|vv| {
+            vv.clone().try_into().map_err(|_| {
+                let tid = std::any::type_name::<T>();
+                Error::new(
+                    ErrorKind::TypeMismatch,
+                    format!("Iter<{}> can't handle {}", tid, vv),
+                )
+                .with_span(vv.span())
+            })
+        })
     }
 }
 
