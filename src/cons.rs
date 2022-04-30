@@ -93,7 +93,9 @@ impl Cons {
     }
 
     pub fn iter(&self) -> BaseIter {
-        BaseIter { next: self.clone() }
+        BaseIter {
+            next: Some(self.clone()),
+        }
     }
 
     pub(crate) fn car(&self) -> TulispValueRef {
@@ -121,23 +123,23 @@ impl Drop for Cons {
 }
 
 pub struct BaseIter {
-    next: Cons,
+    next: Option<Cons>,
 }
 
 impl Iterator for BaseIter {
     type Item = TulispValueRef;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let car = self.next.car.clone();
-        let cdr = self.next.cdr.clone();
-        if car == TulispValue::Uninitialized {
-            None
-        } else if let Some(cons) = cdr.as_list_cons() {
-            self.next = cons;
-            Some(car)
-        } else {
-            self.next = Cons::new();
-            Some(car)
+        match &self.next {
+            Some(next) => {
+                if next.car == TulispValue::Uninitialized {
+                    return None;
+                }
+                let car = next.car.clone();
+                self.next = next.cdr.as_list_cons();
+                Some(car)
+            }
+            _ => None,
         }
     }
 }
