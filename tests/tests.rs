@@ -1,11 +1,11 @@
 use tulisp::parser::parse_string;
+use tulisp::tulisp_fn;
 use tulisp::{cons::*, error::Error};
 
 macro_rules! tulisp_assert {
-    (program:$input:expr, result:$result:expr $(,)?) => {
-        let mut ctx = tulisp::new_context();
-        let output = ctx.eval_string($input)?;
-        let expected = parse_string(&mut ctx, $result)?;
+    (@impl $ctx: expr, program:$input:expr, result:$result:expr $(,)?) => {
+        let output = $ctx.eval_string($input)?;
+        let expected = parse_string(&mut $ctx, $result)?;
         let expected = car(expected.into_ref())?;
         assert!(
             output == expected,
@@ -15,11 +15,17 @@ macro_rules! tulisp_assert {
             expected
         );
     };
-    (program:$input:expr, error:$desc:expr $(,)?) => {
-        let mut ctx = tulisp::new_context();
-        let output = ctx.eval_string($input);
+    (@impl $ctx: expr, program:$input:expr, error:$desc:expr $(,)?) => {
+        let output = $ctx.eval_string($input);
         assert!(output.is_err());
         assert_eq!(output.unwrap_err().to_string(), $desc);
+    };
+    (ctx: $ctx: expr, program: $($tail:tt)+) => {
+        tulisp_assert!(@impl $ctx, program: $($tail)+)
+    };
+    (program: $($tail:tt)+) => {
+        let mut ctx = tulisp::new_context();
+        tulisp_assert!(ctx: ctx, program: $($tail)+)
     };
 }
 
@@ -379,8 +385,55 @@ fn test_threading_macros() -> Result<(), Error> {
 fn test_typed_iter() -> Result<(), Error> {
     let mut ctx = tulisp::new_context();
 
-    let list = ctx.eval_string("(list 10 20 30)").unwrap();
-    let iter: Iter<i64> = list.iter();
-    assert_eq!(iter.map(|x| x.unwrap()).collect::<Vec<i64>>(), vec![10, 20, 30]);
+    #[tulisp_fn(add_func = "ctx")]
+    fn add_ints(ints: Option<Iter<i64>>) -> Result<i64, Error> {
+        Ok(match ints {
+            Some(ints) => {
+                let mut sums = 0;
+                for next in ints {
+                    sums += next?;
+                }
+                sums
+            }
+            None => -1,
+        })
+    }
+
+    #[tulisp_fn(add_func = "ctx")]
+    fn add_ints_no_default(ints: Iter<i64>) -> Result<i64, Error> {
+        Ok({
+            let mut sums = 0;
+            for next in ints {
+                sums += next?;
+            }
+            sums
+        })
+    }
+
+    tulisp_assert! {
+        ctx: ctx,
+        program: "(add_ints_no_default '(10 20 30))",
+        result: "60",
+    }
+    tulisp_assert! {
+        ctx: ctx,
+        program: "(add_ints '(10 20 30))",
+        result: "60",
+    }
+    tulisp_assert! {
+        ctx: ctx,
+        program: "(add_ints)",
+        result: "-1",
+    }
+    tulisp_assert! {
+        ctx: ctx,
+        program: "(add_ints_no_default 20)",
+        error: "ERROR:TypeMismatch: In call to \"add_ints_no_default\", arg \"ints\" needs to be a list, in Some(Span { start: 21, end: 23 })",
+    }
+    tulisp_assert! {
+        ctx: ctx,
+        program: "(add_ints 20)",
+        error: "ERROR:TypeMismatch: In call to \"add_ints\", arg \"ints\" needs to be a list, in Some(Span { start: 10, end: 12 })",
+    }
     Ok(())
 }

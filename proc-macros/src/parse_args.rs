@@ -1,5 +1,5 @@
 use proc_macro::{self, TokenStream};
-use proc_macro2::{TokenStream as TokenStream2};
+use proc_macro2::TokenStream as TokenStream2;
 use quote::{quote, spanned::Spanned, ToTokens};
 use syn::{FnArg, ItemFn, PatType};
 
@@ -19,6 +19,7 @@ struct ArgInfo {
     /// argument type, with Optional, Iter stripped out
     val_ty: syn::Type,
     optional: bool,
+    iter: bool,
     ctx: bool,
     rest: bool,
     extract_stmts: TokenStream2,
@@ -72,6 +73,17 @@ impl ArgInfo {
             self.rest = true;
         }
         self.rest
+    }
+
+    fn is_iter(&mut self) -> Result<bool, TokenStream> {
+        let (type_name, generic_type) = parse_type_path(&self.val_ty)?;
+        if type_name == "Iter" {
+            if generic_type.is_none() {
+                tulisp_compile_error!(self.val_ty, "Iter parameters must have a generic type.");
+            }
+            self.iter = true;
+        }
+        Ok(self.iter)
     }
 }
 
@@ -129,6 +141,7 @@ fn process_arg(
         ty: arg_type.clone(),
         val_ty: arg_type,
         optional: false,
+        iter: false,
         ctx: false,
         rest: false,
         extract_stmts: quote!(),
@@ -161,29 +174,69 @@ fn process_arg(
         );
     }
 
-    let ty_extractor = match arg_info.val_ty.to_token_stream().to_string().as_str() {
-        "i64" | "f64" | "String" | "bool" => {
-            if optional {
-                quote! {(|x: #crate_name::value_ref::TulispValueRef|if x == #crate_name::value::TulispValue::Nil { Ok(None)} else {Ok(Some(x.try_into()?))})}
-            } else {
-                quote! {(|x: #crate_name::value_ref::TulispValueRef| x.try_into())}
+    let ty_extractor = if arg_info.is_iter()? {
+        if optional {
+            quote! {(
+                |x: #crate_name::value_ref::TulispValueRef| {
+                    if x == #crate_name::value::TulispValue::Nil {
+                        Ok(None)
+                    } else if !x.is_cons() {
+                        Err(#crate_name::error::Error::new(
+                            #crate_name::error::ErrorKind::TypeMismatch,
+                            format!(
+                                "In call to {}, arg \"{}\" needs to be a list",
+                                stringify!(#fn_name),
+                                stringify!(#arg_name)
+                            )
+                        ).with_span(x.span()))
+                    } else {
+                        Ok(Some(x.iter()))
+                    }
+                })
             }
+        } else {
+            quote! {(
+                |x: #crate_name::value_ref::TulispValueRef| {
+                    if !x.is_cons() {
+                        Err(#crate_name::error::Error::new(
+                            #crate_name::error::ErrorKind::TypeMismatch,
+                            format!(
+                                "In call to {}, arg \"{}\" needs to be a list",
+                                stringify!(#fn_name),
+                                stringify!(#arg_name)
+                            )
+                        ).with_span(x.span()))
+                    } else {
+                        Ok(x.iter())
+                    }
+                }
+            )}
         }
-        "TulispValueRef" => {
-            if optional {
-                quote! {(|x: #crate_name::value_ref::TulispValueRef|if x == #crate_name::value::TulispValue::Nil { Ok(None)} else {Ok(x.into())})}
-            } else {
-                quote! {(|x: #crate_name::value_ref::TulispValueRef| Ok(x.into()))}
+    } else {
+        match arg_info.val_ty.to_token_stream().to_string().as_str() {
+            "i64" | "f64" | "String" | "bool" => {
+                if optional {
+                    quote! {(|x: #crate_name::value_ref::TulispValueRef|if x == #crate_name::value::TulispValue::Nil { Ok(None)} else {Ok(Some(x.try_into()?))})}
+                } else {
+                    quote! {(|x: #crate_name::value_ref::TulispValueRef| x.try_into())}
+                }
             }
-        }
-        _ => {
-            tulisp_compile_error!(
-                arg_info.ty,
-                format!(
-                    "Unknown type: {}",
-                    arg_info.ty.to_token_stream().to_string()
-                )
-            );
+            "TulispValueRef" => {
+                if optional {
+                    quote! {(|x: #crate_name::value_ref::TulispValueRef|if x == #crate_name::value::TulispValue::Nil { Ok(None)} else {Ok(x.into())})}
+                } else {
+                    quote! {(|x: #crate_name::value_ref::TulispValueRef| Ok(x.into()))}
+                }
+            }
+            _ => {
+                tulisp_compile_error!(
+                    arg_info.ty,
+                    format!(
+                        "Unknown type: {}",
+                        arg_info.ty.to_token_stream().to_string()
+                    )
+                );
+            }
         }
     };
 
