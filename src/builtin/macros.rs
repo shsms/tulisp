@@ -71,8 +71,7 @@ fn let_star(
     unwrap_varlist(ctx, varlist, rest)
 }
 
-pub fn add(ctx: &mut TulispContext) {
-    // TODO: crate_fn needs to implement Optional, before threading macros can be transitioned.
+pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.set_str("->".to_string(), ContextObject::Macro(thread_first))
         .unwrap();
     ctx.set_str(

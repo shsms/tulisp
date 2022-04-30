@@ -122,7 +122,7 @@ fn mark_tail_calls(name: TulispValueRef, body: TulispValueRef) -> Result<TulispV
     Ok(ret.into_ref())
 }
 
-pub fn add(ctx: &mut TulispContext) {
+pub(crate) fn add(ctx: &mut TulispContext) {
     #[crate_fn_no_eval(add_func = "ctx", name = "+")]
     fn add(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
         reduce_with(ctx, rest, binary_ops!(std::ops::Add::add))
@@ -559,13 +559,4 @@ pub fn add(ctx: &mut TulispContext) {
             Ok(default_value.unwrap_or_else(|| TulispValue::Nil.into_ref()))
         }
     }
-
-    /*
-    ctx.insert(
-        "".to_string(),
-        Rc::new(RefCell::new(ContextObject::Func(|ctx, vv| {
-
-        })))
-    );
-    */
 }
