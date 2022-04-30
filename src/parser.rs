@@ -6,7 +6,6 @@ use crate::cons::{car, cdr};
 use crate::context::{ContextObject, TulispContext};
 use crate::eval::{eval, eval_defmacro};
 use crate::{
-    cons::Cons,
     error::{Error, ErrorKind},
     value::{Span, TulispValue},
     value_ref::TulispValueRef,
@@ -19,7 +18,7 @@ struct TulispParser;
 pub fn parse_string(ctx: &mut TulispContext, string: &str) -> Result<TulispValue, Error> {
     let p = TulispParser::parse(Rule::program, string);
 
-    let mut list = Cons::new();
+    let mut list = TulispValue::Nil;
     for ele in p.unwrap() {
         let p = match parse(ctx, ele, &MacroExpand::Yes)? {
             p @ TulispValue::List { .. } => locate_all_func(ctx, p)?,
@@ -27,27 +26,20 @@ pub fn parse_string(ctx: &mut TulispContext, string: &str) -> Result<TulispValue
         };
         list.push(p.into_ref())?;
     }
-    Ok(TulispValue::List {
-        cons: list,
-        ctxobj: None,
-        span: None,
-    })
+    Ok(list)
 }
 
 pub fn macroexpand(ctx: &mut TulispContext, inp: TulispValueRef) -> Result<TulispValueRef, Error> {
     if !inp.is_cons() {
         return Ok(inp);
     }
-    let mut expr = TulispValue::List {
-        cons: Cons::new(),
-        ctxobj: inp.ctxobj(),
-        span: inp.span(),
-    };
+    let mut expr = TulispValue::Nil;
     for item in inp.base_iter() {
         let item = macroexpand(ctx, item)?;
         // TODO: switch to tailcall method to propagate inner spans.
         expr.push(item.clone())?;
     }
+    expr.with_ctxobj(inp.ctxobj()).with_span(inp.span());
     let expr = expr.into_ref();
     let name = match car(expr.clone())?.as_ident() {
         Ok(id) => id,
@@ -71,7 +63,7 @@ pub fn macroexpand(ctx: &mut TulispContext, inp: TulispValueRef) -> Result<Tulis
 }
 
 fn locate_all_func(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispValue, Error> {
-    let mut ret = Cons::new();
+    let mut ret = TulispValue::Nil;
     for ele in expr.base_iter() {
         let next = match ele.clone_inner() {
             e @ TulispValue::List { ctxobj: None, .. } => {
@@ -82,11 +74,8 @@ fn locate_all_func(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispV
         };
         ret.push(next.into_ref())?;
     }
-    Ok(TulispValue::List {
-        cons: ret,
-        ctxobj: None,
-        span: Span::from(&expr),
-    })
+    ret.with_span(Span::from(&expr));
+    Ok(ret)
 }
 
 fn locate_func(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispValue, Error> {
@@ -128,19 +117,14 @@ fn parse(
 ) -> Result<TulispValue, Error> {
     match value.as_rule() {
         Rule::form => {
-            let mut list = Cons::new();
+            let list = TulispValue::Nil.into_ref();
             let span: Span = value.as_span().into();
             value
                 .into_inner()
                 .map(|item| parse(ctx, item, expand_macros))
                 .map(|val| -> Result<(), Error> { list.push(val?.into_ref()).map(|_| ()) })
                 .fold(Ok(()), |v1, v2| v1.and(v2))?;
-            let expr = TulispValue::List {
-                cons: list,
-                ctxobj: None,
-                span: Some(span),
-            }
-            .into_ref();
+            let expr = list.with_span(Some(span));
             let name = match car(expr.clone())?.clone_inner() {
                 TulispValue::Ident { value, .. } => value,
                 _ => return Ok(expr.clone_inner()),

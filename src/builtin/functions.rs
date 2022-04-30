@@ -58,10 +58,12 @@ fn reduce_with(
     list.base_iter()
         .map(|x| eval(ctx, x))
         .reduce(|v1, v2| method(v1?, v2?))
-        .unwrap_or_else(||Err(Error::new(
-            ErrorKind::TypeMismatch,
-            "Incorrect number of arguments: 0".to_string(),
-        )))
+        .unwrap_or_else(|| {
+            Err(Error::new(
+                ErrorKind::TypeMismatch,
+                "Incorrect number of arguments: 0".to_string(),
+            ))
+        })
 }
 
 fn mark_tail_calls(name: TulispValueRef, body: TulispValueRef) -> Result<TulispValueRef, Error> {
@@ -83,14 +85,11 @@ fn mark_tail_calls(name: TulispValueRef, body: TulispValueRef) -> Result<TulispV
     let tail_ident = car(tail.clone())?;
     let tail_name_str = tail_ident.as_ident()?;
     let new_tail = if tail_ident == name {
-        let ret_tail = TulispValue::List {
-            cons: Cons::new(),
-            ctxobj: None,
-            span,
-        }
-        .append(cdr(tail)?)?
-        .to_owned()
-        .into_ref();
+        let ret_tail = TulispValue::Nil
+            .into_ref()
+            .append(cdr(tail)?)?
+            .to_owned()
+            .with_span(span);
         list!(,TulispValue::ident_from("list".to_string(),  None).into_ref()
               ,TulispValue::Bounce.into_ref()
               ,@ret_tail)?
@@ -458,11 +457,19 @@ pub fn add(ctx: &mut TulispContext) {
     #[crate_fn_no_eval(add_func = "ctx")]
     fn list(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
         let (ctxobj, span) = (rest.ctxobj(), rest.span());
-        let mut cons = Cons::new();
+        let mut cons: Option<Cons> = None;
         for ele in rest.base_iter() {
-            cons.push(eval(ctx, ele)?)?;
+            match cons {
+                Some(ref mut cons) => {
+                    cons.push(eval(ctx, ele)?)?;
+                }
+                None => cons = Some(Cons::new(eval(ctx, ele)?, TulispValue::Nil.into_ref())),
+            }
         }
-        Ok(TulispValue::List { cons, ctxobj, span }.into_ref())
+        match cons {
+            Some(cons) => Ok(TulispValue::List { cons, ctxobj, span }.into_ref()),
+            None => Ok(TulispValue::Nil.into_ref()),
+        }
     }
 
     #[crate_fn(add_func = "ctx")]
@@ -487,7 +494,7 @@ pub fn add(ctx: &mut TulispContext) {
             vv.use_ctxobj(Some(pred.clone()));
 
             if eval(ctx, vv)
-                .unwrap_or_else(|_|TulispValue::Nil.into_ref())
+                .unwrap_or_else(|_| TulispValue::Nil.into_ref())
                 .as_bool()
             {
                 Ordering::Less

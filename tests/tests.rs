@@ -4,12 +4,17 @@ use tulisp::{cons::*, error::Error};
 
 macro_rules! tulisp_assert {
     (@impl $ctx: expr, program:$input:expr, result:$result:expr $(,)?) => {
-        let output = $ctx.eval_string($input)?;
+        let output = $ctx.eval_string($input).map_err(|err| {
+            println!("{}:{}: execution failed: {}", file!(), line!(),err.to_string());
+            err
+        })?;
         let expected = parse_string(&mut $ctx, $result)?;
         let expected = car(expected.into_ref())?;
         assert!(
             output == expected,
-            "\n  program: {}\n  output: {},\n  expected: {}\n",
+            "\n{}:{}: program: {}\n  output: {},\n  expected: {}\n",
+            file!(),
+            line!(),
             $input,
             output,
             expected

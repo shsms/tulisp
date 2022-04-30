@@ -17,11 +17,8 @@ pub struct Cons {
 }
 
 impl Cons {
-    pub fn new() -> Self {
-        Cons {
-            car: TulispValue::Uninitialized.into_ref(),
-            cdr: TulispValue::Uninitialized.into_ref(),
-        }
+    pub fn new(car: TulispValueRef, cdr: TulispValueRef) -> Self {
+        Cons { car, cdr }
     }
 
     pub fn push(&mut self, val: TulispValueRef) -> Result<&mut Self, Error> {
@@ -37,7 +34,7 @@ impl Cons {
         if self.car == TulispValue::Uninitialized {
             *self = Cons {
                 car: val,
-                cdr: TulispValue::Uninitialized.into_ref(),
+                cdr: TulispValue::Nil.into_ref(),
             };
             return Ok(self);
         }
@@ -46,11 +43,11 @@ impl Cons {
         while last.is_cons() {
             last = cdr(last)?;
         }
-        if last == TulispValue::Uninitialized {
+        if last == TulispValue::Uninitialized || last == TulispValue::Nil {
             last.assign(TulispValue::List {
                 cons: Cons {
                     car: val,
-                    cdr: TulispValue::Uninitialized.into_ref(),
+                    cdr: TulispValue::Nil.into_ref(),
                 },
                 ctxobj,
                 span,
@@ -71,7 +68,7 @@ impl Cons {
             } else {
                 *self = Cons {
                     car: val,
-                    cdr: TulispValue::Uninitialized.into_ref(),
+                    cdr: TulispValue::Nil.into_ref(),
                 };
             }
             return Ok(self);
@@ -81,7 +78,7 @@ impl Cons {
         while last.is_cons() {
             last = cdr(last)?;
         }
-        if last == TulispValue::Uninitialized {
+        if last == TulispValue::Uninitialized || last == TulispValue::Nil {
             last.assign(val.clone_inner());
         } else {
             return Err(Error::new(
@@ -122,6 +119,7 @@ impl Drop for Cons {
     }
 }
 
+#[derive(Default)]
 pub struct BaseIter {
     next: Option<Cons>,
 }

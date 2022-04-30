@@ -100,6 +100,10 @@ impl TulispValueRef {
     pub fn ctxobj(&self) -> Option<Rc<RefCell<ContextObject>>> {
         self.rc.as_ref().borrow().ctxobj()
     }
+    pub fn with_span(&self, in_span: Option<Span>) -> Self {
+        self.rc.as_ref().borrow_mut().with_span(in_span);
+        self.clone()
+    }
     pub fn span(&self) -> Option<Span> {
         self.rc.as_ref().borrow().span()
     }
@@ -108,11 +112,7 @@ impl TulispValueRef {
     }
 
     pub fn deep_copy(&self) -> Result<TulispValueRef, Error> {
-        let mut ret = TulispValue::List {
-            cons: Cons::new(),
-            ctxobj: self.ctxobj(),
-            span: self.span(),
-        };
+        let mut ret = TulispValue::Nil;
         #[allow(unreachable_code)]
         #[tailcall]
         fn deep_copy_impl(val: TulispValueRef, ret: &mut TulispValue) -> Result<(), Error> {
@@ -129,6 +129,7 @@ impl TulispValueRef {
             deep_copy_impl(rest, ret)
         }
         deep_copy_impl(self.clone(), &mut ret)?;
+        ret.with_ctxobj(self.ctxobj()).with_span(self.span());
         let ret = ret.into_ref();
         Ok(ret)
     }

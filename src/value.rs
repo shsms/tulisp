@@ -178,7 +178,7 @@ impl TulispValue {
     pub fn base_iter(&self) -> cons::BaseIter {
         match self {
             TulispValue::List { cons, .. } => cons.iter(),
-            _ => Cons::new().iter(),
+            _ => cons::BaseIter::default(),
         }
     }
 
@@ -197,8 +197,7 @@ impl TulispValue {
                 .map_err(|e| e.with_span(span.clone()))?;
             Ok(self)
         } else if *self == TulispValue::Uninitialized || *self == TulispValue::Nil {
-            let mut cons = Cons::new();
-            cons.push(val)?;
+            let cons = Cons::new(val, TulispValue::Nil.into_ref());
             *self = TulispValue::List {
                 cons,
                 ctxobj,
@@ -218,13 +217,15 @@ impl TulispValue {
             cons.append(val).map_err(|e| e.with_span(span.clone()))?;
             Ok(self)
         } else if *self == TulispValue::Uninitialized || *self == TulispValue::Nil {
-            let mut cons = Cons::new();
-            cons.append(val)?;
-            *self = TulispValue::List {
-                cons,
-                ctxobj: None,
-                span: None,
-            };
+            if val != TulispValue::Nil {
+                *self = TulispValue::List {
+                    cons: val
+                        .as_list_cons()
+                        .unwrap_or_else(|| Cons::new(val, TulispValue::Nil.into_ref())),
+                    ctxobj: None,
+                    span: None,
+                };
+            }
             Ok(self)
         } else {
             Err(Error::new(
@@ -249,6 +250,7 @@ impl TulispValue {
     pub fn as_list_car(&self) -> Option<TulispValueRef> {
         match self {
             TulispValue::List { cons, .. } => Some(cons.car()),
+            TulispValue::Nil => Some(TulispValue::Nil.into_ref()),
             _ => None,
         }
     }
@@ -256,6 +258,7 @@ impl TulispValue {
     pub fn as_list_cdr(&self) -> Option<TulispValueRef> {
         match self {
             TulispValue::List { cons, .. } => Some(cons.cdr()),
+            TulispValue::Nil => Some(TulispValue::Nil.into_ref()),
             _ => None,
         }
     }
@@ -337,11 +340,7 @@ impl TulispValue {
     }
 
     pub fn new_list() -> TulispValue {
-        TulispValue::List {
-            cons: Cons::new(),
-            ctxobj: None,
-            span: None,
-        }
+        TulispValue::Nil
     }
 
     pub fn use_ctxobj(&mut self, co: Option<Rc<RefCell<ContextObject>>>) {
@@ -357,11 +356,25 @@ impl TulispValue {
         }
     }
 
+    pub fn with_ctxobj(&mut self, in_ctxobj: Option<Rc<RefCell<ContextObject>>>) -> &mut Self {
+        if let TulispValue::List { ctxobj, .. } = self {
+            *ctxobj = in_ctxobj
+        }
+        self
+    }
+
     pub fn ctxobj(&self) -> Option<Rc<RefCell<ContextObject>>> {
         match self {
             TulispValue::List { ctxobj, .. } => ctxobj.to_owned(),
             _ => None,
         }
+    }
+
+    pub fn with_span(&mut self, in_span: Option<Span>) -> &mut Self {
+        if let TulispValue::List { span, .. } = self {
+            *span = in_span
+        }
+        self
     }
 
     pub fn span(&self) -> Option<Span> {
