@@ -73,10 +73,10 @@ fn zip_function_args<E: Evaluator>(
         } else if let Some(vv) = args_iter.next() {
             E::eval(ctx, vv)?
         } else {
-            return Err(Error::new(
-                ErrorKind::TypeMismatch,
-                "Too few arguments".to_string(),
-            ).with_span(args.span()));
+            return Err(
+                Error::new(ErrorKind::TypeMismatch, "Too few arguments".to_string())
+                    .with_span(args.span()),
+            );
         };
         local.insert(name, Rc::new(RefCell::new(ContextObject::TulispValue(val))));
         if is_rest {

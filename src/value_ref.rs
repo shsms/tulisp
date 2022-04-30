@@ -144,7 +144,7 @@ impl TryFrom<TulispValueRef> for f64 {
 }
 
 impl TryFrom<TulispValueRef> for i64 {
-    type Error= Error;
+    type Error = Error;
 
     fn try_from(value: TulispValueRef) -> Result<Self, Self::Error> {
         value.rc.as_ref().borrow().as_int()

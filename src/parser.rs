@@ -173,7 +173,10 @@ fn parse(
             value: parse(
                 ctx,
                 value.into_inner().peek().ok_or_else(|| {
-                    Error::new(ErrorKind::ParsingError, "Unquote inner not found".to_string())
+                    Error::new(
+                        ErrorKind::ParsingError,
+                        "Unquote inner not found".to_string(),
+                    )
                 })?,
                 if *expand_macros != MacroExpand::No {
                     &MacroExpand::Yes
@@ -213,7 +216,10 @@ fn parse(
             value: parse(
                 ctx,
                 value.into_inner().peek().ok_or_else(|| {
-                    Error::new(ErrorKind::ParsingError, "Splice inner not found".to_string())
+                    Error::new(
+                        ErrorKind::ParsingError,
+                        "Splice inner not found".to_string(),
+                    )
                 })?,
                 if *expand_macros != MacroExpand::No {
                     &MacroExpand::Yes
