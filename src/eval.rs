@@ -199,9 +199,7 @@ pub(crate) fn eval(ctx: &mut TulispContext, expr: TulispValueRef) -> Result<Tuli
                 let (first, rest) = (car(vv.clone())?, cdr(vv)?);
                 let first_inner = first.clone_inner();
                 let rest_inner = rest.clone_inner();
-                if first_inner == TulispValue::Uninitialized {
-                    return Ok(());
-                } else if let TulispValue::Unquote { value, span } = first_inner {
+                if let TulispValue::Unquote { value, span } = first_inner {
                     ret.push(eval(ctx, value.clone()).map_err(|e| e.with_span(span.clone()))?)
                         .map_err(|e| e.with_span(span))?;
                 } else if let TulispValue::Splice { value, span } = first_inner {
@@ -239,10 +237,6 @@ pub(crate) fn eval(ctx: &mut TulispContext, expr: TulispValueRef) -> Result<Tuli
         TulispValue::Unquote { .. } => Err(Error::new(
             ErrorKind::TypeMismatch,
             "Unquote without backquote".to_string(),
-        )),
-        TulispValue::Uninitialized => Err(Error::new(
-            ErrorKind::Uninitialized,
-            "Attempt to process uninitialized value".to_string(),
         )),
         TulispValue::Bounce => Ok(expr),
         TulispValue::Splice { .. } => Err(Error::new(

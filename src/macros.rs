@@ -36,22 +36,22 @@ macro_rules! destruct_bind {
     };
     (@reqr $vv:ident,) => {};
     (@no-rest $vv:ident) => {
-        if $vv != TulispValue::Uninitialized {
+        if $vv != TulispValue::Nil {
             return Err(Error::new(ErrorKind::TypeMismatch,"Too many arguments".to_string(), ));
         }
     };
     (@rest $rest:ident $vv:ident) => {
-        let $rest = if $vv == TulispValue::Uninitialized {
+        let $rest = if $vv == TulispValue::Nil {
             TulispValue::Nil.into_ref()
         } else {
             $vv
         };
     };
     (@optvar $vv:ident, $var:ident) => {
-        let ($var, $vv) = if $vv != TulispValue::Uninitialized {
+        let ($var, $vv) = if $vv != TulispValue::Nil {
             (car($vv.clone())?, cdr($vv)?)
         } else {
-            (TulispValue::Nil.into_ref(), TulispValue::Uninitialized.into_ref())
+            (TulispValue::Nil.into_ref(), TulispValue::Nil.into_ref())
         };
     };
     (@optvar $vv:ident, $var:ident $($vars:ident)+) => {

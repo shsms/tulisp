@@ -35,7 +35,6 @@ impl From<pest::Span<'_>> for Span {
 
 #[derive(Debug, Clone)]
 pub enum TulispValue {
-    Uninitialized,
     Nil,
     Ident {
         value: String,
@@ -118,7 +117,6 @@ macro_rules! FALSE {
 impl std::fmt::Display for TulispValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TulispValue::Uninitialized => f.write_str(""),
             TulispValue::Bounce => f.write_str("Bounce"),
             TulispValue::Nil { .. } => f.write_str("nil"),
             TulispValue::Ident { value, .. } => f.write_str(value),
@@ -139,17 +137,13 @@ impl std::fmt::Display for TulispValue {
                     add_space: &mut bool,
                     vv: TulispValueRef,
                 ) -> Result<(), Error> {
-                    let (first, rest) = (car(vv.clone())?, cdr(vv.clone())?);
-                    if first == TulispValue::Uninitialized {
-                        return Ok(());
-                    } else {
-                        if *add_space {
-                            ret.push(' ');
-                        }
-                        *add_space = true;
-                        ret.push_str(&format!("{}", car(vv)?));
+                    let rest = cdr(vv.clone())?;
+                    if *add_space {
+                        ret.push(' ');
                     }
-                    if rest == TulispValue::Nil || rest == TulispValue::Uninitialized {
+                    *add_space = true;
+                    ret.push_str(&format!("{}", car(vv)?));
+                    if rest == TulispValue::Nil {
                         return Ok(());
                     } else if !rest.is_cons() {
                         ret.push_str(&format!(" . {}", rest));
@@ -196,7 +190,7 @@ impl TulispValue {
             cons.push_with_meta(val, span_in, ctxobj)
                 .map_err(|e| e.with_span(span.clone()))?;
             Ok(self)
-        } else if *self == TulispValue::Uninitialized || *self == TulispValue::Nil {
+        } else if *self == TulispValue::Nil {
             let cons = Cons::new(val, TulispValue::Nil.into_ref());
             *self = TulispValue::List {
                 cons,
@@ -216,7 +210,7 @@ impl TulispValue {
         if let TulispValue::List { cons, span, .. } = self {
             cons.append(val).map_err(|e| e.with_span(span.clone()))?;
             Ok(self)
-        } else if *self == TulispValue::Uninitialized || *self == TulispValue::Nil {
+        } else if *self == TulispValue::Nil {
             if val != TulispValue::Nil {
                 *self = TulispValue::List {
                     cons: val
@@ -306,14 +300,9 @@ impl TulispValue {
             .with_span(self.span())),
         }
     }
+
     pub fn as_bool(&self) -> bool {
-        match self {
-            TulispValue::Nil | TulispValue::Uninitialized => false,
-            c => match car(c.clone().into_ref()) {
-                Ok(tt) => tt != TulispValue::Uninitialized,
-                Err(_) => true,
-            },
-        }
+        !matches!(self, TulispValue::Nil)
     }
 
     pub fn is_null(&self) -> bool {
@@ -394,7 +383,7 @@ impl TulispValue {
     }
 
     pub fn take(&mut self) -> TulispValue {
-        std::mem::replace(self, TulispValue::Uninitialized)
+        std::mem::replace(self, TulispValue::Nil)
     }
 }
 

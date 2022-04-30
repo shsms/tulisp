@@ -31,19 +31,12 @@ impl Cons {
         span: Option<Span>,
         ctxobj: Option<Rc<RefCell<ContextObject>>>,
     ) -> Result<&mut Self, Error> {
-        if self.car == TulispValue::Uninitialized {
-            *self = Cons {
-                car: val,
-                cdr: TulispValue::Nil.into_ref(),
-            };
-            return Ok(self);
-        }
         let mut last = self.cdr.clone();
 
         while last.is_cons() {
             last = cdr(last)?;
         }
-        if last == TulispValue::Uninitialized || last == TulispValue::Nil {
+        if last == TulispValue::Nil {
             last.assign(TulispValue::List {
                 cons: Cons {
                     car: val,
@@ -62,23 +55,12 @@ impl Cons {
     }
 
     pub fn append(&mut self, val: TulispValueRef) -> Result<&mut Self, Error> {
-        if self.car == TulispValue::Uninitialized {
-            if let Some(cons) = val.as_list_cons() {
-                *self = cons;
-            } else {
-                *self = Cons {
-                    car: val,
-                    cdr: TulispValue::Nil.into_ref(),
-                };
-            }
-            return Ok(self);
-        }
         let mut last = self.cdr.clone();
 
         while last.is_cons() {
             last = cdr(last)?;
         }
-        if last == TulispValue::Uninitialized || last == TulispValue::Nil {
+        if last == TulispValue::Nil {
             last.assign(val.clone_inner());
         } else {
             return Err(Error::new(
@@ -130,9 +112,6 @@ impl Iterator for BaseIter {
     fn next(&mut self) -> Option<Self::Item> {
         match &self.next {
             Some(next) => {
-                if next.car == TulispValue::Uninitialized {
-                    return None;
-                }
                 let car = next.car.clone();
                 self.next = next.cdr.as_list_cons();
                 Some(car)
