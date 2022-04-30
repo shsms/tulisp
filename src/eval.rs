@@ -34,12 +34,12 @@ fn zip_function_args<E: Evaluator>(
     params: TulispValueRef,
     args: TulispValueRef,
 ) -> Result<Scope, Error> {
-    let mut args = args.base_iter();
-    let mut params = params.base_iter();
+    let mut args_iter = args.base_iter();
+    let mut params_iter = params.base_iter();
     let mut local = HashMap::new();
     let mut is_opt = false;
     let mut is_rest = false;
-    while let Some(param) = params.next() {
+    while let Some(param) = params_iter.next() {
         let name = match param.as_symbol() {
             Ok(vv) => vv,
             Err(e) => return Err(e),
@@ -53,16 +53,16 @@ fn zip_function_args<E: Evaluator>(
             continue;
         }
         let val = if is_opt {
-            match args.next() {
+            match args_iter.next() {
                 Some(vv) => E::eval(ctx, vv)?,
                 None => TulispValue::Nil.into_ref(),
             }
         } else if is_rest {
             let mut ret = TulispValue::Nil;
-            for arg in args.by_ref() {
+            for arg in args_iter.by_ref() {
                 ret.push(E::eval(ctx, arg)?)?;
             }
-            if let Some(nn) = params.next() {
+            if let Some(nn) = params_iter.next() {
                 return Err(Error::new(
                     ErrorKind::TypeMismatch,
                     "Too many &rest parameters".to_string(),
@@ -70,20 +70,20 @@ fn zip_function_args<E: Evaluator>(
                 .with_span(nn.span()));
             }
             ret.into_ref()
-        } else if let Some(vv) = args.next() {
+        } else if let Some(vv) = args_iter.next() {
             E::eval(ctx, vv)?
         } else {
             return Err(Error::new(
                 ErrorKind::TypeMismatch,
                 "Too few arguments".to_string(),
-            ));
+            ).with_span(args.span()));
         };
         local.insert(name, Rc::new(RefCell::new(ContextObject::TulispValue(val))));
         if is_rest {
             break;
         }
     }
-    if let Some(nn) = args.next() {
+    if let Some(nn) = args_iter.next() {
         return Err(
             Error::new(ErrorKind::TypeMismatch, "Too many arguments".to_string())
                 .with_span(nn.span()),
