@@ -73,7 +73,7 @@ impl TulispContext {
     }
 
     pub fn get(&self, name: TulispValueRef) -> Option<Rc<RefCell<ContextObject>>> {
-        match name.as_ident() {
+        match name.as_symbol() {
             Ok(name) => self.get_str(&name),
             // TODO: return Result
             Err(_) => None,
@@ -99,7 +99,7 @@ impl TulispContext {
     }
 
     pub fn set(&mut self, name: TulispValueRef, value: TulispValueRef) -> Result<(), Error> {
-        if let Ok(name) = name.as_ident() {
+        if let Ok(name) = name.as_symbol() {
             self.set_str(name, ContextObject::TulispValue(value))
         } else {
             Err(Error::new(
@@ -112,7 +112,7 @@ impl TulispContext {
     pub fn r#let(&mut self, varlist: TulispValueRef) -> Result<(), Error> {
         let mut local = HashMap::new();
         for varitem in varlist.base_iter() {
-            let (name, value) = if let Ok(name) = varitem.as_ident() {
+            let (name, value) = if let Ok(name) = varitem.as_symbol() {
                 (name, TulispValue::Nil.into_ref())
             } else if varitem.is_cons() {
                 let span = varitem.span();
@@ -131,7 +131,7 @@ impl TulispContext {
                     )
                     .with_span(span));
                 }
-                let name = name.as_ident().map_err(|e| e.with_span(span))?;
+                let name = name.as_symbol().map_err(|e| e.with_span(span))?;
 
                 (name, eval(self, value)?)
             } else {

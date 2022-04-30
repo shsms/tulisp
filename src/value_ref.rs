@@ -79,8 +79,8 @@ impl TulispValueRef {
     pub fn as_bool(&self) -> bool {
         self.rc.as_ref().borrow().as_bool()
     }
-    pub fn as_ident(&self) -> Result<String, Error> {
-        self.rc.as_ref().borrow().as_ident()
+    pub fn as_symbol(&self) -> Result<String, Error> {
+        self.rc.as_ref().borrow().as_symbol()
     }
     pub fn as_list_cons(&self) -> Option<Cons> {
         self.rc.as_ref().borrow().as_list_cons()

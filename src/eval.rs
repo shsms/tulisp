@@ -40,7 +40,7 @@ fn zip_function_args<E: Evaluator>(
     let mut is_opt = false;
     let mut is_rest = false;
     while let Some(param) = params.next() {
-        let name = match param.as_ident() {
+        let name = match param.as_symbol() {
             Ok(vv) => vv,
             Err(e) => return Err(e),
         };
@@ -158,7 +158,7 @@ fn eval_form(ctx: &mut TulispContext, val: TulispValueRef) -> Result<TulispValue
 pub(crate) fn eval(ctx: &mut TulispContext, expr: TulispValueRef) -> Result<TulispValueRef, Error> {
     let ret = match expr.clone_inner() {
         TulispValue::Nil => Ok(expr),
-        TulispValue::Ident { value, span } => {
+        TulispValue::Symbol { value, span } => {
             if value == "t" {
                 Ok(expr)
             } else if let Some(obj) = ctx.get_str(&value) {

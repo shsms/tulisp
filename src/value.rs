@@ -36,7 +36,7 @@ impl From<pest::Span<'_>> for Span {
 #[derive(Debug, Clone)]
 pub enum TulispValue {
     Nil,
-    Ident {
+    Symbol {
         value: String,
         span: Option<Span>,
     },
@@ -84,7 +84,7 @@ pub enum TulispValue {
 impl PartialEq for TulispValue {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::Ident { value: l0, .. }, Self::Ident { value: r0, .. }) => l0 == r0,
+            (Self::Symbol { value: l0, .. }, Self::Symbol { value: r0, .. }) => l0 == r0,
             (Self::Int { value: l0, .. }, Self::Int { value: r0, .. }) => l0 == r0,
             (Self::Float { value: l0, .. }, Self::Float { value: r0, .. }) => l0 == r0,
             (Self::String { value: l0, .. }, Self::String { value: r0, .. }) => l0 == r0,
@@ -99,27 +99,12 @@ impl PartialEq for TulispValue {
     }
 }
 
-macro_rules! TRUE {
-    () => {
-        TulispValue::Ident {
-            value: String::from("t"),
-            span: None,
-        }
-    };
-}
-
-macro_rules! FALSE {
-    () => {
-        TulispValue::Nil
-    };
-}
-
 impl std::fmt::Display for TulispValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             TulispValue::Bounce => f.write_str("Bounce"),
             TulispValue::Nil { .. } => f.write_str("nil"),
-            TulispValue::Ident { value, .. } => f.write_str(value),
+            TulispValue::Symbol { value, .. } => f.write_str(value),
             TulispValue::Int { value, .. } => f.write_fmt(format_args!("{}", value)),
             TulispValue::Float { value, .. } => f.write_fmt(format_args!("{}", value)),
             TulispValue::String { value, .. } => f.write_fmt(format_args!(r#""{}""#, value)),
@@ -165,8 +150,8 @@ impl std::fmt::Display for TulispValue {
 }
 
 impl TulispValue {
-    pub fn ident_from(value: String, span: Option<Span>) -> TulispValue {
-        TulispValue::Ident { value, span }
+    pub fn symbol_from(value: String, span: Option<Span>) -> TulispValue {
+        TulispValue::Symbol { value, span }
     }
 
     pub fn base_iter(&self) -> cons::BaseIter {
@@ -257,11 +242,11 @@ impl TulispValue {
         }
     }
 
-    pub fn as_ident(&self) -> Result<String, Error> {
+    pub fn as_symbol(&self) -> Result<String, Error> {
         match self {
-            TulispValue::Ident { value, .. } => Ok(value.to_string()),
+            TulispValue::Symbol { value, .. } => Ok(value.to_string()),
             _ => Err(
-                Error::new(ErrorKind::TypeMismatch, format!("Expected ident: {}", self))
+                Error::new(ErrorKind::TypeMismatch, format!("Expected symbol: {}", self))
                     .with_span(self.span()),
             ),
         }
@@ -369,7 +354,7 @@ impl TulispValue {
     pub fn span(&self) -> Option<Span> {
         match self {
             TulispValue::List { span, .. } => span.to_owned(),
-            TulispValue::Ident { span, .. } => span.to_owned(),
+            TulispValue::Symbol { span, .. } => span.to_owned(),
             TulispValue::Int { span, .. } => span.to_owned(),
             TulispValue::Float { span, .. } => span.to_owned(),
             TulispValue::String { span, .. } => span.to_owned(),
@@ -441,8 +426,8 @@ impl From<String> for TulispValue {
 impl From<bool> for TulispValue {
     fn from(value: bool) -> Self {
         match value {
-            true => TRUE!(),
-            false => FALSE!(),
+            true => TulispValue::symbol_from("t".to_string(), None),
+            false => TulispValue::Nil,
         }
     }
 }

@@ -41,7 +41,7 @@ pub fn macroexpand(ctx: &mut TulispContext, inp: TulispValueRef) -> Result<Tulis
     }
     expr.with_ctxobj(inp.ctxobj()).with_span(inp.span());
     let expr = expr.into_ref();
-    let name = match car(expr.clone())?.as_ident() {
+    let name = match car(expr.clone())?.as_symbol() {
         Ok(id) => id,
         Err(_) => return Ok(expr),
     };
@@ -80,7 +80,7 @@ fn locate_all_func(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispV
 
 fn locate_func(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispValue, Error> {
     let name = match car(expr.clone().into_ref())?.clone_inner() {
-        TulispValue::Ident { value, .. } => value,
+        TulispValue::Symbol { value, .. } => value,
         _ => return Ok(expr),
     };
     match ctx.get_str(&name) {
@@ -126,7 +126,7 @@ fn parse(
                 .fold(Ok(()), |v1, v2| v1.and(v2))?;
             let expr = list.with_span(Some(span));
             let name = match car(expr.clone())?.clone_inner() {
-                TulispValue::Ident { value, .. } => value,
+                TulispValue::Symbol { value, .. } => value,
                 _ => return Ok(expr.clone_inner()),
             };
             if name == "defun" || name == "defmacro" {
@@ -224,7 +224,7 @@ fn parse(
             .into_ref(),
         }),
         Rule::nil => Ok(TulispValue::Nil),
-        Rule::ident => Ok(TulispValue::Ident {
+        Rule::ident => Ok(TulispValue::Symbol {
             value: value.as_span().as_str().to_string(),
             span: Some(value.as_span().into()),
         }),

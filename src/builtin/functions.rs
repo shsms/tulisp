@@ -83,14 +83,14 @@ fn mark_tail_calls(name: TulispValueRef, body: TulispValueRef) -> Result<TulispV
         return Ok(tail);
     };
     let tail_ident = car(tail.clone())?;
-    let tail_name_str = tail_ident.as_ident()?;
+    let tail_name_str = tail_ident.as_symbol()?;
     let new_tail = if tail_ident == name {
         let ret_tail = TulispValue::Nil
             .into_ref()
             .append(cdr(tail)?)?
             .to_owned()
             .with_span(span);
-        list!(,TulispValue::ident_from("list".to_string(),  None).into_ref()
+        list!(,TulispValue::symbol_from("list".to_string(),  None).into_ref()
               ,TulispValue::Bounce.into_ref()
               ,@ret_tail)?
     } else if tail_name_str == "progn" {
@@ -356,7 +356,7 @@ pub fn add(ctx: &mut TulispContext) {
             println!("mark_tail_calls error: {:?}", e);
             e
         })?;
-        ctx.set_str(name.as_ident()?, ContextObject::Defun { args, body })?;
+        ctx.set_str(name.as_symbol()?, ContextObject::Defun { args, body })?;
         Ok(TulispValue::Nil.into_ref())
     }
 
@@ -373,7 +373,7 @@ pub fn add(ctx: &mut TulispContext) {
         } else {
             rest
         };
-        ctx.set_str(name.as_ident()?, ContextObject::Defmacro { args, body })?;
+        ctx.set_str(name.as_symbol()?, ContextObject::Defmacro { args, body })?;
         Ok(TulispValue::Nil.into_ref())
     }
 
