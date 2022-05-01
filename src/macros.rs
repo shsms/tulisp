@@ -16,12 +16,12 @@ macro_rules! list {
     };
     (, $($items:tt)+) => { list!($($items)+) };
     ($($items:tt)+) => {{
-	let mut ret = TulispValue::new_list();
+	let mut ret = TulispValue::Nil;
         list!(@push ret, $($items)+)
             .and_then(|ret| Ok(ret.to_owned()))
             .map(|x| x.into_ref())
     }};
-    () => { TulispValue::new_list().into_ref() }
+    () => { TulispValue::Nil.into_ref() }
 }
 
 #[macro_export]

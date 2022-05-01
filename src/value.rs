@@ -313,10 +313,6 @@ impl TulispValue {
         }
     }
 
-    pub fn new_list() -> TulispValue {
-        TulispValue::Nil
-    }
-
     pub fn use_ctxobj(&mut self, co: Option<Rc<RefCell<ContextObject>>>) {
         if let TulispValue::List { ctxobj, .. } = self {
             *ctxobj = co
