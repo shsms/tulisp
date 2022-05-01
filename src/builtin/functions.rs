@@ -491,7 +491,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         let mut vec: Vec<_> = seq.base_iter().collect();
         vec.sort_by(|v1, v2| {
             let vv = list!(,TulispValue::Nil.into_ref() ,v1.clone() ,v2.clone()).unwrap();
-            vv.use_ctxobj(Some(pred.clone()));
+            vv.with_ctxobj(Some(pred.clone()));
 
             if eval(ctx, vv)
                 .unwrap_or_else(|_| TulispValue::Nil.into_ref())

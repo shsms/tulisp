@@ -94,11 +94,12 @@ impl TulispValueRef {
     pub fn fmt_string(&self) -> String {
         self.rc.as_ref().borrow().fmt_string()
     }
-    pub fn use_ctxobj(&self, co: Option<Rc<RefCell<ContextObject>>>) {
-        self.rc.as_ref().borrow_mut().use_ctxobj(co)
-    }
     pub fn ctxobj(&self) -> Option<Rc<RefCell<ContextObject>>> {
         self.rc.as_ref().borrow().ctxobj()
+    }
+    pub fn with_ctxobj(&self, in_ctxobj: Option<Rc<RefCell<ContextObject>>>) -> Self {
+        self.rc.as_ref().borrow_mut().with_ctxobj(in_ctxobj);
+        self.clone()
     }
     pub fn with_span(&self, in_span: Option<Span>) -> Self {
         self.rc.as_ref().borrow_mut().with_span(in_span);

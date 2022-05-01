@@ -313,12 +313,6 @@ impl TulispValue {
         }
     }
 
-    pub fn use_ctxobj(&mut self, co: Option<Rc<RefCell<ContextObject>>>) {
-        if let TulispValue::List { ctxobj, .. } = self {
-            *ctxobj = co
-        }
-    }
-
     pub fn fmt_string(&self) -> String {
         match self {
             TulispValue::String { value, .. } => value.to_owned(),
