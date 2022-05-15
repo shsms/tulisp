@@ -12,6 +12,12 @@ pub struct TulispValueRef {
     rc: Rc<RefCell<TulispValue>>,
 }
 
+impl Default for TulispValueRef {
+    fn default() -> Self {
+        TulispValue::Nil.into_ref()
+    }
+}
+
 impl PartialEq for TulispValueRef {
     fn eq(&self, other: &Self) -> bool {
         *self.rc.as_ref().borrow() == *other.rc.as_ref().borrow()
