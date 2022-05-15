@@ -122,12 +122,12 @@ impl std::fmt::Display for TulispValue {
                     add_space: &mut bool,
                     vv: TulispValueRef,
                 ) -> Result<(), Error> {
-                    let rest = cdr(vv.clone())?;
+                    let rest = cdr(&vv)?;
                     if *add_space {
                         ret.push(' ');
                     }
                     *add_space = true;
-                    ret.push_str(&format!("{}", car(vv)?));
+                    ret.push_str(&format!("{}", car(&vv)?));
                     if rest == TulispValue::Nil {
                         return Ok(());
                     } else if !rest.is_cons() {
@@ -245,10 +245,11 @@ impl TulispValue {
     pub fn as_symbol(&self) -> Result<String, Error> {
         match self {
             TulispValue::Symbol { value, .. } => Ok(value.to_string()),
-            _ => Err(
-                Error::new(ErrorKind::TypeMismatch, format!("Expected symbol: {}", self))
-                    .with_span(self.span()),
-            ),
+            _ => Err(Error::new(
+                ErrorKind::TypeMismatch,
+                format!("Expected symbol: {}", self),
+            )
+            .with_span(self.span())),
         }
     }
 

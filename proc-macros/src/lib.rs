@@ -125,14 +125,14 @@ fn tulisp_fn_impl(
     let mut generated = quote! {
         fn #fn_name(
             ctx: &mut #crate_name::context::TulispContext,
-            __tulisp_internal_value: #crate_name::value_ref::TulispValueRef,
+            __tulisp_internal_value: &#crate_name::value_ref::TulispValueRef,
         ) -> Result<#crate_name::value_ref::TulispValueRef, #crate_name::error::Error> {
             use #crate_name::error::Error;
 
             #inp
 
-            let __defun_name = #crate_name::cons::car(__tulisp_internal_value.clone())?;
-            let __tulisp_internal_value = #crate_name::cons::cdr(__tulisp_internal_value.clone())?;
+            let __defun_name = #crate_name::cons::car(__tulisp_internal_value)?;
+            let __tulisp_internal_value = #crate_name::cons::cdr(__tulisp_internal_value)?;
 
             #arg_extract_stmts
             #call_and_ret

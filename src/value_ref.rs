@@ -127,7 +127,7 @@ impl TulispValueRef {
                 *ret = val.clone_inner();
                 return Ok(());
             }
-            let (first, rest) = (car(val.clone())?, cdr(val.clone())?);
+            let (first, rest) = (car(&val)?, cdr(&val)?);
             ret.push_with_meta(first.clone_inner().into_ref(), val.span(), val.ctxobj())?;
             if !rest.is_cons() {
                 ret.append(rest)?;

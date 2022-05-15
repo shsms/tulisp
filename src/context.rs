@@ -13,8 +13,8 @@ use crate::{
 #[derive(Clone)]
 pub enum ContextObject {
     TulispValue(TulispValueRef),
-    Func(fn(&mut TulispContext, TulispValueRef) -> Result<TulispValueRef, Error>),
-    Macro(fn(&mut TulispContext, TulispValueRef) -> Result<TulispValueRef, Error>),
+    Func(fn(&mut TulispContext, &TulispValueRef) -> Result<TulispValueRef, Error>),
+    Macro(fn(&mut TulispContext, &TulispValueRef) -> Result<TulispValueRef, Error>),
     Defmacro {
         args: TulispValueRef,
         body: TulispValueRef,
@@ -133,7 +133,7 @@ impl TulispContext {
                 }
                 let name = name.as_symbol().map_err(|e| e.with_span(span))?;
 
-                (name, eval(self, value)?)
+                (name, eval(self, &value)?)
             } else {
                 return Err(Error::new(
                     ErrorKind::SyntaxError,
@@ -154,27 +154,27 @@ impl TulispContext {
         Ok(())
     }
 
-    pub fn eval(&mut self, value: TulispValueRef) -> Result<TulispValueRef, Error> {
+    pub fn eval(&mut self, value: &TulispValueRef) -> Result<TulispValueRef, Error> {
         eval(self, value)
     }
 
     pub fn eval_string(&mut self, string: &str) -> Result<TulispValueRef, Error> {
         let vv = parse_string(self, string)?.into_ref();
-        self.eval_progn(vv)
+        self.eval_progn(&vv)
     }
 
-    pub fn eval_progn(&mut self, value: TulispValueRef) -> Result<TulispValueRef, Error> {
+    pub fn eval_progn(&mut self, value: &TulispValueRef) -> Result<TulispValueRef, Error> {
         let mut ret = TulispValue::Nil.into_ref();
         for val in value.base_iter() {
-            ret = eval(self, val)?;
+            ret = eval(self, &val)?;
         }
         Ok(ret)
     }
 
-    pub fn eval_each(&mut self, value: TulispValueRef) -> Result<TulispValueRef, Error> {
+    pub fn eval_each(&mut self, value: &TulispValueRef) -> Result<TulispValueRef, Error> {
         let mut ret = TulispValue::Nil;
         for val in value.base_iter() {
-            ret.push(eval(self, val)?)?;
+            ret.push(eval(self, &val)?)?;
         }
         Ok(ret.into_ref())
     }

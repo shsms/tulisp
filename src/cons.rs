@@ -34,7 +34,7 @@ impl Cons {
         let mut last = self.cdr.clone();
 
         while last.is_cons() {
-            last = cdr(last)?;
+            last = cdr(&last)?;
         }
         if last == TulispValue::Nil {
             last.assign(TulispValue::List {
@@ -58,7 +58,7 @@ impl Cons {
         let mut last = self.cdr.clone();
 
         while last.is_cons() {
-            last = cdr(last)?;
+            last = cdr(&last)?;
         }
         if last == TulispValue::Nil {
             last.assign(val.clone_inner());
@@ -152,7 +152,7 @@ impl<T: 'static + std::convert::TryFrom<TulispValueRef>> Iterator for Iter<T> {
     }
 }
 
-pub fn car(cons: TulispValueRef) -> Result<TulispValueRef, Error> {
+pub fn car(cons: &TulispValueRef) -> Result<TulispValueRef, Error> {
     if let Some(car) = cons.as_list_car() {
         Ok(car)
     } else {
@@ -164,7 +164,7 @@ pub fn car(cons: TulispValueRef) -> Result<TulispValueRef, Error> {
     }
 }
 
-pub fn cdr(cons: TulispValueRef) -> Result<TulispValueRef, Error> {
+pub fn cdr(cons: &TulispValueRef) -> Result<TulispValueRef, Error> {
     if let Some(cdr) = cons.as_list_cdr() {
         Ok(cdr)
     } else {

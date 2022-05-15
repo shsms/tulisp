@@ -9,7 +9,7 @@ macro_rules! tulisp_assert {
             err
         })?;
         let expected = parse_string(&mut $ctx, $result)?;
-        let expected = car(expected.into_ref())?;
+        let expected = car(&expected.into_ref())?;
         assert!(
             output == expected,
             "\n{}:{}: program: {}\n  output: {},\n  expected: {}\n",

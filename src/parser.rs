@@ -41,18 +41,18 @@ pub fn macroexpand(ctx: &mut TulispContext, inp: TulispValueRef) -> Result<Tulis
     }
     expr.with_ctxobj(inp.ctxobj()).with_span(inp.span());
     let expr = expr.into_ref();
-    let name = match car(expr.clone())?.as_symbol() {
+    let name = match car(&expr)?.as_symbol() {
         Ok(id) => id,
         Err(_) => return Ok(expr),
     };
     match ctx.get_str(&name) {
         Some(item) => match &*item.as_ref().borrow() {
             ContextObject::Macro(func) => {
-                let expansion = func(ctx, expr)?;
+                let expansion = func(ctx, &expr)?;
                 macroexpand(ctx, expansion)
             }
             ContextObject::Defmacro { args, body } => {
-                let expansion = eval_defmacro(ctx, args.clone(), body.clone(), cdr(expr)?)
+                let expansion = eval_defmacro(ctx, args, body, &cdr(&expr)?)
                     .map_err(|e| e.with_span(inp.span()))?;
                 macroexpand(ctx, expansion)
             }
@@ -79,7 +79,7 @@ fn locate_all_func(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispV
 }
 
 fn locate_func(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispValue, Error> {
-    let name = match car(expr.clone().into_ref())?.clone_inner() {
+    let name = match car(&expr.clone().into_ref())?.clone_inner() {
         TulispValue::Symbol { value, .. } => value,
         _ => return Ok(expr),
     };
@@ -125,12 +125,12 @@ fn parse(
                 .map(|val| -> Result<(), Error> { list.push(val?.into_ref()).map(|_| ()) })
                 .fold(Ok(()), |v1, v2| v1.and(v2))?;
             let expr = list.with_span(Some(span));
-            let name = match car(expr.clone())?.clone_inner() {
+            let name = match car(&expr)?.clone_inner() {
                 TulispValue::Symbol { value, .. } => value,
                 _ => return Ok(expr.clone_inner()),
             };
             if name == "defun" || name == "defmacro" {
-                eval(ctx, expr.clone())?;
+                eval(ctx, &expr)?;
             }
             if *expand_macros == MacroExpand::Yes {
                 Ok(macroexpand(ctx, expr)?.clone_inner())

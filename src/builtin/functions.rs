@@ -56,7 +56,7 @@ fn reduce_with(
     method: fn(TulispValueRef, TulispValueRef) -> Result<TulispValueRef, Error>,
 ) -> Result<TulispValueRef, Error> {
     list.base_iter()
-        .map(|x| eval(ctx, x))
+        .map(|x| eval(ctx, &x))
         .reduce(|v1, v2| method(v1?, v2?))
         .unwrap_or_else(|| {
             Err(Error::new(
@@ -82,24 +82,24 @@ fn mark_tail_calls(name: TulispValueRef, body: TulispValueRef) -> Result<TulispV
     } else {
         return Ok(tail);
     };
-    let tail_ident = car(tail.clone())?;
+    let tail_ident = car(&tail)?;
     let tail_name_str = tail_ident.as_symbol()?;
     let new_tail = if tail_ident == name {
         let ret_tail = TulispValue::Nil
             .into_ref()
-            .append(cdr(tail)?)?
+            .append(cdr(&tail)?)?
             .to_owned()
             .with_span(span);
         list!(,TulispValue::symbol_from("list".to_string(),  None).into_ref()
               ,TulispValue::Bounce.into_ref()
               ,@ret_tail)?
     } else if tail_name_str == "progn" {
-        mark_tail_calls(name, cdr(tail)?)?
+        mark_tail_calls(name, cdr(&tail)?)?
     } else if tail_name_str == "if" {
         destruct_bind!((_if condition then_body &rest else_body) = tail);
         list!(,tail_ident
               ,condition.clone()
-              ,car(mark_tail_calls(
+              ,car(&mark_tail_calls(
                   name.clone(),
                   list!(,then_body)?
               )?)?
@@ -133,7 +133,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         let args = rest.clone();
         destruct_bind!((first &rest ohne_first) = args);
         if ohne_first.is_null() {
-            let vv = binary_ops!(std::ops::Sub::sub)(0.into(), eval(ctx, first)?)?;
+            let vv = binary_ops!(std::ops::Sub::sub)(0.into(), eval(ctx, &first)?)?;
             Ok(vv)
         } else {
             reduce_with(ctx, rest, binary_ops!(std::ops::Sub::sub))
@@ -211,7 +211,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     fn concat(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
         let mut ret = String::new();
         for ele in rest.base_iter() {
-            match eval(ctx, ele.clone())?.as_string() {
+            match eval(ctx, &ele)?.as_string() {
                 Ok(ref s) => ret.push_str(s),
                 _ => {
                     return Err(Error::new(
@@ -234,7 +234,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 "output stream currently not supported".to_string(),
             ))
         } else if let Some(v) = object {
-            let ret = eval(ctx, v)?;
+            let ret = eval(ctx, &v)?;
             println!("{}", ret);
             Ok(ret)
         } else {
@@ -260,7 +260,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 "output stream currently not supported".to_string(),
             ))
         } else if let Some(v) = object {
-            let ret = eval(ctx, v)?;
+            let ret = eval(ctx, &v)?;
             println!("{}", ret.fmt_string());
             Ok(ret)
         } else {
@@ -278,10 +278,10 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         then_body: TulispValueRef,
         rest: TulispValueRef, // else_body
     ) -> Result<TulispValueRef, Error> {
-        if eval(ctx, condition)?.as_bool() {
-            eval(ctx, then_body)
+        if eval(ctx, &condition)?.as_bool() {
+            eval(ctx, &then_body)
         } else {
-            ctx.eval_progn(rest)
+            ctx.eval_progn(&rest)
         }
     }
 
@@ -289,8 +289,8 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     fn cond(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
         for item in rest.base_iter() {
             destruct_bind!((condition &rest body) = item);
-            if eval(ctx, condition)?.as_bool() {
-                return ctx.eval_progn(body);
+            if eval(ctx, &condition)?.as_bool() {
+                return ctx.eval_progn(&body);
             }
         }
         Ok(TulispValue::Nil.into_ref())
@@ -303,8 +303,8 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         rest: TulispValueRef,
     ) -> Result<TulispValueRef, Error> {
         let mut result = TulispValue::Nil.into_ref();
-        while eval(ctx, condition.clone())?.as_bool() {
-            result = ctx.eval_progn(rest.clone())?;
+        while eval(ctx, &condition)?.as_bool() {
+            result = ctx.eval_progn(&rest)?;
         }
         Ok(result)
     }
@@ -315,7 +315,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         name: TulispValueRef,
         value: TulispValueRef,
     ) -> Result<TulispValueRef, Error> {
-        let value = eval(ctx, value)?;
+        let value = eval(ctx, &value)?;
         ctx.set(name, value.clone())?;
         Ok(value)
     }
@@ -328,7 +328,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ) -> Result<TulispValueRef, Error> {
         ctx.r#let(varlist)?;
         let ret = if rest.is_cons() {
-            ctx.eval_progn(rest)
+            ctx.eval_progn(&rest)
         } else {
             Err(Error::new(
                 ErrorKind::TypeMismatch,
@@ -347,8 +347,8 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         rest: TulispValueRef,
     ) -> Result<TulispValueRef, Error> {
         // TODO: don't discard docstring
-        let body = if car(rest.clone())?.as_string().is_ok() {
-            cdr(rest)?
+        let body = if car(&rest)?.as_string().is_ok() {
+            cdr(&rest)?
         } else {
             rest
         };
@@ -368,8 +368,8 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         rest: TulispValueRef,
     ) -> Result<TulispValueRef, Error> {
         // TODO: don't discard docstring
-        let body = if car(rest.clone())?.as_string().is_ok() {
-            cdr(rest)?
+        let body = if car(&rest)?.as_string().is_ok() {
+            cdr(&rest)?
         } else {
             rest
         };
@@ -384,7 +384,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     #[crate_fn(add_func = "ctx", name = "eval")]
     fn impl_eval(ctx: &mut TulispContext, arg: TulispValueRef) -> Result<TulispValueRef, Error> {
-        crate::eval::eval(ctx, arg)
+        crate::eval::eval(ctx, &arg)
     }
 
     #[crate_fn(add_func = "ctx", name = "macroexpand")]
@@ -399,12 +399,12 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     #[crate_fn(add_func = "ctx", name = "car")]
     fn impl_car(name: TulispValueRef) -> Result<TulispValueRef, Error> {
-        crate::cons::car(name)
+        crate::cons::car(&name)
     }
 
     #[crate_fn(add_func = "ctx", name = "cdr")]
     fn impl_cdr(name: TulispValueRef) -> Result<TulispValueRef, Error> {
-        crate::cons::cdr(name)
+        crate::cons::cdr(&name)
     }
 
     #[crate_fn(add_func = "ctx", name = "cons")]
@@ -418,9 +418,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         first: TulispValueRef,
         rest: TulispValueRef,
     ) -> Result<TulispValueRef, Error> {
-        let first = eval(ctx, first)?;
+        let first = eval(ctx, &first)?;
         for ele in rest.base_iter() {
-            first.append(eval(ctx, ele)?.deep_copy()?)?;
+            first.append(eval(ctx, &ele)?.deep_copy()?)?;
         }
         Ok(first)
     }
@@ -433,7 +433,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ) -> Result<TulispValueRef, Error> {
         destruct_bind!((var list &optional result) = spec);
         let body = rest;
-        let mut list = ctx.eval(list)?;
+        let mut list = ctx.eval(&list)?;
         while list.as_bool() {
             let varlist = TulispValue::Nil
                 .into_ref()
@@ -441,17 +441,17 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                     TulispValue::Nil
                         .into_ref()
                         .push(var.clone())?
-                        .push(car(list.clone())?)?
+                        .push(car(&list)?)?
                         .clone(),
                 )?
                 .clone();
             ctx.r#let(varlist)?;
-            let eval_res = ctx.eval_progn(body.clone());
+            let eval_res = ctx.eval_progn(&body);
             ctx.pop();
             eval_res?;
-            list = cdr(list)?;
+            list = cdr(&list)?;
         }
-        ctx.eval(result)
+        ctx.eval(&result)
     }
 
     #[crate_fn_no_eval(add_func = "ctx")]
@@ -461,9 +461,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         for ele in rest.base_iter() {
             match cons {
                 Some(ref mut cons) => {
-                    cons.push(eval(ctx, ele)?)?;
+                    cons.push(eval(ctx, &ele)?)?;
                 }
-                None => cons = Some(Cons::new(eval(ctx, ele)?, TulispValue::Nil.into_ref())),
+                None => cons = Some(Cons::new(eval(ctx, &ele)?, TulispValue::Nil.into_ref())),
             }
         }
         match cons {
@@ -483,17 +483,17 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         seq: TulispValueRef,
         pred: TulispValueRef,
     ) -> Result<TulispValueRef, Error> {
-        let pred = eval(ctx, pred)?;
+        let pred = eval(ctx, &pred)?;
         let pred = ctx.get(pred.clone()).ok_or_else(|| {
             Error::new(ErrorKind::Undefined, format!("Unknown predicate: {}", pred))
         })?;
-        let seq = eval(ctx, seq)?;
+        let seq = eval(ctx, &seq)?;
         let mut vec: Vec<_> = seq.base_iter().collect();
         vec.sort_by(|v1, v2| {
             let vv = list!(,TulispValue::Nil.into_ref() ,v1.clone() ,v2.clone()).unwrap();
             vv.with_ctxobj(Some(pred.clone()));
 
-            if eval(ctx, vv)
+            if eval(ctx, &vv)
                 .unwrap_or_else(|_| TulispValue::Nil.into_ref())
                 .as_bool()
             {
@@ -528,7 +528,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 )
                 .with_span(kvpair.span()));
             }
-            if car(kvpair.clone())? == key {
+            if car(&kvpair)? == key {
                 return Ok(kvpair);
             }
         }
@@ -554,7 +554,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ) -> Result<TulispValueRef, Error> {
         let x = assoc_impl(key, alist, testfn)?;
         if x.as_bool() {
-            cdr(x)
+            cdr(&x)
         } else {
             Ok(default_value.unwrap_or_else(|| TulispValue::Nil.into_ref()))
         }

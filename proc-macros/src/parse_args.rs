@@ -242,12 +242,12 @@ fn process_arg(
 
     let car_extractor = if optional {
         quote! {
-            #crate_name::cons::car(__tulisp_internal_value.clone()).
+            #crate_name::cons::car(&__tulisp_internal_value).
                 or(Ok(#crate_name::value::TulispValue::Nil.into()))?
         }
     } else {
         quote! {
-            #crate_name::cons::car(__tulisp_internal_value.clone()).
+            #crate_name::cons::car(&__tulisp_internal_value).
             map_err(|e| #crate_name::error::Error::new(
                 #crate_name::error::ErrorKind::MissingArgument,
                 format!("Missing argument for required parameter '{}', in call to '{}'",
@@ -260,7 +260,7 @@ fn process_arg(
 
     if eval_args {
         arg_info.extract_stmts.extend(quote! {
-            let __tulisp_internal_car = ctx.eval(#car_extractor)?;
+            let __tulisp_internal_car = ctx.eval(& #car_extractor)?;
         })
     } else {
         arg_info.extract_stmts.extend(quote! {
@@ -274,12 +274,12 @@ fn process_arg(
 
     if optional {
         arg_info.extract_stmts.extend(quote! {
-            let __tulisp_internal_value = #crate_name::cons::cdr(__tulisp_internal_value).
+            let __tulisp_internal_value = #crate_name::cons::cdr(&__tulisp_internal_value).
                 or(Ok(#crate_name::value::TulispValue::Nil.into()))?;
         });
     } else {
         arg_info.extract_stmts.extend(quote! {
-            let __tulisp_internal_value = #crate_name::cons::cdr(__tulisp_internal_value)?;
+            let __tulisp_internal_value = #crate_name::cons::cdr(&__tulisp_internal_value)?;
         });
     }
     Ok(arg_info)

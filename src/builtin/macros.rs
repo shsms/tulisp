@@ -7,23 +7,23 @@ use crate::value::TulispValue::{self, Nil};
 use crate::value_ref::TulispValueRef;
 use crate::{destruct_bind, list};
 
-fn thread_first(ctx: &mut TulispContext, vv: TulispValueRef) -> Result<TulispValueRef, Error> {
+fn thread_first(ctx: &mut TulispContext, vv: &TulispValueRef) -> Result<TulispValueRef, Error> {
     destruct_bind!((_name x &optional form &rest more) = vv);
     if form.is_null() {
         Ok(x)
     } else if more.is_null() {
         if form.is_cons() {
-            Ok(list!(,car(form.clone())? ,x.clone() ,@cdr(form.clone())?)?)
+            Ok(list!(,car(&form)? ,x.clone() ,@cdr(&form)?)?)
         } else {
             Ok(list!(,form ,x.clone())?)
         }
     } else {
-        let inner = thread_first(ctx, list!(,Nil.into_ref() ,x.clone() ,form.clone())?)?;
-        thread_first(ctx, list!(,Nil.into_ref() ,inner ,@more.clone())?)
+        let inner = thread_first(ctx, &list!(,Nil.into_ref() ,x.clone() ,form.clone())?)?;
+        thread_first(ctx, &list!(,Nil.into_ref() ,inner ,@more.clone())?)
     }
 }
 
-fn thread_last(ctx: &mut TulispContext, vv: TulispValueRef) -> Result<TulispValueRef, Error> {
+fn thread_last(ctx: &mut TulispContext, vv: &TulispValueRef) -> Result<TulispValueRef, Error> {
     destruct_bind!((_name x &optional form &rest more) = vv);
     if form.is_null() {
         Ok(x)
@@ -34,8 +34,8 @@ fn thread_last(ctx: &mut TulispContext, vv: TulispValueRef) -> Result<TulispValu
             Ok(list!(,form ,x.clone())?)
         }
     } else {
-        let inner = thread_last(ctx, list!(,Nil.into_ref() ,x.clone() ,form.clone())?)?;
-        thread_last(ctx, list!(,Nil.into_ref() ,inner ,@more.clone())?)
+        let inner = thread_last(ctx, &list!(,Nil.into_ref() ,x.clone() ,form.clone())?)?;
+        thread_last(ctx, &list!(,Nil.into_ref() ,inner ,@more.clone())?)
     }
 }
 
