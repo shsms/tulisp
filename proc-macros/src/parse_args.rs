@@ -154,12 +154,12 @@ fn process_arg(
         if eval_args {
             arg_info.extract_stmts.extend(quote! {
                 let #arg_name = #crate_name::eval::eval_each(ctx, __tulisp_internal_value)?;
-                let __tulisp_internal_value = #crate_name::value::TulispValue::Nil;
+                let __tulisp_internal_value = #crate_name::Nil;
             })
         } else {
             arg_info.extract_stmts.extend(quote! {
                 let #arg_name = __tulisp_internal_value;
-                let __tulisp_internal_value = #crate_name::value::TulispValue::Nil;
+                let __tulisp_internal_value = #crate_name::Nil;
             })
         }
         return Ok(arg_info);
@@ -178,7 +178,7 @@ fn process_arg(
         if optional {
             quote! {(
                 |x: #crate_name::TulispValueRef| {
-                    if x == #crate_name::value::TulispValue::Nil {
+                    if x == #crate_name::Nil {
                         Ok(None)
                     } else if !x.is_cons() {
                         Err(#crate_name::error::Error::new(
@@ -216,14 +216,14 @@ fn process_arg(
         match arg_info.val_ty.to_token_stream().to_string().as_str() {
             "i64" | "f64" | "String" | "bool" => {
                 if optional {
-                    quote! {(|x: #crate_name::TulispValueRef|if x == #crate_name::value::TulispValue::Nil { Ok(None)} else {Ok(Some(x.try_into()?))})}
+                    quote! {(|x: #crate_name::TulispValueRef|if x == #crate_name::Nil { Ok(None)} else {Ok(Some(x.try_into()?))})}
                 } else {
                     quote! {(|x: #crate_name::TulispValueRef| x.try_into())}
                 }
             }
             "TulispValueRef" => {
                 if optional {
-                    quote! {(|x: #crate_name::TulispValueRef|if x == #crate_name::value::TulispValue::Nil { Ok(None)} else {Ok(x.into())})}
+                    quote! {(|x: #crate_name::TulispValueRef|if x == #crate_name::Nil { Ok(None)} else {Ok(x.into())})}
                 } else {
                     quote! {(|x: #crate_name::TulispValueRef| Ok(x.into()))}
                 }
@@ -243,7 +243,7 @@ fn process_arg(
     let car_extractor = if optional {
         quote! {
             #crate_name::cons::car(&__tulisp_internal_value).
-                or(Ok(#crate_name::value::TulispValue::Nil.into()))?
+               or(Ok(Default::default()))?
         }
     } else {
         quote! {
@@ -275,7 +275,7 @@ fn process_arg(
     if optional {
         arg_info.extract_stmts.extend(quote! {
             let __tulisp_internal_value = #crate_name::cons::cdr(&__tulisp_internal_value).
-                or(Ok(#crate_name::value::TulispValue::Nil.into()))?;
+                or(Ok(Default::default()))?;
         });
     } else {
         arg_info.extract_stmts.extend(quote! {

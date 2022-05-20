@@ -29,7 +29,7 @@ fn gen_function_call(
 
     let call_and_ret = match ret_type {
         syn::ReturnType::Default => {
-            quote! {#fn_name(#params_for_call); Ok(#crate_name::value::TulispValue::Nil)}
+            quote! {#fn_name(#params_for_call); Ok(#crate_name::Nil)}
         }
         syn::ReturnType::Type(_, tt) => match &**tt {
             syn::Type::Path(tp) => {
