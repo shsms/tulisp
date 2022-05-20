@@ -10,6 +10,7 @@ use crate::{
     value_ref::TulispValueRef,
 };
 
+#[doc(hidden)]
 #[derive(Clone)]
 pub enum ContextObject {
     TulispValue(TulispValueRef),
@@ -45,7 +46,7 @@ impl std::fmt::Debug for ContextObject {
     }
 }
 
-pub type Scope = HashMap<String, Rc<RefCell<ContextObject>>>;
+pub(crate) type Scope = HashMap<String, Rc<RefCell<ContextObject>>>;
 
 pub struct TulispContext(Vec<Scope>);
 
@@ -55,15 +56,15 @@ impl TulispContext {
         Self(vec![Scope::default()])
     }
 
-    pub fn push(&mut self, item: Scope) {
+    pub(crate) fn push(&mut self, item: Scope) {
         self.0.push(item);
     }
 
-    pub fn pop(&mut self) {
+    pub(crate) fn pop(&mut self) {
         self.0.pop();
     }
 
-    pub fn get_str(&self, name: &str) -> Option<Rc<RefCell<ContextObject>>> {
+    pub(crate) fn get_str(&self, name: &str) -> Option<Rc<RefCell<ContextObject>>> {
         for ele in self.0.iter().rev() {
             if let Some(vv) = ele.get(name) {
                 return Some(vv.clone());
@@ -72,7 +73,7 @@ impl TulispContext {
         None
     }
 
-    pub fn get(&self, name: TulispValueRef) -> Option<Rc<RefCell<ContextObject>>> {
+    pub(crate) fn get(&self, name: TulispValueRef) -> Option<Rc<RefCell<ContextObject>>> {
         match name.as_symbol() {
             Ok(name) => self.get_str(&name),
             // TODO: return Result
@@ -98,7 +99,7 @@ impl TulispContext {
         Ok(())
     }
 
-    pub fn set(&mut self, name: TulispValueRef, value: TulispValueRef) -> Result<(), Error> {
+    pub(crate) fn set(&mut self, name: TulispValueRef, value: TulispValueRef) -> Result<(), Error> {
         if let Ok(name) = name.as_symbol() {
             self.set_str(name, ContextObject::TulispValue(value))
         } else {
@@ -109,7 +110,7 @@ impl TulispContext {
         }
     }
 
-    pub fn r#let(&mut self, varlist: TulispValueRef) -> Result<(), Error> {
+    pub(crate) fn r#let(&mut self, varlist: TulispValueRef) -> Result<(), Error> {
         let mut local = HashMap::new();
         for varitem in varlist.base_iter() {
             let (name, value) = if let Ok(name) = varitem.as_symbol() {

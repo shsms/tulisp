@@ -165,7 +165,7 @@ impl TulispValue {
         self.push_with_meta(val, None, None)
     }
 
-    pub fn push_with_meta(
+    pub(crate) fn push_with_meta(
         &mut self,
         val: TulispValueRef,
         span_in: Option<Span>,
@@ -321,14 +321,17 @@ impl TulispValue {
         }
     }
 
-    pub fn with_ctxobj(&mut self, in_ctxobj: Option<Rc<RefCell<ContextObject>>>) -> &mut Self {
+    pub(crate) fn with_ctxobj(
+        &mut self,
+        in_ctxobj: Option<Rc<RefCell<ContextObject>>>,
+    ) -> &mut Self {
         if let TulispValue::List { ctxobj, .. } = self {
             *ctxobj = in_ctxobj
         }
         self
     }
 
-    pub fn ctxobj(&self) -> Option<Rc<RefCell<ContextObject>>> {
+    pub(crate) fn ctxobj(&self) -> Option<Rc<RefCell<ContextObject>>> {
         match self {
             TulispValue::List { ctxobj, .. } => ctxobj.to_owned(),
             _ => None,

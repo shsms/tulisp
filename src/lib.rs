@@ -4,8 +4,10 @@ extern crate pest_derive;
 mod builtin;
 mod cons;
 pub use cons::{car, cdr, cons, BaseIter, Iter};
-pub mod context;
 pub mod eval;
+
+mod context;
+pub use context::{ContextObject, TulispContext};
 
 mod error;
 pub use error::{Error, ErrorKind};

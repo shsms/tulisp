@@ -100,10 +100,10 @@ impl TulispValueRef {
     pub fn fmt_string(&self) -> String {
         self.rc.as_ref().borrow().fmt_string()
     }
-    pub fn ctxobj(&self) -> Option<Rc<RefCell<ContextObject>>> {
+    pub(crate) fn ctxobj(&self) -> Option<Rc<RefCell<ContextObject>>> {
         self.rc.as_ref().borrow().ctxobj()
     }
-    pub fn with_ctxobj(&self, in_ctxobj: Option<Rc<RefCell<ContextObject>>>) -> Self {
+    pub(crate) fn with_ctxobj(&self, in_ctxobj: Option<Rc<RefCell<ContextObject>>>) -> Self {
         self.rc.as_ref().borrow_mut().with_ctxobj(in_ctxobj);
         self.clone()
     }

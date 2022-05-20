@@ -25,7 +25,7 @@ impl Cons {
         self.push_with_meta(val, None, None)
     }
 
-    pub fn push_with_meta(
+    pub(crate) fn push_with_meta(
         &mut self,
         val: TulispValueRef,
         span: Option<Span>,

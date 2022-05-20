@@ -124,7 +124,7 @@ fn tulisp_fn_impl(
 
     let mut generated = quote! {
         fn #fn_name(
-            ctx: &mut #crate_name::context::TulispContext,
+            ctx: &mut #crate_name::TulispContext,
             __tulisp_internal_value: &#crate_name::TulispValueRef,
         ) -> Result<#crate_name::TulispValueRef, #crate_name::Error> {
             use #crate_name::Error;
@@ -151,7 +151,7 @@ fn tulisp_fn_impl(
         };
         generated.extend(quote! {
             // TODO: how to avoid unwrap?
-            #ctx.set_str(#tulisp_fn_name.to_string(), #crate_name::context::ContextObject::#ctxobj_type(#fn_name)).unwrap();
+            #ctx.set_str(#tulisp_fn_name.to_string(), #crate_name::ContextObject::#ctxobj_type(#fn_name)).unwrap();
         })
     }
 
