@@ -1,6 +1,5 @@
-use tulisp::parser::parse_string;
 use tulisp::tulisp_fn;
-use tulisp::{car, Iter, error::Error};
+use tulisp::{Iter, error::Error};
 
 macro_rules! tulisp_assert {
     (@impl $ctx: expr, program:$input:expr, result:$result:expr $(,)?) => {
@@ -8,8 +7,7 @@ macro_rules! tulisp_assert {
             println!("{}:{}: execution failed: {}", file!(), line!(),err.to_string());
             err
         })?;
-        let expected = parse_string(&mut $ctx, $result)?;
-        let expected = car(&expected.into_ref())?;
+        let expected = $ctx.eval_string($result)?;
         assert!(
             output == expected,
             "\n{}:{}: program: {}\n  output: {},\n  expected: {}\n",
@@ -46,7 +44,7 @@ fn test_if() -> Result<(), Error> {
                ((> vv 5) 'gt5)))
 
        (list (cf 2) (cf 200) (cf 8))
-    "##, result: r#"(nil gt45 gt5)"#}
+    "##, result: r#"'(nil gt45 gt5)"#}
     Ok(())
 }
 
@@ -83,7 +81,7 @@ fn test_defun() -> Result<(), Error> {
 
             (list (add 100) (add 10 20) (add 1 2 3))
         "##,
-        result: "((100) (20 10) (2 3 1))",
+        result: "'((100) (20 10) (2 3 1))",
     }
     tulisp_assert! {
         program: "(defun j (&rest x y) nil) (j)",
@@ -91,7 +89,7 @@ fn test_defun() -> Result<(), Error> {
     }
     tulisp_assert! {
         program: r##"(defun j (&rest x) x) (list (j) (j 10) (j 100 200))"##,
-        result: "(nil (10) (100 200))",
+        result: "'(nil (10) (100 200))",
     }
     tulisp_assert! {
     program: r##"
@@ -103,7 +101,7 @@ fn test_defun() -> Result<(), Error> {
               (add 10 20)
               (add 1 2 3 4 5))
     "##,
-    result: "((100) (30) (6 4 5))",
+    result: "'((100) (30) (6 4 5))",
         }
     tulisp_assert! {
         program: "(defun add (x y) (+ x y)) (add 10)",
@@ -119,7 +117,7 @@ fn test_defun() -> Result<(), Error> {
     }
     tulisp_assert! {
         program: "(defmacro inc (var)  (list 'setq var (list '+ 1 var))) (macroexpand '(inc x))",
-        result: "(setq x (+ 1 x))",
+        result: "'(setq x (+ 1 x))",
     }
     tulisp_assert! {
         program: "(defmacro inc (var)  (list 'setq var (list '+ 1 var))) (let ((x 4)) (inc x))",
@@ -157,10 +155,6 @@ fn test_defun() -> Result<(), Error> {
 
 #[test]
 fn test_eval() -> Result<(), Error> {
-    tulisp_assert! {
-        program: "'(mod 32 5)",
-        result: "(mod 32 5)",
-    }
     tulisp_assert! {
         program: "(eval '(mod 32 5))",
         result: "2",
@@ -203,7 +197,7 @@ fn test_lists() -> Result<(), Error> {
                         (list (+ 8 42) 60)))
           items)
         "##,
-        result: "(10 20 30 40 50 60)",
+        result: "'(10 20 30 40 50 60)",
     }
 
     tulisp_assert! {
@@ -213,7 +207,7 @@ fn test_lists() -> Result<(), Error> {
 
     tulisp_assert! {
         program: "(let ((vv '(12 20 30))) `(,(car vv) ,@(cdr vv) ,(cdr vv)))",
-        result: "(12 20 30 (20 30))",
+        result: "'(12 20 30 (20 30))",
     }
 
     tulisp_assert! {
@@ -265,11 +259,11 @@ fn test_math() -> Result<(), Error> {
 fn test_let() -> Result<(), Error> {
     tulisp_assert! {
         program: "(let ((kk) (vv (+ 55 1)) (jj 20)) (append kk (+ vv jj 1)))",
-        result: "(77)",
+        result: "'(77)",
     }
     tulisp_assert! {
         program: "(let (kk (vv (+ 55 1)) (jj 20)) (append kk (+ vv jj 1)))",
-        result: "(77)",
+        result: "'(77)",
     }
     tulisp_assert! {
         program: "(let ((vv (+ 55 1)) (jj 20)) (append kk (+ vv jj 1)))",
@@ -320,11 +314,11 @@ fn test_while() -> Result<(), Error> {
 fn test_sort() -> Result<(), Error> {
     tulisp_assert! {
         program: "(sort '(20 10 30 15 45) '<)",
-        result: "(10 15 20 30 45)",
+        result: "'(10 15 20 30 45)",
     }
     tulisp_assert! {
         program: "(sort '(20 10 30 15 45) '>)",
-        result: "(45 30 20 15 10)",
+        result: "'(45 30 20 15 10)",
     }
     tulisp_assert! {
         program: "(sort '(20 10 30 15 45) '<<)",
@@ -343,7 +337,7 @@ fn test_threading_macros() -> Result<(), Error> {
               (equal 3)
               (if "true" "false")))
         "##, result: r##"
-        (if (equal (expt 9 0.5) 3)
+        '(if (equal (expt 9 0.5) 3)
             "true"
           "false")
         "##,
@@ -357,7 +351,7 @@ fn test_threading_macros() -> Result<(), Error> {
                (equal 3)
                (if nil ())))
         "##, result: r##"
-        (if nil
+        '(if nil
             ()
           (equal 3 (expt 9 0.5)))
         "##,

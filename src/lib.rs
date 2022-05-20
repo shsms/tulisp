@@ -7,7 +7,7 @@ pub use cons::{car, cdr, cons, BaseIter, Iter};
 pub mod context;
 pub mod error;
 pub mod eval;
-pub mod parser;
+mod parser;
 mod value;
 
 pub mod macros;
