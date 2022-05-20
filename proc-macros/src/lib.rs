@@ -17,7 +17,7 @@ fn gen_function_call(
         Err(syn::Error::new(
             tt.__span(),
             format!(
-                "Expected return types: {}, or Result<\"{}\", tulisp::error::Error>, but got: {}",
+                r#"Expected return types: {}, or Result<"{}", tulisp::error::Error>, but got: {}"#,
                 ALLOWED_TYPES,
                 ALLOWED_TYPES,
                 tt.to_token_stream().to_string()
@@ -125,8 +125,8 @@ fn tulisp_fn_impl(
     let mut generated = quote! {
         fn #fn_name(
             ctx: &mut #crate_name::context::TulispContext,
-            __tulisp_internal_value: &#crate_name::value_ref::TulispValueRef,
-        ) -> Result<#crate_name::value_ref::TulispValueRef, #crate_name::error::Error> {
+            __tulisp_internal_value: &#crate_name::TulispValueRef,
+        ) -> Result<#crate_name::TulispValueRef, #crate_name::error::Error> {
             use #crate_name::error::Error;
 
             #inp

@@ -177,7 +177,7 @@ fn process_arg(
     let ty_extractor = if arg_info.is_iter()? {
         if optional {
             quote! {(
-                |x: #crate_name::value_ref::TulispValueRef| {
+                |x: #crate_name::TulispValueRef| {
                     if x == #crate_name::value::TulispValue::Nil {
                         Ok(None)
                     } else if !x.is_cons() {
@@ -196,7 +196,7 @@ fn process_arg(
             }
         } else {
             quote! {(
-                |x: #crate_name::value_ref::TulispValueRef| {
+                |x: #crate_name::TulispValueRef| {
                     if !x.is_cons() {
                         Err(#crate_name::error::Error::new(
                             #crate_name::error::ErrorKind::TypeMismatch,
@@ -216,16 +216,16 @@ fn process_arg(
         match arg_info.val_ty.to_token_stream().to_string().as_str() {
             "i64" | "f64" | "String" | "bool" => {
                 if optional {
-                    quote! {(|x: #crate_name::value_ref::TulispValueRef|if x == #crate_name::value::TulispValue::Nil { Ok(None)} else {Ok(Some(x.try_into()?))})}
+                    quote! {(|x: #crate_name::TulispValueRef|if x == #crate_name::value::TulispValue::Nil { Ok(None)} else {Ok(Some(x.try_into()?))})}
                 } else {
-                    quote! {(|x: #crate_name::value_ref::TulispValueRef| x.try_into())}
+                    quote! {(|x: #crate_name::TulispValueRef| x.try_into())}
                 }
             }
             "TulispValueRef" => {
                 if optional {
-                    quote! {(|x: #crate_name::value_ref::TulispValueRef|if x == #crate_name::value::TulispValue::Nil { Ok(None)} else {Ok(x.into())})}
+                    quote! {(|x: #crate_name::TulispValueRef|if x == #crate_name::value::TulispValue::Nil { Ok(None)} else {Ok(x.into())})}
                 } else {
-                    quote! {(|x: #crate_name::value_ref::TulispValueRef| Ok(x.into()))}
+                    quote! {(|x: #crate_name::TulispValueRef| Ok(x.into()))}
                 }
             }
             _ => {

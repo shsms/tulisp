@@ -10,7 +10,8 @@ pub mod parser;
 pub mod value;
 
 pub mod macros;
-pub mod value_ref;
+mod value_ref;
 
 pub use builtin::new_context;
 pub use proc_macros::{tulisp_fn, tulisp_fn_no_eval};
+pub use value_ref::TulispValueRef;
