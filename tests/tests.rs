@@ -1,6 +1,6 @@
 use tulisp::parser::parse_string;
 use tulisp::tulisp_fn;
-use tulisp::{cons::*, error::Error};
+use tulisp::{car, Iter, error::Error};
 
 macro_rules! tulisp_assert {
     (@impl $ctx: expr, program:$input:expr, result:$result:expr $(,)?) => {

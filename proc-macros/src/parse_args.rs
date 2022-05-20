@@ -242,12 +242,12 @@ fn process_arg(
 
     let car_extractor = if optional {
         quote! {
-            #crate_name::cons::car(&__tulisp_internal_value).
+            #crate_name::car(&__tulisp_internal_value).
                or(Ok(Default::default()))?
         }
     } else {
         quote! {
-            #crate_name::cons::car(&__tulisp_internal_value).
+            #crate_name::car(&__tulisp_internal_value).
             map_err(|e| #crate_name::error::Error::new(
                 #crate_name::error::ErrorKind::MissingArgument,
                 format!("Missing argument for required parameter '{}', in call to '{}'",
@@ -274,12 +274,12 @@ fn process_arg(
 
     if optional {
         arg_info.extract_stmts.extend(quote! {
-            let __tulisp_internal_value = #crate_name::cons::cdr(&__tulisp_internal_value).
+            let __tulisp_internal_value = #crate_name::cdr(&__tulisp_internal_value).
                 or(Ok(Default::default()))?;
         });
     } else {
         arg_info.extract_stmts.extend(quote! {
-            let __tulisp_internal_value = #crate_name::cons::cdr(&__tulisp_internal_value)?;
+            let __tulisp_internal_value = #crate_name::cdr(&__tulisp_internal_value)?;
         });
     }
     Ok(arg_info)
@@ -300,7 +300,7 @@ fn parse_type_path(arg_type: &syn::Type) -> Result<(String, Option<syn::Type>), 
         syn::PathArguments::AngleBracketed(b) => {
             // return just the last generic arg for now, because right
             // now, we only support types with a single generic arg,
-            // like Option and tulisp::cons::Iter.
+            // like Option and tulisp::Iter.
             match b.args.last().unwrap() {
                 syn::GenericArgument::Type(ty) => Some(ty.to_owned()),
                 _ => tulisp_compile_error!(

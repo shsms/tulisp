@@ -131,8 +131,8 @@ fn tulisp_fn_impl(
 
             #inp
 
-            let __defun_name = #crate_name::cons::car(__tulisp_internal_value)?;
-            let __tulisp_internal_value = #crate_name::cons::cdr(__tulisp_internal_value)?;
+            let __defun_name = #crate_name::car(__tulisp_internal_value)?;
+            let __tulisp_internal_value = #crate_name::cdr(__tulisp_internal_value)?;
 
             #arg_extract_stmts
             #call_and_ret

@@ -2,7 +2,8 @@
 extern crate pest_derive;
 
 mod builtin;
-pub mod cons;
+mod cons;
+pub use cons::{car, cdr, cons, BaseIter, Iter};
 pub mod context;
 pub mod error;
 pub mod eval;
