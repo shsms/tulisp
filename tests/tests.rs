@@ -1,5 +1,5 @@
 use tulisp::tulisp_fn;
-use tulisp::{Iter, Error};
+use tulisp::{Error, Iter};
 
 macro_rules! tulisp_assert {
     (@impl $ctx: expr, program:$input:expr, result:$result:expr $(,)?) => {
