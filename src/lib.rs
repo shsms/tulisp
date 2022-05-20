@@ -5,8 +5,10 @@ mod builtin;
 mod cons;
 pub use cons::{car, cdr, cons, BaseIter, Iter};
 pub mod context;
-pub mod error;
 pub mod eval;
+
+mod error;
+pub use error::{Error, ErrorKind};
 mod parser;
 mod value;
 

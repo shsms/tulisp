@@ -181,8 +181,8 @@ fn process_arg(
                     if x == #crate_name::Nil {
                         Ok(None)
                     } else if !x.is_cons() {
-                        Err(#crate_name::error::Error::new(
-                            #crate_name::error::ErrorKind::TypeMismatch,
+                        Err(#crate_name::Error::new(
+                            #crate_name::ErrorKind::TypeMismatch,
                             format!(
                                 "In call to {}, arg \"{}\" needs to be a list",
                                 stringify!(#fn_name),
@@ -198,8 +198,8 @@ fn process_arg(
             quote! {(
                 |x: #crate_name::TulispValueRef| {
                     if !x.is_cons() {
-                        Err(#crate_name::error::Error::new(
-                            #crate_name::error::ErrorKind::TypeMismatch,
+                        Err(#crate_name::Error::new(
+                            #crate_name::ErrorKind::TypeMismatch,
                             format!(
                                 "In call to {}, arg \"{}\" needs to be a list",
                                 stringify!(#fn_name),
@@ -248,8 +248,8 @@ fn process_arg(
     } else {
         quote! {
             #crate_name::car(&__tulisp_internal_value).
-            map_err(|e| #crate_name::error::Error::new(
-                #crate_name::error::ErrorKind::MissingArgument,
+            map_err(|e| #crate_name::Error::new(
+                #crate_name::ErrorKind::MissingArgument,
                 format!("Missing argument for required parameter '{}', in call to '{}'",
                         stringify!(#arg_name),
                         #fn_name
