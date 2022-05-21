@@ -1,5 +1,4 @@
-use tulisp::tulisp_fn;
-use tulisp::{Error, Iter};
+use tulisp::{tulisp_fn, Error, Iter, TulispContext};
 
 macro_rules! tulisp_assert {
     (@impl $ctx: expr, program:$input:expr, result:$result:expr $(,)?) => {
@@ -27,7 +26,7 @@ macro_rules! tulisp_assert {
         tulisp_assert!(@impl $ctx, program: $($tail)+)
     };
     (program: $($tail:tt)+) => {
-        let mut ctx = tulisp::new_context();
+        let mut ctx = TulispContext::new();
         tulisp_assert!(ctx: ctx, program: $($tail)+)
     };
 }
@@ -382,7 +381,7 @@ fn test_threading_macros() -> Result<(), Error> {
 
 #[test]
 fn test_typed_iter() -> Result<(), Error> {
-    let mut ctx = tulisp::new_context();
+    let mut ctx = TulispContext::new();
 
     #[tulisp_fn(add_func = "ctx")]
     fn add_ints(ints: Option<Iter<i64>>) -> Result<i64, Error> {

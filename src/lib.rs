@@ -8,7 +8,6 @@ mod parser;
 pub use proc_macros::{tulisp_fn, tulisp_fn_no_eval};
 
 mod builtin;
-pub use builtin::new_context;
 
 mod cons;
 pub use cons::{car, cdr, cons, BaseIter, Iter};

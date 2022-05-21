@@ -7,7 +7,7 @@ use crate::{
     eval::eval,
     parser::parse_string,
     value::TulispValue,
-    value_ref::TulispValueRef,
+    value_ref::TulispValueRef, builtin
 };
 
 #[doc(hidden)]
@@ -52,8 +52,11 @@ pub struct TulispContext(Vec<Scope>);
 
 impl TulispContext {
     /// Creates a TulispContext with an empty global scope.
-    pub(crate) fn new() -> Self {
-        Self(vec![Scope::default()])
+    pub fn new() -> Self {
+        let mut ctx = Self(vec![Scope::default()]);
+        builtin::functions::add(&mut ctx);
+        builtin::macros::add(&mut ctx);
+        ctx
     }
 
     pub(crate) fn push(&mut self, item: Scope) {
