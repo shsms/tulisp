@@ -151,7 +151,7 @@ fn tulisp_fn_impl(
         };
         generated.extend(quote! {
             // TODO: how to avoid unwrap?
-            #ctx.set_str(#tulisp_fn_name.to_string(), #crate_name::ContextObject::#ctxobj_type(#fn_name)).unwrap();
+            #ctx.set_str(#tulisp_fn_name.to_string(), #crate_name::ContextObject::#ctxobj_type(Box::new(#fn_name))).unwrap();
         })
     }
 

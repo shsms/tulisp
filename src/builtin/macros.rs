@@ -75,19 +75,28 @@ fn let_star(
 }
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    ctx.set_str("->".to_string(), ContextObject::Macro(thread_first))
-        .unwrap();
+    ctx.set_str(
+        "->".to_string(),
+        ContextObject::Macro(Box::new(thread_first)),
+    )
+    .unwrap();
     ctx.set_str(
         "thread-first".to_string(),
-        ContextObject::Macro(thread_first),
+        ContextObject::Macro(Box::new(thread_first)),
     )
     .unwrap();
 
-    ctx.set_str("->>".to_string(), ContextObject::Macro(thread_last))
-        .unwrap();
-    ctx.set_str("thread-last".to_string(), ContextObject::Macro(thread_last))
-        .unwrap();
+    ctx.set_str(
+        "->>".to_string(),
+        ContextObject::Macro(Box::new(thread_last)),
+    )
+    .unwrap();
+    ctx.set_str(
+        "thread-last".to_string(),
+        ContextObject::Macro(Box::new(thread_last)),
+    )
+    .unwrap();
 
-    ctx.set_str("let*".to_string(), ContextObject::Macro(let_star))
+    ctx.set_str("let*".to_string(), ContextObject::Macro(Box::new(let_star)))
         .unwrap();
 }

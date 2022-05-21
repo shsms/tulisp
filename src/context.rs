@@ -10,11 +10,10 @@ use crate::{
 };
 
 #[doc(hidden)]
-#[derive(Clone)]
 pub enum ContextObject {
     TulispValue(TulispValueRef),
-    Func(fn(&mut TulispContext, &TulispValueRef) -> Result<TulispValueRef, Error>),
-    Macro(fn(&mut TulispContext, &TulispValueRef) -> Result<TulispValueRef, Error>),
+    Func(Box<dyn Fn(&mut TulispContext, &TulispValueRef) -> Result<TulispValueRef, Error>>),
+    Macro(Box<dyn Fn(&mut TulispContext, &TulispValueRef) -> Result<TulispValueRef, Error>>),
     Defmacro {
         args: TulispValueRef,
         body: TulispValueRef,
