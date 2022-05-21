@@ -1,13 +1,12 @@
 use std::{cell::RefCell, collections::HashMap, fs, rc::Rc};
 
 use crate::{
-    
-    destruct_bind,
+    builtin, destruct_bind,
     error::{Error, ErrorKind},
     eval::eval,
     parser::parse_string,
     value::TulispValue,
-    value_ref::TulispValueRef, builtin
+    value_ref::TulispValueRef,
 };
 
 #[doc(hidden)]

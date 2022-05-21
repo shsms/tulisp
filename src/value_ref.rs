@@ -2,7 +2,8 @@ use crate::{
     cons::{self, Cons},
     context::ContextObject,
     error::Error,
-    value::{Span, TulispValue}, list,
+    list,
+    value::{Span, TulispValue},
 };
 use std::{cell::RefCell, rc::Rc};
 use tailcall::tailcall;

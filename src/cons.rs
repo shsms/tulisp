@@ -150,4 +150,3 @@ impl<T: 'static + std::convert::TryFrom<TulispValueRef>> Iterator for Iter<T> {
         })
     }
 }
-
