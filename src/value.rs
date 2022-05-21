@@ -6,7 +6,6 @@ use crate::{
 };
 use std::{cell::RefCell, convert::TryInto, rc::Rc};
 
-use pest;
 use tailcall::tailcall;
 
 #[derive(Debug, Clone, PartialEq)]

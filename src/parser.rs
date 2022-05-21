@@ -1,5 +1,3 @@
-use pest;
-
 use pest::{iterators::Pair, Parser};
 
 use crate::context::{ContextObject, TulispContext};

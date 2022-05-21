@@ -99,7 +99,7 @@ fn eval_function<E: Evaluator>(
 ) -> Result<TulispValueRef, Error> {
     let local = zip_function_args::<E>(ctx, params, args)?;
     ctx.push(local);
-    let result = ctx.eval_progn(&body)?;
+    let result = ctx.eval_progn(body)?;
     ctx.pop();
     Ok(result)
 }
