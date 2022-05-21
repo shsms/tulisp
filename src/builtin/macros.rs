@@ -1,6 +1,6 @@
 use proc_macros::crate_fn_no_eval;
 
-use crate::cons::{car, cdr, Cons};
+use crate::cons::Cons;
 use crate::context::{ContextObject, TulispContext};
 use crate::error::Error;
 use crate::value::TulispValue::{self, Nil};
@@ -13,7 +13,7 @@ fn thread_first(ctx: &mut TulispContext, vv: &TulispValueRef) -> Result<TulispVa
         Ok(x)
     } else if more.is_null() {
         if form.is_cons() {
-            Ok(list!(,car(&form)? ,x.clone() ,@cdr(&form)?)?)
+            Ok(list!(,form.car()? ,x.clone() ,@form.cdr()?)?)
         } else {
             Ok(list!(,form ,x.clone())?)
         }

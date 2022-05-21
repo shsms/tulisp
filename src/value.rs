@@ -1,5 +1,5 @@
 use crate::{
-    cons::{self, car, cdr, Cons},
+    cons::{self, Cons},
     context::ContextObject,
     error::{Error, ErrorKind},
     value_ref::TulispValueRef,
@@ -122,12 +122,12 @@ impl std::fmt::Display for TulispValue {
                     add_space: &mut bool,
                     vv: TulispValueRef,
                 ) -> Result<(), Error> {
-                    let rest = cdr(&vv)?;
+                    let rest = vv.cdr()?;
                     if *add_space {
                         ret.push(' ');
                     }
                     *add_space = true;
-                    ret.push_str(&format!("{}", car(&vv)?));
+                    ret.push_str(&format!("{}", vv.car()?));
                     if rest == TulispValue::Nil {
                         return Ok(());
                     } else if !rest.is_cons() {
@@ -226,19 +226,27 @@ impl TulispValue {
         }
     }
 
-    pub fn as_list_car(&self) -> Option<TulispValueRef> {
+    pub fn car(&self) -> Result<TulispValueRef, Error> {
         match self {
-            TulispValue::List { cons, .. } => Some(cons.car()),
-            TulispValue::Nil => Some(TulispValue::Nil.into_ref()),
-            _ => None,
+            TulispValue::List { cons, .. } => Ok(cons.car()),
+            TulispValue::Nil => Ok(TulispValue::Nil.into_ref()),
+            _ => Err(Error::new(
+                ErrorKind::TypeMismatch,
+                format!("car: Not a Cons: {}", self),
+            )
+            .with_span(self.span())),
         }
     }
 
-    pub fn as_list_cdr(&self) -> Option<TulispValueRef> {
+    pub fn cdr(&self) -> Result<TulispValueRef, Error> {
         match self {
-            TulispValue::List { cons, .. } => Some(cons.cdr()),
-            TulispValue::Nil => Some(TulispValue::Nil.into_ref()),
-            _ => None,
+            TulispValue::List { cons, .. } => Ok(cons.cdr()),
+            TulispValue::Nil => Ok(TulispValue::Nil.into_ref()),
+            _ => Err(Error::new(
+                ErrorKind::TypeMismatch,
+                format!("cdr: Not a Cons: {}", self),
+            )
+            .with_span(self.span())),
         }
     }
 

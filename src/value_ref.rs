@@ -1,8 +1,8 @@
 use crate::{
-    cons::{self, car, cdr, Cons},
+    cons::{self, Cons},
     context::ContextObject,
     error::Error,
-    value::{Span, TulispValue},
+    value::{Span, TulispValue}, list,
 };
 use std::{cell::RefCell, rc::Rc};
 use tailcall::tailcall;
@@ -37,7 +37,11 @@ impl std::fmt::Display for TulispValueRef {
 }
 
 impl TulispValueRef {
-    pub fn new(vv: TulispValue) -> TulispValueRef {
+    pub fn from_cons(car: TulispValueRef, cdr: TulispValueRef) -> TulispValueRef {
+        list!(,car ,@cdr).unwrap()
+    }
+
+    pub(crate) fn new(vv: TulispValue) -> TulispValueRef {
         Self {
             rc: Rc::new(RefCell::new(vv)),
         }
@@ -90,11 +94,11 @@ impl TulispValueRef {
     pub(crate) fn as_list_cons(&self) -> Option<Cons> {
         self.rc.as_ref().borrow().as_list_cons()
     }
-    pub(crate) fn as_list_car(&self) -> Option<TulispValueRef> {
-        self.rc.as_ref().borrow().as_list_car()
+    pub fn car(&self) -> Result<TulispValueRef, Error> {
+        self.rc.as_ref().borrow().car()
     }
-    pub(crate) fn as_list_cdr(&self) -> Option<TulispValueRef> {
-        self.rc.as_ref().borrow().as_list_cdr()
+    pub fn cdr(&self) -> Result<TulispValueRef, Error> {
+        self.rc.as_ref().borrow().cdr()
     }
     pub fn fmt_string(&self) -> String {
         self.rc.as_ref().borrow().fmt_string()
@@ -126,7 +130,7 @@ impl TulispValueRef {
                 *ret = val.clone_inner();
                 return Ok(());
             }
-            let (first, rest) = (car(&val)?, cdr(&val)?);
+            let (first, rest) = (val.car()?, val.cdr()?);
             ret.push_with_meta(first.clone_inner().into_ref(), val.span(), val.ctxobj())?;
             if !rest.is_cons() {
                 ret.append(rest)?;

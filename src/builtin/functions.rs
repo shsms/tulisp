@@ -1,5 +1,3 @@
-use crate::cons::car;
-use crate::cons::cdr;
 use crate::cons::Cons;
 use crate::context::ContextObject;
 use crate::context::TulispContext;
@@ -82,27 +80,27 @@ fn mark_tail_calls(name: TulispValueRef, body: TulispValueRef) -> Result<TulispV
     } else {
         return Ok(tail);
     };
-    let tail_ident = car(&tail)?;
+    let tail_ident = tail.car()?;
     let tail_name_str = tail_ident.as_symbol()?;
     let new_tail = if tail_ident == name {
         let ret_tail = TulispValue::Nil
             .into_ref()
-            .append(cdr(&tail)?)?
+            .append(tail.cdr()?)?
             .to_owned()
             .with_span(span);
         list!(,TulispValue::symbol_from("list".to_string(),  None).into_ref()
               ,TulispValue::Bounce.into_ref()
               ,@ret_tail)?
     } else if tail_name_str == "progn" {
-        mark_tail_calls(name, cdr(&tail)?)?
+        mark_tail_calls(name, tail.cdr()?)?
     } else if tail_name_str == "if" {
         destruct_bind!((_if condition then_body &rest else_body) = tail);
         list!(,tail_ident
               ,condition.clone()
-              ,car(&mark_tail_calls(
+              ,mark_tail_calls(
                   name.clone(),
                   list!(,then_body)?
-              )?)?
+              )?.car()?
               ,@mark_tail_calls(name, else_body)?
         )?
     } else if tail_name_str == "cond" {
@@ -347,8 +345,8 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         rest: TulispValueRef,
     ) -> Result<TulispValueRef, Error> {
         // TODO: don't discard docstring
-        let body = if car(&rest)?.as_string().is_ok() {
-            cdr(&rest)?
+        let body = if rest.car()?.as_string().is_ok() {
+            rest.cdr()?
         } else {
             rest
         };
@@ -368,8 +366,8 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         rest: TulispValueRef,
     ) -> Result<TulispValueRef, Error> {
         // TODO: don't discard docstring
-        let body = if car(&rest)?.as_string().is_ok() {
-            cdr(&rest)?
+        let body = if rest.car()?.as_string().is_ok() {
+            rest.cdr()?
         } else {
             rest
         };
@@ -399,17 +397,17 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     #[crate_fn(add_func = "ctx", name = "car")]
     fn impl_car(name: TulispValueRef) -> Result<TulispValueRef, Error> {
-        crate::cons::car(&name)
+        name.car()
     }
 
     #[crate_fn(add_func = "ctx", name = "cdr")]
     fn impl_cdr(name: TulispValueRef) -> Result<TulispValueRef, Error> {
-        crate::cons::cdr(&name)
+        name.cdr()
     }
 
     #[crate_fn(add_func = "ctx", name = "cons")]
     fn impl_cons(car: TulispValueRef, cdr: TulispValueRef) -> TulispValueRef {
-        crate::cons::cons(car, cdr)
+        TulispValueRef::from_cons(car, cdr)
     }
 
     #[crate_fn_no_eval(add_func = "ctx")]
@@ -441,7 +439,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                     TulispValue::Nil
                         .into_ref()
                         .push(var.clone())?
-                        .push(car(&list)?)?
+                        .push(list.car()?)?
                         .clone(),
                 )?
                 .clone();
@@ -449,7 +447,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             let eval_res = ctx.eval_progn(&body);
             ctx.pop();
             eval_res?;
-            list = cdr(&list)?;
+            list = list.cdr()?;
         }
         ctx.eval(&result)
     }
@@ -528,7 +526,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 )
                 .with_span(kvpair.span()));
             }
-            if car(&kvpair)? == key {
+            if kvpair.car()? == key {
                 return Ok(kvpair);
             }
         }
@@ -554,7 +552,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ) -> Result<TulispValueRef, Error> {
         let x = assoc_impl(key, alist, testfn)?;
         if x.as_bool() {
-            cdr(&x)
+            x.cdr()
         } else {
             Ok(default_value.unwrap_or_else(|| TulispValue::Nil.into_ref()))
         }

@@ -3,7 +3,6 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 use tailcall::tailcall;
 
 use crate::{
-    cons::{car, cdr},
     context::{ContextObject, Scope, TulispContext},
     error::{Error, ErrorKind},
     parser::macroexpand,
@@ -112,8 +111,8 @@ fn eval_defun(
     args: &TulispValueRef,
 ) -> Result<TulispValueRef, Error> {
     let mut result = eval_function::<Eval>(ctx, params, body, args)?;
-    while let Ok(true) = car(&result).map(|x| x.is_bounce()) {
-        result = eval_function::<DummyEval>(ctx, params, body, &cdr(&result)?)?;
+    while let Ok(true) = result.car().map(|x| x.is_bounce()) {
+        result = eval_function::<DummyEval>(ctx, params, body, &result.cdr()?)?;
     }
     Ok(result)
 }
@@ -128,7 +127,7 @@ pub(crate) fn eval_defmacro(
 }
 
 fn eval_form(ctx: &mut TulispContext, val: &TulispValueRef) -> Result<TulispValueRef, Error> {
-    let name = car(&val)?;
+    let name = val.car()?;
     let func = match val.ctxobj() {
         func @ Some(_) => func,
         None => ctx.get(name.clone()),
@@ -136,7 +135,7 @@ fn eval_form(ctx: &mut TulispContext, val: &TulispValueRef) -> Result<TulispValu
     match func {
         Some(item) => match &*item.as_ref().borrow() {
             ContextObject::Func(func) => func(ctx, val),
-            ContextObject::Defun { args, body } => eval_defun(ctx, args, body, &cdr(&val)?),
+            ContextObject::Defun { args, body } => eval_defun(ctx, args, body, &val.cdr()?),
             ContextObject::Macro(_) | ContextObject::Defmacro { .. } => {
                 let expanded = macroexpand(ctx, val.clone())?;
                 eval(ctx, &expanded)
@@ -198,7 +197,7 @@ pub(crate) fn eval(
                 ret: &mut TulispValue,
                 vv: TulispValueRef,
             ) -> Result<(), Error> {
-                let (first, rest) = (car(&vv)?, cdr(&vv)?);
+                let (first, rest) = (vv.car()?, vv.cdr()?);
                 let first_inner = first.clone_inner();
                 let rest_inner = rest.clone_inner();
                 if let TulispValue::Unquote { value, span } = first_inner {

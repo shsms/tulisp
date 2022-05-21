@@ -1,7 +1,7 @@
 use std::{cell::RefCell, collections::HashMap, fs, rc::Rc};
 
 use crate::{
-    cons::{car, cdr},
+    
     destruct_bind,
     error::{Error, ErrorKind},
     eval::eval,

@@ -5,7 +5,6 @@ use std::rc::Rc;
 use crate::context::ContextObject;
 use crate::error::Error;
 use crate::error::ErrorKind;
-use crate::list;
 use crate::value::Span;
 use crate::value::TulispValue;
 use crate::value_ref::TulispValueRef;
@@ -34,7 +33,7 @@ impl Cons {
         let mut last = self.cdr.clone();
 
         while last.is_cons() {
-            last = cdr(&last)?;
+            last = last.cdr()?;
         }
         if last == TulispValue::Nil {
             last.assign(TulispValue::List {
@@ -58,7 +57,7 @@ impl Cons {
         let mut last = self.cdr.clone();
 
         while last.is_cons() {
-            last = cdr(&last)?;
+            last = last.cdr()?;
         }
         if last == TulispValue::Nil {
             last.assign(val.clone_inner());
@@ -152,30 +151,3 @@ impl<T: 'static + std::convert::TryFrom<TulispValueRef>> Iterator for Iter<T> {
     }
 }
 
-pub fn car(cons: &TulispValueRef) -> Result<TulispValueRef, Error> {
-    if let Some(car) = cons.as_list_car() {
-        Ok(car)
-    } else {
-        Err(Error::new(
-            ErrorKind::TypeMismatch,
-            format!("car: Not a Cons: {}", cons),
-        )
-        .with_span(cons.span()))
-    }
-}
-
-pub fn cdr(cons: &TulispValueRef) -> Result<TulispValueRef, Error> {
-    if let Some(cdr) = cons.as_list_cdr() {
-        Ok(cdr)
-    } else {
-        Err(Error::new(
-            ErrorKind::TypeMismatch,
-            format!("cdr: Not a Cons: {}", cons),
-        )
-        .with_span(cons.span()))
-    }
-}
-
-pub fn cons(car: TulispValueRef, cdr: TulispValueRef) -> TulispValueRef {
-    list!(,car ,@cdr).unwrap()
-}

@@ -10,7 +10,7 @@ pub use proc_macros::{tulisp_fn, tulisp_fn_no_eval};
 mod builtin;
 
 mod cons;
-pub use cons::{car, cdr, cons, BaseIter, Iter};
+pub use cons::{BaseIter, Iter};
 
 mod context;
 pub use context::{ContextObject, TulispContext};

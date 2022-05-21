@@ -27,8 +27,8 @@ macro_rules! list {
 #[macro_export]
 macro_rules! destruct_bind {
     (@reqr $vv:ident, $var:ident) => {
-        let $var = car(&$vv)?;
-        let $vv = cdr(&$vv)?;
+        let $var = $vv.car()?;
+        let $vv = $vv.cdr()?;
     };
     (@reqr $vv:ident, $var:ident $($vars:tt)+) => {
         destruct_bind!(@reqr $vv, $var);
@@ -49,7 +49,7 @@ macro_rules! destruct_bind {
     };
     (@optvar $vv:ident, $var:ident) => {
         let ($var, $vv) = if $vv != TulispValue::Nil {
-            (car(&$vv)?, cdr(&$vv)?)
+            ($vv.car()?, $vv.cdr()?)
         } else {
             (TulispValue::Nil.into_ref(), TulispValue::Nil.into_ref())
         };

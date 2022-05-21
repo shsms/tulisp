@@ -2,7 +2,6 @@ use pest;
 
 use pest::{iterators::Pair, Parser};
 
-use crate::cons::{car, cdr};
 use crate::context::{ContextObject, TulispContext};
 use crate::eval::{eval, eval_defmacro};
 use crate::{
@@ -41,7 +40,7 @@ pub fn macroexpand(ctx: &mut TulispContext, inp: TulispValueRef) -> Result<Tulis
     }
     expr.with_ctxobj(inp.ctxobj()).with_span(inp.span());
     let expr = expr.into_ref();
-    let name = match car(&expr)?.as_symbol() {
+    let name = match expr.car()?.as_symbol() {
         Ok(id) => id,
         Err(_) => return Ok(expr),
     };
@@ -52,7 +51,7 @@ pub fn macroexpand(ctx: &mut TulispContext, inp: TulispValueRef) -> Result<Tulis
                 macroexpand(ctx, expansion)
             }
             ContextObject::Defmacro { args, body } => {
-                let expansion = eval_defmacro(ctx, args, body, &cdr(&expr)?)
+                let expansion = eval_defmacro(ctx, args, body, &expr.cdr()?)
                     .map_err(|e| e.with_span(inp.span()))?;
                 macroexpand(ctx, expansion)
             }
@@ -79,7 +78,7 @@ fn locate_all_func(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispV
 }
 
 fn locate_func(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispValue, Error> {
-    let name = match car(&expr.clone().into_ref())?.clone_inner() {
+    let name = match expr.clone().into_ref().car()?.clone_inner() {
         TulispValue::Symbol { value, .. } => value,
         _ => return Ok(expr),
     };
@@ -125,7 +124,7 @@ fn parse(
                 .map(|val| -> Result<(), Error> { list.push(val?.into_ref()).map(|_| ()) })
                 .fold(Ok(()), |v1, v2| v1.and(v2))?;
             let expr = list.with_span(Some(span));
-            let name = match car(&expr)?.clone_inner() {
+            let name = match expr.car()?.clone_inner() {
                 TulispValue::Symbol { value, .. } => value,
                 _ => return Ok(expr.clone_inner()),
             };
