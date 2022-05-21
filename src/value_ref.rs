@@ -41,6 +41,10 @@ impl TulispValueRef {
         list!(,car ,@cdr).unwrap()
     }
 
+    pub fn from_symbol(name: String) -> TulispValueRef {
+        TulispValue::symbol_from(name, None).into()
+    }
+
     pub(crate) fn new(vv: TulispValue) -> TulispValueRef {
         Self {
             rc: Rc::new(RefCell::new(vv)),
