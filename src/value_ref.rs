@@ -42,10 +42,10 @@ impl TulispValueRef {
             rc: Rc::new(RefCell::new(vv)),
         }
     }
-    pub fn strong_count(&self) -> usize {
+    pub(crate) fn strong_count(&self) -> usize {
         Rc::strong_count(&self.rc)
     }
-    pub fn assign(&self, vv: TulispValue) {
+    pub(crate) fn assign(&self, vv: TulispValue) {
         *self.rc.as_ref().borrow_mut() = vv
     }
     pub fn base_iter(&self) -> cons::BaseIter {
@@ -60,7 +60,7 @@ impl TulispValueRef {
     pub fn append(&self, val: TulispValueRef) -> Result<&TulispValueRef, Error> {
         self.rc.as_ref().borrow_mut().append(val).map(|_| self)
     }
-    pub fn is_bounce(&self) -> bool {
+    pub(crate) fn is_bounce(&self) -> bool {
         self.rc.as_ref().borrow().is_bounce()
     }
     pub fn is_cons(&self) -> bool {
@@ -72,8 +72,7 @@ impl TulispValueRef {
     pub fn is_null(&self) -> bool {
         self.rc.as_ref().borrow().is_null()
     }
-    // TODO: need an alternative
-    pub fn clone_inner(&self) -> TulispValue {
+    pub(crate) fn clone_inner(&self) -> TulispValue {
         self.rc.as_ref().borrow().clone()
     }
     pub fn as_float(&self) -> Result<f64, Error> {
@@ -88,13 +87,13 @@ impl TulispValueRef {
     pub fn as_symbol(&self) -> Result<String, Error> {
         self.rc.as_ref().borrow().as_symbol()
     }
-    pub fn as_list_cons(&self) -> Option<Cons> {
+    pub(crate) fn as_list_cons(&self) -> Option<Cons> {
         self.rc.as_ref().borrow().as_list_cons()
     }
-    pub fn as_list_car(&self) -> Option<TulispValueRef> {
+    pub(crate) fn as_list_car(&self) -> Option<TulispValueRef> {
         self.rc.as_ref().borrow().as_list_car()
     }
-    pub fn as_list_cdr(&self) -> Option<TulispValueRef> {
+    pub(crate) fn as_list_cdr(&self) -> Option<TulispValueRef> {
         self.rc.as_ref().borrow().as_list_cdr()
     }
     pub fn fmt_string(&self) -> String {
@@ -107,18 +106,18 @@ impl TulispValueRef {
         self.rc.as_ref().borrow_mut().with_ctxobj(in_ctxobj);
         self.clone()
     }
-    pub fn with_span(&self, in_span: Option<Span>) -> Self {
+    pub(crate) fn with_span(&self, in_span: Option<Span>) -> Self {
         self.rc.as_ref().borrow_mut().with_span(in_span);
         self.clone()
     }
     pub fn span(&self) -> Option<Span> {
         self.rc.as_ref().borrow().span()
     }
-    pub fn take(&self) -> TulispValue {
+    pub(crate) fn take(&self) -> TulispValue {
         self.rc.as_ref().borrow_mut().take()
     }
 
-    pub fn deep_copy(&self) -> Result<TulispValueRef, Error> {
+    pub(crate) fn deep_copy(&self) -> Result<TulispValueRef, Error> {
         let mut ret = TulispValue::Nil;
         #[allow(unreachable_code)]
         #[tailcall]
