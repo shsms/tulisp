@@ -1,4 +1,4 @@
-use tulisp::{tulisp_fn, Error, Iter, TulispContext};
+use tulisp::{tulisp_add_func, tulisp_fn, Error, Iter, TulispContext};
 
 macro_rules! tulisp_assert {
     (@impl $ctx: expr, program:$input:expr, result:$result:expr $(,)?) => {
@@ -374,6 +374,33 @@ fn test_threading_macros() -> Result<(), Error> {
     tulisp_assert! {
         program: "(->> 10)",
         result: "10",
+    }
+
+    Ok(())
+}
+
+#[test]
+fn test_tulisp_fn() -> Result<(), Error> {
+    struct Demo {
+        vv: i64,
+    }
+    impl Demo {
+        #[tulisp_fn]
+        fn run(&self) -> i64 {
+            self.vv
+        }
+    }
+
+    let d = Demo { vv: 5 };
+
+    let mut ctx = TulispContext::new();
+
+    tulisp_add_func!(ctx, d.run);
+
+    tulisp_assert! {
+        ctx: ctx,
+        program: "(d.run)",
+        result: "5",
     }
 
     Ok(())

@@ -3,7 +3,7 @@ mod parse_args;
 use proc_macro::{self, TokenStream};
 use proc_macro2::{Ident, TokenStream as TokenStream2};
 use quote::{quote, spanned::Spanned, ToTokens};
-use syn::{parse_macro_input, AttributeArgs};
+use syn::{parse_macro_input, parse_quote, AttributeArgs};
 use syn::{ItemFn, ReturnType};
 
 fn gen_function_call(
@@ -212,4 +212,71 @@ pub fn crate_fn(attr: TokenStream, item: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn crate_fn_no_eval(attr: TokenStream, item: TokenStream) -> TokenStream {
     tulisp_fn_impl(attr, item, quote!(crate), false)
+}
+
+fn tulisp_add_impl(input: TokenStream, crate_name: TokenStream2, add_macro: bool) -> TokenStream {
+    let ctxobj_type = if add_macro {
+        quote!(Macro)
+    } else {
+        quote!(Func)
+    };
+    let mut tokens = vec![quote!()];
+    let input: TokenStream2 = input.clone().into();
+    for tok in input.clone() {
+        if tok.to_string() == "," {
+            tokens.push(quote!());
+            continue;
+        }
+        tokens.last_mut().map(|x| x.extend(quote!(#tok)));
+    }
+    let (ctx, fn_name, tulisp_fn_name) = match &tokens[..] {
+        [a, b, c] => {
+            let c: syn::Lit = parse_quote!(#c);
+            let c = match c {
+                syn::Lit::Str(c) => c.value(),
+                _ => {
+                    return syn::Error::new(c.span(), "expected string literal for tulisp_fn_name")
+                        .to_compile_error()
+                        .into()
+                }
+            };
+            (a, b, c)
+        }
+        [a, b] => (a, b, b.to_string()),
+        _ => {
+            return syn::Error::new(input.__span(), "incorrect number of arguments")
+                .to_compile_error()
+                .into()
+        }
+    };
+
+    let generated_fn_name = make_generated_fn_name(&fn_name);
+    let generated = quote! {
+        #ctx.set_str(
+            #tulisp_fn_name.to_string(),
+            #crate_name::ContextObject::#ctxobj_type(Box::new(move |_1, _2|#generated_fn_name(_1, _2)))
+        ).unwrap();
+    };
+
+    generated.into()
+}
+
+#[proc_macro]
+pub fn tulisp_add_func(input: TokenStream) -> TokenStream {
+    tulisp_add_impl(input, quote!(tulisp), false)
+}
+
+#[proc_macro]
+pub fn tulisp_add_macro(input: TokenStream) -> TokenStream {
+    tulisp_add_impl(input, quote!(tulisp), true)
+}
+
+#[proc_macro]
+pub fn crate_add_func(input: TokenStream) -> TokenStream {
+    tulisp_add_impl(input, quote!(crate), false)
+}
+
+#[proc_macro]
+pub fn crate_add_macro(input: TokenStream) -> TokenStream {
+    tulisp_add_impl(input, quote!(crate), true)
 }

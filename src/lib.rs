@@ -5,7 +5,7 @@ mod eval;
 mod macros;
 mod parser;
 
-pub use proc_macros::{tulisp_fn, tulisp_fn_no_eval};
+pub use proc_macros::{tulisp_add_func, tulisp_add_macro, tulisp_fn, tulisp_fn_no_eval};
 
 mod builtin;
 

@@ -1,4 +1,4 @@
-use proc_macros::crate_fn_no_eval;
+use proc_macros::{crate_add_macro, crate_fn_no_eval};
 
 use crate::cons::Cons;
 use crate::context::{ContextObject, TulispContext};
@@ -97,9 +97,5 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     )
     .unwrap();
 
-    ctx.set_str(
-        "let*".to_string(),
-        ContextObject::Macro(Box::new(__tulisp_generated_let_star)),
-    )
-    .unwrap();
+    crate_add_macro!(ctx, let_star, "let*");
 }
