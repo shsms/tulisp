@@ -92,15 +92,16 @@ pub(crate) fn parse_args(
     crate_name: &TokenStream2,
     fn_name: &syn::Lit,
     eval_args: bool,
-) -> Result<(TokenStream2, TokenStream2), TokenStream> {
+) -> Result<(TokenStream2, TokenStream2, TokenStream2), TokenStream> {
     let mut arg_extract_stmts = quote!();
     let mut params_for_call = quote!();
+    let mut self_param = quote!();
     let mut has_optional = false;
     let mut has_rest = false;
     let args = &inp.sig.inputs;
 
     for (pos, arg) in args.iter().enumerate() {
-        let arg_info = process_arg(
+        let arg_info = match process_arg(
             crate_name,
             fn_name,
             pos,
@@ -108,14 +109,20 @@ pub(crate) fn parse_args(
             eval_args,
             has_optional,
             has_rest,
-        )?;
+        )? {
+            Some(vv) => vv,
+            None => {
+                self_param.extend(quote!(#arg, ));
+                continue;
+            }
+        };
         has_optional = arg_info.optional;
         has_rest = arg_info.rest;
         let arg_name = arg_info.name;
         arg_extract_stmts.extend(arg_info.extract_stmts);
         params_for_call.extend(quote! {#arg_name , })
     }
-    Ok((arg_extract_stmts, params_for_call))
+    Ok((arg_extract_stmts, params_for_call, self_param))
 }
 
 fn process_arg(
@@ -126,8 +133,11 @@ fn process_arg(
     eval_args: bool,
     has_optional: bool,
     has_rest: bool,
-) -> Result<ArgInfo, TokenStream> {
-    let (arg_name, arg_type) = get_name_and_type(arg)?;
+) -> Result<Option<ArgInfo>, TokenStream> {
+    let (arg_name, arg_type) = match get_name_and_type(arg)? {
+        Some(vv) => vv,
+        None => return Ok(None),
+    };
 
     if has_rest {
         tulisp_compile_error!(
@@ -147,7 +157,7 @@ fn process_arg(
         extract_stmts: quote!(),
     };
     if arg_info.is_ctx()? {
-        return Ok(arg_info);
+        return Ok(Some(arg_info));
     }
 
     if arg_info.is_rest() {
@@ -162,7 +172,7 @@ fn process_arg(
                 let __tulisp_internal_value = #crate_name::Nil;
             })
         }
-        return Ok(arg_info);
+        return Ok(Some(arg_info));
     }
 
     let optional = arg_info.is_optional()?;
@@ -284,7 +294,7 @@ fn process_arg(
             let __tulisp_internal_value = __tulisp_internal_value.cdr()?;
         });
     }
-    Ok(arg_info)
+    Ok(Some(arg_info))
 }
 
 /// Returns the name of the last segment, and generic params if any.
@@ -317,14 +327,12 @@ fn parse_type_path(arg_type: &syn::Type) -> Result<(String, Option<syn::Type>), 
     Ok((segment_name, generic_type))
 }
 
-fn get_name_and_type(arg: &FnArg) -> Result<(TokenStream2, syn::Type), TokenStream> {
+fn get_name_and_type(arg: &FnArg) -> Result<Option<(TokenStream2, syn::Type)>, TokenStream> {
     match arg {
-        FnArg::Receiver(_) => {
-            tulisp_compile_error!(arg, "Tulisp functions can't have `self` receivers.");
-        }
+        FnArg::Receiver(_) => Ok(None),
         FnArg::Typed(pattype) => {
             let PatType { pat, ty, .. } = pattype;
-            Ok((pat.to_token_stream(), *ty.to_owned()))
+            Ok(Some((pat.to_token_stream(), *ty.to_owned())))
         }
     }
 }

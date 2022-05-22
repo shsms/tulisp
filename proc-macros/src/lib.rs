@@ -10,6 +10,7 @@ fn gen_function_call(
     crate_name: &TokenStream2,
     fn_name: &Ident,
     params_for_call: TokenStream2,
+    self_param: &TokenStream2,
     ret_type: &ReturnType,
 ) -> Result<TokenStream2, TokenStream> {
     let ret_type_err = |tt: &Box<syn::Type>| {
@@ -27,9 +28,15 @@ fn gen_function_call(
         .into())
     };
 
+    let self_prefix = if self_param.is_empty() {
+        quote!()
+    } else {
+        quote!(self.)
+    };
+
     let call_and_ret = match ret_type {
         syn::ReturnType::Default => {
-            quote! {#fn_name(#params_for_call); Ok(#crate_name::Nil)}
+            quote! {#self_prefix #fn_name(#params_for_call); Ok(#crate_name::Nil)}
         }
         syn::ReturnType::Type(_, tt) => match &**tt {
             syn::Type::Path(tp) => {
@@ -37,7 +44,7 @@ fn gen_function_call(
                 let ret_str = seg.ident.to_string();
                 match ret_str.as_str() {
                     "i64" | "f64" | "bool" | "String" | "TulispValueRef" => {
-                        quote! {Ok(#fn_name(#params_for_call).into())}
+                        quote! {Ok(#self_prefix #fn_name(#params_for_call).into())}
                     }
                     "Result" => match &seg.arguments {
                         syn::PathArguments::AngleBracketed(agbkt) => {
@@ -51,7 +58,7 @@ fn gen_function_call(
                                 agbkt.args.first().unwrap().to_token_stream().to_string();
                             match inner_str.as_str() {
                                 "i64" | "f64" | "bool" | "String" | "TulispValueRef" => {
-                                    quote! {#fn_name(#params_for_call).map(|x| x.into())}
+                                    quote! {#self_prefix #fn_name(#params_for_call).map(|x| x.into())}
                                 }
                                 _ => {
                                     return ret_type_err(tt);
@@ -74,6 +81,25 @@ fn gen_function_call(
     };
 
     Ok(call_and_ret)
+}
+
+fn make_generated_fn_name(fn_name: &TokenStream2) -> TokenStream2 {
+    let fn_name = fn_name.to_string();
+    let parts = fn_name.rsplit_once('.');
+    let (prefix, fn_name) = if let Some((a, b)) = parts {
+        let a = syn::Ident::new(format!("{a}").as_str(), proc_macro2::Span::call_site());
+        (quote!(#a .), b.to_string())
+    } else {
+        (quote!(), fn_name)
+    };
+    let ident = syn::Ident::new(
+        format!("__tulisp_generated_{fn_name}").as_str(),
+        proc_macro2::Span::call_site(),
+    );
+
+    quote! {
+        #prefix #ident
+    }
 }
 
 fn tulisp_fn_impl(
@@ -111,25 +137,32 @@ fn tulisp_fn_impl(
             proc_macro2::Span::call_site(),
         ))
     });
-    let (arg_extract_stmts, params_for_call) =
+    let (arg_extract_stmts, params_for_call, self_param) =
         match parse_args::parse_args(&inp, &crate_name, &tulisp_fn_name, eval_args) {
             Ok(vv) => vv,
             Err(e) => return e,
         };
-    let call_and_ret =
-        match gen_function_call(&crate_name, fn_name, params_for_call, &inp.sig.output) {
-            Ok(vv) => vv,
-            Err(e) => return e,
-        };
-
+    let call_and_ret = match gen_function_call(
+        &crate_name,
+        fn_name,
+        params_for_call,
+        &self_param,
+        &inp.sig.output,
+    ) {
+        Ok(vv) => vv,
+        Err(e) => return e,
+    };
+    let generated_fn_name = make_generated_fn_name(&fn_name.to_token_stream());
     let mut generated = quote! {
-        fn #fn_name(
+        #inp
+
+        fn #generated_fn_name(
+            #self_param
             ctx: &mut #crate_name::TulispContext,
             __tulisp_internal_value: &#crate_name::TulispValueRef,
         ) -> Result<#crate_name::TulispValueRef, #crate_name::Error> {
             use #crate_name::Error;
 
-            #inp
 
             let __defun_name = __tulisp_internal_value.car()?;
             let __tulisp_internal_value = __tulisp_internal_value.cdr()?;
@@ -151,7 +184,10 @@ fn tulisp_fn_impl(
         };
         generated.extend(quote! {
             // TODO: how to avoid unwrap?
-            #ctx.set_str(#tulisp_fn_name.to_string(), #crate_name::ContextObject::#ctxobj_type(Box::new(#fn_name))).unwrap();
+            #ctx.set_str(
+                #tulisp_fn_name.to_string(),
+                #crate_name::ContextObject::#ctxobj_type(Box::new(#generated_fn_name))
+            ).unwrap();
         })
     }
 

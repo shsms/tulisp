@@ -97,6 +97,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     )
     .unwrap();
 
-    ctx.set_str("let*".to_string(), ContextObject::Macro(Box::new(let_star)))
-        .unwrap();
+    ctx.set_str(
+        "let*".to_string(),
+        ContextObject::Macro(Box::new(__tulisp_generated_let_star)),
+    )
+    .unwrap();
 }
