@@ -89,10 +89,9 @@ fn mark_tail_calls(name: TulispValueRef, body: TulispValueRef) -> Result<TulispV
             .to_owned()
             .with_span(span);
         list!(,TulispValue::symbol_from("list".to_string(),  None).into_ref()
-              ,TulispValue::Bounce.into_ref()
-              ,@ret_tail)?
+              ,TulispValue::Bounce.into_ref() ,@ret_tail)?
     } else if tail_name_str == "progn" {
-        mark_tail_calls(name, tail.cdr()?)?
+        list!(,tail_ident ,@mark_tail_calls(name, tail.cdr()?)?)?
     } else if tail_name_str == "if" {
         destruct_bind!((_if condition then_body &rest else_body) = tail);
         list!(,tail_ident
@@ -335,6 +334,11 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         };
         ctx.pop();
         ret
+    }
+
+    #[crate_fn_no_eval(add_func = "ctx")]
+    fn progn(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
+        ctx.eval_progn(&rest)
     }
 
     #[crate_fn_no_eval(add_func = "ctx")]
