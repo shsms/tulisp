@@ -217,25 +217,10 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(TulispValue::from(ret).into_ref())
     }
 
-    #[crate_fn_no_eval(add_func = "ctx")]
-    fn print(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
-        let mut iter = rest.base_iter();
-        let object = iter.next();
-        if iter.next().is_some() {
-            Err(Error::new(
-                ErrorKind::NotImplemented,
-                "output stream currently not supported".to_string(),
-            ))
-        } else if let Some(v) = object {
-            let ret = eval(ctx, &v)?;
-            println!("{}", ret);
-            Ok(ret)
-        } else {
-            Err(Error::new(
-                ErrorKind::TypeMismatch,
-                "Incorrect number of arguments: print, 0".to_string(),
-            ))
-        }
+    #[crate_fn(add_func = "ctx")]
+    fn print(val: TulispValueRef) -> Result<TulispValueRef, Error> {
+        println!("{}", val);
+        Ok(val)
     }
 
     #[crate_fn(add_func = "ctx", name = "prin1-to-string")]
@@ -243,25 +228,10 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(TulispValue::from(arg.fmt_string()).into_ref())
     }
 
-    #[crate_fn_no_eval(add_func = "ctx")]
-    fn princ(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
-        let mut iter = rest.base_iter();
-        let object = iter.next();
-        if iter.next().is_some() {
-            Err(Error::new(
-                ErrorKind::NotImplemented,
-                "output stream currently not supported".to_string(),
-            ))
-        } else if let Some(v) = object {
-            let ret = eval(ctx, &v)?;
-            println!("{}", ret.fmt_string());
-            Ok(ret)
-        } else {
-            Err(Error::new(
-                ErrorKind::TypeMismatch,
-                "Incorrect number of arguments: print, 0".to_string(),
-            ))
-        }
+    #[crate_fn(add_func = "ctx")]
+    fn princ(val: TulispValueRef) -> Result<TulispValueRef, Error> {
+        println!("{}", val.fmt_string());
+        Ok(val)
     }
 
     #[crate_fn_no_eval(add_func = "ctx", name = "if")]
