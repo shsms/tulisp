@@ -86,7 +86,7 @@ fn mark_tail_calls(name: TulispValueRef, body: TulispValueRef) -> Result<TulispV
             .with_span(span);
         list!(,TulispValue::symbol_from("list".to_string(),  None).into_ref()
               ,TulispValue::Bounce.into_ref() ,@ret_tail)?
-    } else if tail_name_str == "progn" {
+    } else if tail_name_str == "progn" || tail_name_str == "let" || tail_name_str == "let*" {
         list!(,tail_ident ,@mark_tail_calls(name, tail.cdr()?)?)?
     } else if tail_name_str == "if" {
         destruct_bind!((_if condition then_body &rest else_body) = tail);

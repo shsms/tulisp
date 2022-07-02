@@ -152,12 +152,17 @@ fn test_defun() -> Result<(), Error> {
     tulisp_assert! {
         program: r##"
         (defun progn-tail (n acc)
-          (progn (cond ((equal n 0) acc)
-                       (t (progn-tail (- n 1) (+ acc 1))))))
+          (let (next-n)
+            (progn
+              (setq next-n (- n 1))
+              (setq n next-n)
+              (if (equal n 0)
+                  acc
+                (progn-tail next-n (+ acc 1))))))
 
-        (progn-tail 35000 0)
+        (progn-tail 20001 0)
         "##,
-        result: "35000",
+        result: "20000",
     }
     Ok(())
 }
