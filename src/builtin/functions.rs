@@ -75,11 +75,7 @@ fn mark_tail_calls(name: TulispValueRef, body: TulispValueRef) -> Result<TulispV
     if !tail.is_cons() {
         return Ok(body);
     }
-    let span = if tail.is_cons() {
-        tail.span()
-    } else {
-        return Ok(tail);
-    };
+    let span = tail.span();
     let tail_ident = tail.car()?;
     let tail_name_str = tail_ident.as_symbol()?;
     let new_tail = if tail_ident == name {
