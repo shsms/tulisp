@@ -60,6 +60,7 @@ fn test_defun() -> Result<(), Error> {
     tulisp_assert! {
         program: r##"
             (defun add (x &optional y z)
+              "Have a docstring."
               (+ x
                  (if y y -10)
                  (if z z -10)))
@@ -115,7 +116,13 @@ fn test_defun() -> Result<(), Error> {
         result: "4",
     }
     tulisp_assert! {
-        program: "(defmacro inc (var)  (list 'setq var (list '+ 1 var))) (macroexpand '(inc x))",
+        program: r##"
+        (defmacro inc (var)
+          "Have a docstring"
+          (list 'setq var (list '+ 1 var)))
+
+        (macroexpand '(inc x))
+        "##,
         result: "'(setq x (+ 1 x))",
     }
     tulisp_assert! {
@@ -232,6 +239,19 @@ fn test_lists() -> Result<(), Error> {
     tulisp_assert! {
         program: "(consp '20)",
         result: "nil",
+    }
+
+    tulisp_assert! {
+        program: r##"(let ((res 0)) (dolist (vv '(20 30 50 33) res) (setq res (+ res vv))))"##,
+        result: "133",
+    }
+
+    tulisp_assert! {
+        program: r##"
+        (let ((vv '((name . "person") (age . 120))))
+          (list (assoc 'age vv) (alist-get 'name vv) (alist-get 'names vv) (alist-get 'names vv "something")))
+        "##,
+        result: r##"'((age . 120) "person" nil "something")"##,
     }
 
     Ok(())
