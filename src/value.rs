@@ -294,6 +294,18 @@ impl TulispValue {
         }
     }
 
+    pub fn try_int(&self) -> Result<i64, Error> {
+        match self {
+            TulispValue::Float { value, .. } => Ok(value.trunc() as i64),
+            TulispValue::Int { value, .. } => Ok(*value),
+            t => Err(Error::new(
+                ErrorKind::TypeMismatch,
+                format!("Expected number, got {:?}", t),
+            )
+            .with_span(self.span())),
+        }
+    }
+
     pub fn as_bool(&self) -> bool {
         !matches!(self, TulispValue::Nil)
     }

@@ -195,6 +195,11 @@ fn test_strings() -> Result<(), Error> {
         result: r#""hello world""#,
     }
 
+    tulisp_assert! {
+        program: r##"(format "Hello, %s! %%%d %f %s %d" "world" 22.8 22.8 10 10)"##,
+        result: r#""Hello, world! %22 22.8 10 10""#
+    }
+
     tulisp_assert! { program: "(prin1-to-string 'hello)", result: r#""hello""# }
     tulisp_assert! { program: "(prin1-to-string #'hello)", result: r#""hello""# }
     tulisp_assert! { program: "(prin1-to-string 25)", result: r#""25""# }

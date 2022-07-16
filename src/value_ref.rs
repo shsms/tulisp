@@ -90,6 +90,12 @@ impl TulispValueRef {
     pub fn as_int(&self) -> Result<i64, Error> {
         self.rc.as_ref().borrow().as_int()
     }
+    pub fn try_float(&self) -> Result<f64, Error> {
+        self.rc.as_ref().borrow().try_float()
+    }
+    pub fn try_int(&self) -> Result<i64, Error> {
+        self.rc.as_ref().borrow().try_int()
+    }
     pub fn as_bool(&self) -> bool {
         self.rc.as_ref().borrow().as_bool()
     }
@@ -196,6 +202,12 @@ impl From<f64> for TulispValueRef {
 
 impl From<&str> for TulispValueRef {
     fn from(vv: &str) -> Self {
+        TulispValue::from(vv).into_ref()
+    }
+}
+
+impl From<String> for TulispValueRef {
+    fn from(vv: String) -> Self {
         TulispValue::from(vv).into_ref()
     }
 }

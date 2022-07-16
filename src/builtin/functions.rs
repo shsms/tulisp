@@ -218,6 +218,56 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     }
 
     #[crate_fn(add_func = "ctx")]
+    fn format(input: TulispValueRef, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
+        let mut args = rest.base_iter();
+        let mut output = String::new();
+        let in_string = input.as_string().map_err(|e| e.with_span(input.span()))?;
+        let mut in_chars = in_string.chars();
+        loop {
+            let ch = match in_chars.next() {
+                Some(vv) => vv,
+                None => break,
+            };
+            if ch != '%' {
+                output.push(ch);
+                continue;
+            }
+            let ch = match in_chars.next() {
+                Some(vv) => vv,
+                None => break,
+            };
+            if ch == '%' {
+                output.push(ch);
+                continue;
+            }
+            let next_arg = if let Some(val) = args.next() {
+                val
+            } else {
+                return Err(Error::new(
+                    ErrorKind::MissingArgument,
+                    "format has missing args".to_string(),
+                ));
+            };
+            // TODO: improve format-spec coverage:
+            // https://www.gnu.org/software/emacs/manual/html_node/elisp/Formatting-Strings.html
+            match ch {
+                's' => output.push_str(&next_arg.fmt_string()),
+                'S' => output.push_str(&next_arg.to_string()),
+                'd' => output.push_str(&next_arg.try_int()?.to_string()),
+                'f' => output.push_str(&next_arg.try_float()?.to_string()),
+                _ => {
+                    return Err(Error::new(
+                        ErrorKind::SyntaxError,
+                        format!("Invalid format operation: %{}", ch),
+                    )
+                    .with_span(input.span()))
+                }
+            }
+        }
+        return Ok(TulispValueRef::from(output).with_span(input.span()));
+    }
+
+    #[crate_fn(add_func = "ctx")]
     fn print(val: TulispValueRef) -> Result<TulispValueRef, Error> {
         println!("{}", val);
         Ok(val)
