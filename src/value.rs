@@ -346,8 +346,18 @@ impl TulispValue {
     }
 
     pub fn with_span(&mut self, in_span: Option<Span>) -> &mut Self {
-        if let TulispValue::List { span, .. } = self {
-            *span = in_span
+        match self {
+            TulispValue::List { span, .. } => *span = in_span,
+            TulispValue::Symbol { span, .. } => *span = in_span,
+            TulispValue::Int { span, .. } => *span = in_span,
+            TulispValue::Float { span, .. } => *span = in_span,
+            TulispValue::String { span, .. } => *span = in_span,
+            TulispValue::Quote { span, .. } => *span = in_span,
+            TulispValue::Sharpquote { span, .. } => *span = in_span,
+            TulispValue::Backquote { span, .. } => *span = in_span,
+            TulispValue::Unquote { span, .. } => *span = in_span,
+            TulispValue::Splice { span, .. } => *span = in_span,
+            _ => {}
         }
         self
     }
