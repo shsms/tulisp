@@ -163,7 +163,7 @@ fn process_arg(
     if arg_info.is_rest() {
         if eval_args {
             arg_info.extract_stmts.extend(quote! {
-                let #arg_name = #crate_name::eval::eval_each(ctx, __tulisp_internal_value)?;
+                let #arg_name = ctx.eval_each(&__tulisp_internal_value)?;
                 let __tulisp_internal_value = #crate_name::Nil;
             })
         } else {
