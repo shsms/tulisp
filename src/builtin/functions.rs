@@ -227,11 +227,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         let mut output = String::new();
         let in_string = input.as_string().map_err(|e| e.with_span(input.span()))?;
         let mut in_chars = in_string.chars();
-        loop {
-            let ch = match in_chars.next() {
-                Some(vv) => vv,
-                None => break,
-            };
+        while let Some(ch) = in_chars.next() {
             if ch != '%' {
                 output.push(ch);
                 continue;
@@ -268,7 +264,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 }
             }
         }
-        return Ok(TulispValueRef::from(output).with_span(input.span()));
+        Ok(TulispValueRef::from(output).with_span(input.span()))
     }
 
     #[crate_fn(add_func = "ctx")]

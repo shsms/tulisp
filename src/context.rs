@@ -48,6 +48,12 @@ pub(crate) type Scope = HashMap<String, Rc<RefCell<ContextObject>>>;
 
 pub struct TulispContext(Vec<Scope>);
 
+impl Default for TulispContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TulispContext {
     /// Creates a TulispContext with an empty global scope.
     pub fn new() -> Self {

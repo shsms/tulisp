@@ -4,7 +4,7 @@ use crate::{
     error::{Error, ErrorKind},
     value_ref::TulispValueRef,
 };
-use std::{cell::RefCell, convert::TryInto, rc::Rc};
+use std::{cell::RefCell, convert::TryInto, fmt::Write, rc::Rc};
 
 use tailcall::tailcall;
 
@@ -130,11 +130,17 @@ impl std::fmt::Display for TulispValue {
                         ret.push(' ');
                     }
                     *add_space = true;
-                    ret.push_str(&format!("{}", vv.car()?));
+                    write!(ret, "{}", vv.car()?).map_err(|e| {
+                        Error::new(ErrorKind::Undefined, format!("When trying to 'fmt': {}", e))
+                            .with_span(vv.span())
+                    })?;
                     if rest == TulispValue::Nil {
                         return Ok(());
                     } else if !rest.is_cons() {
-                        ret.push_str(&format!(" . {}", rest));
+                        write!(ret, " . {}", rest).map_err(|e| {
+                            Error::new(ErrorKind::Undefined, format!("When trying to 'fmt': {}", e))
+                                .with_span(vv.span())
+                        })?;
                         return Ok(());
                     };
                     write_next(ret, add_space, rest)
