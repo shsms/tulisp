@@ -153,7 +153,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         reduce_with(ctx, rest, binary_ops!(std::ops::Div::div))
     }
 
-    // // TODO: >, >=, <, <=, equal - need to be able to support more than 2 args
+    // // TODO: >, >=, <, <= - need to be able to support more than 2 args
     #[crate_fn_no_eval(add_func = "ctx", name = ">")]
     fn gt(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
         reduce_with(ctx, rest, binary_ops!(std::cmp::PartialOrd::gt))
@@ -175,16 +175,17 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     }
 
     #[crate_fn_no_eval(add_func = "ctx")]
-    fn equal(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
-        reduce_with(ctx, rest, binary_ops!(std::cmp::PartialEq::eq))
-    }
-    #[crate_fn_no_eval(add_func = "ctx")]
     fn max(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
         reduce_with(ctx, rest, max_min_ops!(max))
     }
     #[crate_fn_no_eval(add_func = "ctx")]
     fn min(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
         reduce_with(ctx, rest, max_min_ops!(min))
+    }
+
+    #[crate_fn(add_func = "ctx")]
+    fn equal(object1: TulispValueRef, object2: TulispValueRef) -> bool {
+        object1 == object2
     }
 
     #[crate_fn(add_func = "ctx", name = "mod")]

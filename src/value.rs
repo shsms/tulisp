@@ -93,6 +93,10 @@ impl PartialEq for TulispValue {
             (Self::Backquote { value: l0, .. }, Self::Backquote { value: r0, .. }) => l0 == r0,
             (Self::Unquote { value: l0, .. }, Self::Unquote { value: r0, .. }) => l0 == r0,
             (Self::Splice { value: l0, .. }, Self::Splice { value: r0, .. }) => l0 == r0,
+
+            (Self::Int { value: l0, .. }, Self::Float { value: r0, .. }) => *l0 as f64 == *r0,
+            (Self::Float { value: l0, .. }, Self::Int { value: r0, .. }) => *l0 == *r0 as f64,
+
             _ => core::mem::discriminant(self) == core::mem::discriminant(other),
         }
     }
