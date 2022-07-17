@@ -6,8 +6,6 @@ use crate::{
 };
 use std::{cell::RefCell, convert::TryInto, fmt::Write, rc::Rc};
 
-use tailcall::tailcall;
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct Span {
     pub start: usize,
@@ -102,6 +100,49 @@ impl PartialEq for TulispValue {
     }
 }
 
+/// Formats tulisp lists non-recursively.
+fn fmt_list(mut vv: TulispValueRef, f: &mut std::fmt::Formatter<'_>) -> Result<(), Error> {
+    if let Err(e) = f.write_char('(') {
+        return Err(
+            Error::new(ErrorKind::Undefined, format!("When trying to 'fmt': {}", e))
+                .with_span(vv.span()),
+        );
+    };
+    let mut add_space = false;
+    loop {
+        let rest = vv.cdr()?;
+        if !add_space {
+            add_space = true;
+        } else if let Err(e) = f.write_char(' ') {
+            return Err(
+                Error::new(ErrorKind::Undefined, format!("When trying to 'fmt': {}", e))
+                    .with_span(vv.span()),
+            );
+        };
+        write!(f, "{}", vv.car()?).map_err(|e| {
+            Error::new(ErrorKind::Undefined, format!("When trying to 'fmt': {}", e))
+                .with_span(vv.span())
+        })?;
+        if rest == TulispValue::Nil {
+            break;
+        } else if !rest.is_cons() {
+            write!(f, " . {}", rest).map_err(|e| {
+                Error::new(ErrorKind::Undefined, format!("When trying to 'fmt': {}", e))
+                    .with_span(vv.span())
+            })?;
+            break;
+        };
+        vv = rest;
+    }
+    if let Err(e) = f.write_char(')') {
+        return Err(
+            Error::new(ErrorKind::Undefined, format!("When trying to 'fmt': {}", e))
+                .with_span(vv.span()),
+        );
+    };
+    Ok(())
+}
+
 impl std::fmt::Display for TulispValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -112,42 +153,8 @@ impl std::fmt::Display for TulispValue {
             TulispValue::Float { value, .. } => f.write_fmt(format_args!("{}", value)),
             TulispValue::String { value, .. } => f.write_fmt(format_args!(r#""{}""#, value)),
             vv @ TulispValue::List { .. } => {
-                let mut ret = String::from("(");
-                let mut add_space = false;
-
-                // TODO: for some reason `tailcall` is generating some
-                // unreachable code. tailcall optimization still
-                // works.
-                #[allow(unreachable_code)]
-                #[tailcall]
-                fn write_next(
-                    ret: &mut String,
-                    add_space: &mut bool,
-                    vv: TulispValueRef,
-                ) -> Result<(), Error> {
-                    let rest = vv.cdr()?;
-                    if *add_space {
-                        ret.push(' ');
-                    }
-                    *add_space = true;
-                    write!(ret, "{}", vv.car()?).map_err(|e| {
-                        Error::new(ErrorKind::Undefined, format!("When trying to 'fmt': {}", e))
-                            .with_span(vv.span())
-                    })?;
-                    if rest == TulispValue::Nil {
-                        return Ok(());
-                    } else if !rest.is_cons() {
-                        write!(ret, " . {}", rest).map_err(|e| {
-                            Error::new(ErrorKind::Undefined, format!("When trying to 'fmt': {}", e))
-                                .with_span(vv.span())
-                        })?;
-                        return Ok(());
-                    };
-                    write_next(ret, add_space, rest)
-                }
-                write_next(&mut ret, &mut add_space, vv.clone().into_ref()).unwrap_or(());
-                ret.push(')');
-                f.write_str(&ret)
+                fmt_list(vv.clone().into_ref(), f).unwrap_or(());
+                Ok(())
             }
             TulispValue::Quote { value, .. } => f.write_fmt(format_args!("'{}", value)),
             TulispValue::Backquote { value, .. } => f.write_fmt(format_args!("`{}", value)),
