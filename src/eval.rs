@@ -1,7 +1,5 @@
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
-use tailcall::tailcall;
-
 use crate::{
     context::{ContextObject, Scope, TulispContext},
     error::{Error, ErrorKind},
@@ -190,47 +188,47 @@ pub(crate) fn eval(
             if !value.is_cons() {
                 return Ok(value);
             }
-            #[allow(unreachable_code)]
-            #[tailcall]
             fn bq_eval_next(
                 ctx: &mut TulispContext,
                 ret: &mut TulispValue,
-                vv: TulispValueRef,
+                mut vv: TulispValueRef,
             ) -> Result<(), Error> {
-                let (first, rest) = (vv.car()?, vv.cdr()?);
-                let first_inner = first.clone_inner();
-                let rest_inner = rest.clone_inner();
-                if let TulispValue::Unquote { value, span } = first_inner {
-                    ret.push(eval(ctx, &value).map_err(|e| e.with_span(span.clone()))?)
+                loop {
+                    let (first, rest) = (vv.car()?, vv.cdr()?);
+                    let first_inner = first.clone_inner();
+                    let rest_inner = rest.clone_inner();
+                    if let TulispValue::Unquote { value, span } = first_inner {
+                        ret.push(eval(ctx, &value).map_err(|e| e.with_span(span.clone()))?)
+                            .map_err(|e| e.with_span(span))?;
+                    } else if let TulispValue::Splice { value, span } = first_inner {
+                        ret.append(
+                            eval(ctx, &value)
+                                .map_err(|e| e.with_span(span.clone()))?
+                                .deep_copy()
+                                .map_err(|e| e.with_span(span.clone()))?,
+                        )
                         .map_err(|e| e.with_span(span))?;
-                } else if let TulispValue::Splice { value, span } = first_inner {
-                    ret.append(
-                        eval(ctx, &value)
-                            .map_err(|e| e.with_span(span.clone()))?
-                            .deep_copy()
-                            .map_err(|e| e.with_span(span.clone()))?,
-                    )
-                    .map_err(|e| e.with_span(span))?;
-                } else {
-                    ret.push(eval(
-                        ctx,
-                        &TulispValue::Backquote {
-                            value: first.clone(),
-                            span: None,
-                        }
-                        .into_ref(),
-                    )?)?;
+                    } else {
+                        ret.push(eval(
+                            ctx,
+                            &TulispValue::Backquote {
+                                value: first.clone(),
+                                span: None,
+                            }
+                            .into_ref(),
+                        )?)?;
+                    }
+                    // TODO: is Nil check necessary
+                    if let TulispValue::Unquote { value, span } = rest_inner {
+                        ret.append(eval(ctx, &value).map_err(|e| e.with_span(span.clone()))?)
+                            .map_err(|e| e.with_span(span))?;
+                        return Ok(());
+                    } else if !rest.is_cons() {
+                        ret.append(rest)?;
+                        return Ok(());
+                    }
+                    vv = rest;
                 }
-                // TODO: is Nil check necessary
-                if let TulispValue::Unquote { value, span } = rest_inner {
-                    ret.append(eval(ctx, &value).map_err(|e| e.with_span(span.clone()))?)
-                        .map_err(|e| e.with_span(span))?;
-                    return Ok(());
-                } else if !rest.is_cons() {
-                    ret.append(rest)?;
-                    return Ok(());
-                }
-                bq_eval_next(ctx, ret, rest)
             }
             bq_eval_next(ctx, &mut ret, value).map_err(|e| e.with_span(span))?;
             Ok(ret.into_ref())
