@@ -6,7 +6,6 @@ use crate::{
     value::{Span, TulispValue},
 };
 use std::{cell::RefCell, rc::Rc};
-use tailcall::tailcall;
 
 #[derive(Debug, Clone)]
 pub struct TulispValueRef {
@@ -133,23 +132,21 @@ impl TulispValueRef {
     }
 
     pub(crate) fn deep_copy(&self) -> Result<TulispValueRef, Error> {
+        let mut val = self.clone();
         let mut ret = TulispValue::Nil;
-        #[allow(unreachable_code)]
-        #[tailcall]
-        fn deep_copy_impl(val: TulispValueRef, ret: &mut TulispValue) -> Result<(), Error> {
-            if !val.is_cons() {
-                *ret = val.clone_inner();
-                return Ok(());
+        if !val.is_cons() {
+            ret = val.clone_inner();
+        } else {
+            loop {
+                let (first, rest) = (val.car()?, val.cdr()?);
+                ret.push_with_meta(first.clone_inner().into_ref(), val.span(), val.ctxobj())?;
+                if !rest.is_cons() {
+                    ret.append(rest)?;
+                    break;
+                }
+                val = rest;
             }
-            let (first, rest) = (val.car()?, val.cdr()?);
-            ret.push_with_meta(first.clone_inner().into_ref(), val.span(), val.ctxobj())?;
-            if !rest.is_cons() {
-                ret.append(rest)?;
-                return Ok(());
-            }
-            deep_copy_impl(rest, ret)
         }
-        deep_copy_impl(self.clone(), &mut ret)?;
         ret.with_ctxobj(self.ctxobj()).with_span(self.span());
         let ret = ret.into_ref();
         Ok(ret)
