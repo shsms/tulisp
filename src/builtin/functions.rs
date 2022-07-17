@@ -1,5 +1,6 @@
 use crate::cons::Cons;
 use crate::context::ContextObject;
+use crate::context::Scope;
 use crate::context::TulispContext;
 use crate::error::Error;
 use crate::error::ErrorKind;
@@ -9,8 +10,10 @@ use crate::value_ref::TulispValueRef;
 use crate::{destruct_bind, list};
 use proc_macros::crate_fn;
 use proc_macros::crate_fn_no_eval;
+use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::convert::TryInto;
+use std::rc::Rc;
 
 macro_rules! max_min_ops {
     ($oper:tt) => {{
@@ -454,17 +457,12 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         let body = rest;
         let mut list = ctx.eval(&list)?;
         while list.as_bool() {
-            let varlist = TulispValue::Nil
-                .into_ref()
-                .push(
-                    TulispValue::Nil
-                        .into_ref()
-                        .push(var.clone())?
-                        .push(list.car()?)?
-                        .clone(),
-                )?
-                .clone();
-            ctx.r#let(varlist)?;
+            let mut scope = Scope::new();
+            scope.insert(
+                var.to_string(),
+                Rc::new(RefCell::new(ContextObject::TulispValue(list.car()?))),
+            );
+            ctx.push(scope);
             let eval_res = ctx.eval_progn(&body);
             ctx.pop();
             eval_res?;
