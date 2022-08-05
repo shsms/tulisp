@@ -1,9 +1,6 @@
-#[macro_use]
-extern crate pest_derive;
-
 mod eval;
 mod macros;
-mod parser;
+mod parse;
 
 pub use proc_macros::{tulisp_add_func, tulisp_add_macro, tulisp_fn, tulisp_fn_no_eval};
 

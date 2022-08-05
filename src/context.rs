@@ -4,7 +4,7 @@ use crate::{
     builtin, destruct_bind,
     error::{Error, ErrorKind},
     eval::eval,
-    parser::parse_string,
+    parse::parse,
     value::TulispValue,
     value_ref::TulispValueRef,
 };
@@ -167,7 +167,7 @@ impl TulispContext {
     }
 
     pub fn eval_string(&mut self, string: &str) -> Result<TulispValueRef, Error> {
-        let vv = parse_string(self, string)?.into_ref();
+        let vv = parse(self, string)?;
         self.eval_progn(&vv)
     }
 

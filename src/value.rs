@@ -13,19 +13,13 @@ pub struct Span {
 }
 
 impl Span {
+    pub fn new(start: usize, end: usize) -> Self {
+        Span { start, end }
+    }
     pub fn from(vv: &TulispValue) -> Option<Span> {
         match vv {
             TulispValue::List { span, .. } => span.clone(),
             _ => None,
-        }
-    }
-}
-
-impl From<pest::Span<'_>> for Span {
-    fn from(vv: pest::Span<'_>) -> Self {
-        Span {
-            start: vv.start(),
-            end: vv.end(),
         }
     }
 }
