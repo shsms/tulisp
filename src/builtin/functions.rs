@@ -410,7 +410,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         ctx: &mut TulispContext,
         name: TulispValueRef,
     ) -> Result<TulispValueRef, Error> {
-        crate::parser::macroexpand(ctx, name)
+        crate::eval::macroexpand(ctx, name)
     }
 
     // List functions

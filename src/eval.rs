@@ -3,7 +3,6 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 use crate::{
     context::{ContextObject, Scope, TulispContext},
     error::{Error, ErrorKind},
-    parser::macroexpand,
     value::TulispValue,
     value_ref::TulispValueRef,
 };
@@ -244,4 +243,37 @@ pub(crate) fn eval(
         TulispValue::Sharpquote { value, .. } => Ok(value),
     };
     ret
+}
+
+pub fn macroexpand(ctx: &mut TulispContext, inp: TulispValueRef) -> Result<TulispValueRef, Error> {
+    if !inp.is_cons() {
+        return Ok(inp);
+    }
+    let mut expr = TulispValue::Nil;
+    for item in inp.base_iter() {
+        let item = macroexpand(ctx, item)?;
+        // TODO: switch to tailcall method to propagate inner spans.
+        expr.push(item.clone())?;
+    }
+    expr.with_ctxobj(inp.ctxobj()).with_span(inp.span());
+    let expr = expr.into_ref();
+    let name = match expr.car()?.as_symbol() {
+        Ok(id) => id,
+        Err(_) => return Ok(expr),
+    };
+    match ctx.get_str(&name) {
+        Some(item) => match &*item.as_ref().borrow() {
+            ContextObject::Macro(func) => {
+                let expansion = func(ctx, &expr)?;
+                macroexpand(ctx, expansion)
+            }
+            ContextObject::Defmacro { args, body } => {
+                let expansion = eval_defmacro(ctx, args, body, &expr.cdr()?)
+                    .map_err(|e| e.with_span(inp.span()))?;
+                macroexpand(ctx, expansion)
+            }
+            _ => Ok(expr),
+        },
+        None => Ok(expr),
+    }
 }
