@@ -4,4 +4,5 @@
    (t (+ (fib (- n 1))
          (fib (- n 2))))))
 
-(print (fib 30))
+(let ((tgt 30))
+  (princ (format "\n  (fib %d)\n  %d\n" tgt (fib tgt))))
