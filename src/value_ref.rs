@@ -5,7 +5,7 @@ use crate::{
     list,
     value::{Span, TulispValue},
 };
-use std::{cell::RefCell, rc::Rc};
+use std::{any::Any, cell::RefCell, rc::Rc};
 
 #[derive(Debug, Clone)]
 pub struct TulispValueRef {
@@ -101,6 +101,9 @@ impl TulispValueRef {
     pub fn as_symbol(&self) -> Result<String, Error> {
         self.rc.as_ref().borrow().as_symbol()
     }
+    pub fn as_any(&self) -> Result<Rc<dyn Any>, Error> {
+        self.rc.as_ref().borrow().as_any()
+    }
     pub(crate) fn as_list_cons(&self) -> Option<Cons> {
         self.rc.as_ref().borrow().as_list_cons()
     }
@@ -185,6 +188,14 @@ impl TryFrom<TulispValueRef> for bool {
     }
 }
 
+impl TryFrom<TulispValueRef> for Rc<dyn Any> {
+    type Error = Error;
+
+    fn try_from(value: TulispValueRef) -> Result<Self, Self::Error> {
+        value.as_any()
+    }
+}
+
 impl From<i64> for TulispValueRef {
     fn from(vv: i64) -> Self {
         TulispValue::from(vv).into_ref()
@@ -212,6 +223,12 @@ impl From<String> for TulispValueRef {
 impl From<bool> for TulispValueRef {
     fn from(vv: bool) -> Self {
         TulispValue::from(vv).into_ref()
+    }
+}
+
+impl From<Rc<dyn Any>> for TulispValueRef {
+    fn from(value: Rc<dyn Any>) -> Self {
+        TulispValue::from(value).into_ref()
     }
 }
 

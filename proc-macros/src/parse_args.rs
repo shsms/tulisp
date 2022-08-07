@@ -224,7 +224,7 @@ fn process_arg(
         }
     } else {
         match arg_info.val_ty.to_token_stream().to_string().as_str() {
-            "i64" | "f64" | "String" | "bool" => {
+            "i64" | "f64" | "String" | "bool" | "Rc < dyn Any >" => {
                 if optional {
                     quote! {(|x: #crate_name::TulispValueRef|if x == #crate_name::Nil { Ok(None)} else {Ok(Some(x.try_into()?))})}
                 } else {

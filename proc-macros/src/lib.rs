@@ -14,7 +14,7 @@ fn gen_function_call(
     ret_type: &ReturnType,
 ) -> Result<TokenStream2, TokenStream> {
     let ret_type_err = |tt: &Box<syn::Type>| {
-        const ALLOWED_TYPES: &str = "i64, f64, String or TulispValue";
+        const ALLOWED_TYPES: &str = "i64, f64, String, Rc<dyn Any>, TulispValue";
         Err(syn::Error::new(
             tt.__span(),
             format!(
@@ -57,12 +57,27 @@ fn gen_function_call(
                             let inner_str =
                                 agbkt.args.first().unwrap().to_token_stream().to_string();
                             match inner_str.as_str() {
-                                "i64" | "f64" | "bool" | "String" | "TulispValueRef" => {
+                                "i64" | "f64" | "bool" | "String" | "TulispValueRef"
+                                | "Rc < dyn Any >" => {
                                     quote! {#self_prefix #fn_name(#params_for_call).map(|x| x.into())}
                                 }
                                 _ => {
                                     return ret_type_err(tt);
                                 }
+                            }
+                        }
+                        _ => {
+                            return ret_type_err(tt);
+                        }
+                    },
+                    "Rc" => match &seg.arguments {
+                        syn::PathArguments::AngleBracketed(agbkt) => {
+                            let inner_str =
+                                agbkt.args.first().unwrap().to_token_stream().to_string();
+                            if inner_str == "dyn Any" {
+                                quote! {Ok(#self_prefix #fn_name(#params_for_call).into())}
+                            } else {
+                                return ret_type_err(tt);
                             }
                         }
                         _ => {

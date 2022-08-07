@@ -241,6 +241,11 @@ pub(crate) fn eval(
             "Splice without backquote".to_string(),
         )),
         TulispValue::Sharpquote { value, .. } => Ok(value),
+        TulispValue::Any(_) => Err(Error::new(
+            ErrorKind::Undefined,
+            "Can't eval TulispValue::Any".to_owned(),
+        )
+        .with_span(expr.span())),
     };
     ret
 }

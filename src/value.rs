@@ -4,7 +4,7 @@ use crate::{
     error::{Error, ErrorKind},
     value_ref::TulispValueRef,
 };
-use std::{cell::RefCell, convert::TryInto, fmt::Write, rc::Rc};
+use std::{any::Any, cell::RefCell, convert::TryInto, fmt::Write, rc::Rc};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Span {
@@ -69,6 +69,7 @@ pub enum TulispValue {
         value: TulispValueRef,
         span: Option<Span>,
     },
+    Any(Rc<dyn Any>),
     Bounce,
 }
 
@@ -155,6 +156,7 @@ impl std::fmt::Display for TulispValue {
             TulispValue::Unquote { value, .. } => f.write_fmt(format_args!(",{}", value)),
             TulispValue::Splice { value, .. } => f.write_fmt(format_args!(",@{}", value)),
             TulispValue::Sharpquote { value, .. } => f.write_fmt(format_args!("#'{}", value)),
+            TulispValue::Any(_) => f.write_str("BoxedValue"),
         }
     }
 }
@@ -344,6 +346,17 @@ impl TulispValue {
         }
     }
 
+    pub fn as_any(&self) -> Result<Rc<dyn Any>, Error> {
+        match self {
+            TulispValue::Any(value) => Ok(value.clone()),
+            _ => Err(Error::new(
+                ErrorKind::TypeMismatch,
+                format!("Expected Any(Rc<dyn Any>): {}", self),
+            )
+            .with_span(self.span())),
+        }
+    }
+
     pub fn fmt_string(&self) -> String {
         match self {
             TulispValue::String { value, .. } => value.to_owned(),
@@ -463,5 +476,11 @@ impl From<bool> for TulispValue {
             true => TulispValue::symbol_from("t".to_string(), None),
             false => TulispValue::Nil,
         }
+    }
+}
+
+impl From<Rc<dyn Any>> for TulispValue {
+    fn from(value: Rc<dyn Any>) -> Self {
+        TulispValue::Any(value)
     }
 }

@@ -1,3 +1,5 @@
+use std::{any::Any, rc::Rc};
+
 use tulisp::{tulisp_add_func, tulisp_fn, Error, Iter, TulispContext};
 
 macro_rules! tulisp_assert {
@@ -499,6 +501,51 @@ fn test_typed_iter() -> Result<(), Error> {
         ctx: ctx,
         program: "(add_ints 20)",
         error: "ERROR:TypeMismatch: In call to \"add_ints\", arg \"ints\" needs to be a list, in Some(Span { start: 10, end: 12 })",
+    }
+    Ok(())
+}
+
+#[test]
+fn test_any() -> Result<(), Error> {
+    struct TestStruct {
+        value: i64,
+    }
+    let mut ctx = TulispContext::new();
+    #[tulisp_fn(add_func = "ctx")]
+    fn make_any(inp: i64) -> Rc<dyn Any> {
+        Rc::new(TestStruct { value: inp })
+    }
+    #[tulisp_fn(add_func = "ctx")]
+    fn make_any_res(inp: i64) -> Result<Rc<dyn Any>, Error> {
+        Ok(Rc::new(TestStruct { value: inp }))
+    }
+
+    #[tulisp_fn(add_func = "ctx")]
+    fn get_int(inp: Rc<dyn Any>) -> Result<i64, Error> {
+        inp.downcast::<TestStruct>()
+            .map(|vv| vv.value)
+            .map_err(|_| {
+                Error::new(
+                    tulisp::ErrorKind::TypeMismatch,
+                    "Not the any thing we wanted.".to_owned(),
+                )
+            })
+    }
+
+    tulisp_assert! {
+        ctx: ctx,
+        program: "(get_int (make_any 22))",
+        result: "22",
+    }
+    tulisp_assert! {
+        ctx: ctx,
+        program: "(get_int (make_any_res 55))",
+        result: "55",
+    }
+    tulisp_assert! {
+        ctx: ctx,
+        program: "(get_int 55)",
+        error: "ERROR:TypeMismatch: Expected Any(Rc<dyn Any>): 55, in Some(Span { start: 9, end: 11 })",
     }
     Ok(())
 }
