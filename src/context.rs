@@ -5,7 +5,6 @@ use crate::{
     error::{Error, ErrorKind},
     eval::eval,
     parse::parse,
-    value::TulispValue,
     value_ref::TulispValueRef,
 };
 
@@ -121,7 +120,7 @@ impl TulispContext {
         let mut local = HashMap::new();
         for varitem in varlist.base_iter() {
             let (name, value) = if let Ok(name) = varitem.as_symbol() {
-                (name, TulispValue::Nil.into_ref())
+                (name, TulispValueRef::nil())
             } else if varitem.consp() {
                 let span = varitem.span();
                 destruct_bind!((&optional name value &rest rest) = varitem);
@@ -172,7 +171,7 @@ impl TulispContext {
     }
 
     pub fn eval_progn(&mut self, value: &TulispValueRef) -> Result<TulispValueRef, Error> {
-        let mut ret = TulispValue::Nil.into_ref();
+        let mut ret = TulispValueRef::nil();
         for val in value.base_iter() {
             ret = eval(self, &val)?;
         }
@@ -180,11 +179,11 @@ impl TulispContext {
     }
 
     pub fn eval_each(&mut self, value: &TulispValueRef) -> Result<TulispValueRef, Error> {
-        let mut ret = TulispValue::Nil;
+        let ret = TulispValueRef::nil();
         for val in value.base_iter() {
             ret.push(eval(self, &val)?)?;
         }
-        Ok(ret.into_ref())
+        Ok(ret)
     }
 
     pub fn eval_file(&mut self, filename: &str) -> Result<TulispValueRef, Error> {

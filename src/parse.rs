@@ -2,7 +2,7 @@ use std::{fmt::Write, iter::Peekable, str::Chars};
 
 use crate::{
     eval::{eval, macroexpand},
-    value::{Span, TulispValue},
+    value_enum::{Span, TulispValueEnum},
     ContextObject, Error, ErrorKind, TulispContext, TulispValueRef,
 };
 
@@ -285,7 +285,7 @@ impl Parser<'_, '_> {
         start_span: Span,
         expand_macros: &MacroExpand,
     ) -> Result<TulispValueRef, Error> {
-        let inner = TulispValue::Nil.into_ref();
+        let inner = TulispValueRef::nil();
         let mut got_dot = false;
         loop {
             let token = if let Some(token) = self.tokenizer.peek() {
@@ -373,7 +373,7 @@ impl Parser<'_, '_> {
                     }
                 };
                 Ok(Some(
-                    TulispValue::Quote {
+                    TulispValueEnum::Quote {
                         value: next,
                         span: Some(span),
                     }
@@ -396,7 +396,7 @@ impl Parser<'_, '_> {
                     }
                 };
                 Ok(Some(
-                    TulispValue::Backquote {
+                    TulispValueEnum::Backquote {
                         value: next,
                         span: Some(span),
                     }
@@ -424,7 +424,7 @@ impl Parser<'_, '_> {
                     }
                 };
                 Ok(Some(
-                    TulispValue::Unquote {
+                    TulispValueEnum::Unquote {
                         value: next,
                         span: Some(span),
                     }
@@ -447,7 +447,7 @@ impl Parser<'_, '_> {
                     }
                 };
                 Ok(Some(
-                    TulispValue::Splice {
+                    TulispValueEnum::Splice {
                         value: next,
                         span: Some(span),
                     }
@@ -455,7 +455,7 @@ impl Parser<'_, '_> {
                 ))
             }
             Token::String { span, value } => Ok(Some(
-                TulispValue::String {
+                TulispValueEnum::String {
                     value,
                     span: Some(span),
                 }
@@ -463,14 +463,14 @@ impl Parser<'_, '_> {
             )),
 
             Token::Integer { span, value } => Ok(Some(
-                TulispValue::Int {
+                TulispValueEnum::Int {
                     value,
                     span: Some(span),
                 }
                 .into_ref(),
             )),
             Token::Float { span, value } => Ok(Some(
-                TulispValue::Float {
+                TulispValueEnum::Float {
                     value,
                     span: Some(span),
                 }
@@ -478,9 +478,9 @@ impl Parser<'_, '_> {
             )),
             Token::Ident { span, value } => Ok(Some(
                 if value == "nil" {
-                    TulispValue::Nil
+                    TulispValueEnum::Nil
                 } else {
-                    TulispValue::Symbol {
+                    TulispValueEnum::Symbol {
                         value,
                         span: Some(span),
                     }
@@ -496,7 +496,7 @@ impl Parser<'_, '_> {
     }
 
     fn parse(&mut self) -> Result<TulispValueRef, Error> {
-        let output = TulispValue::Nil.into_ref();
+        let output = TulispValueRef::nil();
         while let Some(next) = self.parse_value(&MacroExpand::Yes)? {
             let next = if next.consp() {
                 locate_all_func(self.ctx, next)?
@@ -510,7 +510,7 @@ impl Parser<'_, '_> {
 }
 
 fn locate_all_func(ctx: &mut TulispContext, expr: TulispValueRef) -> Result<TulispValueRef, Error> {
-    let ret = TulispValue::Nil.into_ref();
+    let ret = TulispValueRef::nil();
     for ele in expr.base_iter() {
         let next = if ele.consp() && ele.ctxobj().is_none() {
             let next = locate_all_func(ctx, ele)?;
@@ -526,7 +526,7 @@ fn locate_all_func(ctx: &mut TulispContext, expr: TulispValueRef) -> Result<Tuli
 
 fn locate_func(ctx: &mut TulispContext, expr: TulispValueRef) -> Result<TulispValueRef, Error> {
     let name = match expr.clone().car()?.clone_inner() {
-        TulispValue::Symbol { value, .. } => value,
+        TulispValueEnum::Symbol { value, .. } => value,
         _ => return Ok(expr),
     };
     match ctx.get_str(&name) {

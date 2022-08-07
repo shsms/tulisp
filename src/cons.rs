@@ -5,8 +5,8 @@ use std::rc::Rc;
 use crate::context::ContextObject;
 use crate::error::Error;
 use crate::error::ErrorKind;
-use crate::value::Span;
-use crate::value::TulispValue;
+use crate::value_enum::Span;
+use crate::value_enum::TulispValueEnum;
 use crate::value_ref::TulispValueRef;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -35,11 +35,11 @@ impl Cons {
         while last.consp() {
             last = last.cdr()?;
         }
-        if last == TulispValue::Nil {
-            last.assign(TulispValue::List {
+        if last.null() {
+            last.assign(TulispValueEnum::List {
                 cons: Cons {
                     car: val,
-                    cdr: TulispValue::Nil.into_ref(),
+                    cdr: TulispValueRef::nil(),
                 },
                 ctxobj,
                 span,
@@ -59,7 +59,7 @@ impl Cons {
         while last.consp() {
             last = last.cdr()?;
         }
-        if last == TulispValue::Nil {
+        if last.null() {
             last.assign(val.clone_inner());
         } else {
             return Err(Error::new(
@@ -91,7 +91,7 @@ impl Drop for Cons {
             return;
         }
         let mut cdr = self.cdr.take();
-        while let TulispValue::List { cons, .. } = cdr {
+        while let TulispValueEnum::List { cons, .. } = cdr {
             if cons.cdr.strong_count() > 1 {
                 break;
             }

@@ -3,7 +3,7 @@ use proc_macros::{crate_add_macro, crate_fn_no_eval};
 use crate::cons::Cons;
 use crate::context::{ContextObject, TulispContext};
 use crate::error::Error;
-use crate::value::TulispValue::{self, Nil};
+use crate::value_enum::TulispValueEnum;
 use crate::value_ref::TulispValueRef;
 use crate::{destruct_bind, list};
 
@@ -18,8 +18,11 @@ fn thread_first(ctx: &mut TulispContext, vv: &TulispValueRef) -> Result<TulispVa
             Ok(list!(,form ,x.clone())?)
         }
     } else {
-        let inner = thread_first(ctx, &list!(,Nil.into_ref() ,x.clone() ,form.clone())?)?;
-        thread_first(ctx, &list!(,Nil.into_ref() ,inner ,@more.clone())?)
+        let inner = thread_first(
+            ctx,
+            &list!(,TulispValueRef::nil() ,x.clone() ,form.clone())?,
+        )?;
+        thread_first(ctx, &list!(,TulispValueRef::nil() ,inner ,@more.clone())?)
     }
 }
 
@@ -34,8 +37,11 @@ fn thread_last(ctx: &mut TulispContext, vv: &TulispValueRef) -> Result<TulispVal
             Ok(list!(,form ,x.clone())?)
         }
     } else {
-        let inner = thread_last(ctx, &list!(,Nil.into_ref() ,x.clone() ,form.clone())?)?;
-        thread_last(ctx, &list!(,Nil.into_ref() ,inner ,@more.clone())?)
+        let inner = thread_last(
+            ctx,
+            &list!(,TulispValueRef::nil() ,x.clone() ,form.clone())?,
+        )?;
+        thread_last(ctx, &list!(,TulispValueRef::nil() ,inner ,@more.clone())?)
     }
 }
 
@@ -53,18 +59,18 @@ fn let_star(
         destruct_bind!((nextvar &rest rest) = varlist);
 
         let mut ret = Cons::new(
-            TulispValue::symbol("let".to_string(), None).into_ref(),
-            TulispValue::Nil.into_ref(),
+            TulispValueRef::symbol("let".to_string()),
+            TulispValueRef::nil(),
         );
         ret.push(list!(,nextvar)?)?;
-        if rest != TulispValue::Nil {
+        if !rest.null() {
             ret.push(unwrap_varlist(ctx, rest, body)?)?;
         } else {
             for ele in body.base_iter() {
                 ret.push(ele.clone())?;
             }
         }
-        Ok(TulispValue::List {
+        Ok(TulispValueEnum::List {
             cons: ret,
             ctxobj: ctx.get_str("let"),
             span: None,

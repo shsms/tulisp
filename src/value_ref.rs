@@ -3,18 +3,18 @@ use crate::{
     context::ContextObject,
     error::Error,
     list,
-    value::{Span, TulispValue},
+    value_enum::{Span, TulispValueEnum},
 };
 use std::{any::Any, cell::RefCell, rc::Rc};
 
 #[derive(Debug, Clone)]
 pub struct TulispValueRef {
-    rc: Rc<RefCell<TulispValue>>,
+    rc: Rc<RefCell<TulispValueEnum>>,
 }
 
 impl Default for TulispValueRef {
     fn default() -> Self {
-        TulispValue::Nil.into_ref()
+        TulispValueRef::nil()
     }
 }
 
@@ -24,8 +24,8 @@ impl PartialEq for TulispValueRef {
     }
 }
 
-impl std::cmp::PartialEq<TulispValue> for TulispValueRef {
-    fn eq(&self, other: &TulispValue) -> bool {
+impl std::cmp::PartialEq<TulispValueEnum> for TulispValueRef {
+    fn eq(&self, other: &TulispValueEnum) -> bool {
         *self.rc.as_ref().borrow() == *other
     }
 }
@@ -42,23 +42,23 @@ impl TulispValueRef {
     }
 
     pub fn symbol(name: String) -> TulispValueRef {
-        TulispValue::symbol(name, None).into()
+        TulispValueEnum::symbol(name, None).into()
     }
 
-    pub(crate) fn new(vv: TulispValue) -> TulispValueRef {
+    pub(crate) fn new(vv: TulispValueEnum) -> TulispValueRef {
         Self {
             rc: Rc::new(RefCell::new(vv)),
         }
     }
 
     pub fn nil() -> TulispValueRef {
-        TulispValue::Nil.into()
+        TulispValueRef::from(TulispValueEnum::Nil)
     }
 
     pub(crate) fn strong_count(&self) -> usize {
         Rc::strong_count(&self.rc)
     }
-    pub(crate) fn assign(&self, vv: TulispValue) {
+    pub(crate) fn assign(&self, vv: TulispValueEnum) {
         *self.rc.as_ref().borrow_mut() = vv
     }
     pub fn base_iter(&self) -> cons::BaseIter {
@@ -94,7 +94,7 @@ impl TulispValueRef {
     pub fn null(&self) -> bool {
         self.rc.as_ref().borrow().null()
     }
-    pub(crate) fn clone_inner(&self) -> TulispValue {
+    pub(crate) fn clone_inner(&self) -> TulispValueEnum {
         self.rc.as_ref().borrow().clone()
     }
     pub fn as_float(&self) -> Result<f64, Error> {
@@ -144,13 +144,13 @@ impl TulispValueRef {
     pub fn span(&self) -> Option<Span> {
         self.rc.as_ref().borrow().span()
     }
-    pub(crate) fn take(&self) -> TulispValue {
+    pub(crate) fn take(&self) -> TulispValueEnum {
         self.rc.as_ref().borrow_mut().take()
     }
 
     pub(crate) fn deep_copy(&self) -> Result<TulispValueRef, Error> {
         let mut val = self.clone();
-        let mut ret = TulispValue::Nil;
+        let mut ret = TulispValueEnum::Nil;
         if !val.consp() {
             ret = val.clone_inner();
         } else {
@@ -212,42 +212,42 @@ impl TryFrom<TulispValueRef> for Rc<dyn Any> {
 
 impl From<i64> for TulispValueRef {
     fn from(vv: i64) -> Self {
-        TulispValue::from(vv).into_ref()
+        TulispValueEnum::from(vv).into_ref()
     }
 }
 
 impl From<f64> for TulispValueRef {
     fn from(vv: f64) -> Self {
-        TulispValue::from(vv).into_ref()
+        TulispValueEnum::from(vv).into_ref()
     }
 }
 
 impl From<&str> for TulispValueRef {
     fn from(vv: &str) -> Self {
-        TulispValue::from(vv).into_ref()
+        TulispValueEnum::from(vv).into_ref()
     }
 }
 
 impl From<String> for TulispValueRef {
     fn from(vv: String) -> Self {
-        TulispValue::from(vv).into_ref()
+        TulispValueEnum::from(vv).into_ref()
     }
 }
 
 impl From<bool> for TulispValueRef {
     fn from(vv: bool) -> Self {
-        TulispValue::from(vv).into_ref()
+        TulispValueEnum::from(vv).into_ref()
     }
 }
 
 impl From<Rc<dyn Any>> for TulispValueRef {
     fn from(value: Rc<dyn Any>) -> Self {
-        TulispValue::from(value).into_ref()
+        TulispValueEnum::from(value).into_ref()
     }
 }
 
-impl From<TulispValue> for TulispValueRef {
-    fn from(vv: TulispValue) -> Self {
+impl From<TulispValueEnum> for TulispValueRef {
+    fn from(vv: TulispValueEnum) -> Self {
         vv.into_ref()
     }
 }

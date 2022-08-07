@@ -15,7 +15,7 @@ pub use context::{ContextObject, TulispContext};
 mod error;
 pub use error::{Error, ErrorKind};
 
-mod value;
+mod value_enum;
 
 mod value_ref;
 pub use value_ref::TulispValueRef;
