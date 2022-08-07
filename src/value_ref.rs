@@ -91,8 +91,8 @@ impl TulispValueRef {
     pub fn as_string(&self) -> Result<String, Error> {
         self.rc.as_ref().borrow().as_str().map(|x| x.to_owned())
     }
-    pub fn is_null(&self) -> bool {
-        self.rc.as_ref().borrow().is_null()
+    pub fn null(&self) -> bool {
+        self.rc.as_ref().borrow().null()
     }
     pub(crate) fn clone_inner(&self) -> TulispValue {
         self.rc.as_ref().borrow().clone()

@@ -323,7 +323,7 @@ impl TulispValue {
         !matches!(self, TulispValue::Nil)
     }
 
-    pub fn is_null(&self) -> bool {
+    pub fn null(&self) -> bool {
         !self.as_bool()
     }
 

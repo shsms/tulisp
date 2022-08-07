@@ -9,9 +9,9 @@ use crate::{destruct_bind, list};
 
 fn thread_first(ctx: &mut TulispContext, vv: &TulispValueRef) -> Result<TulispValueRef, Error> {
     destruct_bind!((_name x &optional form &rest more) = vv);
-    if form.is_null() {
+    if form.null() {
         Ok(x)
-    } else if more.is_null() {
+    } else if more.null() {
         if form.consp() {
             Ok(list!(,form.car()? ,x.clone() ,@form.cdr()?)?)
         } else {
@@ -25,9 +25,9 @@ fn thread_first(ctx: &mut TulispContext, vv: &TulispValueRef) -> Result<TulispVa
 
 fn thread_last(ctx: &mut TulispContext, vv: &TulispValueRef) -> Result<TulispValueRef, Error> {
     destruct_bind!((_name x &optional form &rest more) = vv);
-    if form.is_null() {
+    if form.null() {
         Ok(x)
-    } else if more.is_null() {
+    } else if more.null() {
         if form.consp() {
             Ok(list!(,@form ,x.clone())?)
         } else {

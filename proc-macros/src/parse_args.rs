@@ -188,7 +188,7 @@ fn process_arg(
         if optional {
             quote! {(
                 |x: #crate_name::TulispValueRef| {
-                    if x.is_null() {
+                    if x.null() {
                         Ok(None)
                     } else if !x.consp() {
                         Err(#crate_name::Error::new(
@@ -226,14 +226,14 @@ fn process_arg(
         match arg_info.val_ty.to_token_stream().to_string().as_str() {
             "i64" | "f64" | "String" | "bool" | "Rc < dyn Any >" => {
                 if optional {
-                    quote! {(|x: #crate_name::TulispValueRef|if x.is_null() { Ok(None)} else {Ok(Some(x.try_into()?))})}
+                    quote! {(|x: #crate_name::TulispValueRef|if x.null() { Ok(None)} else {Ok(Some(x.try_into()?))})}
                 } else {
                     quote! {(|x: #crate_name::TulispValueRef| x.try_into())}
                 }
             }
             "TulispValueRef" => {
                 if optional {
-                    quote! {(|x: #crate_name::TulispValueRef|if x.is_null() { Ok(None)} else {Ok(x.into())})}
+                    quote! {(|x: #crate_name::TulispValueRef|if x.null() { Ok(None)} else {Ok(x.into())})}
                 } else {
                     quote! {(|x: #crate_name::TulispValueRef| Ok(x.into()))}
                 }

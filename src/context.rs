@@ -125,14 +125,14 @@ impl TulispContext {
             } else if varitem.consp() {
                 let span = varitem.span();
                 destruct_bind!((&optional name value &rest rest) = varitem);
-                if name.is_null() {
+                if name.null() {
                     return Err(Error::new(
                         ErrorKind::Undefined,
                         "let varitem requires name".to_string(),
                     )
                     .with_span(span));
                 }
-                if !rest.is_null() {
+                if !rest.null() {
                     return Err(Error::new(
                         ErrorKind::Undefined,
                         "let varitem has too many values".to_string(),

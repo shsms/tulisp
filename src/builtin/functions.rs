@@ -128,7 +128,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     fn sub(ctx: &mut TulispContext, rest: TulispValueRef) -> Result<TulispValueRef, Error> {
         let args = rest.clone();
         destruct_bind!((first &rest ohne_first) = args);
-        if ohne_first.is_null() {
+        if ohne_first.null() {
             let vv = binary_ops!(std::ops::Sub::sub)(0.into(), eval(ctx, &first)?)?;
             Ok(vv)
         } else {
@@ -397,7 +397,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     #[crate_fn(add_func = "ctx")]
     fn null(arg: TulispValueRef) -> bool {
-        arg.is_null()
+        arg.null()
     }
 
     #[crate_fn(add_func = "ctx", name = "eval")]
