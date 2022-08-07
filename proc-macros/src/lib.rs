@@ -7,7 +7,6 @@ use syn::{parse_macro_input, parse_quote, AttributeArgs};
 use syn::{ItemFn, ReturnType};
 
 fn gen_function_call(
-    crate_name: &TokenStream2,
     fn_name: &Ident,
     params_for_call: TokenStream2,
     self_param: &TokenStream2,
@@ -36,7 +35,7 @@ fn gen_function_call(
 
     let call_and_ret = match ret_type {
         syn::ReturnType::Default => {
-            quote! {#self_prefix #fn_name(#params_for_call); Ok(#crate_name::Nil)}
+            quote! {#self_prefix #fn_name(#params_for_call); Ok(TulispValueRef::nil())}
         }
         syn::ReturnType::Type(_, tt) => match &**tt {
             syn::Type::Path(tp) => {
@@ -157,16 +156,11 @@ fn tulisp_fn_impl(
             Ok(vv) => vv,
             Err(e) => return e,
         };
-    let call_and_ret = match gen_function_call(
-        &crate_name,
-        fn_name,
-        params_for_call,
-        &self_param,
-        &inp.sig.output,
-    ) {
-        Ok(vv) => vv,
-        Err(e) => return e,
-    };
+    let call_and_ret =
+        match gen_function_call(fn_name, params_for_call, &self_param, &inp.sig.output) {
+            Ok(vv) => vv,
+            Err(e) => return e,
+        };
     let generated_fn_name = make_generated_fn_name(&fn_name.to_token_stream());
     let mut generated = quote! {
         #inp

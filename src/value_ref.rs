@@ -50,6 +50,11 @@ impl TulispValueRef {
             rc: Rc::new(RefCell::new(vv)),
         }
     }
+
+    pub fn nil() -> TulispValueRef {
+        TulispValue::Nil.into()
+    }
+
     pub(crate) fn strong_count(&self) -> usize {
         Rc::strong_count(&self.rc)
     }

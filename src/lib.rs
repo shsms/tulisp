@@ -16,7 +16,6 @@ mod error;
 pub use error::{Error, ErrorKind};
 
 mod value;
-pub use value::TulispValue::Nil;
 
 mod value_ref;
 pub use value_ref::TulispValueRef;
