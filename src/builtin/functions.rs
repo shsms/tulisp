@@ -75,7 +75,7 @@ fn mark_tail_calls(name: TulispValueRef, body: TulispValueRef) -> Result<TulispV
         ret.push(tail)?;
         tail = next;
     }
-    if !tail.is_cons() {
+    if !tail.consp() {
         return Ok(body);
     }
     let span = tail.span();
@@ -340,7 +340,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         rest: TulispValueRef,
     ) -> Result<TulispValueRef, Error> {
         ctx.r#let(varlist)?;
-        let ret = if rest.is_cons() {
+        let ret = if rest.consp() {
             ctx.eval_progn(&rest)
         } else {
             Err(Error::new(
@@ -487,7 +487,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     #[crate_fn(add_func = "ctx")]
     fn consp(arg: TulispValueRef) -> bool {
-        arg.is_cons()
+        arg.consp()
     }
 
     #[crate_fn_no_eval(add_func = "ctx")]
@@ -527,14 +527,14 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         alist: TulispValueRef,
         _testfn: Option<TulispValueRef>, // TODO: implement testfn support
     ) -> Result<TulispValueRef, Error> {
-        if !alist.is_cons() {
+        if !alist.consp() {
             return Err(
                 Error::new(ErrorKind::TypeMismatch, "expected alist".to_owned())
                     .with_span(alist.span()),
             );
         }
         for kvpair in alist.base_iter() {
-            if !kvpair.is_cons() {
+            if !kvpair.consp() {
                 return Err(Error::new(
                     ErrorKind::TypeMismatch,
                     "expected cons inside alist".to_owned(),

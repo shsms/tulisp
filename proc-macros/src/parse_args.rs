@@ -190,7 +190,7 @@ fn process_arg(
                 |x: #crate_name::TulispValueRef| {
                     if x.is_null() {
                         Ok(None)
-                    } else if !x.is_cons() {
+                    } else if !x.consp() {
                         Err(#crate_name::Error::new(
                             #crate_name::ErrorKind::TypeMismatch,
                             format!(
@@ -207,7 +207,7 @@ fn process_arg(
         } else {
             quote! {(
                 |x: #crate_name::TulispValueRef| {
-                    if !x.is_cons() {
+                    if !x.consp() {
                         Err(#crate_name::Error::new(
                             #crate_name::ErrorKind::TypeMismatch,
                             format!(

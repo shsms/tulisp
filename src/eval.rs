@@ -184,7 +184,7 @@ pub(crate) fn eval(
         TulispValue::Quote { value, .. } => Ok(value),
         TulispValue::Backquote { value, span } => {
             let mut ret = TulispValue::Nil;
-            if !value.is_cons() {
+            if !value.consp() {
                 return Ok(value);
             }
             fn bq_eval_next(
@@ -222,7 +222,7 @@ pub(crate) fn eval(
                         ret.append(eval(ctx, &value).map_err(|e| e.with_span(span.clone()))?)
                             .map_err(|e| e.with_span(span))?;
                         return Ok(());
-                    } else if !rest.is_cons() {
+                    } else if !rest.consp() {
                         ret.append(rest)?;
                         return Ok(());
                     }
@@ -251,7 +251,7 @@ pub(crate) fn eval(
 }
 
 pub fn macroexpand(ctx: &mut TulispContext, inp: TulispValueRef) -> Result<TulispValueRef, Error> {
-    if !inp.is_cons() {
+    if !inp.consp() {
         return Ok(inp);
     }
     let mut expr = TulispValue::Nil;

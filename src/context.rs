@@ -122,7 +122,7 @@ impl TulispContext {
         for varitem in varlist.base_iter() {
             let (name, value) = if let Ok(name) = varitem.as_symbol() {
                 (name, TulispValue::Nil.into_ref())
-            } else if varitem.is_cons() {
+            } else if varitem.consp() {
                 let span = varitem.span();
                 destruct_bind!((&optional name value &rest rest) = varitem);
                 if name.is_null() {

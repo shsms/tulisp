@@ -32,7 +32,7 @@ impl Cons {
     ) -> Result<&mut Self, Error> {
         let mut last = self.cdr.clone();
 
-        while last.is_cons() {
+        while last.consp() {
             last = last.cdr()?;
         }
         if last == TulispValue::Nil {
@@ -56,7 +56,7 @@ impl Cons {
     pub fn append(&mut self, val: TulispValueRef) -> Result<&mut Self, Error> {
         let mut last = self.cdr.clone();
 
-        while last.is_cons() {
+        while last.consp() {
             last = last.cdr()?;
         }
         if last == TulispValue::Nil {
@@ -87,7 +87,7 @@ impl Cons {
 
 impl Drop for Cons {
     fn drop(&mut self) {
-        if self.cdr.strong_count() > 1 || !self.cdr.is_cons() {
+        if self.cdr.strong_count() > 1 || !self.cdr.consp() {
             return;
         }
         let mut cdr = self.cdr.take();

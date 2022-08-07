@@ -120,7 +120,7 @@ fn fmt_list(mut vv: TulispValueRef, f: &mut std::fmt::Formatter<'_>) -> Result<(
         })?;
         if rest == TulispValue::Nil {
             break;
-        } else if !rest.is_cons() {
+        } else if !rest.consp() {
             write!(f, " . {}", rest).map_err(|e| {
                 Error::new(ErrorKind::Undefined, format!("When trying to 'fmt': {}", e))
                     .with_span(vv.span())
@@ -331,7 +331,7 @@ impl TulispValue {
         matches!(self, TulispValue::Bounce)
     }
 
-    pub fn is_cons(&self) -> bool {
+    pub fn consp(&self) -> bool {
         matches!(self, TulispValue::List { .. })
     }
 

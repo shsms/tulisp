@@ -12,7 +12,7 @@ fn thread_first(ctx: &mut TulispContext, vv: &TulispValueRef) -> Result<TulispVa
     if form.is_null() {
         Ok(x)
     } else if more.is_null() {
-        if form.is_cons() {
+        if form.consp() {
             Ok(list!(,form.car()? ,x.clone() ,@form.cdr()?)?)
         } else {
             Ok(list!(,form ,x.clone())?)
@@ -28,7 +28,7 @@ fn thread_last(ctx: &mut TulispContext, vv: &TulispValueRef) -> Result<TulispVal
     if form.is_null() {
         Ok(x)
     } else if more.is_null() {
-        if form.is_cons() {
+        if form.consp() {
             Ok(list!(,@form ,x.clone())?)
         } else {
             Ok(list!(,form ,x.clone())?)

@@ -76,8 +76,8 @@ impl TulispValueRef {
     pub(crate) fn is_bounce(&self) -> bool {
         self.rc.as_ref().borrow().is_bounce()
     }
-    pub fn is_cons(&self) -> bool {
-        self.rc.as_ref().borrow().is_cons()
+    pub fn consp(&self) -> bool {
+        self.rc.as_ref().borrow().consp()
     }
     pub fn integerp(&self) -> bool {
         self.rc.as_ref().borrow().integerp()
@@ -151,13 +151,13 @@ impl TulispValueRef {
     pub(crate) fn deep_copy(&self) -> Result<TulispValueRef, Error> {
         let mut val = self.clone();
         let mut ret = TulispValue::Nil;
-        if !val.is_cons() {
+        if !val.consp() {
             ret = val.clone_inner();
         } else {
             loop {
                 let (first, rest) = (val.car()?, val.cdr()?);
                 ret.push_with_meta(first.clone_inner().into_ref(), val.span(), val.ctxobj())?;
-                if !rest.is_cons() {
+                if !rest.consp() {
                     ret.append(rest)?;
                     break;
                 }
