@@ -53,7 +53,7 @@ fn let_star(
         destruct_bind!((nextvar &rest rest) = varlist);
 
         let mut ret = Cons::new(
-            TulispValue::symbol_from("let".to_string(), None).into_ref(),
+            TulispValue::symbol("let".to_string(), None).into_ref(),
             TulispValue::Nil.into_ref(),
         );
         ret.push(list!(,nextvar)?)?;

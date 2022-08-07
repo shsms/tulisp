@@ -87,7 +87,7 @@ fn mark_tail_calls(name: TulispValueRef, body: TulispValueRef) -> Result<TulispV
             .append(tail.cdr()?)?
             .to_owned()
             .with_span(span);
-        list!(,TulispValue::symbol_from("list".to_string(),  None).into_ref()
+        list!(,TulispValue::symbol("list".to_string(),  None).into_ref()
               ,TulispValue::Bounce.into_ref() ,@ret_tail)?
     } else if tail_name_str == "progn" || tail_name_str == "let" || tail_name_str == "let*" {
         list!(,tail_ident ,@mark_tail_calls(name, tail.cdr()?)?)?
@@ -427,7 +427,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     #[crate_fn(add_func = "ctx", name = "cons")]
     fn impl_cons(car: TulispValueRef, cdr: TulispValueRef) -> TulispValueRef {
-        TulispValueRef::from_cons(car, cdr)
+        TulispValueRef::cons(car, cdr)
     }
 
     #[crate_fn_no_eval(add_func = "ctx")]

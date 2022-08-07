@@ -162,7 +162,7 @@ impl std::fmt::Display for TulispValue {
 }
 
 impl TulispValue {
-    pub fn symbol_from(value: String, span: Option<Span>) -> TulispValue {
+    pub fn symbol(value: String, span: Option<Span>) -> TulispValue {
         TulispValue::Symbol { value, span }
     }
 
@@ -485,7 +485,7 @@ impl From<String> for TulispValue {
 impl From<bool> for TulispValue {
     fn from(value: bool) -> Self {
         match value {
-            true => TulispValue::symbol_from("t".to_string(), None),
+            true => TulispValue::symbol("t".to_string(), None),
             false => TulispValue::Nil,
         }
     }

@@ -37,12 +37,12 @@ impl std::fmt::Display for TulispValueRef {
 }
 
 impl TulispValueRef {
-    pub fn from_cons(car: TulispValueRef, cdr: TulispValueRef) -> TulispValueRef {
+    pub fn cons(car: TulispValueRef, cdr: TulispValueRef) -> TulispValueRef {
         list!(,car ,@cdr).unwrap()
     }
 
-    pub fn from_symbol(name: String) -> TulispValueRef {
-        TulispValue::symbol_from(name, None).into()
+    pub fn symbol(name: String) -> TulispValueRef {
+        TulispValue::symbol(name, None).into()
     }
 
     pub(crate) fn new(vv: TulispValue) -> TulispValueRef {
