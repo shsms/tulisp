@@ -269,7 +269,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     #[crate_fn(add_func = "ctx")]
     fn print(val: TulispValueRef) -> Result<TulispValueRef, Error> {
-        println!("{}", val);
+        println!("{}", val.fmt_string());
         Ok(val)
     }
 
