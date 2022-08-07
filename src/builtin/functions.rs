@@ -572,4 +572,20 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             Ok(default_value.unwrap_or_else(|| TulispValue::Nil.into_ref()))
         }
     }
+
+    // number predicates begin
+    #[crate_fn(add_func = "ctx")]
+    fn floatp(val: TulispValueRef) -> bool {
+        val.floatp()
+    }
+    #[crate_fn(add_func = "ctx")]
+    fn integerp(val: TulispValueRef) -> bool {
+        val.integerp()
+    }
+    #[crate_fn(add_func = "ctx")]
+    fn numberp(val: TulispValueRef) -> bool {
+        val.numberp()
+    }
+
+    // number predicates end
 }

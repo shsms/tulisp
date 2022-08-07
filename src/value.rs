@@ -335,6 +335,18 @@ impl TulispValue {
         matches!(self, TulispValue::List { .. })
     }
 
+    pub fn integerp(&self) -> bool {
+        matches!(self, TulispValue::Int { .. })
+    }
+
+    pub fn floatp(&self) -> bool {
+        matches!(self, TulispValue::Float { .. })
+    }
+
+    pub fn numberp(&self) -> bool {
+        self.integerp() || self.floatp()
+    }
+
     pub fn as_str(&self) -> Result<&str, Error> {
         match self {
             TulispValue::String { value, .. } => Ok(value),

@@ -74,6 +74,15 @@ impl TulispValueRef {
     pub fn is_cons(&self) -> bool {
         self.rc.as_ref().borrow().is_cons()
     }
+    pub fn integerp(&self) -> bool {
+        self.rc.as_ref().borrow().integerp()
+    }
+    pub fn floatp(&self) -> bool {
+        self.rc.as_ref().borrow().floatp()
+    }
+    pub fn numberp(&self) -> bool {
+        self.rc.as_ref().borrow().numberp()
+    }
     pub fn as_string(&self) -> Result<String, Error> {
         self.rc.as_ref().borrow().as_str().map(|x| x.to_owned())
     }
