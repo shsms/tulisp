@@ -3,7 +3,7 @@ use std::{fmt::Write, iter::Peekable, str::Chars};
 use crate::{
     eval::{eval, macroexpand},
     value_enum::{Span, TulispValueEnum},
-    ContextObject, Error, ErrorKind, TulispContext, TulispValueRef,
+    ContextObject, Error, ErrorKind, TulispContext, TulispValue,
 };
 
 struct Tokenizer<'a> {
@@ -284,8 +284,8 @@ impl Parser<'_, '_> {
         &mut self,
         start_span: Span,
         expand_macros: &MacroExpand,
-    ) -> Result<TulispValueRef, Error> {
-        let inner = TulispValueRef::nil();
+    ) -> Result<TulispValue, Error> {
+        let inner = TulispValue::nil();
         let mut got_dot = false;
         loop {
             let token = if let Some(token) = self.tokenizer.peek() {
@@ -345,10 +345,7 @@ impl Parser<'_, '_> {
         }
     }
 
-    fn parse_value(
-        &mut self,
-        expand_macros: &MacroExpand,
-    ) -> Result<Option<TulispValueRef>, Error> {
+    fn parse_value(&mut self, expand_macros: &MacroExpand) -> Result<Option<TulispValue>, Error> {
         let token = if let Some(token) = self.tokenizer.next() {
             token
         } else {
@@ -495,8 +492,8 @@ impl Parser<'_, '_> {
         }
     }
 
-    fn parse(&mut self) -> Result<TulispValueRef, Error> {
-        let output = TulispValueRef::nil();
+    fn parse(&mut self) -> Result<TulispValue, Error> {
+        let output = TulispValue::nil();
         while let Some(next) = self.parse_value(&MacroExpand::Yes)? {
             let next = if next.consp() {
                 locate_all_func(self.ctx, next)?
@@ -509,8 +506,8 @@ impl Parser<'_, '_> {
     }
 }
 
-fn locate_all_func(ctx: &mut TulispContext, expr: TulispValueRef) -> Result<TulispValueRef, Error> {
-    let ret = TulispValueRef::nil();
+fn locate_all_func(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispValue, Error> {
+    let ret = TulispValue::nil();
     for ele in expr.base_iter() {
         let next = if ele.consp() && ele.ctxobj().is_none() {
             let next = locate_all_func(ctx, ele)?;
@@ -524,7 +521,7 @@ fn locate_all_func(ctx: &mut TulispContext, expr: TulispValueRef) -> Result<Tuli
     Ok(ret)
 }
 
-fn locate_func(ctx: &mut TulispContext, expr: TulispValueRef) -> Result<TulispValueRef, Error> {
+fn locate_func(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispValue, Error> {
     let name = match expr.clone().car()?.clone_inner() {
         TulispValueEnum::Symbol { value, .. } => value,
         _ => return Ok(expr),
@@ -544,6 +541,6 @@ fn locate_func(ctx: &mut TulispContext, expr: TulispValueRef) -> Result<TulispVa
     }
 }
 
-pub fn parse(ctx: &mut TulispContext, program: &str) -> Result<TulispValueRef, Error> {
+pub fn parse(ctx: &mut TulispContext, program: &str) -> Result<TulispValue, Error> {
     Parser::new(ctx, program).parse()
 }

@@ -8,51 +8,51 @@ use crate::{
 use std::{any::Any, cell::RefCell, rc::Rc};
 
 #[derive(Debug, Clone)]
-pub struct TulispValueRef {
+pub struct TulispValue {
     rc: Rc<RefCell<TulispValueEnum>>,
 }
 
-impl Default for TulispValueRef {
+impl Default for TulispValue {
     fn default() -> Self {
-        TulispValueRef::nil()
+        TulispValue::nil()
     }
 }
 
-impl PartialEq for TulispValueRef {
+impl PartialEq for TulispValue {
     fn eq(&self, other: &Self) -> bool {
         *self.rc.as_ref().borrow() == *other.rc.as_ref().borrow()
     }
 }
 
-impl std::cmp::PartialEq<TulispValueEnum> for TulispValueRef {
+impl std::cmp::PartialEq<TulispValueEnum> for TulispValue {
     fn eq(&self, other: &TulispValueEnum) -> bool {
         *self.rc.as_ref().borrow() == *other
     }
 }
 
-impl std::fmt::Display for TulispValueRef {
+impl std::fmt::Display for TulispValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!("{}", self.rc.as_ref().borrow()))
     }
 }
 
-impl TulispValueRef {
-    pub fn cons(car: TulispValueRef, cdr: TulispValueRef) -> TulispValueRef {
+impl TulispValue {
+    pub fn cons(car: TulispValue, cdr: TulispValue) -> TulispValue {
         list!(,car ,@cdr).unwrap()
     }
 
-    pub fn symbol(name: String) -> TulispValueRef {
+    pub fn symbol(name: String) -> TulispValue {
         TulispValueEnum::symbol(name, None).into()
     }
 
-    pub(crate) fn new(vv: TulispValueEnum) -> TulispValueRef {
+    pub(crate) fn new(vv: TulispValueEnum) -> TulispValue {
         Self {
             rc: Rc::new(RefCell::new(vv)),
         }
     }
 
-    pub fn nil() -> TulispValueRef {
-        TulispValueRef::from(TulispValueEnum::Nil)
+    pub fn nil() -> TulispValue {
+        TulispValue::from(TulispValueEnum::Nil)
     }
 
     pub(crate) fn strong_count(&self) -> usize {
@@ -64,13 +64,13 @@ impl TulispValueRef {
     pub fn base_iter(&self) -> cons::BaseIter {
         self.rc.as_ref().borrow().base_iter()
     }
-    pub fn iter<T: std::convert::TryFrom<TulispValueRef>>(&self) -> cons::Iter<T> {
+    pub fn iter<T: std::convert::TryFrom<TulispValue>>(&self) -> cons::Iter<T> {
         cons::Iter::new(self.base_iter())
     }
-    pub fn push(&self, val: TulispValueRef) -> Result<&TulispValueRef, Error> {
+    pub fn push(&self, val: TulispValue) -> Result<&TulispValue, Error> {
         self.rc.as_ref().borrow_mut().push(val).map(|_| self)
     }
-    pub fn append(&self, val: TulispValueRef) -> Result<&TulispValueRef, Error> {
+    pub fn append(&self, val: TulispValue) -> Result<&TulispValue, Error> {
         self.rc.as_ref().borrow_mut().append(val).map(|_| self)
     }
     pub(crate) fn is_bounce(&self) -> bool {
@@ -121,10 +121,10 @@ impl TulispValueRef {
     pub(crate) fn as_list_cons(&self) -> Option<Cons> {
         self.rc.as_ref().borrow().as_list_cons()
     }
-    pub fn car(&self) -> Result<TulispValueRef, Error> {
+    pub fn car(&self) -> Result<TulispValue, Error> {
         self.rc.as_ref().borrow().car()
     }
-    pub fn cdr(&self) -> Result<TulispValueRef, Error> {
+    pub fn cdr(&self) -> Result<TulispValue, Error> {
         self.rc.as_ref().borrow().cdr()
     }
     pub fn fmt_string(&self) -> String {
@@ -148,7 +148,7 @@ impl TulispValueRef {
         self.rc.as_ref().borrow_mut().take()
     }
 
-    pub(crate) fn deep_copy(&self) -> Result<TulispValueRef, Error> {
+    pub(crate) fn deep_copy(&self) -> Result<TulispValue, Error> {
         let mut val = self.clone();
         let mut ret = TulispValueEnum::Nil;
         if !val.consp() {
@@ -170,83 +170,83 @@ impl TulispValueRef {
     }
 }
 
-impl TryFrom<TulispValueRef> for f64 {
+impl TryFrom<TulispValue> for f64 {
     type Error = Error;
 
-    fn try_from(value: TulispValueRef) -> Result<Self, Self::Error> {
+    fn try_from(value: TulispValue) -> Result<Self, Self::Error> {
         value.rc.as_ref().borrow().try_float()
     }
 }
 
-impl TryFrom<TulispValueRef> for i64 {
+impl TryFrom<TulispValue> for i64 {
     type Error = Error;
 
-    fn try_from(value: TulispValueRef) -> Result<Self, Self::Error> {
+    fn try_from(value: TulispValue) -> Result<Self, Self::Error> {
         value.rc.as_ref().borrow().as_int()
     }
 }
 
-impl TryFrom<TulispValueRef> for String {
+impl TryFrom<TulispValue> for String {
     type Error = Error;
 
-    fn try_from(value: TulispValueRef) -> Result<Self, Self::Error> {
+    fn try_from(value: TulispValue) -> Result<Self, Self::Error> {
         value.as_string()
     }
 }
 
-impl TryFrom<TulispValueRef> for bool {
+impl TryFrom<TulispValue> for bool {
     type Error = Error;
 
-    fn try_from(value: TulispValueRef) -> Result<Self, Self::Error> {
+    fn try_from(value: TulispValue) -> Result<Self, Self::Error> {
         Ok(value.as_bool())
     }
 }
 
-impl TryFrom<TulispValueRef> for Rc<dyn Any> {
+impl TryFrom<TulispValue> for Rc<dyn Any> {
     type Error = Error;
 
-    fn try_from(value: TulispValueRef) -> Result<Self, Self::Error> {
+    fn try_from(value: TulispValue) -> Result<Self, Self::Error> {
         value.as_any()
     }
 }
 
-impl From<i64> for TulispValueRef {
+impl From<i64> for TulispValue {
     fn from(vv: i64) -> Self {
         TulispValueEnum::from(vv).into_ref()
     }
 }
 
-impl From<f64> for TulispValueRef {
+impl From<f64> for TulispValue {
     fn from(vv: f64) -> Self {
         TulispValueEnum::from(vv).into_ref()
     }
 }
 
-impl From<&str> for TulispValueRef {
+impl From<&str> for TulispValue {
     fn from(vv: &str) -> Self {
         TulispValueEnum::from(vv).into_ref()
     }
 }
 
-impl From<String> for TulispValueRef {
+impl From<String> for TulispValue {
     fn from(vv: String) -> Self {
         TulispValueEnum::from(vv).into_ref()
     }
 }
 
-impl From<bool> for TulispValueRef {
+impl From<bool> for TulispValue {
     fn from(vv: bool) -> Self {
         TulispValueEnum::from(vv).into_ref()
     }
 }
 
-impl From<Rc<dyn Any>> for TulispValueRef {
+impl From<Rc<dyn Any>> for TulispValue {
     fn from(value: Rc<dyn Any>) -> Self {
         TulispValueEnum::from(value).into_ref()
     }
 }
 
-impl From<TulispValueEnum> for TulispValueRef {
+impl From<TulispValueEnum> for TulispValue {
     fn from(vv: TulispValueEnum) -> Self {
         vv.into_ref()
     }

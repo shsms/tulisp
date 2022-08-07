@@ -4,10 +4,10 @@ use crate::cons::Cons;
 use crate::context::{ContextObject, TulispContext};
 use crate::error::Error;
 use crate::value_enum::TulispValueEnum;
-use crate::value_ref::TulispValueRef;
+use crate::value_ref::TulispValue;
 use crate::{destruct_bind, list};
 
-fn thread_first(ctx: &mut TulispContext, vv: &TulispValueRef) -> Result<TulispValueRef, Error> {
+fn thread_first(ctx: &mut TulispContext, vv: &TulispValue) -> Result<TulispValue, Error> {
     destruct_bind!((_name x &optional form &rest more) = vv);
     if form.null() {
         Ok(x)
@@ -18,15 +18,12 @@ fn thread_first(ctx: &mut TulispContext, vv: &TulispValueRef) -> Result<TulispVa
             Ok(list!(,form ,x.clone())?)
         }
     } else {
-        let inner = thread_first(
-            ctx,
-            &list!(,TulispValueRef::nil() ,x.clone() ,form.clone())?,
-        )?;
-        thread_first(ctx, &list!(,TulispValueRef::nil() ,inner ,@more.clone())?)
+        let inner = thread_first(ctx, &list!(,TulispValue::nil() ,x.clone() ,form.clone())?)?;
+        thread_first(ctx, &list!(,TulispValue::nil() ,inner ,@more.clone())?)
     }
 }
 
-fn thread_last(ctx: &mut TulispContext, vv: &TulispValueRef) -> Result<TulispValueRef, Error> {
+fn thread_last(ctx: &mut TulispContext, vv: &TulispValue) -> Result<TulispValue, Error> {
     destruct_bind!((_name x &optional form &rest more) = vv);
     if form.null() {
         Ok(x)
@@ -37,31 +34,25 @@ fn thread_last(ctx: &mut TulispContext, vv: &TulispValueRef) -> Result<TulispVal
             Ok(list!(,form ,x.clone())?)
         }
     } else {
-        let inner = thread_last(
-            ctx,
-            &list!(,TulispValueRef::nil() ,x.clone() ,form.clone())?,
-        )?;
-        thread_last(ctx, &list!(,TulispValueRef::nil() ,inner ,@more.clone())?)
+        let inner = thread_last(ctx, &list!(,TulispValue::nil() ,x.clone() ,form.clone())?)?;
+        thread_last(ctx, &list!(,TulispValue::nil() ,inner ,@more.clone())?)
     }
 }
 
 #[crate_fn_no_eval]
 fn let_star(
     ctx: &mut TulispContext,
-    varlist: TulispValueRef,
-    rest: TulispValueRef,
-) -> Result<TulispValueRef, Error> {
+    varlist: TulispValue,
+    rest: TulispValue,
+) -> Result<TulispValue, Error> {
     fn unwrap_varlist(
         ctx: &mut TulispContext,
-        varlist: TulispValueRef,
-        body: TulispValueRef,
-    ) -> Result<TulispValueRef, Error> {
+        varlist: TulispValue,
+        body: TulispValue,
+    ) -> Result<TulispValue, Error> {
         destruct_bind!((nextvar &rest rest) = varlist);
 
-        let mut ret = Cons::new(
-            TulispValueRef::symbol("let".to_string()),
-            TulispValueRef::nil(),
-        );
+        let mut ret = Cons::new(TulispValue::symbol("let".to_string()), TulispValue::nil());
         ret.push(list!(,nextvar)?)?;
         if !rest.null() {
             ret.push(unwrap_varlist(ctx, rest, body)?)?;

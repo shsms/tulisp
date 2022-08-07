@@ -18,4 +18,4 @@ pub use error::{Error, ErrorKind};
 mod value_enum;
 
 mod value_ref;
-pub use value_ref::TulispValueRef;
+pub use value_ref::TulispValue;

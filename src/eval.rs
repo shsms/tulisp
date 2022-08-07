@@ -4,31 +4,31 @@ use crate::{
     context::{ContextObject, Scope, TulispContext},
     error::{Error, ErrorKind},
     value_enum::TulispValueEnum,
-    value_ref::TulispValueRef,
+    value_ref::TulispValue,
 };
 
 trait Evaluator {
-    fn eval(ctx: &mut TulispContext, value: &TulispValueRef) -> Result<TulispValueRef, Error>;
+    fn eval(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue, Error>;
 }
 
 struct Eval;
 impl Evaluator for Eval {
-    fn eval(ctx: &mut TulispContext, value: &TulispValueRef) -> Result<TulispValueRef, Error> {
+    fn eval(ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue, Error> {
         eval(ctx, value)
     }
 }
 
 struct DummyEval;
 impl Evaluator for DummyEval {
-    fn eval(_ctx: &mut TulispContext, value: &TulispValueRef) -> Result<TulispValueRef, Error> {
+    fn eval(_ctx: &mut TulispContext, value: &TulispValue) -> Result<TulispValue, Error> {
         Ok(value.clone())
     }
 }
 
 fn zip_function_args<E: Evaluator>(
     ctx: &mut TulispContext,
-    params: &TulispValueRef,
-    args: &TulispValueRef,
+    params: &TulispValue,
+    args: &TulispValue,
 ) -> Result<Scope, Error> {
     let mut args_iter = args.base_iter();
     let mut params_iter = params.base_iter();
@@ -51,10 +51,10 @@ fn zip_function_args<E: Evaluator>(
         let val = if is_opt {
             match args_iter.next() {
                 Some(vv) => E::eval(ctx, &vv)?,
-                None => TulispValueRef::nil(),
+                None => TulispValue::nil(),
             }
         } else if is_rest {
-            let ret = TulispValueRef::nil();
+            let ret = TulispValue::nil();
             for arg in args_iter.by_ref() {
                 ret.push(E::eval(ctx, &arg)?)?;
             }
@@ -90,10 +90,10 @@ fn zip_function_args<E: Evaluator>(
 
 fn eval_function<E: Evaluator>(
     ctx: &mut TulispContext,
-    params: &TulispValueRef,
-    body: &TulispValueRef,
-    args: &TulispValueRef,
-) -> Result<TulispValueRef, Error> {
+    params: &TulispValue,
+    body: &TulispValue,
+    args: &TulispValue,
+) -> Result<TulispValue, Error> {
     let local = zip_function_args::<E>(ctx, params, args)?;
     ctx.push(local);
     let result = ctx.eval_progn(body)?;
@@ -103,10 +103,10 @@ fn eval_function<E: Evaluator>(
 
 fn eval_defun(
     ctx: &mut TulispContext,
-    params: &TulispValueRef,
-    body: &TulispValueRef,
-    args: &TulispValueRef,
-) -> Result<TulispValueRef, Error> {
+    params: &TulispValue,
+    body: &TulispValue,
+    args: &TulispValue,
+) -> Result<TulispValue, Error> {
     let mut result = eval_function::<Eval>(ctx, params, body, args)?;
     while let Ok(true) = result.car().map(|x| x.is_bounce()) {
         result = eval_function::<DummyEval>(ctx, params, body, &result.cdr()?)?;
@@ -116,14 +116,14 @@ fn eval_defun(
 
 pub(crate) fn eval_defmacro(
     ctx: &mut TulispContext,
-    params: &TulispValueRef,
-    body: &TulispValueRef,
-    args: &TulispValueRef,
-) -> Result<TulispValueRef, Error> {
+    params: &TulispValue,
+    body: &TulispValue,
+    args: &TulispValue,
+) -> Result<TulispValue, Error> {
     eval_function::<DummyEval>(ctx, params, body, args)
 }
 
-fn eval_form(ctx: &mut TulispContext, val: &TulispValueRef) -> Result<TulispValueRef, Error> {
+fn eval_form(ctx: &mut TulispContext, val: &TulispValue) -> Result<TulispValue, Error> {
     let name = val.car()?;
     let func = match val.ctxobj() {
         func @ Some(_) => func,
@@ -149,10 +149,7 @@ fn eval_form(ctx: &mut TulispContext, val: &TulispValueRef) -> Result<TulispValu
     }
 }
 
-pub(crate) fn eval(
-    ctx: &mut TulispContext,
-    expr: &TulispValueRef,
-) -> Result<TulispValueRef, Error> {
+pub(crate) fn eval(ctx: &mut TulispContext, expr: &TulispValue) -> Result<TulispValue, Error> {
     let ret = match expr.clone_inner() {
         TulispValueEnum::List { span, .. } => eval_form(ctx, expr).map_err(|e| e.with_span(span)),
         TulispValueEnum::Symbol { value, span } => {
@@ -190,7 +187,7 @@ pub(crate) fn eval(
             fn bq_eval_next(
                 ctx: &mut TulispContext,
                 ret: &mut TulispValueEnum,
-                mut vv: TulispValueRef,
+                mut vv: TulispValue,
             ) -> Result<(), Error> {
                 loop {
                     let (first, rest) = (vv.car()?, vv.cdr()?);
@@ -250,11 +247,11 @@ pub(crate) fn eval(
     ret
 }
 
-pub fn macroexpand(ctx: &mut TulispContext, inp: TulispValueRef) -> Result<TulispValueRef, Error> {
+pub fn macroexpand(ctx: &mut TulispContext, inp: TulispValue) -> Result<TulispValue, Error> {
     if !inp.consp() {
         return Ok(inp);
     }
-    let expr = TulispValueRef::nil();
+    let expr = TulispValue::nil();
     for item in inp.base_iter() {
         let item = macroexpand(ctx, item)?;
         // TODO: switch to tailcall method to propagate inner spans.

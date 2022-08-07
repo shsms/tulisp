@@ -5,21 +5,21 @@ use crate::{
     error::{Error, ErrorKind},
     eval::eval,
     parse::parse,
-    value_ref::TulispValueRef,
+    value_ref::TulispValue,
 };
 
 #[doc(hidden)]
 pub enum ContextObject {
-    TulispValue(TulispValueRef),
-    Func(Box<dyn Fn(&mut TulispContext, &TulispValueRef) -> Result<TulispValueRef, Error>>),
-    Macro(Box<dyn Fn(&mut TulispContext, &TulispValueRef) -> Result<TulispValueRef, Error>>),
+    TulispValue(TulispValue),
+    Func(Box<dyn Fn(&mut TulispContext, &TulispValue) -> Result<TulispValue, Error>>),
+    Macro(Box<dyn Fn(&mut TulispContext, &TulispValue) -> Result<TulispValue, Error>>),
     Defmacro {
-        args: TulispValueRef,
-        body: TulispValueRef,
+        args: TulispValue,
+        body: TulispValue,
     },
     Defun {
-        args: TulispValueRef,
-        body: TulispValueRef,
+        args: TulispValue,
+        body: TulispValue,
     },
 }
 
@@ -79,7 +79,7 @@ impl TulispContext {
         None
     }
 
-    pub(crate) fn get(&self, name: TulispValueRef) -> Option<Rc<RefCell<ContextObject>>> {
+    pub(crate) fn get(&self, name: TulispValue) -> Option<Rc<RefCell<ContextObject>>> {
         match name.as_symbol() {
             Ok(name) => self.get_str(&name),
             // TODO: return Result
@@ -105,7 +105,7 @@ impl TulispContext {
         Ok(())
     }
 
-    pub(crate) fn set(&mut self, name: TulispValueRef, value: TulispValueRef) -> Result<(), Error> {
+    pub(crate) fn set(&mut self, name: TulispValue, value: TulispValue) -> Result<(), Error> {
         if let Ok(name) = name.as_symbol() {
             self.set_str(name, ContextObject::TulispValue(value))
         } else {
@@ -116,11 +116,11 @@ impl TulispContext {
         }
     }
 
-    pub(crate) fn r#let(&mut self, varlist: TulispValueRef) -> Result<(), Error> {
+    pub(crate) fn r#let(&mut self, varlist: TulispValue) -> Result<(), Error> {
         let mut local = HashMap::new();
         for varitem in varlist.base_iter() {
             let (name, value) = if let Ok(name) = varitem.as_symbol() {
-                (name, TulispValueRef::nil())
+                (name, TulispValue::nil())
             } else if varitem.consp() {
                 let span = varitem.span();
                 destruct_bind!((&optional name value &rest rest) = varitem);
@@ -161,32 +161,32 @@ impl TulispContext {
         Ok(())
     }
 
-    pub fn eval(&mut self, value: &TulispValueRef) -> Result<TulispValueRef, Error> {
+    pub fn eval(&mut self, value: &TulispValue) -> Result<TulispValue, Error> {
         eval(self, value)
     }
 
-    pub fn eval_string(&mut self, string: &str) -> Result<TulispValueRef, Error> {
+    pub fn eval_string(&mut self, string: &str) -> Result<TulispValue, Error> {
         let vv = parse(self, string)?;
         self.eval_progn(&vv)
     }
 
-    pub fn eval_progn(&mut self, value: &TulispValueRef) -> Result<TulispValueRef, Error> {
-        let mut ret = TulispValueRef::nil();
+    pub fn eval_progn(&mut self, value: &TulispValue) -> Result<TulispValue, Error> {
+        let mut ret = TulispValue::nil();
         for val in value.base_iter() {
             ret = eval(self, &val)?;
         }
         Ok(ret)
     }
 
-    pub fn eval_each(&mut self, value: &TulispValueRef) -> Result<TulispValueRef, Error> {
-        let ret = TulispValueRef::nil();
+    pub fn eval_each(&mut self, value: &TulispValue) -> Result<TulispValue, Error> {
+        let ret = TulispValue::nil();
         for val in value.base_iter() {
             ret.push(eval(self, &val)?)?;
         }
         Ok(ret)
     }
 
-    pub fn eval_file(&mut self, filename: &str) -> Result<TulispValueRef, Error> {
+    pub fn eval_file(&mut self, filename: &str) -> Result<TulispValue, Error> {
         let contents = fs::read_to_string(filename).expect("Something went wrong reading the file");
         self.eval_string(&contents)
     }

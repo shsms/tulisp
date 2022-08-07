@@ -7,26 +7,26 @@ use crate::error::Error;
 use crate::error::ErrorKind;
 use crate::value_enum::Span;
 use crate::value_enum::TulispValueEnum;
-use crate::value_ref::TulispValueRef;
+use crate::value_ref::TulispValue;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Cons {
-    car: TulispValueRef,
-    cdr: TulispValueRef,
+    car: TulispValue,
+    cdr: TulispValue,
 }
 
 impl Cons {
-    pub fn new(car: TulispValueRef, cdr: TulispValueRef) -> Self {
+    pub fn new(car: TulispValue, cdr: TulispValue) -> Self {
         Cons { car, cdr }
     }
 
-    pub fn push(&mut self, val: TulispValueRef) -> Result<&mut Self, Error> {
+    pub fn push(&mut self, val: TulispValue) -> Result<&mut Self, Error> {
         self.push_with_meta(val, None, None)
     }
 
     pub(crate) fn push_with_meta(
         &mut self,
-        val: TulispValueRef,
+        val: TulispValue,
         span: Option<Span>,
         ctxobj: Option<Rc<RefCell<ContextObject>>>,
     ) -> Result<&mut Self, Error> {
@@ -39,7 +39,7 @@ impl Cons {
             last.assign(TulispValueEnum::List {
                 cons: Cons {
                     car: val,
-                    cdr: TulispValueRef::nil(),
+                    cdr: TulispValue::nil(),
                 },
                 ctxobj,
                 span,
@@ -53,7 +53,7 @@ impl Cons {
         Ok(self)
     }
 
-    pub fn append(&mut self, val: TulispValueRef) -> Result<&mut Self, Error> {
+    pub fn append(&mut self, val: TulispValue) -> Result<&mut Self, Error> {
         let mut last = self.cdr.clone();
 
         while last.consp() {
@@ -76,11 +76,11 @@ impl Cons {
         }
     }
 
-    pub(crate) fn car(&self) -> TulispValueRef {
+    pub(crate) fn car(&self) -> TulispValue {
         self.car.clone()
     }
 
-    pub(crate) fn cdr(&self) -> TulispValueRef {
+    pub(crate) fn cdr(&self) -> TulispValue {
         self.cdr.clone()
     }
 }
@@ -106,7 +106,7 @@ pub struct BaseIter {
 }
 
 impl Iterator for BaseIter {
-    type Item = TulispValueRef;
+    type Item = TulispValue;
 
     fn next(&mut self) -> Option<Self::Item> {
         match &self.next {
@@ -120,12 +120,12 @@ impl Iterator for BaseIter {
     }
 }
 
-pub struct Iter<T: std::convert::TryFrom<TulispValueRef>> {
+pub struct Iter<T: std::convert::TryFrom<TulispValue>> {
     iter: BaseIter,
     _d: PhantomData<T>,
 }
 
-impl<T: std::convert::TryFrom<TulispValueRef>> Iter<T> {
+impl<T: std::convert::TryFrom<TulispValue>> Iter<T> {
     pub fn new(iter: BaseIter) -> Self {
         Self {
             iter,
@@ -134,7 +134,7 @@ impl<T: std::convert::TryFrom<TulispValueRef>> Iter<T> {
     }
 }
 
-impl<T: 'static + std::convert::TryFrom<TulispValueRef>> Iterator for Iter<T> {
+impl<T: 'static + std::convert::TryFrom<TulispValue>> Iterator for Iter<T> {
     type Item = Result<T, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {

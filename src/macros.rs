@@ -16,11 +16,11 @@ macro_rules! list {
     };
     (, $($items:tt)+) => { list!($($items)+) };
     ($($items:tt)+) => {{
-	let ret = TulispValueRef::nil();
+	let ret = TulispValue::nil();
         list!(@push ret, $($items)+)
             .and_then(|ret| Ok(ret.to_owned()))
     }};
-    () => { TulispValueRef::nil() }
+    () => { TulispValue::nil() }
 }
 
 #[macro_export]
@@ -41,7 +41,7 @@ macro_rules! destruct_bind {
     };
     (@rest $rest:ident $vv:ident) => {
         let $rest = if $vv.null() {
-            TulispValueRef::nil()
+            TulispValue::nil()
         } else {
             $vv
         };
@@ -50,7 +50,7 @@ macro_rules! destruct_bind {
         let ($var, $vv) = if !$vv.null() {
             ($vv.car()?, $vv.cdr()?)
         } else {
-            (TulispValueRef::nil(), TulispValueRef::nil())
+            (TulispValue::nil(), TulispValue::nil())
         };
     };
     (@optvar $vv:ident, $var:ident $($vars:ident)+) => {

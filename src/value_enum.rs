@@ -2,7 +2,7 @@ use crate::{
     cons::{self, Cons},
     context::ContextObject,
     error::{Error, ErrorKind},
-    value_ref::TulispValueRef,
+    value_ref::TulispValue,
 };
 use std::{any::Any, cell::RefCell, convert::TryInto, fmt::Write, rc::Rc};
 
@@ -49,24 +49,24 @@ pub enum TulispValueEnum {
         span: Option<Span>,
     },
     Quote {
-        value: TulispValueRef,
+        value: TulispValue,
         span: Option<Span>,
     },
     /// Sharpquotes are treated as normal quotes, because there is no compilation involved.
     Sharpquote {
-        value: TulispValueRef,
+        value: TulispValue,
         span: Option<Span>,
     },
     Backquote {
-        value: TulispValueRef,
+        value: TulispValue,
         span: Option<Span>,
     },
     Unquote {
-        value: TulispValueRef,
+        value: TulispValue,
         span: Option<Span>,
     },
     Splice {
-        value: TulispValueRef,
+        value: TulispValue,
         span: Option<Span>,
     },
     Any(Rc<dyn Any>),
@@ -96,7 +96,7 @@ impl PartialEq for TulispValueEnum {
 }
 
 /// Formats tulisp lists non-recursively.
-fn fmt_list(mut vv: TulispValueRef, f: &mut std::fmt::Formatter<'_>) -> Result<(), Error> {
+fn fmt_list(mut vv: TulispValue, f: &mut std::fmt::Formatter<'_>) -> Result<(), Error> {
     if let Err(e) = f.write_char('(') {
         return Err(
             Error::new(ErrorKind::Undefined, format!("When trying to 'fmt': {}", e))
@@ -173,13 +173,13 @@ impl TulispValueEnum {
         }
     }
 
-    pub fn push(&mut self, val: TulispValueRef) -> Result<&mut TulispValueEnum, Error> {
+    pub fn push(&mut self, val: TulispValue) -> Result<&mut TulispValueEnum, Error> {
         self.push_with_meta(val, None, None)
     }
 
     pub(crate) fn push_with_meta(
         &mut self,
-        val: TulispValueRef,
+        val: TulispValue,
         span_in: Option<Span>,
         ctxobj: Option<Rc<RefCell<ContextObject>>>,
     ) -> Result<&mut TulispValueEnum, Error> {
@@ -188,7 +188,7 @@ impl TulispValueEnum {
                 .map_err(|e| e.with_span(span.clone()))?;
             Ok(self)
         } else if self.null() {
-            let cons = Cons::new(val, TulispValueRef::nil());
+            let cons = Cons::new(val, TulispValue::nil());
             *self = TulispValueEnum::List {
                 cons,
                 ctxobj,
@@ -203,7 +203,7 @@ impl TulispValueEnum {
         }
     }
 
-    pub fn append(&mut self, val: TulispValueRef) -> Result<&mut TulispValueEnum, Error> {
+    pub fn append(&mut self, val: TulispValue) -> Result<&mut TulispValueEnum, Error> {
         if let TulispValueEnum::List { cons, span, .. } = self {
             cons.append(val).map_err(|e| e.with_span(span.clone()))?;
             Ok(self)
@@ -212,7 +212,7 @@ impl TulispValueEnum {
                 *self = TulispValueEnum::List {
                     cons: val
                         .as_list_cons()
-                        .unwrap_or_else(|| Cons::new(val, TulispValueRef::nil())),
+                        .unwrap_or_else(|| Cons::new(val, TulispValue::nil())),
                     ctxobj: None,
                     span: None,
                 };
@@ -227,8 +227,8 @@ impl TulispValueEnum {
         }
     }
 
-    pub fn into_ref(self) -> TulispValueRef {
-        TulispValueRef::new(self)
+    pub fn into_ref(self) -> TulispValue {
+        TulispValue::new(self)
     }
 
     pub fn as_list_cons(&self) -> Option<Cons> {
@@ -238,10 +238,10 @@ impl TulispValueEnum {
         }
     }
 
-    pub fn car(&self) -> Result<TulispValueRef, Error> {
+    pub fn car(&self) -> Result<TulispValue, Error> {
         match self {
             TulispValueEnum::List { cons, .. } => Ok(cons.car()),
-            TulispValueEnum::Nil => Ok(TulispValueRef::nil()),
+            TulispValueEnum::Nil => Ok(TulispValue::nil()),
             _ => Err(Error::new(
                 ErrorKind::TypeMismatch,
                 format!("car: Not a Cons: {}", self),
@@ -250,10 +250,10 @@ impl TulispValueEnum {
         }
     }
 
-    pub fn cdr(&self) -> Result<TulispValueRef, Error> {
+    pub fn cdr(&self) -> Result<TulispValue, Error> {
         match self {
             TulispValueEnum::List { cons, .. } => Ok(cons.cdr()),
-            TulispValueEnum::Nil => Ok(TulispValueRef::nil()),
+            TulispValueEnum::Nil => Ok(TulispValue::nil()),
             _ => Err(Error::new(
                 ErrorKind::TypeMismatch,
                 format!("cdr: Not a Cons: {}", self),
