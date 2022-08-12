@@ -2,7 +2,7 @@ use crate::{
     cons::{self, Cons},
     context::ContextObject,
     error::{Error, ErrorKind},
-    value_ref::TulispValue,
+    value::TulispValue,
 };
 use std::{any::Any, cell::RefCell, convert::TryInto, fmt::Write, rc::Rc};
 

@@ -3,8 +3,8 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 use crate::{
     context::{ContextObject, Scope, TulispContext},
     error::{Error, ErrorKind},
+    value::TulispValue,
     value_enum::TulispValueEnum,
-    value_ref::TulispValue,
 };
 
 trait Evaluator {

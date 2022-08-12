@@ -3,8 +3,8 @@ use proc_macros::{crate_add_macro, crate_fn_no_eval};
 use crate::cons::Cons;
 use crate::context::{ContextObject, TulispContext};
 use crate::error::Error;
+use crate::value::TulispValue;
 use crate::value_enum::TulispValueEnum;
-use crate::value_ref::TulispValue;
 use crate::{destruct_bind, list};
 
 fn thread_first(ctx: &mut TulispContext, vv: &TulispValue) -> Result<TulispValue, Error> {

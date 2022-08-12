@@ -5,7 +5,7 @@ use crate::{
     error::{Error, ErrorKind},
     eval::eval,
     parse::parse,
-    value_ref::TulispValue,
+    value::TulispValue,
 };
 
 #[doc(hidden)]

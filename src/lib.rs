@@ -17,5 +17,5 @@ pub use error::{Error, ErrorKind};
 
 mod value_enum;
 
-mod value_ref;
-pub use value_ref::TulispValue;
+mod value;
+pub use value::TulispValue;

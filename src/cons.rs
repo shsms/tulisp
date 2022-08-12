@@ -5,9 +5,9 @@ use std::rc::Rc;
 use crate::context::ContextObject;
 use crate::error::Error;
 use crate::error::ErrorKind;
+use crate::value::TulispValue;
 use crate::value_enum::Span;
 use crate::value_enum::TulispValueEnum;
-use crate::value_ref::TulispValue;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Cons {
