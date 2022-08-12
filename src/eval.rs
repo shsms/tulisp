@@ -124,10 +124,15 @@ pub(crate) fn eval_defmacro(
 }
 
 fn eval_form(ctx: &mut TulispContext, val: &TulispValue) -> Result<TulispValue, Error> {
-    let name = val.car()?;
     let func = match val.ctxobj() {
         func @ Some(_) => func,
-        None => ctx.get(name.clone()),
+        None => {
+            let func = ctx.get(val.car()?);
+            if let Some(ref func) = func {
+                val.with_ctxobj(Some(func.clone()));
+            }
+            func
+        }
     };
     match func {
         Some(item) => match &*item.as_ref().borrow() {
@@ -137,15 +142,21 @@ fn eval_form(ctx: &mut TulispContext, val: &TulispValue) -> Result<TulispValue, 
                 let expanded = macroexpand(ctx, val.clone())?;
                 eval(ctx, &expanded)
             }
-            _ => Err(
-                Error::new(ErrorKind::Undefined, format!("function is void: {}", name))
-                    .with_span(val.span()),
-            ),
+            _ => {
+                let name = val.car()?;
+                Err(
+                    Error::new(ErrorKind::Undefined, format!("function is void: {}", name))
+                        .with_span(val.span()),
+                )
+            }
         },
-        None => Err(Error::new(
-            ErrorKind::Undefined,
-            format!("Unknown function name: {}", name),
-        )),
+        None => {
+            let name = val.car()?;
+            Err(Error::new(
+                ErrorKind::Undefined,
+                format!("Unknown function name: {}", name),
+            ))
+        }
     }
 }
 

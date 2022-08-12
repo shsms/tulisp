@@ -3,7 +3,7 @@ use std::{fmt::Write, iter::Peekable, str::Chars};
 use crate::{
     eval::{eval, macroexpand},
     value_enum::{Span, TulispValueEnum},
-    ContextObject, Error, ErrorKind, TulispContext, TulispValue,
+    Error, ErrorKind, TulispContext, TulispValue,
 };
 
 struct Tokenizer<'a> {
@@ -497,49 +497,9 @@ impl Parser<'_, '_> {
     fn parse(&mut self) -> Result<TulispValue, Error> {
         let output = TulispValue::nil();
         while let Some(next) = self.parse_value(&MacroExpand::Yes)? {
-            let next = if next.consp() {
-                locate_all_func(self.ctx, next)?
-            } else {
-                next
-            };
             output.push(next)?;
         }
         Ok(output)
-    }
-}
-
-fn locate_all_func(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispValue, Error> {
-    let ret = TulispValue::nil();
-    for ele in expr.base_iter() {
-        let next = if ele.consp() && ele.ctxobj().is_none() {
-            let next = locate_all_func(ctx, ele)?;
-            locate_func(ctx, next)?
-        } else {
-            ele
-        };
-        ret.push(next)?;
-    }
-    ret.with_span(expr.span());
-    Ok(ret)
-}
-
-fn locate_func(ctx: &mut TulispContext, expr: TulispValue) -> Result<TulispValue, Error> {
-    let name = match expr.clone().car()?.clone_inner() {
-        TulispValueEnum::Symbol { value, .. } => value,
-        _ => return Ok(expr),
-    };
-    match ctx.get_str(&name) {
-        Some(item) => match &*item.as_ref().borrow() {
-            ContextObject::Func(_) | ContextObject::Defun { .. } => {
-                if expr.consp() && expr.ctxobj().is_none() {
-                    Ok(expr.with_ctxobj(Some(item.clone())))
-                } else {
-                    Ok(expr)
-                }
-            }
-            _ => Ok(expr),
-        },
-        None => Ok(expr),
     }
 }
 
