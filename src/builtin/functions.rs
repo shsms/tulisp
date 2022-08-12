@@ -478,11 +478,6 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         }
     }
 
-    #[crate_fn(add_func = "ctx")]
-    fn consp(arg: TulispValue) -> bool {
-        arg.consp()
-    }
-
     #[crate_fn_no_eval(add_func = "ctx")]
     fn sort(
         ctx: &mut TulispContext,
@@ -566,19 +561,26 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         }
     }
 
-    // number predicates begin
+    // predicates begin
+    #[crate_fn(add_func = "ctx")]
+    fn consp(arg: TulispValue) -> bool {
+        arg.consp()
+    }
+
     #[crate_fn(add_func = "ctx")]
     fn floatp(val: TulispValue) -> bool {
         val.floatp()
     }
+
     #[crate_fn(add_func = "ctx")]
     fn integerp(val: TulispValue) -> bool {
         val.integerp()
     }
+
     #[crate_fn(add_func = "ctx")]
     fn numberp(val: TulispValue) -> bool {
         val.numberp()
     }
 
-    // number predicates end
+    // predicates end
 }
