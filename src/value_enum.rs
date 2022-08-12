@@ -27,6 +27,7 @@ impl Span {
 #[derive(Debug, Clone)]
 pub enum TulispValueEnum {
     Nil,
+    T,
     Symbol {
         value: String,
         span: Option<Span>,
@@ -157,6 +158,7 @@ impl std::fmt::Display for TulispValueEnum {
             TulispValueEnum::Splice { value, .. } => f.write_fmt(format_args!(",@{}", value)),
             TulispValueEnum::Sharpquote { value, .. } => f.write_fmt(format_args!("#'{}", value)),
             TulispValueEnum::Any(_) => f.write_str("BoxedValue"),
+            TulispValueEnum::T => f.write_str("t"),
         }
     }
 }
@@ -493,7 +495,7 @@ impl From<String> for TulispValueEnum {
 impl From<bool> for TulispValueEnum {
     fn from(value: bool) -> Self {
         match value {
-            true => TulispValueEnum::symbol("t".to_string(), None),
+            true => TulispValueEnum::T,
             false => TulispValueEnum::Nil,
         }
     }

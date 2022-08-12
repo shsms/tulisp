@@ -474,7 +474,9 @@ impl Parser<'_, '_> {
                 .into_ref(),
             )),
             Token::Ident { span, value } => Ok(Some(
-                if value == "nil" {
+                if value == "t" {
+                    TulispValueEnum::T
+                } else if value == "nil" {
                     TulispValueEnum::Nil
                 } else {
                     TulispValueEnum::Symbol {

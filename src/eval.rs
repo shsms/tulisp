@@ -153,9 +153,7 @@ pub(crate) fn eval(ctx: &mut TulispContext, expr: &TulispValue) -> Result<Tulisp
     let ret = match expr.clone_inner() {
         TulispValueEnum::List { span, .. } => eval_form(ctx, expr).map_err(|e| e.with_span(span)),
         TulispValueEnum::Symbol { value, span } => {
-            if value == "t" {
-                Ok(expr.clone())
-            } else if let Some(obj) = ctx.get_str(&value) {
+            if let Some(obj) = ctx.get_str(&value) {
                 if let ContextObject::TulispValue(vv) = &*obj.as_ref().borrow() {
                     Ok(vv.clone())
                 } else {
@@ -177,7 +175,8 @@ pub(crate) fn eval(ctx: &mut TulispContext, expr: &TulispValue) -> Result<Tulisp
         | TulispValueEnum::Float { .. }
         | TulispValueEnum::String { .. }
         | TulispValueEnum::Bounce
-        | TulispValueEnum::Nil => Ok(expr.clone()),
+        | TulispValueEnum::Nil
+        | TulispValueEnum::T => Ok(expr.clone()),
         TulispValueEnum::Quote { value, .. } => Ok(value),
         TulispValueEnum::Backquote { value, span } => {
             let mut ret = TulispValueEnum::Nil;
