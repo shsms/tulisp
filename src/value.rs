@@ -79,6 +79,9 @@ impl TulispValue {
     pub fn consp(&self) -> bool {
         self.rc.as_ref().borrow().consp()
     }
+    pub fn listp(&self) -> bool {
+        self.rc.as_ref().borrow().listp()
+    }
     pub fn integerp(&self) -> bool {
         self.rc.as_ref().borrow().integerp()
     }
@@ -87,6 +90,9 @@ impl TulispValue {
     }
     pub fn numberp(&self) -> bool {
         self.rc.as_ref().borrow().numberp()
+    }
+    pub fn stringp(&self) -> bool {
+        self.rc.as_ref().borrow().stringp()
     }
     pub fn as_string(&self) -> Result<String, Error> {
         self.rc.as_ref().borrow().as_str().map(|x| x.to_owned())

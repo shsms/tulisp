@@ -568,6 +568,11 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     }
 
     #[crate_fn(add_func = "ctx")]
+    fn listp(arg: TulispValue) -> bool {
+        arg.listp()
+    }
+
+    #[crate_fn(add_func = "ctx")]
     fn floatp(val: TulispValue) -> bool {
         val.floatp()
     }
@@ -580,6 +585,11 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     #[crate_fn(add_func = "ctx")]
     fn numberp(val: TulispValue) -> bool {
         val.numberp()
+    }
+
+    #[crate_fn(add_func = "ctx")]
+    fn stringp(val: TulispValue) -> bool {
+        val.stringp()
     }
 
     // predicates end

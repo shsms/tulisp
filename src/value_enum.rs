@@ -335,6 +335,10 @@ impl TulispValueEnum {
         matches!(self, TulispValueEnum::List { .. })
     }
 
+    pub fn listp(&self) -> bool {
+        matches!(self, TulispValueEnum::List { .. } | TulispValueEnum::Nil)
+    }
+
     pub fn integerp(&self) -> bool {
         matches!(self, TulispValueEnum::Int { .. })
     }
@@ -345,6 +349,10 @@ impl TulispValueEnum {
 
     pub fn numberp(&self) -> bool {
         self.integerp() || self.floatp()
+    }
+
+    pub fn stringp(&self) -> bool {
+        matches!(self, TulispValueEnum::String { .. })
     }
 
     pub fn as_str(&self) -> Result<&str, Error> {
