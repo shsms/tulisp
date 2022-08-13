@@ -86,7 +86,7 @@ fn mark_tail_calls(name: TulispValue, body: TulispValue) -> Result<TulispValue, 
             .append(tail.cdr()?)?
             .to_owned()
             .with_span(span);
-        list!(,TulispValueEnum::symbol("list".to_string(),  None).into_ref()
+        list!(,TulispValueEnum::symbol("list".to_string()).into_ref()
               ,TulispValueEnum::Bounce.into_ref() ,@ret_tail)?
     } else if tail_name_str == "progn" || tail_name_str == "let" || tail_name_str == "let*" {
         list!(,tail_ident ,@mark_tail_calls(name, tail.cdr()?)?)?
@@ -485,7 +485,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             }
         }
         match cons {
-            Some(cons) => Ok(TulispValueEnum::List { cons, ctxobj, span }.into_ref()),
+            Some(cons) => Ok(TulispValueEnum::List { cons, ctxobj }
+                .into_ref()
+                .with_span(span)),
             None => Ok(TulispValue::nil()),
         }
     }

@@ -2,7 +2,8 @@ use std::{fmt::Write, iter::Peekable, str::Chars};
 
 use crate::{
     eval::{eval, macroexpand},
-    value_enum::{Span, TulispValueEnum},
+    value::Span,
+    value_enum::TulispValueEnum,
     Error, ErrorKind, TulispContext, TulispValue,
 };
 
@@ -370,11 +371,9 @@ impl Parser<'_, '_> {
                     }
                 };
                 Ok(Some(
-                    TulispValueEnum::Quote {
-                        value: next,
-                        span: Some(span),
-                    }
-                    .into_ref(),
+                    TulispValueEnum::Quote { value: next }
+                        .into_ref()
+                        .with_span(Some(span)),
                 ))
             }
             Token::Backtick { span } => {
@@ -393,11 +392,9 @@ impl Parser<'_, '_> {
                     }
                 };
                 Ok(Some(
-                    TulispValueEnum::Backquote {
-                        value: next,
-                        span: Some(span),
-                    }
-                    .into_ref(),
+                    TulispValueEnum::Backquote { value: next }
+                        .into_ref()
+                        .with_span(Some(span)),
                 ))
             }
             Token::Dot { span } => Err(Error::new(
@@ -421,11 +418,9 @@ impl Parser<'_, '_> {
                     }
                 };
                 Ok(Some(
-                    TulispValueEnum::Unquote {
-                        value: next,
-                        span: Some(span),
-                    }
-                    .into_ref(),
+                    TulispValueEnum::Unquote { value: next }
+                        .into_ref()
+                        .with_span(Some(span)),
                 ))
             }
             Token::Splice { span } => {
@@ -444,34 +439,26 @@ impl Parser<'_, '_> {
                     }
                 };
                 Ok(Some(
-                    TulispValueEnum::Splice {
-                        value: next,
-                        span: Some(span),
-                    }
-                    .into_ref(),
+                    TulispValueEnum::Splice { value: next }
+                        .into_ref()
+                        .with_span(Some(span)),
                 ))
             }
             Token::String { span, value } => Ok(Some(
-                TulispValueEnum::String {
-                    value,
-                    span: Some(span),
-                }
-                .into_ref(),
+                TulispValueEnum::String { value }
+                    .into_ref()
+                    .with_span(Some(span)),
             )),
 
             Token::Integer { span, value } => Ok(Some(
-                TulispValueEnum::Int {
-                    value,
-                    span: Some(span),
-                }
-                .into_ref(),
+                TulispValueEnum::Int { value }
+                    .into_ref()
+                    .with_span(Some(span)),
             )),
             Token::Float { span, value } => Ok(Some(
-                TulispValueEnum::Float {
-                    value,
-                    span: Some(span),
-                }
-                .into_ref(),
+                TulispValueEnum::Float { value }
+                    .into_ref()
+                    .with_span(Some(span)),
             )),
             Token::Ident { span, value } => Ok(Some(
                 if value == "t" {
@@ -479,12 +466,10 @@ impl Parser<'_, '_> {
                 } else if value == "nil" {
                     TulispValueEnum::Nil
                 } else {
-                    TulispValueEnum::Symbol {
-                        value,
-                        span: Some(span),
-                    }
+                    TulispValueEnum::Symbol { value }
                 }
-                .into_ref(),
+                .into_ref()
+                .with_span(Some(span)),
             )),
             Token::ParserError(err) => Err(Error::new(
                 ErrorKind::ParsingError,

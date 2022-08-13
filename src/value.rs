@@ -3,13 +3,30 @@ use crate::{
     context::ContextObject,
     error::Error,
     list,
-    value_enum::{Span, TulispValueEnum},
+    value_enum::TulispValueEnum,
 };
-use std::{any::Any, cell::RefCell, rc::Rc};
+use std::{
+    any::Any,
+    cell::{Cell, RefCell},
+    rc::Rc,
+};
+
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub struct Span {
+    pub start: usize,
+    pub end: usize,
+}
+
+impl Span {
+    pub fn new(start: usize, end: usize) -> Self {
+        Span { start, end }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct TulispValue {
     rc: Rc<RefCell<TulispValueEnum>>,
+    span: Cell<Option<Span>>,
 }
 
 impl Default for TulispValue {
@@ -42,12 +59,13 @@ impl TulispValue {
     }
 
     pub fn symbol(name: String) -> TulispValue {
-        TulispValueEnum::symbol(name, None).into()
+        TulispValueEnum::symbol(name).into()
     }
 
     pub(crate) fn new(vv: TulispValueEnum) -> TulispValue {
         Self {
             rc: Rc::new(RefCell::new(vv)),
+            span: Cell::new(None),
         }
     }
 
@@ -68,10 +86,20 @@ impl TulispValue {
         cons::Iter::new(self.base_iter())
     }
     pub fn push(&self, val: TulispValue) -> Result<&TulispValue, Error> {
-        self.rc.as_ref().borrow_mut().push(val).map(|_| self)
+        self.rc
+            .as_ref()
+            .borrow_mut()
+            .push(val)
+            .map(|_| self)
+            .map_err(|e| e.with_span(self.span()))
     }
     pub fn append(&self, val: TulispValue) -> Result<&TulispValue, Error> {
-        self.rc.as_ref().borrow_mut().append(val).map(|_| self)
+        self.rc
+            .as_ref()
+            .borrow_mut()
+            .append(val)
+            .map(|_| self)
+            .map_err(|e| e.with_span(self.span()))
     }
     pub(crate) fn is_bounce(&self) -> bool {
         self.rc.as_ref().borrow().is_bounce()
@@ -95,7 +123,12 @@ impl TulispValue {
         self.rc.as_ref().borrow().stringp()
     }
     pub fn as_string(&self) -> Result<String, Error> {
-        self.rc.as_ref().borrow().as_str().map(|x| x.to_owned())
+        self.rc
+            .as_ref()
+            .borrow()
+            .as_str()
+            .map(|x| x.to_owned())
+            .map_err(|e| e.with_span(self.span()))
     }
     pub fn null(&self) -> bool {
         self.rc.as_ref().borrow().null()
@@ -104,34 +137,66 @@ impl TulispValue {
         self.rc.as_ref().borrow().clone()
     }
     pub fn as_float(&self) -> Result<f64, Error> {
-        self.rc.as_ref().borrow().as_float()
+        self.rc
+            .as_ref()
+            .borrow()
+            .as_float()
+            .map_err(|e| e.with_span(self.span()))
     }
     pub fn as_int(&self) -> Result<i64, Error> {
-        self.rc.as_ref().borrow().as_int()
+        self.rc
+            .as_ref()
+            .borrow()
+            .as_int()
+            .map_err(|e| e.with_span(self.span()))
     }
     pub fn try_float(&self) -> Result<f64, Error> {
-        self.rc.as_ref().borrow().try_float()
+        self.rc
+            .as_ref()
+            .borrow()
+            .try_float()
+            .map_err(|e| e.with_span(self.span()))
     }
     pub fn try_int(&self) -> Result<i64, Error> {
-        self.rc.as_ref().borrow().try_int()
+        self.rc
+            .as_ref()
+            .borrow()
+            .try_int()
+            .map_err(|e| e.with_span(self.span()))
     }
     pub fn as_bool(&self) -> bool {
         self.rc.as_ref().borrow().as_bool()
     }
     pub fn as_symbol(&self) -> Result<String, Error> {
-        self.rc.as_ref().borrow().as_symbol()
+        self.rc
+            .as_ref()
+            .borrow()
+            .as_symbol()
+            .map_err(|e| e.with_span(self.span()))
     }
     pub fn as_any(&self) -> Result<Rc<dyn Any>, Error> {
-        self.rc.as_ref().borrow().as_any()
+        self.rc
+            .as_ref()
+            .borrow()
+            .as_any()
+            .map_err(|e| e.with_span(self.span()))
     }
     pub(crate) fn as_list_cons(&self) -> Option<Cons> {
         self.rc.as_ref().borrow().as_list_cons()
     }
     pub fn car(&self) -> Result<TulispValue, Error> {
-        self.rc.as_ref().borrow().car()
+        self.rc
+            .as_ref()
+            .borrow()
+            .car()
+            .map_err(|e| e.with_span(self.span()))
     }
     pub fn cdr(&self) -> Result<TulispValue, Error> {
-        self.rc.as_ref().borrow().cdr()
+        self.rc
+            .as_ref()
+            .borrow()
+            .cdr()
+            .map_err(|e| e.with_span(self.span()))
     }
     pub fn fmt_string(&self) -> String {
         self.rc.as_ref().borrow().fmt_string()
@@ -144,11 +209,11 @@ impl TulispValue {
         self.clone()
     }
     pub(crate) fn with_span(&self, in_span: Option<Span>) -> Self {
-        self.rc.as_ref().borrow_mut().with_span(in_span);
+        self.span.set(in_span);
         self.clone()
     }
     pub fn span(&self) -> Option<Span> {
-        self.rc.as_ref().borrow().span()
+        self.span.get()
     }
     pub(crate) fn take(&self) -> TulispValueEnum {
         self.rc.as_ref().borrow_mut().take()
@@ -170,8 +235,8 @@ impl TulispValue {
                 val = rest;
             }
         }
-        ret.with_ctxobj(self.ctxobj()).with_span(self.span());
-        let ret = ret.into_ref();
+        ret.with_ctxobj(self.ctxobj());
+        let ret = ret.into_ref().with_span(self.span());
         Ok(ret)
     }
 }
@@ -180,7 +245,12 @@ impl TryFrom<TulispValue> for f64 {
     type Error = Error;
 
     fn try_from(value: TulispValue) -> Result<Self, Self::Error> {
-        value.rc.as_ref().borrow().try_float()
+        value
+            .rc
+            .as_ref()
+            .borrow()
+            .try_float()
+            .map_err(|e| e.with_span(value.span()))
     }
 }
 
@@ -188,7 +258,12 @@ impl TryFrom<TulispValue> for i64 {
     type Error = Error;
 
     fn try_from(value: TulispValue) -> Result<Self, Self::Error> {
-        value.rc.as_ref().borrow().as_int()
+        value
+            .rc
+            .as_ref()
+            .borrow()
+            .as_int()
+            .map_err(|e| e.with_span(value.span()))
     }
 }
 
@@ -196,7 +271,7 @@ impl TryFrom<TulispValue> for String {
     type Error = Error;
 
     fn try_from(value: TulispValue) -> Result<Self, Self::Error> {
-        value.as_string()
+        value.as_string().map_err(|e| e.with_span(value.span()))
     }
 }
 
@@ -212,7 +287,7 @@ impl TryFrom<TulispValue> for Rc<dyn Any> {
     type Error = Error;
 
     fn try_from(value: TulispValue) -> Result<Self, Self::Error> {
-        value.as_any()
+        value.as_any().map_err(|e| e.with_span(value.span()))
     }
 }
 

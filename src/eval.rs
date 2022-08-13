@@ -141,8 +141,8 @@ fn eval_form(ctx: &mut TulispContext, val: &TulispValue) -> Result<TulispValue, 
 
 pub(crate) fn eval(ctx: &mut TulispContext, expr: &TulispValue) -> Result<TulispValue, Error> {
     let ret = match expr.clone_inner() {
-        TulispValueEnum::List { span, .. } => eval_form(ctx, expr).map_err(|e| e.with_span(span)),
-        TulispValueEnum::Symbol { value, span } => {
+        TulispValueEnum::List { .. } => eval_form(ctx, expr).map_err(|e| e.with_span(expr.span())),
+        TulispValueEnum::Symbol { value } => {
             if let Some(obj) = ctx.get_str(&value) {
                 if let ContextObject::TulispValue(vv) = &*obj.as_ref().borrow() {
                     Ok(vv.clone())
@@ -151,14 +151,14 @@ pub(crate) fn eval(ctx: &mut TulispContext, expr: &TulispValue) -> Result<Tulisp
                         ErrorKind::TypeMismatch,
                         format!("variable definition is void: {}", value),
                     )
-                    .with_span(span))
+                    .with_span(expr.span()))
                 }
             } else {
                 Err(Error::new(
                     ErrorKind::TypeMismatch,
                     format!("variable definition is void: {}", value),
                 )
-                .with_span(span))
+                .with_span(expr.span()))
             }
         }
         TulispValueEnum::Int { .. }
@@ -168,7 +168,7 @@ pub(crate) fn eval(ctx: &mut TulispContext, expr: &TulispValue) -> Result<Tulisp
         | TulispValueEnum::Nil
         | TulispValueEnum::T => Ok(expr.clone()),
         TulispValueEnum::Quote { value, .. } => Ok(value),
-        TulispValueEnum::Backquote { value, span } => {
+        TulispValueEnum::Backquote { value } => {
             let mut ret = TulispValueEnum::Nil;
             if !value.consp() {
                 return Ok(value);
@@ -182,31 +182,30 @@ pub(crate) fn eval(ctx: &mut TulispContext, expr: &TulispValue) -> Result<Tulisp
                     let (first, rest) = (vv.car()?, vv.cdr()?);
                     let first_inner = first.clone_inner();
                     let rest_inner = rest.clone_inner();
-                    if let TulispValueEnum::Unquote { value, span } = first_inner {
-                        ret.push(eval(ctx, &value).map_err(|e| e.with_span(span.clone()))?)
-                            .map_err(|e| e.with_span(span))?;
-                    } else if let TulispValueEnum::Splice { value, span } = first_inner {
+                    if let TulispValueEnum::Unquote { value } = first_inner {
+                        ret.push(eval(ctx, &value).map_err(|e| e.with_span(first.span()))?)
+                            .map_err(|e| e.with_span(first.span()))?;
+                    } else if let TulispValueEnum::Splice { value } = first_inner {
                         ret.append(
                             eval(ctx, &value)
-                                .map_err(|e| e.with_span(span.clone()))?
+                                .map_err(|e| e.with_span(first.span()))?
                                 .deep_copy()
-                                .map_err(|e| e.with_span(span.clone()))?,
+                                .map_err(|e| e.with_span(first.span()))?,
                         )
-                        .map_err(|e| e.with_span(span))?;
+                        .map_err(|e| e.with_span(first.span()))?;
                     } else {
                         ret.push(eval(
                             ctx,
                             &TulispValueEnum::Backquote {
                                 value: first.clone(),
-                                span: None,
                             }
                             .into_ref(),
                         )?)?;
                     }
                     // TODO: is Nil check necessary
-                    if let TulispValueEnum::Unquote { value, span } = rest_inner {
-                        ret.append(eval(ctx, &value).map_err(|e| e.with_span(span.clone()))?)
-                            .map_err(|e| e.with_span(span))?;
+                    if let TulispValueEnum::Unquote { value } = rest_inner {
+                        ret.append(eval(ctx, &value).map_err(|e| e.with_span(rest.span()))?)
+                            .map_err(|e| e.with_span(rest.span()))?;
                         return Ok(());
                     } else if !rest.consp() {
                         ret.append(rest)?;
@@ -215,7 +214,7 @@ pub(crate) fn eval(ctx: &mut TulispContext, expr: &TulispValue) -> Result<Tulisp
                     vv = rest;
                 }
             }
-            bq_eval_next(ctx, &mut ret, value).map_err(|e| e.with_span(span))?;
+            bq_eval_next(ctx, &mut ret, value).map_err(|e| e.with_span(expr.span()))?;
             Ok(ret.into_ref())
         }
         TulispValueEnum::Unquote { .. } => Err(Error::new(
@@ -240,13 +239,13 @@ pub fn macroexpand(ctx: &mut TulispContext, inp: TulispValue) -> Result<TulispVa
     if !inp.consp() {
         return Ok(inp);
     }
-    let expr = TulispValue::nil();
+    let expr = TulispValue::nil().with_span(inp.span());
     for item in inp.base_iter() {
         let item = macroexpand(ctx, item)?;
         // TODO: switch to tailcall method to propagate inner spans.
         expr.push(item.clone())?;
     }
-    expr.with_ctxobj(inp.ctxobj()).with_span(inp.span());
+    expr.with_ctxobj(inp.ctxobj());
     let name = match expr.car()?.as_symbol() {
         Ok(id) => id,
         Err(_) => return Ok(expr),

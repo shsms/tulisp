@@ -64,7 +64,6 @@ fn let_star(
         Ok(TulispValueEnum::List {
             cons: ret,
             ctxobj: ctx.get_str("let"),
-            span: None,
         }
         .into_ref())
     }

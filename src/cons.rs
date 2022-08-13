@@ -5,8 +5,7 @@ use std::rc::Rc;
 use crate::context::ContextObject;
 use crate::error::Error;
 use crate::error::ErrorKind;
-use crate::value::TulispValue;
-use crate::value_enum::Span;
+use crate::value::{Span, TulispValue};
 use crate::value_enum::TulispValueEnum;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -42,8 +41,8 @@ impl Cons {
                     cdr: TulispValue::nil(),
                 },
                 ctxobj,
-                span,
             });
+            last.with_span(span);
         } else {
             return Err(Error::new(
                 ErrorKind::TypeMismatch,

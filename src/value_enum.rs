@@ -2,27 +2,9 @@ use crate::{
     cons::{self, Cons},
     context::ContextObject,
     error::{Error, ErrorKind},
-    value::TulispValue,
+    value::{Span, TulispValue},
 };
 use std::{any::Any, cell::RefCell, convert::TryInto, fmt::Write, rc::Rc};
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Span {
-    pub start: usize,
-    pub end: usize,
-}
-
-impl Span {
-    pub fn new(start: usize, end: usize) -> Self {
-        Span { start, end }
-    }
-    pub fn from(vv: &TulispValueEnum) -> Option<Span> {
-        match vv {
-            TulispValueEnum::List { span, .. } => span.clone(),
-            _ => None,
-        }
-    }
-}
 
 #[derive(Debug, Clone)]
 pub enum TulispValueEnum {
@@ -30,45 +12,35 @@ pub enum TulispValueEnum {
     T,
     Symbol {
         value: String,
-        span: Option<Span>,
     },
     Int {
         value: i64,
-        span: Option<Span>,
     },
     Float {
         value: f64,
-        span: Option<Span>,
     },
     String {
         value: String,
-        span: Option<Span>,
     },
     List {
         cons: Cons,
         ctxobj: Option<Rc<RefCell<ContextObject>>>,
-        span: Option<Span>,
     },
     Quote {
         value: TulispValue,
-        span: Option<Span>,
     },
     /// Sharpquotes are treated as normal quotes, because there is no compilation involved.
     Sharpquote {
         value: TulispValue,
-        span: Option<Span>,
     },
     Backquote {
         value: TulispValue,
-        span: Option<Span>,
     },
     Unquote {
         value: TulispValue,
-        span: Option<Span>,
     },
     Splice {
         value: TulispValue,
-        span: Option<Span>,
     },
     Any(Rc<dyn Any>),
     Bounce,
@@ -164,8 +136,8 @@ impl std::fmt::Display for TulispValueEnum {
 }
 
 impl TulispValueEnum {
-    pub fn symbol(value: String, span: Option<Span>) -> TulispValueEnum {
-        TulispValueEnum::Symbol { value, span }
+    pub fn symbol(value: String) -> TulispValueEnum {
+        TulispValueEnum::Symbol { value }
     }
 
     pub fn base_iter(&self) -> cons::BaseIter {
@@ -185,29 +157,27 @@ impl TulispValueEnum {
         span_in: Option<Span>,
         ctxobj: Option<Rc<RefCell<ContextObject>>>,
     ) -> Result<&mut TulispValueEnum, Error> {
-        if let TulispValueEnum::List { cons, span, .. } = self {
+        if let TulispValueEnum::List { cons, .. } = self {
+            let span = val.span();
             cons.push_with_meta(val, span_in, ctxobj)
-                .map_err(|e| e.with_span(span.clone()))?;
+                .map_err(|e| e.with_span(span))?;
             Ok(self)
         } else if self.null() {
             let cons = Cons::new(val, TulispValue::nil());
-            *self = TulispValueEnum::List {
-                cons,
-                ctxobj,
-                span: span_in,
-            };
+            *self = TulispValueEnum::List { cons, ctxobj };
             Ok(self)
         } else {
             Err(
                 Error::new(ErrorKind::TypeMismatch, "unable to push".to_string())
-                    .with_span(self.span()),
+                    .with_span(val.span()),
             )
         }
     }
 
     pub fn append(&mut self, val: TulispValue) -> Result<&mut TulispValueEnum, Error> {
-        if let TulispValueEnum::List { cons, span, .. } = self {
-            cons.append(val).map_err(|e| e.with_span(span.clone()))?;
+        if let TulispValueEnum::List { cons, .. } = self {
+            let span = val.span();
+            cons.append(val).map_err(|e| e.with_span(span))?;
             Ok(self)
         } else if self.null() {
             if !val.null() {
@@ -216,7 +186,6 @@ impl TulispValueEnum {
                         .as_list_cons()
                         .unwrap_or_else(|| Cons::new(val, TulispValue::nil())),
                     ctxobj: None,
-                    span: None,
                 };
             }
             Ok(self)
@@ -224,8 +193,7 @@ impl TulispValueEnum {
             Err(Error::new(
                 ErrorKind::TypeMismatch,
                 format!("unable to append: {}", val),
-            )
-            .with_span(self.span()))
+            ))
         }
     }
 
@@ -247,8 +215,7 @@ impl TulispValueEnum {
             _ => Err(Error::new(
                 ErrorKind::TypeMismatch,
                 format!("car: Not a Cons: {}", self),
-            )
-            .with_span(self.span())),
+            )),
         }
     }
 
@@ -259,8 +226,7 @@ impl TulispValueEnum {
             _ => Err(Error::new(
                 ErrorKind::TypeMismatch,
                 format!("cdr: Not a Cons: {}", self),
-            )
-            .with_span(self.span())),
+            )),
         }
     }
 
@@ -270,8 +236,7 @@ impl TulispValueEnum {
             _ => Err(Error::new(
                 ErrorKind::TypeMismatch,
                 format!("Expected symbol: {}", self),
-            )
-            .with_span(self.span())),
+            )),
         }
     }
 
@@ -281,8 +246,7 @@ impl TulispValueEnum {
             t => Err(Error::new(
                 ErrorKind::TypeMismatch,
                 format!("Expected number, got: {:?}", t),
-            )
-            .with_span(self.span())),
+            )),
         }
     }
 
@@ -293,8 +257,7 @@ impl TulispValueEnum {
             t => Err(Error::new(
                 ErrorKind::TypeMismatch,
                 format!("Expected number, got: {:?}", t),
-            )
-            .with_span(self.span())),
+            )),
         }
     }
 
@@ -304,8 +267,7 @@ impl TulispValueEnum {
             t => Err(Error::new(
                 ErrorKind::TypeMismatch,
                 format!("Expected integer: {:?}", t),
-            )
-            .with_span(self.span())),
+            )),
         }
     }
 
@@ -316,8 +278,7 @@ impl TulispValueEnum {
             t => Err(Error::new(
                 ErrorKind::TypeMismatch,
                 format!("Expected number, got {:?}", t),
-            )
-            .with_span(self.span())),
+            )),
         }
     }
 
@@ -363,8 +324,7 @@ impl TulispValueEnum {
             _ => Err(Error::new(
                 ErrorKind::TypeMismatch,
                 format!("Expected string: {}", self),
-            )
-            .with_span(self.span())),
+            )),
         }
     }
 
@@ -374,8 +334,7 @@ impl TulispValueEnum {
             _ => Err(Error::new(
                 ErrorKind::TypeMismatch,
                 format!("Expected Any(Rc<dyn Any>): {}", self),
-            )
-            .with_span(self.span())),
+            )),
         }
     }
 
@@ -399,39 +358,6 @@ impl TulispValueEnum {
     pub(crate) fn ctxobj(&self) -> Option<Rc<RefCell<ContextObject>>> {
         match self {
             TulispValueEnum::List { ctxobj, .. } => ctxobj.to_owned(),
-            _ => None,
-        }
-    }
-
-    pub fn with_span(&mut self, in_span: Option<Span>) -> &mut Self {
-        match self {
-            TulispValueEnum::List { span, .. } => *span = in_span,
-            TulispValueEnum::Symbol { span, .. } => *span = in_span,
-            TulispValueEnum::Int { span, .. } => *span = in_span,
-            TulispValueEnum::Float { span, .. } => *span = in_span,
-            TulispValueEnum::String { span, .. } => *span = in_span,
-            TulispValueEnum::Quote { span, .. } => *span = in_span,
-            TulispValueEnum::Sharpquote { span, .. } => *span = in_span,
-            TulispValueEnum::Backquote { span, .. } => *span = in_span,
-            TulispValueEnum::Unquote { span, .. } => *span = in_span,
-            TulispValueEnum::Splice { span, .. } => *span = in_span,
-            _ => {}
-        }
-        self
-    }
-
-    pub fn span(&self) -> Option<Span> {
-        match self {
-            TulispValueEnum::List { span, .. } => span.to_owned(),
-            TulispValueEnum::Symbol { span, .. } => span.to_owned(),
-            TulispValueEnum::Int { span, .. } => span.to_owned(),
-            TulispValueEnum::Float { span, .. } => span.to_owned(),
-            TulispValueEnum::String { span, .. } => span.to_owned(),
-            TulispValueEnum::Quote { span, .. } => span.to_owned(),
-            TulispValueEnum::Sharpquote { span, .. } => span.to_owned(),
-            TulispValueEnum::Backquote { span, .. } => span.to_owned(),
-            TulispValueEnum::Unquote { span, .. } => span.to_owned(),
-            TulispValueEnum::Splice { span, .. } => span.to_owned(),
             _ => None,
         }
     }
@@ -467,13 +393,13 @@ impl TryFrom<TulispValueEnum> for bool {
 
 impl From<i64> for TulispValueEnum {
     fn from(value: i64) -> Self {
-        TulispValueEnum::Int { value, span: None }
+        TulispValueEnum::Int { value }
     }
 }
 
 impl From<f64> for TulispValueEnum {
     fn from(value: f64) -> Self {
-        TulispValueEnum::Float { value, span: None }
+        TulispValueEnum::Float { value }
     }
 }
 
@@ -481,14 +407,13 @@ impl From<&str> for TulispValueEnum {
     fn from(value: &str) -> Self {
         TulispValueEnum::String {
             value: value.to_owned(),
-            span: None,
         }
     }
 }
 
 impl From<String> for TulispValueEnum {
     fn from(value: String) -> Self {
-        TulispValueEnum::String { value, span: None }
+        TulispValueEnum::String { value }
     }
 }
 
