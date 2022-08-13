@@ -1,4 +1,4 @@
-use std::{fmt::Write, iter::Peekable, str::Chars};
+use std::{collections::HashMap, fmt::Write, iter::Peekable, str::Chars};
 
 use crate::{
     eval::{eval, macroexpand},
@@ -271,6 +271,7 @@ enum MacroExpand {
 struct Parser<'a, 'b> {
     tokenizer: Peekable<Tokenizer<'a>>,
     ctx: &'b mut TulispContext,
+    symbols: HashMap<String, TulispValue>,
 }
 
 impl Parser<'_, '_> {
@@ -278,6 +279,7 @@ impl Parser<'_, '_> {
         Parser {
             tokenizer: Tokenizer::new(program).peekable(),
             ctx,
+            symbols: HashMap::new(),
         }
     }
 
@@ -460,17 +462,24 @@ impl Parser<'_, '_> {
                     .into_ref()
                     .with_span(Some(span)),
             )),
-            Token::Ident { span, value } => Ok(Some(
-                if value == "t" {
-                    TulispValueEnum::T
-                } else if value == "nil" {
-                    TulispValueEnum::Nil
-                } else {
-                    TulispValueEnum::Symbol { value }
+            Token::Ident { span, value } => Ok(Some(match self.symbols.get(&value) {
+                Some(vv) => vv.clone().with_span(Some(span)),
+                None => {
+                    if value == "t" {
+                        TulispValueEnum::T.into_ref()
+                    } else if value == "nil" {
+                        TulispValue::nil()
+                    } else {
+                        let sym = TulispValueEnum::Symbol {
+                            value: value.clone(),
+                        }
+                        .into_ref()
+                        .with_span(Some(span));
+                        self.symbols.insert(value, sym.clone());
+                        sym
+                    }
                 }
-                .into_ref()
-                .with_span(Some(span)),
-            )),
+            })),
             Token::ParserError(err) => Err(Error::new(
                 ErrorKind::ParsingError,
                 format!("{:?} {}", err.kind, err.desc),
