@@ -357,7 +357,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     fn defun(
         ctx: &mut TulispContext,
         name: TulispValue,
-        args: TulispValue,
+        params: TulispValue,
         rest: TulispValue,
     ) -> Result<TulispValue, Error> {
         // TODO: don't discard docstring
@@ -370,7 +370,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             println!("mark_tail_calls error: {:?}", e);
             e
         })?;
-        ctx.set_str(name.as_symbol()?, ContextObject::Defun { args, body })?;
+        ctx.set_str(name.as_symbol()?, ContextObject::Defun { params, body })?;
         Ok(TulispValue::nil())
     }
 
@@ -378,7 +378,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     fn defmacro(
         ctx: &mut TulispContext,
         name: TulispValue,
-        args: TulispValue,
+        params: TulispValue,
         rest: TulispValue,
     ) -> Result<TulispValue, Error> {
         // TODO: don't discard docstring
@@ -387,7 +387,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         } else {
             rest
         };
-        ctx.set_str(name.as_symbol()?, ContextObject::Defmacro { args, body })?;
+        ctx.set_str(name.as_symbol()?, ContextObject::Defmacro { params, body })?;
         Ok(TulispValue::nil())
     }
 

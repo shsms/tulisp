@@ -137,7 +137,7 @@ fn eval_form(ctx: &mut TulispContext, val: &TulispValue) -> Result<TulispValue, 
     match func {
         Some(item) => match &*item.as_ref().borrow() {
             ContextObject::Func(func) => func(ctx, val),
-            ContextObject::Defun { args, body } => eval_defun(ctx, args, body, &val.cdr()?),
+            ContextObject::Defun { params, body } => eval_defun(ctx, params, body, &val.cdr()?),
             ContextObject::Macro(_) | ContextObject::Defmacro { .. } => {
                 let expanded = macroexpand(ctx, val.clone())?;
                 eval(ctx, &expanded)
@@ -278,8 +278,8 @@ pub fn macroexpand(ctx: &mut TulispContext, inp: TulispValue) -> Result<TulispVa
                 let expansion = func(ctx, &expr)?;
                 macroexpand(ctx, expansion)
             }
-            ContextObject::Defmacro { args, body } => {
-                let expansion = eval_defmacro(ctx, args, body, &expr.cdr()?)
+            ContextObject::Defmacro { params, body } => {
+                let expansion = eval_defmacro(ctx, params, body, &expr.cdr()?)
                     .map_err(|e| e.with_span(inp.span()))?;
                 macroexpand(ctx, expansion)
             }

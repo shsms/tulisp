@@ -14,11 +14,11 @@ pub enum ContextObject {
     Func(Box<dyn Fn(&mut TulispContext, &TulispValue) -> Result<TulispValue, Error>>),
     Macro(Box<dyn Fn(&mut TulispContext, &TulispValue) -> Result<TulispValue, Error>>),
     Defmacro {
-        args: TulispValue,
+        params: TulispValue,
         body: TulispValue,
     },
     Defun {
-        args: TulispValue,
+        params: TulispValue,
         body: TulispValue,
     },
 }
@@ -28,13 +28,13 @@ impl std::fmt::Debug for ContextObject {
         match self {
             Self::TulispValue(arg0) => f.debug_tuple("TulispValue").field(arg0).finish(),
             Self::Func(_) => f.write_str("builtin function"),
-            Self::Defun { args, body } => f
+            Self::Defun { params: args, body } => f
                 .debug_struct("Defun")
                 .field("args", args)
                 .field("body", body)
                 .finish(),
             Self::Macro(_) => f.write_str("builtin macro"),
-            Self::Defmacro { args, body } => f
+            Self::Defmacro { params: args, body } => f
                 .debug_struct("Defun")
                 .field("args", args)
                 .field("body", body)
