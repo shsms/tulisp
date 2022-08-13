@@ -9,16 +9,84 @@ use crate::{
 };
 
 #[doc(hidden)]
+#[derive(Debug)]
+pub(crate) struct DefunParam {
+    pub(crate) name: String,
+    pub(crate) is_rest: bool,
+    pub(crate) is_optional: bool,
+}
+
+#[doc(hidden)]
+#[derive(Debug, Default)]
+pub struct DefunParams {
+    params: Vec<DefunParam>,
+}
+
+impl TryFrom<TulispValue> for DefunParams {
+    type Error = Error;
+
+    fn try_from(params: TulispValue) -> Result<Self, Self::Error> {
+        if !params.listp() {
+            return Err(Error::new(
+                ErrorKind::SyntaxError,
+                "Parameter list needs to be a list".to_string(),
+            )
+            .with_span(params.span()));
+        }
+        let mut def_params = DefunParams::default();
+        let mut params_iter = params.base_iter();
+        let mut is_optional = false;
+        let mut is_rest = false;
+        while let Some(param) = params_iter.next() {
+            let name = match param.as_symbol() {
+                Ok(vv) => vv,
+                Err(e) => return Err(e),
+            };
+            if name == "&optional" {
+                is_optional = true;
+                continue;
+            } else if name == "&rest" {
+                is_optional = false;
+                is_rest = true;
+                continue;
+            }
+            def_params.params.push(DefunParam {
+                name,
+                is_rest,
+                is_optional,
+            });
+            if is_rest {
+                if let Some(nn) = params_iter.next() {
+                    return Err(Error::new(
+                        ErrorKind::TypeMismatch,
+                        "Too many &rest parameters".to_string(),
+                    )
+                    .with_span(nn.span()));
+                }
+                break;
+            }
+        }
+        Ok(def_params)
+    }
+}
+
+impl DefunParams {
+    pub(crate) fn iter(&self) -> std::slice::Iter<DefunParam> {
+        self.params.iter()
+    }
+}
+
+#[doc(hidden)]
 pub enum ContextObject {
     TulispValue(TulispValue),
     Func(Box<dyn Fn(&mut TulispContext, &TulispValue) -> Result<TulispValue, Error>>),
     Macro(Box<dyn Fn(&mut TulispContext, &TulispValue) -> Result<TulispValue, Error>>),
     Defmacro {
-        params: TulispValue,
+        params: DefunParams,
         body: TulispValue,
     },
     Defun {
-        params: TulispValue,
+        params: DefunParams,
         body: TulispValue,
     },
 }

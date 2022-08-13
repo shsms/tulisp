@@ -370,7 +370,13 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             println!("mark_tail_calls error: {:?}", e);
             e
         })?;
-        ctx.set_str(name.as_symbol()?, ContextObject::Defun { params, body })?;
+        ctx.set_str(
+            name.as_symbol()?,
+            ContextObject::Defun {
+                params: params.try_into()?,
+                body,
+            },
+        )?;
         Ok(TulispValue::nil())
     }
 
@@ -387,7 +393,13 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         } else {
             rest
         };
-        ctx.set_str(name.as_symbol()?, ContextObject::Defmacro { params, body })?;
+        ctx.set_str(
+            name.as_symbol()?,
+            ContextObject::Defmacro {
+                params: params.try_into()?,
+                body,
+            },
+        )?;
         Ok(TulispValue::nil())
     }
 

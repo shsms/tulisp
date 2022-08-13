@@ -1,7 +1,7 @@
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use crate::{
-    context::{ContextObject, Scope, TulispContext},
+    context::{ContextObject, DefunParams, Scope, TulispContext},
     error::{Error, ErrorKind},
     value::TulispValue,
     value_enum::TulispValueEnum,
@@ -27,43 +27,22 @@ impl Evaluator for DummyEval {
 
 fn zip_function_args<E: Evaluator>(
     ctx: &mut TulispContext,
-    params: &TulispValue,
+    params: &DefunParams,
     args: &TulispValue,
 ) -> Result<Scope, Error> {
     let mut args_iter = args.base_iter();
-    let mut params_iter = params.base_iter();
+    let mut params_iter = params.iter();
     let mut local = HashMap::new();
-    let mut is_opt = false;
-    let mut is_rest = false;
     while let Some(param) = params_iter.next() {
-        let name = match param.as_symbol() {
-            Ok(vv) => vv,
-            Err(e) => return Err(e),
-        };
-        if name == "&optional" {
-            is_opt = true;
-            continue;
-        } else if name == "&rest" {
-            is_opt = false;
-            is_rest = true;
-            continue;
-        }
-        let val = if is_opt {
+        let val = if param.is_optional {
             match args_iter.next() {
                 Some(vv) => E::eval(ctx, &vv)?,
                 None => TulispValue::nil(),
             }
-        } else if is_rest {
+        } else if param.is_rest {
             let ret = TulispValue::nil();
             for arg in args_iter.by_ref() {
                 ret.push(E::eval(ctx, &arg)?)?;
-            }
-            if let Some(nn) = params_iter.next() {
-                return Err(Error::new(
-                    ErrorKind::TypeMismatch,
-                    "Too many &rest parameters".to_string(),
-                )
-                .with_span(nn.span()));
             }
             ret
         } else if let Some(vv) = args_iter.next() {
@@ -74,10 +53,10 @@ fn zip_function_args<E: Evaluator>(
                     .with_span(args.span()),
             );
         };
-        local.insert(name, Rc::new(RefCell::new(ContextObject::TulispValue(val))));
-        if is_rest {
-            break;
-        }
+        local.insert(
+            param.name.clone(),
+            Rc::new(RefCell::new(ContextObject::TulispValue(val))),
+        );
     }
     if let Some(nn) = args_iter.next() {
         return Err(
@@ -90,7 +69,7 @@ fn zip_function_args<E: Evaluator>(
 
 fn eval_function<E: Evaluator>(
     ctx: &mut TulispContext,
-    params: &TulispValue,
+    params: &DefunParams,
     body: &TulispValue,
     args: &TulispValue,
 ) -> Result<TulispValue, Error> {
@@ -103,7 +82,7 @@ fn eval_function<E: Evaluator>(
 
 fn eval_defun(
     ctx: &mut TulispContext,
-    params: &TulispValue,
+    params: &DefunParams,
     body: &TulispValue,
     args: &TulispValue,
 ) -> Result<TulispValue, Error> {
@@ -116,7 +95,7 @@ fn eval_defun(
 
 pub(crate) fn eval_defmacro(
     ctx: &mut TulispContext,
-    params: &TulispValue,
+    params: &DefunParams,
     body: &TulispValue,
     args: &TulispValue,
 ) -> Result<TulispValue, Error> {
