@@ -76,11 +76,13 @@ impl DefunParams {
     }
 }
 
+type TulispFn = dyn Fn(&mut TulispContext, &TulispValue) -> Result<TulispValue, Error>;
+
 #[doc(hidden)]
 pub enum ContextObject {
     TulispValue(TulispValue),
-    Func(Box<dyn Fn(&mut TulispContext, &TulispValue) -> Result<TulispValue, Error>>),
-    Macro(Box<dyn Fn(&mut TulispContext, &TulispValue) -> Result<TulispValue, Error>>),
+    Func(Box<TulispFn>),
+    Macro(Box<TulispFn>),
     Defmacro {
         params: DefunParams,
         body: TulispValue,

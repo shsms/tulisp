@@ -571,7 +571,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         if x.as_bool() {
             x.cdr()
         } else {
-            Ok(default_value.unwrap_or_else(|| TulispValue::nil()))
+            Ok(default_value.unwrap_or_else(TulispValue::nil))
         }
     }
 

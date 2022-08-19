@@ -1,6 +1,6 @@
 use crate::value::Span;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ErrorKind {
     NotImplemented,
     ParsingError,
@@ -25,7 +25,7 @@ impl std::fmt::Display for ErrorKind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Error {
     kind: ErrorKind,
     desc: String,
@@ -50,7 +50,7 @@ impl Error {
         }
     }
     pub fn with_span(mut self, span: Option<Span>) -> Self {
-        if self.span == None {
+        if self.span.is_none() {
             self.span = span;
         }
         self

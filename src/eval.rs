@@ -31,9 +31,8 @@ fn zip_function_args<E: Evaluator>(
     args: &TulispValue,
 ) -> Result<Scope, Error> {
     let mut args_iter = args.base_iter();
-    let mut params_iter = params.iter();
     let mut local = HashMap::new();
-    while let Some(param) = params_iter.next() {
+    for param in params.iter() {
         let val = if param.is_optional {
             match args_iter.next() {
                 Some(vv) => E::eval(ctx, &vv)?,
