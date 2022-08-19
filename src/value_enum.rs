@@ -136,7 +136,7 @@ impl std::fmt::Display for TulispValueEnum {
 }
 
 impl TulispValueEnum {
-    pub fn symbol(value: String) -> TulispValueEnum {
+    pub(crate) fn symbol(value: String) -> TulispValueEnum {
         TulispValueEnum::Symbol { value }
     }
 

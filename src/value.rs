@@ -58,7 +58,7 @@ impl TulispValue {
         list!(,car ,@cdr).unwrap()
     }
 
-    pub fn symbol(name: String) -> TulispValue {
+    pub(crate) fn symbol(name: String) -> TulispValue {
         TulispValueEnum::symbol(name).into()
     }
 

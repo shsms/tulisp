@@ -52,7 +52,7 @@ fn let_star(
     ) -> Result<TulispValue, Error> {
         destruct_bind!((nextvar &rest rest) = varlist);
 
-        let mut ret = Cons::new(TulispValue::symbol("let".to_string()), TulispValue::nil());
+        let mut ret = Cons::new(ctx.intern("let"), TulispValue::nil());
         ret.push(list!(,nextvar)?)?;
         if !rest.null() {
             ret.push(unwrap_varlist(ctx, rest, body)?)?;

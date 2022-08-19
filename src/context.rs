@@ -115,7 +115,10 @@ impl std::fmt::Debug for ContextObject {
 
 pub(crate) type Scope = HashMap<String, Rc<RefCell<ContextObject>>>;
 
-pub struct TulispContext(Vec<Scope>);
+pub struct TulispContext {
+    scope: Vec<Scope>,
+    pub obarray: HashMap<String, TulispValue>,
+}
 
 impl Default for TulispContext {
     fn default() -> Self {
@@ -126,22 +129,41 @@ impl Default for TulispContext {
 impl TulispContext {
     /// Creates a TulispContext with an empty global scope.
     pub fn new() -> Self {
-        let mut ctx = Self(vec![Scope::default()]);
+        let mut ctx = Self {
+            scope: vec![HashMap::new()],
+            obarray: HashMap::new(),
+        };
         builtin::functions::add(&mut ctx);
         builtin::macros::add(&mut ctx);
         ctx
     }
 
+    // https://www.gnu.org/software/emacs/manual/html_node/elisp/Creating-Symbols.html#index-intern
+    pub(crate) fn intern(&mut self, name: &str) -> TulispValue {
+        if let Some(sym) = self.obarray.get(name) {
+            sym.clone()
+        } else {
+            let name = name.to_string();
+            let sym = TulispValue::symbol(name.clone());
+            self.obarray.insert(name, sym.clone());
+            sym
+        }
+    }
+
+    pub(crate) fn intern_soft(&mut self, name: &str) -> Option<TulispValue> {
+        self.obarray.get(name).map(|x| x.to_owned())
+    }
+
     pub(crate) fn push(&mut self, item: Scope) {
-        self.0.push(item);
+        self.scope.push(item);
     }
 
     pub(crate) fn pop(&mut self) {
-        self.0.pop();
+        self.scope.pop();
     }
 
     pub(crate) fn get_str(&self, name: &str) -> Option<Rc<RefCell<ContextObject>>> {
-        for ele in self.0.iter().rev() {
+        for ele in self.scope.iter().rev() {
             if let Some(vv) = ele.get(name) {
                 return Some(vv.clone());
             }
@@ -160,7 +182,7 @@ impl TulispContext {
     pub fn set_str(&mut self, name: String, value: ContextObject) -> Result<(), Error> {
         match self.get_str(&name) {
             Some(m) => *m.as_ref().borrow_mut() = value,
-            None => match self.0.first_mut() {
+            None => match self.scope.first_mut() {
                 Some(f) => {
                     f.insert(name, Rc::new(RefCell::new(value)));
                 }
@@ -226,7 +248,7 @@ impl TulispContext {
                 Rc::new(RefCell::new(ContextObject::TulispValue(value))),
             );
         }
-        self.0.push(local);
+        self.scope.push(local);
 
         Ok(())
     }

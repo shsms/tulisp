@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Write, iter::Peekable, str::Chars};
+use std::{fmt::Write, iter::Peekable, str::Chars};
 
 use crate::{
     eval::{eval, macroexpand},
@@ -271,7 +271,6 @@ enum MacroExpand {
 struct Parser<'a, 'b> {
     tokenizer: Peekable<Tokenizer<'a>>,
     ctx: &'b mut TulispContext,
-    symbols: HashMap<String, TulispValue>,
 }
 
 impl Parser<'_, '_> {
@@ -279,7 +278,6 @@ impl Parser<'_, '_> {
         Parser {
             tokenizer: Tokenizer::new(program).peekable(),
             ctx,
-            symbols: HashMap::new(),
         }
     }
 
@@ -462,21 +460,15 @@ impl Parser<'_, '_> {
                     .into_ref()
                     .with_span(Some(span)),
             )),
-            Token::Ident { span, value } => Ok(Some(match self.symbols.get(&value) {
-                Some(vv) => vv.clone().with_span(Some(span)),
+            Token::Ident { span, value } => Ok(Some(match self.ctx.intern_soft(&value) {
+                Some(vv) => vv.with_span(Some(span)),
                 None => {
                     if value == "t" {
                         TulispValueEnum::T.into_ref()
                     } else if value == "nil" {
                         TulispValue::nil()
                     } else {
-                        let sym = TulispValueEnum::Symbol {
-                            value: value.clone(),
-                        }
-                        .into_ref()
-                        .with_span(Some(span));
-                        self.symbols.insert(value, sym.clone());
-                        sym
+                        self.ctx.intern(&value).with_span(Some(span))
                     }
                 }
             })),

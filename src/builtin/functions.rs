@@ -67,7 +67,11 @@ fn reduce_with(
         })
 }
 
-fn mark_tail_calls(name: TulispValue, body: TulispValue) -> Result<TulispValue, Error> {
+fn mark_tail_calls(
+    ctx: &mut TulispContext,
+    name: TulispValue,
+    body: TulispValue,
+) -> Result<TulispValue, Error> {
     let ret = TulispValue::nil();
     let mut body_iter = body.base_iter();
     let mut tail = body_iter.next().unwrap(); // TODO: make safe
@@ -86,19 +90,21 @@ fn mark_tail_calls(name: TulispValue, body: TulispValue) -> Result<TulispValue, 
             .append(tail.cdr()?)?
             .to_owned()
             .with_span(span);
-        list!(,TulispValueEnum::symbol("list".to_string()).into_ref()
-              ,TulispValueEnum::Bounce.into_ref() ,@ret_tail)?
+        list!(,ctx.intern("list")
+              ,TulispValueEnum::Bounce.into_ref()
+              ,@ret_tail)?
     } else if tail_name_str == "progn" || tail_name_str == "let" || tail_name_str == "let*" {
-        list!(,tail_ident ,@mark_tail_calls(name, tail.cdr()?)?)?
+        list!(,tail_ident ,@mark_tail_calls(ctx, name, tail.cdr()?)?)?
     } else if tail_name_str == "if" {
         destruct_bind!((_if condition then_body &rest else_body) = tail);
         list!(,tail_ident
               ,condition.clone()
               ,mark_tail_calls(
+                  ctx,
                   name.clone(),
                   list!(,then_body)?
               )?.car()?
-              ,@mark_tail_calls(name, else_body)?
+              ,@mark_tail_calls(ctx, name, else_body)?
         )?
     } else if tail_name_str == "cond" {
         destruct_bind!((_cond &rest conds) = tail);
@@ -107,7 +113,7 @@ fn mark_tail_calls(name: TulispValue, body: TulispValue) -> Result<TulispValue, 
             destruct_bind!((condition &rest body) = cond);
             ret = list!(,@ret
                         ,list!(,condition.clone()
-                               ,@mark_tail_calls(name.clone(), body)?)?)?;
+                               ,@mark_tail_calls(ctx, name.clone(), body)?)?)?;
         }
         ret
     } else {
@@ -366,7 +372,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         } else {
             rest
         };
-        let body = mark_tail_calls(name.clone(), body).map_err(|e| {
+        let body = mark_tail_calls(ctx, name.clone(), body).map_err(|e| {
             println!("mark_tail_calls error: {:?}", e);
             e
         })?;
