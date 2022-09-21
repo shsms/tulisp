@@ -1,6 +1,5 @@
 use crate::{
     cons::{self, Cons},
-    context::ContextObject,
     error::Error,
     list,
     value_enum::TulispValueEnum,
@@ -25,7 +24,7 @@ impl Span {
 
 #[derive(Debug, Clone)]
 pub struct TulispValue {
-    rc: Rc<RefCell<TulispValueEnum>>,
+    pub(crate) rc: Rc<RefCell<TulispValueEnum>>,
     span: Cell<Option<Span>>,
 }
 
@@ -60,6 +59,21 @@ impl TulispValue {
 
     pub(crate) fn symbol(name: String) -> TulispValue {
         TulispValueEnum::symbol(name).into()
+    }
+
+    pub fn set_scope(&self, to_set: TulispValue) -> Result<(), Error> {
+        self.rc.as_ref().borrow().set_scope(to_set, self.span())
+    }
+    pub fn set(&self, to_set: TulispValue) -> Result<(), Error> {
+        self.rc.as_ref().borrow().set(to_set, self.span())
+    }
+
+    pub fn unset(&self) -> Result<(), Error> {
+        self.rc.as_ref().borrow().unset(self.span())
+    }
+
+    pub fn get(&self) -> Result<TulispValue, Error> {
+        self.rc.as_ref().borrow().get(self.span())
     }
 
     pub(crate) fn new(vv: TulispValueEnum) -> TulispValue {
@@ -201,10 +215,10 @@ impl TulispValue {
     pub fn fmt_string(&self) -> String {
         self.rc.as_ref().borrow().fmt_string()
     }
-    pub(crate) fn ctxobj(&self) -> Option<Rc<RefCell<ContextObject>>> {
+    pub(crate) fn ctxobj(&self) -> Option<TulispValue> {
         self.rc.as_ref().borrow().ctxobj()
     }
-    pub(crate) fn with_ctxobj(&self, in_ctxobj: Option<Rc<RefCell<ContextObject>>>) -> Self {
+    pub(crate) fn with_ctxobj(&self, in_ctxobj: Option<TulispValue>) -> Self {
         self.rc.as_ref().borrow_mut().with_ctxobj(in_ctxobj);
         self.clone()
     }

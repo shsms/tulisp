@@ -1,5 +1,4 @@
 use crate::cons::Cons;
-use crate::context::ContextObject;
 use crate::context::Scope;
 use crate::context::TulispContext;
 use crate::error::Error;
@@ -10,10 +9,8 @@ use crate::value_enum::TulispValueEnum;
 use crate::{destruct_bind, list};
 use proc_macros::crate_fn;
 use proc_macros::crate_fn_no_eval;
-use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::convert::TryInto;
-use std::rc::Rc;
 
 macro_rules! max_min_ops {
     ($oper:tt) => {{
@@ -331,7 +328,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         value: TulispValue,
     ) -> Result<TulispValue, Error> {
         let value = eval(ctx, &value)?;
-        ctx.set(name, value.clone())?;
+        name.set(value.clone())?;
         Ok(value)
     }
 
@@ -350,7 +347,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 "let: expected varlist and body".to_string(),
             ))
         };
-        ctx.pop();
+        ctx.pop()?;
         ret
     }
 
@@ -376,19 +373,18 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             println!("mark_tail_calls error: {:?}", e);
             e
         })?;
-        ctx.set_str(
-            name.as_symbol()?,
-            ContextObject::Defun {
+        name.set_scope(
+            TulispValueEnum::Defun {
                 params: params.try_into()?,
                 body,
-            },
+            }
+            .into_ref(),
         )?;
         Ok(TulispValue::nil())
     }
 
     #[crate_fn_no_eval(add_func = "ctx")]
     fn defmacro(
-        ctx: &mut TulispContext,
         name: TulispValue,
         params: TulispValue,
         rest: TulispValue,
@@ -399,12 +395,12 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         } else {
             rest
         };
-        ctx.set_str(
-            name.as_symbol()?,
-            ContextObject::Defmacro {
+        name.set_scope(
+            TulispValueEnum::Defmacro {
                 params: params.try_into()?,
                 body,
-            },
+            }
+            .into_ref(),
         )?;
         Ok(TulispValue::nil())
     }
@@ -465,13 +461,11 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         let mut list = ctx.eval(&list)?;
         while list.as_bool() {
             let mut scope = Scope::new();
-            scope.insert(
-                var.to_string(),
-                Rc::new(RefCell::new(ContextObject::TulispValue(list.car()?))),
-            );
+            var.set_scope(list.car()?)?;
+            scope.push(var.clone());
             ctx.push(scope);
             let eval_res = ctx.eval_progn(&body);
-            ctx.pop();
+            ctx.pop()?;
             eval_res?;
             list = list.cdr()?;
         }
@@ -505,8 +499,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         pred: TulispValue,
     ) -> Result<TulispValue, Error> {
         let pred = eval(ctx, &pred)?;
-        let pred = ctx.get(pred.clone()).ok_or_else(|| {
+        let pred = pred.get().map_err(|err| {
             Error::new(ErrorKind::Undefined, format!("Unknown predicate: {}", pred))
+                .with_span(err.span())
         })?;
         let seq = eval(ctx, &seq)?;
         let mut vec: Vec<_> = seq.base_iter().collect();

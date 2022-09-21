@@ -1,7 +1,9 @@
+use std::rc::Rc;
+
 use proc_macros::{crate_add_macro, crate_fn_no_eval};
 
 use crate::cons::Cons;
-use crate::context::{ContextObject, TulispContext};
+use crate::context::TulispContext;
 use crate::error::Error;
 use crate::value::TulispValue;
 use crate::value_enum::TulispValueEnum;
@@ -63,7 +65,7 @@ fn let_star(
         }
         Ok(TulispValueEnum::List {
             cons: ret,
-            ctxobj: ctx.get_str("let"),
+            ctxobj: Some(ctx.intern("let").get()?),
         }
         .into_ref())
     }
@@ -71,27 +73,18 @@ fn let_star(
 }
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    ctx.set_str(
-        "->".to_string(),
-        ContextObject::Macro(Box::new(thread_first)),
-    )
-    .unwrap();
-    ctx.set_str(
-        "thread-first".to_string(),
-        ContextObject::Macro(Box::new(thread_first)),
-    )
-    .unwrap();
-
-    ctx.set_str(
-        "->>".to_string(),
-        ContextObject::Macro(Box::new(thread_last)),
-    )
-    .unwrap();
-    ctx.set_str(
-        "thread-last".to_string(),
-        ContextObject::Macro(Box::new(thread_last)),
-    )
-    .unwrap();
+    ctx.intern("->")
+        .set_scope(TulispValueEnum::Macro(Rc::new(thread_first)).into_ref())
+        .unwrap();
+    ctx.intern("thread-first")
+        .set_scope(TulispValueEnum::Macro(Rc::new(thread_first)).into_ref())
+        .unwrap();
+    ctx.intern("->>")
+        .set_scope(TulispValueEnum::Macro(Rc::new(thread_last)).into_ref())
+        .unwrap();
+    ctx.intern("thread-last")
+        .set_scope(TulispValueEnum::Macro(Rc::new(thread_last)).into_ref())
+        .unwrap();
 
     crate_add_macro!(ctx, let_star, "let*");
 }

@@ -10,12 +10,13 @@ mod cons;
 pub use cons::{BaseIter, Iter};
 
 mod context;
-pub use context::{ContextObject, TulispContext};
+pub use context::TulispContext;
 
 mod error;
 pub use error::{Error, ErrorKind};
 
 mod value_enum;
+pub use value_enum::TulispValueEnum;
 
 mod value;
 pub use value::TulispValue;

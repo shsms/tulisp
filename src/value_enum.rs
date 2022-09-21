@@ -1,17 +1,117 @@
 use crate::{
     cons::{self, Cons},
-    context::ContextObject,
+    context::Scope,
     error::{Error, ErrorKind},
     value::{Span, TulispValue},
+    TulispContext,
 };
 use std::{any::Any, cell::RefCell, convert::TryInto, fmt::Write, rc::Rc};
 
+#[doc(hidden)]
 #[derive(Debug, Clone)]
+pub(crate) struct DefunParam {
+    pub(crate) param: TulispValue,
+    pub(crate) is_rest: bool,
+    pub(crate) is_optional: bool,
+}
+
+impl std::fmt::Display for DefunParam {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!(
+            "{}, rest:{}, opt: {}",
+            self.param, self.is_rest, self.is_optional
+        ))
+    }
+}
+
+#[doc(hidden)]
+#[derive(Debug, Default, Clone)]
+pub struct DefunParams {
+    params: Vec<DefunParam>,
+    scope: Scope,
+}
+
+impl std::fmt::Display for DefunParams {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("params:\n")?;
+        for param in &self.params {
+            f.write_fmt(format_args!("  param: {param}\n"))?;
+        }
+        Ok(())
+    }
+}
+
+impl TryFrom<TulispValue> for DefunParams {
+    type Error = Error;
+
+    fn try_from(params: TulispValue) -> Result<Self, Self::Error> {
+        if !params.listp() {
+            return Err(Error::new(
+                ErrorKind::SyntaxError,
+                "Parameter list needs to be a list".to_string(),
+            )
+            .with_span(params.span()));
+        }
+        let mut def_params = DefunParams::default();
+        let mut params_iter = params.base_iter();
+        let mut is_optional = false;
+        let mut is_rest = false;
+        while let Some(param) = params_iter.next() {
+            let name = match param.as_symbol() {
+                Ok(vv) => vv,
+                Err(e) => return Err(e),
+            };
+            if name == "&optional" {
+                is_optional = true;
+                continue;
+            } else if name == "&rest" {
+                is_optional = false;
+                is_rest = true;
+                continue;
+            }
+            def_params.scope.push(param.clone());
+            def_params.params.push(DefunParam {
+                param,
+                is_rest,
+                is_optional,
+            });
+            if is_rest {
+                if let Some(nn) = params_iter.next() {
+                    return Err(Error::new(
+                        ErrorKind::TypeMismatch,
+                        "Too many &rest parameters".to_string(),
+                    )
+                    .with_span(nn.span()));
+                }
+                break;
+            }
+        }
+        Ok(def_params)
+    }
+}
+
+impl DefunParams {
+    pub(crate) fn iter(&self) -> std::slice::Iter<DefunParam> {
+        self.params.iter()
+    }
+
+    pub(crate) fn unbind(&self) -> Result<(), Error> {
+        for item in &self.scope {
+            item.unset()?;
+        }
+        Ok(())
+    }
+}
+
+type TulispFn = dyn Fn(&mut TulispContext, &TulispValue) -> Result<TulispValue, Error>;
+
+#[derive(Clone)]
 pub enum TulispValueEnum {
     Nil,
     T,
     Symbol {
         name: String,
+        value: RefCell<Vec<TulispValue>>,
     },
     Int {
         value: i64,
@@ -24,7 +124,7 @@ pub enum TulispValueEnum {
     },
     List {
         cons: Cons,
-        ctxobj: Option<Rc<RefCell<ContextObject>>>,
+        ctxobj: Option<TulispValue>,
     },
     Quote {
         value: TulispValue,
@@ -43,7 +143,60 @@ pub enum TulispValueEnum {
         value: TulispValue,
     },
     Any(Rc<dyn Any>),
+    Func(Rc<TulispFn>),
+    Macro(Rc<TulispFn>),
+    Defmacro {
+        params: DefunParams,
+        body: TulispValue,
+    },
+    Defun {
+        params: DefunParams,
+        body: TulispValue,
+    },
     Bounce,
+}
+
+impl std::fmt::Debug for TulispValueEnum {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Nil => write!(f, "Nil"),
+            Self::T => write!(f, "T"),
+            Self::Symbol { name, value } => f
+                .debug_struct("Symbol")
+                .field("name", name)
+                .field("value", value)
+                .finish(),
+            Self::Int { value } => f.debug_struct("Int").field("value", value).finish(),
+            Self::Float { value } => f.debug_struct("Float").field("value", value).finish(),
+            Self::String { value } => f.debug_struct("String").field("value", value).finish(),
+            Self::List { cons, ctxobj } => f
+                .debug_struct("List")
+                .field("cons", cons)
+                .field("ctxobj", ctxobj)
+                .finish(),
+            Self::Quote { value } => f.debug_struct("Quote").field("value", value).finish(),
+            Self::Sharpquote { value } => {
+                f.debug_struct("Sharpquote").field("value", value).finish()
+            }
+            Self::Backquote { value } => f.debug_struct("Backquote").field("value", value).finish(),
+            Self::Unquote { value } => f.debug_struct("Unquote").field("value", value).finish(),
+            Self::Splice { value } => f.debug_struct("Splice").field("value", value).finish(),
+            Self::Any(arg0) => f.debug_tuple("Any").field(arg0).finish(),
+            Self::Func(_) => write!(f, "Func"),
+            Self::Macro(_) => write!(f, "Macro"),
+            Self::Defmacro { params, body } => f
+                .debug_struct("Defmacro")
+                .field("params", params)
+                .field("body", body)
+                .finish(),
+            Self::Defun { params, body } => f
+                .debug_struct("Defun")
+                .field("params", params)
+                .field("body", body)
+                .finish(),
+            Self::Bounce => write!(f, "Bounce"),
+        }
+    }
 }
 
 impl PartialEq for TulispValueEnum {
@@ -131,13 +284,104 @@ impl std::fmt::Display for TulispValueEnum {
             TulispValueEnum::Sharpquote { value, .. } => f.write_fmt(format_args!("#'{}", value)),
             TulispValueEnum::Any(_) => f.write_str("BoxedValue"),
             TulispValueEnum::T => f.write_str("t"),
+            TulispValueEnum::Func(_) => f.write_str("Func"),
+            TulispValueEnum::Macro(_) => f.write_str("Macro"),
+            TulispValueEnum::Defmacro { .. } => f.write_str("Defmacro"),
+            TulispValueEnum::Defun { .. } => f.write_str("Defun"),
         }
     }
 }
 
 impl TulispValueEnum {
     pub(crate) fn symbol(name: String) -> TulispValueEnum {
-        TulispValueEnum::Symbol { name }
+        TulispValueEnum::Symbol {
+            name,
+            value: RefCell::new(vec![]),
+        }
+    }
+
+    pub fn set(&self, to_set: TulispValue, span: Option<Span>) -> Result<(), Error> {
+        match self {
+            TulispValueEnum::Symbol { value, .. } => {
+                let mut scope = value.borrow_mut();
+                if scope.is_empty() {
+                    scope.push(to_set);
+                } else {
+                    *scope.last_mut().unwrap() = to_set;
+                }
+            }
+            _ => {
+                return Err(Error::new(
+                    ErrorKind::TypeMismatch,
+                    "Can bind values only to Symbols".to_string(),
+                )
+                .with_span(span))
+            }
+        }
+        Ok(())
+    }
+
+    pub fn set_scope(&self, to_set: TulispValue, span: Option<Span>) -> Result<(), Error> {
+        match self {
+            TulispValueEnum::Symbol { value, .. } => {
+                value.borrow_mut().push(to_set);
+            }
+            _ => {
+                return Err(Error::new(
+                    ErrorKind::TypeMismatch,
+                    "Can bind values only to Symbols".to_string(),
+                )
+                .with_span(span))
+            }
+        }
+        Ok(())
+    }
+
+    pub fn unset(&self, span: Option<Span>) -> Result<(), Error> {
+        match self {
+            TulispValueEnum::Symbol { value, .. } => {
+                let mut inner = value.borrow_mut();
+                if inner.is_empty() {
+                    return Err(Error::new(
+                        ErrorKind::Uninitialized,
+                        "Can't unbind from unassigned symbol".to_string(),
+                    )
+                    .with_span(span));
+                }
+                inner.pop();
+            }
+            _ => {
+                return Err(Error::new(
+                    ErrorKind::TypeMismatch,
+                    "Can unbind only from Symbols".to_string(),
+                )
+                .with_span(span))
+            }
+        }
+        Ok(())
+    }
+
+    pub fn get(&self, span: Option<Span>) -> Result<TulispValue, Error> {
+        match self {
+            TulispValueEnum::Symbol { value, .. } => {
+                let inner = value.borrow_mut();
+                if inner.is_empty() {
+                    return Err(Error::new(
+                        ErrorKind::TypeMismatch,
+                        format!("variable definition is void: {self}"),
+                    )
+                    .with_span(span));
+                }
+                return Ok(inner.last().unwrap().clone());
+            }
+            _ => {
+                return Err(Error::new(
+                    ErrorKind::TypeMismatch,
+                    "Can unbind only from Symbols".to_string(),
+                )
+                .with_span(span))
+            }
+        }
     }
 
     pub fn base_iter(&self) -> cons::BaseIter {
@@ -155,7 +399,7 @@ impl TulispValueEnum {
         &mut self,
         val: TulispValue,
         span_in: Option<Span>,
-        ctxobj: Option<Rc<RefCell<ContextObject>>>,
+        ctxobj: Option<TulispValue>,
     ) -> Result<&mut TulispValueEnum, Error> {
         if let TulispValueEnum::List { cons, .. } = self {
             let span = val.span();
@@ -345,17 +589,14 @@ impl TulispValueEnum {
         }
     }
 
-    pub(crate) fn with_ctxobj(
-        &mut self,
-        in_ctxobj: Option<Rc<RefCell<ContextObject>>>,
-    ) -> &mut Self {
+    pub(crate) fn with_ctxobj(&mut self, in_ctxobj: Option<TulispValue>) -> &mut Self {
         if let TulispValueEnum::List { ctxobj, .. } = self {
             *ctxobj = in_ctxobj
         }
         self
     }
 
-    pub(crate) fn ctxobj(&self) -> Option<Rc<RefCell<ContextObject>>> {
+    pub(crate) fn ctxobj(&self) -> Option<TulispValue> {
         match self {
             TulispValueEnum::List { ctxobj, .. } => ctxobj.to_owned(),
             _ => None,

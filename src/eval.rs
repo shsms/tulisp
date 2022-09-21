@@ -1,10 +1,8 @@
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
-
 use crate::{
-    context::{ContextObject, DefunParams, Scope, TulispContext},
+    context::TulispContext,
     error::{Error, ErrorKind},
     value::TulispValue,
-    value_enum::TulispValueEnum,
+    value_enum::{DefunParams, TulispValueEnum},
 };
 
 trait Evaluator {
@@ -29,9 +27,8 @@ fn zip_function_args<E: Evaluator>(
     ctx: &mut TulispContext,
     params: &DefunParams,
     args: &TulispValue,
-) -> Result<Scope, Error> {
+) -> Result<(), Error> {
     let mut args_iter = args.base_iter();
-    let mut local = HashMap::new();
     for param in params.iter() {
         let val = if param.is_optional {
             match args_iter.next() {
@@ -52,10 +49,7 @@ fn zip_function_args<E: Evaluator>(
                     .with_span(args.span()),
             );
         };
-        local.insert(
-            param.name.clone(),
-            Rc::new(RefCell::new(ContextObject::TulispValue(val))),
-        );
+        param.param.set_scope(val)?;
     }
     if let Some(nn) = args_iter.next() {
         return Err(
@@ -63,7 +57,7 @@ fn zip_function_args<E: Evaluator>(
                 .with_span(nn.span()),
         );
     }
-    Ok(local)
+    Ok(())
 }
 
 fn eval_function<E: Evaluator>(
@@ -72,10 +66,9 @@ fn eval_function<E: Evaluator>(
     body: &TulispValue,
     args: &TulispValue,
 ) -> Result<TulispValue, Error> {
-    let local = zip_function_args::<E>(ctx, params, args)?;
-    ctx.push(local);
+    zip_function_args::<E>(ctx, params, args)?;
     let result = ctx.eval_progn(body)?;
-    ctx.pop();
+    params.unbind()?;
     Ok(result)
 }
 
@@ -85,6 +78,7 @@ fn eval_defun(
     body: &TulispValue,
     args: &TulispValue,
 ) -> Result<TulispValue, Error> {
+    // println!("eval_defun:\n{params}body: {body}\nargs: {args}");
     let mut result = eval_function::<Eval>(ctx, params, body, args)?;
     while let Ok(true) = result.car().map(|x| x.is_bounce()) {
         result = eval_function::<DummyEval>(ctx, params, body, &result.cdr()?)?;
@@ -102,64 +96,41 @@ pub(crate) fn eval_defmacro(
 }
 
 fn eval_form(ctx: &mut TulispContext, val: &TulispValue) -> Result<TulispValue, Error> {
+    let name = val.car()?;
     let func = match val.ctxobj() {
         func @ Some(_) => func,
         None => {
-            let func = ctx.get(val.car()?);
-            if let Some(ref func) = func {
+            let func = name.get()?;
+            if !func.null() {
                 val.with_ctxobj(Some(func.clone()));
             }
-            func
+            Some(func)
         }
     };
     match func {
-        Some(item) => match &*item.as_ref().borrow() {
-            ContextObject::Func(func) => func(ctx, val),
-            ContextObject::Defun { params, body } => eval_defun(ctx, params, body, &val.cdr()?),
-            ContextObject::Macro(_) | ContextObject::Defmacro { .. } => {
+        Some(item) => match &*item.rc.as_ref().borrow() {
+            TulispValueEnum::Func(func) => func(ctx, val),
+            TulispValueEnum::Defun { params, body } => eval_defun(ctx, &params, &body, &val.cdr()?),
+            TulispValueEnum::Macro(_) | TulispValueEnum::Defmacro { .. } => {
                 let expanded = macroexpand(ctx, val.clone())?;
                 eval(ctx, &expanded)
             }
-            _ => {
-                let name = val.car()?;
-                Err(
-                    Error::new(ErrorKind::Undefined, format!("function is void: {}", name))
-                        .with_span(val.span()),
-                )
-            }
+            _ => Err(
+                Error::new(ErrorKind::Undefined, format!("function is void: {}", name))
+                    .with_span(val.span()),
+            ),
         },
-        None => {
-            let name = val.car()?;
-            Err(Error::new(
-                ErrorKind::Undefined,
-                format!("Unknown function name: {}", name),
-            ))
-        }
+        None => Err(Error::new(
+            ErrorKind::Undefined,
+            format!("Unknown function name: {}", name),
+        )),
     }
 }
 
 pub(crate) fn eval(ctx: &mut TulispContext, expr: &TulispValue) -> Result<TulispValue, Error> {
     let ret = match expr.clone_inner() {
         TulispValueEnum::List { .. } => eval_form(ctx, expr).map_err(|e| e.with_span(expr.span())),
-        TulispValueEnum::Symbol { name } => {
-            if let Some(obj) = ctx.get_str(&name) {
-                if let ContextObject::TulispValue(vv) = &*obj.as_ref().borrow() {
-                    Ok(vv.clone())
-                } else {
-                    Err(Error::new(
-                        ErrorKind::TypeMismatch,
-                        format!("variable definition is void: {}", name),
-                    )
-                    .with_span(expr.span()))
-                }
-            } else {
-                Err(Error::new(
-                    ErrorKind::TypeMismatch,
-                    format!("variable definition is void: {}", name),
-                )
-                .with_span(expr.span()))
-            }
-        }
+        sym @ TulispValueEnum::Symbol { .. } => sym.get(expr.span()),
         TulispValueEnum::Int { .. }
         | TulispValueEnum::Float { .. }
         | TulispValueEnum::String { .. }
@@ -230,6 +201,26 @@ pub(crate) fn eval(ctx: &mut TulispContext, expr: &TulispValue) -> Result<Tulisp
             "Can't eval TulispValue::Any".to_owned(),
         )
         .with_span(expr.span())),
+        TulispValueEnum::Func(_) => Err(Error::new(
+            ErrorKind::Undefined,
+            "Can't eval TulispValue::Func".to_owned(),
+        )
+        .with_span(expr.span())),
+        TulispValueEnum::Macro(_) => Err(Error::new(
+            ErrorKind::Undefined,
+            "Can't eval TulispValue::Macro".to_owned(),
+        )
+        .with_span(expr.span())),
+        TulispValueEnum::Defmacro { .. } => Err(Error::new(
+            ErrorKind::Undefined,
+            "Can't eval TulispValue::Defmacro".to_owned(),
+        )
+        .with_span(expr.span())),
+        TulispValueEnum::Defun { .. } => Err(Error::new(
+            ErrorKind::Undefined,
+            "Can't eval TulispValue::Defun".to_owned(),
+        )
+        .with_span(expr.span())),
     };
     ret
 }
@@ -245,23 +236,20 @@ pub fn macroexpand(ctx: &mut TulispContext, inp: TulispValue) -> Result<TulispVa
         expr.push(item.clone())?;
     }
     expr.with_ctxobj(inp.ctxobj());
-    let name = match expr.car()?.as_symbol() {
-        Ok(id) => id,
+    let value = match expr.car()?.get() {
+        Ok(val) => val,
         Err(_) => return Ok(expr),
     };
-    match ctx.get_str(&name) {
-        Some(item) => match &*item.as_ref().borrow() {
-            ContextObject::Macro(func) => {
-                let expansion = func(ctx, &expr)?;
-                macroexpand(ctx, expansion)
-            }
-            ContextObject::Defmacro { params, body } => {
-                let expansion = eval_defmacro(ctx, params, body, &expr.cdr()?)
-                    .map_err(|e| e.with_span(inp.span()))?;
-                macroexpand(ctx, expansion)
-            }
-            _ => Ok(expr),
-        },
-        None => Ok(expr),
+    match value.clone_inner() {
+        TulispValueEnum::Macro(func) => {
+            let expansion = func(ctx, &expr)?;
+            macroexpand(ctx, expansion)
+        }
+        TulispValueEnum::Defmacro { params, body } => {
+            let expansion = eval_defmacro(ctx, &params, &body, &expr.cdr()?)
+                .map_err(|e| e.with_span(inp.span()))?;
+            macroexpand(ctx, expansion)
+        }
+        _ => Ok(expr),
     }
 }

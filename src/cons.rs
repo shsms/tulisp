@@ -1,8 +1,5 @@
-use std::cell::RefCell;
 use std::marker::PhantomData;
-use std::rc::Rc;
 
-use crate::context::ContextObject;
 use crate::error::Error;
 use crate::error::ErrorKind;
 use crate::value::{Span, TulispValue};
@@ -27,7 +24,7 @@ impl Cons {
         &mut self,
         val: TulispValue,
         span: Option<Span>,
-        ctxobj: Option<Rc<RefCell<ContextObject>>>,
+        ctxobj: Option<TulispValue>,
     ) -> Result<&mut Self, Error> {
         let mut last = self.cdr.clone();
 

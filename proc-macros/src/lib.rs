@@ -193,9 +193,10 @@ fn tulisp_fn_impl(
         };
         generated.extend(quote! {
             // TODO: how to avoid unwrap?
-            #ctx.set_str(
-                #tulisp_fn_name.to_string(),
-                #crate_name::ContextObject::#ctxobj_type(Box::new(#generated_fn_name))
+            let tfunc = #ctx.intern(#tulisp_fn_name);
+            tfunc.set_scope(
+                #crate_name::TulispValueEnum::#ctxobj_type(std::rc::Rc::new(#generated_fn_name))
+                .into_ref()
             ).unwrap();
         })
     }
@@ -261,9 +262,11 @@ fn tulisp_add_impl(input: TokenStream, crate_name: TokenStream2, add_macro: bool
 
     let generated_fn_name = make_generated_fn_name(&fn_name);
     let generated = quote! {
-        #ctx.set_str(
-            #tulisp_fn_name.to_string(),
-            #crate_name::ContextObject::#ctxobj_type(Box::new(move |_1, _2|#generated_fn_name(_1, _2)))
+        let tfunc = #ctx.intern(#tulisp_fn_name);
+        tfunc.set_scope(
+            #crate_name::TulispValueEnum::#ctxobj_type(
+                std::rc::Rc::new(move |_1, _2|#generated_fn_name(_1, _2))
+            ).into_ref()
         ).unwrap();
     };
 

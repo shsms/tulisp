@@ -363,7 +363,7 @@ fn test_sort() -> Result<(), Error> {
     }
     tulisp_assert! {
         program: "(sort '(20 10 30 15 45) '<<)",
-        error: "ERROR:Undefined: Unknown predicate: <<, in Some(Span { start: 0, end: 28 })",
+        error: "ERROR:Undefined: Unknown predicate: <<, in Some(Span { start: 25, end: 27 })",
     }
     Ok(())
 }
