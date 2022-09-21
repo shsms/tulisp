@@ -117,7 +117,7 @@ pub(crate) type Scope = HashMap<String, Rc<RefCell<ContextObject>>>;
 
 pub struct TulispContext {
     scope: Vec<Scope>,
-    pub obarray: HashMap<String, TulispValue>,
+    obarray: HashMap<String, TulispValue>,
 }
 
 impl Default for TulispContext {
