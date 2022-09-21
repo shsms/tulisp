@@ -141,21 +141,21 @@ fn eval_form(ctx: &mut TulispContext, val: &TulispValue) -> Result<TulispValue, 
 pub(crate) fn eval(ctx: &mut TulispContext, expr: &TulispValue) -> Result<TulispValue, Error> {
     let ret = match expr.clone_inner() {
         TulispValueEnum::List { .. } => eval_form(ctx, expr).map_err(|e| e.with_span(expr.span())),
-        TulispValueEnum::Symbol { value } => {
-            if let Some(obj) = ctx.get_str(&value) {
+        TulispValueEnum::Symbol { name } => {
+            if let Some(obj) = ctx.get_str(&name) {
                 if let ContextObject::TulispValue(vv) = &*obj.as_ref().borrow() {
                     Ok(vv.clone())
                 } else {
                     Err(Error::new(
                         ErrorKind::TypeMismatch,
-                        format!("variable definition is void: {}", value),
+                        format!("variable definition is void: {}", name),
                     )
                     .with_span(expr.span()))
                 }
             } else {
                 Err(Error::new(
                     ErrorKind::TypeMismatch,
-                    format!("variable definition is void: {}", value),
+                    format!("variable definition is void: {}", name),
                 )
                 .with_span(expr.span()))
             }

@@ -11,7 +11,7 @@ pub enum TulispValueEnum {
     Nil,
     T,
     Symbol {
-        value: String,
+        name: String,
     },
     Int {
         value: i64,
@@ -49,7 +49,7 @@ pub enum TulispValueEnum {
 impl PartialEq for TulispValueEnum {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::Symbol { value: l0, .. }, Self::Symbol { value: r0, .. }) => l0 == r0,
+            (Self::Symbol { name: l0, .. }, Self::Symbol { name: r0, .. }) => l0 == r0,
             (Self::Int { value: l0, .. }, Self::Int { value: r0, .. }) => l0 == r0,
             (Self::Float { value: l0, .. }, Self::Float { value: r0, .. }) => l0 == r0,
             (Self::String { value: l0, .. }, Self::String { value: r0, .. }) => l0 == r0,
@@ -116,7 +116,7 @@ impl std::fmt::Display for TulispValueEnum {
         match self {
             TulispValueEnum::Bounce => f.write_str("Bounce"),
             TulispValueEnum::Nil { .. } => f.write_str("nil"),
-            TulispValueEnum::Symbol { value, .. } => f.write_str(value),
+            TulispValueEnum::Symbol { name, .. } => f.write_str(name),
             TulispValueEnum::Int { value, .. } => f.write_fmt(format_args!("{}", value)),
             TulispValueEnum::Float { value, .. } => f.write_fmt(format_args!("{}", value)),
             TulispValueEnum::String { value, .. } => f.write_fmt(format_args!(r#""{}""#, value)),
@@ -136,8 +136,8 @@ impl std::fmt::Display for TulispValueEnum {
 }
 
 impl TulispValueEnum {
-    pub(crate) fn symbol(value: String) -> TulispValueEnum {
-        TulispValueEnum::Symbol { value }
+    pub(crate) fn symbol(name: String) -> TulispValueEnum {
+        TulispValueEnum::Symbol { name }
     }
 
     pub fn base_iter(&self) -> cons::BaseIter {
@@ -232,7 +232,7 @@ impl TulispValueEnum {
 
     pub fn as_symbol(&self) -> Result<String, Error> {
         match self {
-            TulispValueEnum::Symbol { value, .. } => Ok(value.to_string()),
+            TulispValueEnum::Symbol { name, .. } => Ok(name.to_string()),
             _ => Err(Error::new(
                 ErrorKind::TypeMismatch,
                 format!("Expected symbol: {}", self),
