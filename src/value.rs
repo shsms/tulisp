@@ -5,7 +5,7 @@ use crate::{
 };
 use std::{
     any::Any,
-    cell::{Cell, RefCell},
+    cell::{Cell, Ref, RefCell},
     rc::Rc,
 };
 
@@ -23,7 +23,7 @@ impl Span {
 
 #[derive(Debug, Clone)]
 pub struct TulispValue {
-    pub(crate) rc: Rc<RefCell<TulispValueEnum>>,
+    rc: Rc<RefCell<TulispValueEnum>>,
     span: Cell<Option<Span>>,
 }
 
@@ -152,6 +152,9 @@ impl TulispValue {
     }
     pub(crate) fn clone_inner(&self) -> TulispValueEnum {
         self.rc.as_ref().borrow().clone()
+    }
+    pub(crate) fn inner_ref(&self) -> Ref<'_, TulispValueEnum> {
+        self.rc.as_ref().borrow()
     }
     pub fn as_float(&self) -> Result<f64, Error> {
         self.rc

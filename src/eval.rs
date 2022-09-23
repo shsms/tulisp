@@ -108,7 +108,7 @@ fn eval_form(ctx: &mut TulispContext, val: &TulispValue) -> Result<TulispValue, 
         }
     };
     match func {
-        Some(item) => match &*item.rc.as_ref().borrow() {
+        Some(item) => match &*item.inner_ref() {
             TulispValueEnum::Func(func) => func(ctx, val),
             TulispValueEnum::Defun { params, body } => eval_defun(ctx, &params, &body, &val.cdr()?),
             TulispValueEnum::Macro(_) | TulispValueEnum::Defmacro { .. } => {
