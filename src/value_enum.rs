@@ -5,7 +5,7 @@ use crate::{
     value::{Span, TulispValue},
     TulispContext,
 };
-use std::{any::Any, cell::RefCell, convert::TryInto, fmt::Write, rc::Rc};
+use std::{any::Any, convert::TryInto, fmt::Write, rc::Rc};
 
 #[doc(hidden)]
 #[derive(Debug, Clone)]
@@ -108,7 +108,7 @@ pub enum TulispValueEnum {
     T,
     Symbol {
         name: String,
-        value: RefCell<Vec<TulispValue>>,
+        value: Vec<TulispValue>,
     },
     Int {
         value: i64,
@@ -293,18 +293,17 @@ impl TulispValueEnum {
     pub(crate) fn symbol(name: String) -> TulispValueEnum {
         TulispValueEnum::Symbol {
             name,
-            value: RefCell::new(vec![]),
+            value: vec![],
         }
     }
 
-    pub fn set(&self, to_set: TulispValue, span: Option<Span>) -> Result<(), Error> {
+    pub fn set(&mut self, to_set: TulispValue, span: Option<Span>) -> Result<(), Error> {
         match self {
             TulispValueEnum::Symbol { value, .. } => {
-                let mut scope = value.borrow_mut();
-                if scope.is_empty() {
-                    scope.push(to_set);
+                if value.is_empty() {
+                    value.push(to_set);
                 } else {
-                    *scope.last_mut().unwrap() = to_set;
+                    *value.last_mut().unwrap() = to_set;
                 }
             }
             _ => {
@@ -318,10 +317,10 @@ impl TulispValueEnum {
         Ok(())
     }
 
-    pub fn set_scope(&self, to_set: TulispValue, span: Option<Span>) -> Result<(), Error> {
+    pub fn set_scope(&mut self, to_set: TulispValue, span: Option<Span>) -> Result<(), Error> {
         match self {
             TulispValueEnum::Symbol { value, .. } => {
-                value.borrow_mut().push(to_set);
+                value.push(to_set);
             }
             _ => {
                 return Err(Error::new(
@@ -334,18 +333,17 @@ impl TulispValueEnum {
         Ok(())
     }
 
-    pub fn unset(&self, span: Option<Span>) -> Result<(), Error> {
+    pub fn unset(&mut self, span: Option<Span>) -> Result<(), Error> {
         match self {
             TulispValueEnum::Symbol { value, .. } => {
-                let mut inner = value.borrow_mut();
-                if inner.is_empty() {
+                if value.is_empty() {
                     return Err(Error::new(
                         ErrorKind::Uninitialized,
                         "Can't unbind from unassigned symbol".to_string(),
                     )
                     .with_span(span));
                 }
-                inner.pop();
+                value.pop();
             }
             _ => {
                 return Err(Error::new(
@@ -361,15 +359,14 @@ impl TulispValueEnum {
     pub fn get(&self, span: Option<Span>) -> Result<TulispValue, Error> {
         match self {
             TulispValueEnum::Symbol { value, .. } => {
-                let inner = value.borrow_mut();
-                if inner.is_empty() {
+                if value.is_empty() {
                     return Err(Error::new(
                         ErrorKind::TypeMismatch,
                         format!("variable definition is void: {self}"),
                     )
                     .with_span(span));
                 }
-                return Ok(inner.last().unwrap().clone());
+                return Ok(value.last().unwrap().clone());
             }
             _ => {
                 return Err(Error::new(

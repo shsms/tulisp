@@ -62,14 +62,14 @@ impl TulispValue {
     }
 
     pub fn set_scope(&self, to_set: TulispValue) -> Result<(), Error> {
-        self.rc.as_ref().borrow().set_scope(to_set, self.span())
+        self.rc.as_ref().borrow_mut().set_scope(to_set, self.span())
     }
     pub fn set(&self, to_set: TulispValue) -> Result<(), Error> {
-        self.rc.as_ref().borrow().set(to_set, self.span())
+        self.rc.as_ref().borrow_mut().set(to_set, self.span())
     }
 
     pub fn unset(&self) -> Result<(), Error> {
-        self.rc.as_ref().borrow().unset(self.span())
+        self.rc.as_ref().borrow_mut().unset(self.span())
     }
 
     pub fn get(&self) -> Result<TulispValue, Error> {
