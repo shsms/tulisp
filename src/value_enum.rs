@@ -69,7 +69,7 @@ impl TryFrom<TulispValue> for DefunParams {
                 is_rest = true;
                 continue;
             }
-            def_params.scope.push(param.clone());
+            def_params.scope.scope.push(param.clone());
             def_params.params.push(DefunParam {
                 param,
                 is_rest,
@@ -96,10 +96,7 @@ impl DefunParams {
     }
 
     pub(crate) fn unbind(&self) -> Result<(), Error> {
-        for item in &self.scope {
-            item.unset()?;
-        }
-        Ok(())
+        self.scope.remove_all()
     }
 }
 

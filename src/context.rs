@@ -8,10 +8,27 @@ use crate::{
     value::TulispValue,
 };
 
-pub(crate) type Scope = Vec<TulispValue>;
+#[derive(Debug, Default, Clone)]
+pub(crate) struct Scope {
+    pub scope: Vec<TulispValue>,
+}
+
+impl Scope {
+    pub fn set(&mut self, symbol: TulispValue, value: TulispValue) -> Result<(), Error> {
+        symbol.set_scope(value)?;
+        self.scope.push(symbol);
+        Ok(())
+    }
+
+    pub fn remove_all(&self) -> Result<(), Error> {
+        for item in &self.scope {
+            item.unset()?;
+        }
+        Ok(())
+    }
+}
 
 pub struct TulispContext {
-    scope: Vec<Scope>,
     obarray: HashMap<String, TulispValue>,
 }
 
@@ -25,7 +42,6 @@ impl TulispContext {
     /// Creates a TulispContext with an empty global scope.
     pub fn new() -> Self {
         let mut ctx = Self {
-            scope: vec![],
             obarray: HashMap::new(),
         };
         builtin::functions::add(&mut ctx);
@@ -49,26 +65,15 @@ impl TulispContext {
         self.obarray.get(name).map(|x| x.to_owned())
     }
 
-    pub(crate) fn push(&mut self, item: Scope) {
-        self.scope.push(item);
-    }
-
-    pub(crate) fn pop(&mut self) -> Result<(), Error> {
-        let scp = self.scope.pop();
-        if let Some(scp) = scp {
-            for item in scp {
-                item.unset()?;
-            }
-        }
-        Ok(())
-    }
-
-    pub(crate) fn r#let(&mut self, varlist: TulispValue) -> Result<(), Error> {
-        let mut local = Scope::new();
+    pub(crate) fn r#let(
+        &mut self,
+        varlist: TulispValue,
+        body: &TulispValue,
+    ) -> Result<TulispValue, Error> {
+        let mut local = Scope::default();
         for varitem in varlist.base_iter() {
             if varitem.as_symbol().is_ok() {
-                varitem.set_scope(TulispValue::nil())?;
-                local.push(varitem)
+                local.set(varitem, TulispValue::nil())?;
             } else if varitem.consp() {
                 let span = varitem.span();
                 destruct_bind!((&optional name value &rest rest) = varitem);
@@ -86,9 +91,9 @@ impl TulispContext {
                     )
                     .with_span(span));
                 }
+                // TODO: remove this symbol type check.
                 name.as_symbol().map_err(|e| e.with_span(span))?;
-                name.set_scope(eval(self, &value)?)?;
-                local.push(name)
+                local.set(name, eval(self, &value)?)?;
             } else {
                 return Err(Error::new(
                     ErrorKind::SyntaxError,
@@ -100,9 +105,11 @@ impl TulispContext {
                 .with_span(varlist.span()));
             };
         }
-        self.push(local);
 
-        Ok(())
+        let ret = self.eval_progn(body);
+        local.remove_all()?;
+
+        ret
     }
 
     pub fn eval(&mut self, value: &TulispValue) -> Result<TulispValue, Error> {

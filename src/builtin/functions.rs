@@ -338,16 +338,14 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         varlist: TulispValue,
         rest: TulispValue,
     ) -> Result<TulispValue, Error> {
-        ctx.r#let(varlist)?;
         let ret = if rest.consp() {
-            ctx.eval_progn(&rest)
+            ctx.r#let(varlist, &rest)
         } else {
             Err(Error::new(
                 ErrorKind::TypeMismatch,
                 "let: expected varlist and body".to_string(),
             ))
         };
-        ctx.pop()?;
         ret
     }
 
@@ -460,12 +458,10 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         let body = rest;
         let mut list = ctx.eval(&list)?;
         while list.as_bool() {
-            let mut scope = Scope::new();
-            var.set_scope(list.car()?)?;
-            scope.push(var.clone());
-            ctx.push(scope);
+            let mut scope = Scope::default();
+            scope.set(var.clone(), list.car()?)?;
             let eval_res = ctx.eval_progn(&body);
-            ctx.pop()?;
+            scope.remove_all()?;
             eval_res?;
             list = list.cdr()?;
         }
