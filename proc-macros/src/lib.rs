@@ -192,7 +192,6 @@ fn tulisp_fn_impl(
             quote! {Func}
         };
         generated.extend(quote! {
-            // TODO: how to avoid unwrap?
             let tfunc = #ctx.intern(#tulisp_fn_name);
             tfunc.set_scope(
                 #crate_name::TulispValueEnum::#ctxobj_type(std::rc::Rc::new(#generated_fn_name))

@@ -91,8 +91,6 @@ impl TulispContext {
                     )
                     .with_span(span));
                 }
-                // TODO: remove this symbol type check.
-                name.as_symbol().map_err(|e| e.with_span(span))?;
                 local.set(name, eval(self, &value)?)?;
             } else {
                 return Err(Error::new(

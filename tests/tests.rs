@@ -312,7 +312,7 @@ fn test_let() -> Result<(), Error> {
     }
     tulisp_assert! {
         program: "(let ((22 (+ 55 1)) (jj 20)) (+ vv jj 1))",
-        error: "ERROR:TypeMismatch: Expected symbol: 22, in Some(Span { start: 7, end: 9 })",
+        error: "ERROR:TypeMismatch: Expected Symbol: Can't assign to 22, in Some(Span { start: 7, end: 9 })",
     }
     tulisp_assert! {
         program: "(let (18 (vv (+ 55 1)) (jj 20)) (+ vv jj 1))",

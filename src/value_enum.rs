@@ -357,7 +357,7 @@ impl TulispValueEnum {
         } else {
             Err(Error::new(
                 ErrorKind::TypeMismatch,
-                "Can bind values only to Symbols".to_string(),
+                format!("Expected Symbol: Can't assign to {self}"),
             )
             .with_span(span))
         }

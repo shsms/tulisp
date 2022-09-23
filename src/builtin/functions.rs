@@ -360,7 +360,6 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         params: TulispValue,
         rest: TulispValue,
     ) -> Result<TulispValue, Error> {
-        // TODO: don't discard docstring
         let body = if rest.car()?.as_string().is_ok() {
             rest.cdr()?
         } else {
@@ -386,7 +385,6 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         params: TulispValue,
         rest: TulispValue,
     ) -> Result<TulispValue, Error> {
-        // TODO: don't discard docstring
         let body = if rest.car()?.as_string().is_ok() {
             rest.cdr()?
         } else {
