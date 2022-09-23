@@ -130,7 +130,7 @@ fn eval_form(ctx: &mut TulispContext, val: &TulispValue) -> Result<TulispValue, 
 pub(crate) fn eval(ctx: &mut TulispContext, expr: &TulispValue) -> Result<TulispValue, Error> {
     let ret = match expr.clone_inner() {
         TulispValueEnum::List { .. } => eval_form(ctx, expr).map_err(|e| e.with_span(expr.span())),
-        sym @ TulispValueEnum::Symbol { .. } => sym.get(expr.span()),
+        TulispValueEnum::Symbol { value, .. } => value.get().map_err(|e| e.with_span(expr.span())),
         TulispValueEnum::Int { .. }
         | TulispValueEnum::Float { .. }
         | TulispValueEnum::String { .. }
