@@ -338,15 +338,14 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         varlist: TulispValue,
         rest: TulispValue,
     ) -> Result<TulispValue, Error> {
-        let ret = if rest.consp() {
+        if rest.consp() {
             ctx.r#let(varlist, &rest)
         } else {
             Err(Error::new(
                 ErrorKind::TypeMismatch,
                 "let: expected varlist and body".to_string(),
             ))
-        };
-        ret
+        }
     }
 
     #[crate_fn_no_eval(add_func = "ctx")]

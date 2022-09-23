@@ -110,7 +110,7 @@ fn eval_form(ctx: &mut TulispContext, val: &TulispValue) -> Result<TulispValue, 
     match func {
         Some(item) => match &*item.inner_ref() {
             TulispValueEnum::Func(func) => func(ctx, val),
-            TulispValueEnum::Defun { params, body } => eval_defun(ctx, &params, &body, &val.cdr()?),
+            TulispValueEnum::Defun { params, body } => eval_defun(ctx, params, body, &val.cdr()?),
             TulispValueEnum::Macro(_) | TulispValueEnum::Defmacro { .. } => {
                 let expanded = macroexpand(ctx, val.clone())?;
                 eval(ctx, &expanded)
@@ -128,7 +128,7 @@ fn eval_form(ctx: &mut TulispContext, val: &TulispValue) -> Result<TulispValue, 
 }
 
 pub(crate) fn eval(ctx: &mut TulispContext, expr: &TulispValue) -> Result<TulispValue, Error> {
-    let ret = match expr.clone_inner() {
+    match expr.clone_inner() {
         TulispValueEnum::List { .. } => eval_form(ctx, expr).map_err(|e| e.with_span(expr.span())),
         TulispValueEnum::Symbol { value, .. } => value.get().map_err(|e| e.with_span(expr.span())),
         TulispValueEnum::Int { .. }
@@ -221,8 +221,7 @@ pub(crate) fn eval(ctx: &mut TulispContext, expr: &TulispValue) -> Result<Tulisp
             "Can't eval TulispValue::Defun".to_owned(),
         )
         .with_span(expr.span())),
-    };
-    ret
+    }
 }
 
 pub fn macroexpand(ctx: &mut TulispContext, inp: TulispValue) -> Result<TulispValue, Error> {

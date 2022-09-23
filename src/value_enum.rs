@@ -135,7 +135,7 @@ impl SymbolBindings {
         if self.items.is_empty() {
             return Err(Error::new(
                 ErrorKind::TypeMismatch,
-                format!("Variable definition is void"),
+                "Variable definition is void".to_string(),
             ));
         }
         return Ok(self.items.last().unwrap().clone());
@@ -338,63 +338,52 @@ impl TulispValueEnum {
     }
 
     pub fn set(&mut self, to_set: TulispValue, span: Option<Span>) -> Result<(), Error> {
-        match self {
-            TulispValueEnum::Symbol { value, .. } => {
-                value.set(to_set);
-            }
-            _ => {
-                return Err(Error::new(
-                    ErrorKind::TypeMismatch,
-                    "Can bind values only to Symbols".to_string(),
-                )
-                .with_span(span))
-            }
+        if let TulispValueEnum::Symbol { value, .. } = self {
+            value.set(to_set);
+            Ok(())
+        } else {
+            Err(Error::new(
+                ErrorKind::TypeMismatch,
+                "Can bind values only to Symbols".to_string(),
+            )
+            .with_span(span))
         }
-        Ok(())
     }
 
     pub fn set_scope(&mut self, to_set: TulispValue, span: Option<Span>) -> Result<(), Error> {
-        match self {
-            TulispValueEnum::Symbol { value, .. } => {
-                value.set_scope(to_set);
-            }
-            _ => {
-                return Err(Error::new(
-                    ErrorKind::TypeMismatch,
-                    "Can bind values only to Symbols".to_string(),
-                )
-                .with_span(span))
-            }
+        if let TulispValueEnum::Symbol { value, .. } = self {
+            value.set_scope(to_set);
+            Ok(())
+        } else {
+            Err(Error::new(
+                ErrorKind::TypeMismatch,
+                "Can bind values only to Symbols".to_string(),
+            )
+            .with_span(span))
         }
-        Ok(())
     }
 
     pub fn unset(&mut self, span: Option<Span>) -> Result<(), Error> {
-        match self {
-            TulispValueEnum::Symbol { value, .. } => {
-                value.unset().map_err(|e| e.with_span(span))?;
-            }
-            _ => {
-                return Err(Error::new(
-                    ErrorKind::TypeMismatch,
-                    "Can unbind only from Symbols".to_string(),
-                )
-                .with_span(span))
-            }
+        if let TulispValueEnum::Symbol { value, .. } = self {
+            value.unset().map_err(|e| e.with_span(span))
+        } else {
+            Err(Error::new(
+                ErrorKind::TypeMismatch,
+                "Can unbind only from Symbols".to_string(),
+            )
+            .with_span(span))
         }
-        Ok(())
     }
 
     pub fn get(&self, span: Option<Span>) -> Result<TulispValue, Error> {
-        match self {
-            TulispValueEnum::Symbol { value, .. } => value.get().map_err(|e| e.with_span(span)),
-            _ => {
-                return Err(Error::new(
-                    ErrorKind::TypeMismatch,
-                    "Can unbind only from Symbols".to_string(),
-                )
-                .with_span(span))
-            }
+        if let TulispValueEnum::Symbol { value, .. } = self {
+            value.get().map_err(|e| e.with_span(span))
+        } else {
+            Err(Error::new(
+                ErrorKind::TypeMismatch,
+                "Can unbind only from Symbols".to_string(),
+            )
+            .with_span(span))
         }
     }
 
