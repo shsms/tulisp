@@ -1,7 +1,6 @@
 use crate::{
     cons::{self, Cons},
     error::Error,
-    list,
     value_enum::TulispValueEnum,
 };
 use std::{
@@ -54,7 +53,11 @@ impl std::fmt::Display for TulispValue {
 
 impl TulispValue {
     pub fn cons(car: TulispValue, cdr: TulispValue) -> TulispValue {
-        list!(,car ,@cdr).unwrap()
+        TulispValueEnum::List {
+            cons: Cons::new(car, cdr),
+            ctxobj: None,
+        }
+        .into()
     }
 
     pub(crate) fn symbol(name: String) -> TulispValue {
