@@ -102,13 +102,53 @@ impl DefunParams {
 
 type TulispFn = dyn Fn(&mut TulispContext, &TulispValue) -> Result<TulispValue, Error>;
 
+#[derive(Default, Clone, Debug)]
+pub struct SymbolBindings {
+    items: Vec<TulispValue>,
+}
+
+impl SymbolBindings {
+    pub fn set(&mut self, to_set: TulispValue) {
+        if self.items.is_empty() {
+            self.items.push(to_set);
+        } else {
+            *self.items.last_mut().unwrap() = to_set;
+        }
+    }
+
+    pub fn set_scope(&mut self, to_set: TulispValue) {
+        self.items.push(to_set);
+    }
+
+    pub fn unset(&mut self) -> Result<(), Error> {
+        if self.items.is_empty() {
+            return Err(Error::new(
+                ErrorKind::Uninitialized,
+                "Can't unbind from unassigned symbol".to_string(),
+            ));
+        }
+        self.items.pop();
+        Ok(())
+    }
+
+    pub fn get(&self) -> Result<TulispValue, Error> {
+        if self.items.is_empty() {
+            return Err(Error::new(
+                ErrorKind::TypeMismatch,
+                format!("Variable definition is void"),
+            ));
+        }
+        return Ok(self.items.last().unwrap().clone());
+    }
+}
+
 #[derive(Clone)]
 pub enum TulispValueEnum {
     Nil,
     T,
     Symbol {
         name: String,
-        value: Vec<TulispValue>,
+        value: SymbolBindings,
     },
     Int {
         value: i64,
@@ -293,18 +333,14 @@ impl TulispValueEnum {
     pub(crate) fn symbol(name: String) -> TulispValueEnum {
         TulispValueEnum::Symbol {
             name,
-            value: vec![],
+            value: Default::default(),
         }
     }
 
     pub fn set(&mut self, to_set: TulispValue, span: Option<Span>) -> Result<(), Error> {
         match self {
             TulispValueEnum::Symbol { value, .. } => {
-                if value.is_empty() {
-                    value.push(to_set);
-                } else {
-                    *value.last_mut().unwrap() = to_set;
-                }
+                value.set(to_set);
             }
             _ => {
                 return Err(Error::new(
@@ -320,7 +356,7 @@ impl TulispValueEnum {
     pub fn set_scope(&mut self, to_set: TulispValue, span: Option<Span>) -> Result<(), Error> {
         match self {
             TulispValueEnum::Symbol { value, .. } => {
-                value.push(to_set);
+                value.set_scope(to_set);
             }
             _ => {
                 return Err(Error::new(
@@ -336,14 +372,7 @@ impl TulispValueEnum {
     pub fn unset(&mut self, span: Option<Span>) -> Result<(), Error> {
         match self {
             TulispValueEnum::Symbol { value, .. } => {
-                if value.is_empty() {
-                    return Err(Error::new(
-                        ErrorKind::Uninitialized,
-                        "Can't unbind from unassigned symbol".to_string(),
-                    )
-                    .with_span(span));
-                }
-                value.pop();
+                value.unset().map_err(|e| e.with_span(span))?;
             }
             _ => {
                 return Err(Error::new(
@@ -358,16 +387,7 @@ impl TulispValueEnum {
 
     pub fn get(&self, span: Option<Span>) -> Result<TulispValue, Error> {
         match self {
-            TulispValueEnum::Symbol { value, .. } => {
-                if value.is_empty() {
-                    return Err(Error::new(
-                        ErrorKind::TypeMismatch,
-                        format!("variable definition is void: {self}"),
-                    )
-                    .with_span(span));
-                }
-                return Ok(value.last().unwrap().clone());
-            }
+            TulispValueEnum::Symbol { value, .. } => value.get().map_err(|e| e.with_span(span)),
             _ => {
                 return Err(Error::new(
                     ErrorKind::TypeMismatch,
