@@ -64,3 +64,20 @@ pub mod alist {
         Ok(TulispValue::nil())
     }
 }
+
+pub mod plist {
+    use crate::{Error, TulispValue};
+
+    pub fn plist_get(plist: TulispValue, property: &TulispValue) -> Result<TulispValue, Error> {
+        let mut next = plist;
+        while let Some(cons) = next.as_list_cons() {
+            let car = cons.car();
+            let cdr = cons.cdr();
+            if car.eq(property) {
+                return cdr.car();
+            }
+            next = cdr.clone();
+        }
+        Ok(TulispValue::nil())
+    }
+}

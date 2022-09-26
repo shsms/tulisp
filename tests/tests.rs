@@ -279,6 +279,18 @@ fn test_lists() -> Result<(), Error> {
         result: r##"'(nil (30 . 120) nil "person" nil nil "something" "something")"##,
     }
 
+    tulisp_assert! {
+        program: r#"
+        (let ((plist (cdr '(_
+                            :name person
+                            :dob "01.01.2001"))))
+          (list (plist-get plist ':dob)
+                (plist-get plist ':name)
+                (plist-get plist ':age)))
+        "#,
+        result: r#"'("01.01.2001" person nil)"#,
+    }
+
     Ok(())
 }
 

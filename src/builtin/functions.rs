@@ -540,6 +540,11 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         lists::alist::alist_get(ctx, &key, &alist, default_value, remove, testfn)
     }
 
+    #[crate_fn(add_func = "ctx", name = "plist-get")]
+    fn plist_get(plist: TulispValue, property: TulispValue) -> Result<TulispValue, Error> {
+        lists::plist::plist_get(plist, &property)
+    }
+
     // predicates begin
     #[crate_fn(add_func = "ctx")]
     fn consp(arg: TulispValue) -> bool {
