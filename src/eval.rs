@@ -78,7 +78,6 @@ fn eval_defun(
     body: &TulispValue,
     args: &TulispValue,
 ) -> Result<TulispValue, Error> {
-    // println!("eval_defun:\n{params}body: {body}\nargs: {args}");
     let mut result = eval_function::<Eval>(ctx, params, body, args)?;
     while let Ok(true) = result.car().map(|x| x.is_bounce()) {
         result = eval_function::<DummyEval>(ctx, params, body, &result.cdr()?)?;

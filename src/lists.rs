@@ -3,8 +3,8 @@ pub mod alist {
 
     pub fn assoc(
         ctx: &mut TulispContext,
-        key: TulispValue,
-        alist: TulispValue,
+        key: &TulispValue,
+        alist: &TulispValue,
         _testfn: Option<TulispValue>,
     ) -> Result<TulispValue, Error> {
         if !alist.consp() {
@@ -30,8 +30,8 @@ pub mod alist {
 
     pub fn alist_get(
         ctx: &mut TulispContext,
-        key: TulispValue,
-        alist: TulispValue,
+        key: &TulispValue,
+        alist: &TulispValue,
         default_value: Option<TulispValue>,
         _remove: Option<TulispValue>, // TODO: implement after `setf`
         testfn: Option<TulispValue>,
@@ -45,8 +45,8 @@ pub mod alist {
     }
 
     fn assoc_find(
-        key: TulispValue,
-        alist: TulispValue,
+        key: &TulispValue,
+        alist: &TulispValue,
         testfn: &mut dyn FnMut(&TulispValue, &TulispValue) -> Result<bool, Error>,
     ) -> Result<TulispValue, Error> {
         for kvpair in alist.base_iter() {
@@ -57,7 +57,7 @@ pub mod alist {
                 )
                 .with_span(kvpair.span()));
             }
-            if testfn(&kvpair.car()?, &key)? {
+            if testfn(&kvpair.car()?, key)? {
                 return Ok(kvpair);
             }
         }
