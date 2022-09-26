@@ -490,18 +490,13 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         }
     }
 
-    #[crate_fn_no_eval(add_func = "ctx")]
+    #[crate_fn(add_func = "ctx")]
     fn sort(
         ctx: &mut TulispContext,
         seq: TulispValue,
         pred: TulispValue,
     ) -> Result<TulispValue, Error> {
         let pred = eval(ctx, &pred)?;
-        let pred = pred.get().map_err(|err| {
-            Error::new(ErrorKind::Undefined, format!("Unknown predicate: {}", pred))
-                .with_span(err.span())
-        })?;
-        let seq = eval(ctx, &seq)?;
         let mut vec: Vec<_> = seq.base_iter().collect();
         vec.sort_by(|v1, v2| {
             let vv = list!(,TulispValue::nil() ,v1.clone() ,v2.clone()).unwrap();

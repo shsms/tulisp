@@ -363,7 +363,11 @@ fn test_sort() -> Result<(), Error> {
     }
     tulisp_assert! {
         program: "(sort '(20 10 30 15 45) '<<)",
-        error: "ERROR:Undefined: Unknown predicate: <<, in Some(Span { start: 25, end: 27 })",
+        error: "ERROR:TypeMismatch: Variable definition is void: <<, in Some(Span { start: 25, end: 27 })",
+    }
+    tulisp_assert! {
+        program: "(defun << (v1 v2) (> v1 v2)) (sort '(20 10 30 15 45) '<<)",
+        result: "'(45 30 20 15 10)",
     }
     Ok(())
 }
