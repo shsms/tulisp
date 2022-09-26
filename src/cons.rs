@@ -72,12 +72,12 @@ impl Cons {
         }
     }
 
-    pub(crate) fn car(&self) -> TulispValue {
-        self.car.clone()
+    pub(crate) fn car(&self) -> &TulispValue {
+        &self.car
     }
 
-    pub(crate) fn cdr(&self) -> TulispValue {
-        self.cdr.clone()
+    pub(crate) fn cdr(&self) -> &TulispValue {
+        &self.cdr
     }
 }
 

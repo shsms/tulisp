@@ -459,7 +459,7 @@ impl TulispValueEnum {
 
     pub fn car(&self) -> Result<TulispValue, Error> {
         match self {
-            TulispValueEnum::List { cons, .. } => Ok(cons.car()),
+            TulispValueEnum::List { cons, .. } => Ok(cons.car().clone()),
             TulispValueEnum::Nil => Ok(TulispValue::nil()),
             _ => Err(Error::new(
                 ErrorKind::TypeMismatch,
@@ -470,7 +470,7 @@ impl TulispValueEnum {
 
     pub fn cdr(&self) -> Result<TulispValue, Error> {
         match self {
-            TulispValueEnum::List { cons, .. } => Ok(cons.cdr()),
+            TulispValueEnum::List { cons, .. } => Ok(cons.cdr().clone()),
             TulispValueEnum::Nil => Ok(TulispValue::nil()),
             _ => Err(Error::new(
                 ErrorKind::TypeMismatch,
