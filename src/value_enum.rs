@@ -104,6 +104,7 @@ type TulispFn = dyn Fn(&mut TulispContext, &TulispValue) -> Result<TulispValue, 
 
 #[derive(Default, Clone, Debug)]
 pub struct SymbolBindings {
+    name: String,
     items: Vec<TulispValue>,
 }
 
@@ -124,7 +125,7 @@ impl SymbolBindings {
         if self.items.is_empty() {
             return Err(Error::new(
                 ErrorKind::Uninitialized,
-                "Can't unbind from unassigned symbol".to_string(),
+                format!("Can't unbind from unassigned symbol: {}", self.name),
             ));
         }
         self.items.pop();
@@ -135,7 +136,7 @@ impl SymbolBindings {
         if self.items.is_empty() {
             return Err(Error::new(
                 ErrorKind::TypeMismatch,
-                "Variable definition is void".to_string(),
+                format!("Variable definition is void: {}", self.name),
             ));
         }
         return Ok(self.items.last().unwrap().clone());
@@ -147,7 +148,6 @@ pub enum TulispValueEnum {
     Nil,
     T,
     Symbol {
-        name: String,
         value: SymbolBindings,
     },
     Int {
@@ -198,9 +198,9 @@ impl std::fmt::Debug for TulispValueEnum {
         match self {
             Self::Nil => write!(f, "Nil"),
             Self::T => write!(f, "T"),
-            Self::Symbol { name, value } => f
+            Self::Symbol { value } => f
                 .debug_struct("Symbol")
-                .field("name", name)
+                .field("name", &value.name)
                 .field("value", value)
                 .finish(),
             Self::Int { value } => f.debug_struct("Int").field("value", value).finish(),
@@ -239,7 +239,7 @@ impl std::fmt::Debug for TulispValueEnum {
 impl PartialEq for TulispValueEnum {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::Symbol { name: l0, .. }, Self::Symbol { name: r0, .. }) => l0 == r0,
+            (Self::Symbol { value: l0, .. }, Self::Symbol { value: r0, .. }) => l0.name == r0.name,
             (Self::Int { value: l0, .. }, Self::Int { value: r0, .. }) => l0 == r0,
             (Self::Float { value: l0, .. }, Self::Float { value: r0, .. }) => l0 == r0,
             (Self::String { value: l0, .. }, Self::String { value: r0, .. }) => l0 == r0,
@@ -306,7 +306,7 @@ impl std::fmt::Display for TulispValueEnum {
         match self {
             TulispValueEnum::Bounce => f.write_str("Bounce"),
             TulispValueEnum::Nil { .. } => f.write_str("nil"),
-            TulispValueEnum::Symbol { name, .. } => f.write_str(name),
+            TulispValueEnum::Symbol { value } => f.write_str(&value.name),
             TulispValueEnum::Int { value, .. } => f.write_fmt(format_args!("{}", value)),
             TulispValueEnum::Float { value, .. } => f.write_fmt(format_args!("{}", value)),
             TulispValueEnum::String { value, .. } => f.write_fmt(format_args!(r#""{}""#, value)),
@@ -332,8 +332,10 @@ impl std::fmt::Display for TulispValueEnum {
 impl TulispValueEnum {
     pub(crate) fn symbol(name: String) -> TulispValueEnum {
         TulispValueEnum::Symbol {
-            name,
-            value: Default::default(),
+            value: SymbolBindings {
+                name,
+                items: Default::default(),
+            },
         }
     }
 
@@ -479,7 +481,7 @@ impl TulispValueEnum {
 
     pub fn as_symbol(&self) -> Result<String, Error> {
         match self {
-            TulispValueEnum::Symbol { name, .. } => Ok(name.to_string()),
+            TulispValueEnum::Symbol { value } => Ok(value.name.to_string()),
             _ => Err(Error::new(
                 ErrorKind::TypeMismatch,
                 format!("Expected symbol: {}", self),
