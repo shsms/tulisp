@@ -4,6 +4,7 @@ use crate::context::TulispContext;
 use crate::error::Error;
 use crate::error::ErrorKind;
 use crate::eval::eval;
+use crate::lists;
 use crate::value::TulispValue;
 use crate::value_enum::TulispValueEnum;
 use crate::{destruct_bind, list};
@@ -517,54 +518,6 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(ret)
     }
 
-    // alist functions
-    fn assoc_impl(
-        ctx: &mut TulispContext,
-        key: TulispValue,
-        alist: TulispValue,
-        _testfn: Option<TulispValue>, // TODO: implement testfn support
-    ) -> Result<TulispValue, Error> {
-        if !alist.consp() {
-            return Err(
-                Error::new(ErrorKind::TypeMismatch, "expected alist".to_owned())
-                    .with_span(alist.span()),
-            );
-        }
-        if let Some(testfn) = _testfn {
-            let pred = eval(ctx, &testfn)?;
-
-            let mut testfn = |_1: &TulispValue, _2: &TulispValue| -> Result<bool, Error> {
-                let vv = list!(,TulispValue::nil() ,_1.clone() ,_2.clone()).unwrap();
-                vv.with_ctxobj(Some(pred.clone()));
-                eval(ctx, &vv).map(|vv| vv.as_bool())
-            };
-            assoc_find(key, alist, &mut testfn)
-        } else {
-            let mut testfn = |_1: &TulispValue, _2: &TulispValue| Ok(_1.eq(&_2));
-            assoc_find(key, alist, &mut testfn)
-        }
-    }
-
-    fn assoc_find(
-        key: TulispValue,
-        alist: TulispValue,
-        testfn: &mut dyn FnMut(&TulispValue, &TulispValue) -> Result<bool, Error>,
-    ) -> Result<TulispValue, Error> {
-        for kvpair in alist.base_iter() {
-            if !kvpair.consp() {
-                return Err(Error::new(
-                    ErrorKind::TypeMismatch,
-                    "expected cons inside alist".to_owned(),
-                )
-                .with_span(kvpair.span()));
-            }
-            if testfn(&kvpair.car()?, &key)? {
-                return Ok(kvpair);
-            }
-        }
-        Ok(TulispValue::nil())
-    }
-
     #[crate_fn(add_func = "ctx")]
     fn assoc(
         ctx: &mut TulispContext,
@@ -572,7 +525,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         alist: TulispValue,
         testfn: Option<TulispValue>,
     ) -> Result<TulispValue, Error> {
-        assoc_impl(ctx, key, alist, testfn)
+        lists::alist::assoc(ctx, key, alist, testfn)
     }
 
     #[crate_fn(add_func = "ctx", name = "alist-get")]
@@ -581,15 +534,10 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         key: TulispValue,
         alist: TulispValue,
         default_value: Option<TulispValue>,
-        _remove: Option<TulispValue>, // TODO: implement remove, testfn support
+        remove: Option<TulispValue>, // TODO: implement after `setf`
         testfn: Option<TulispValue>,
     ) -> Result<TulispValue, Error> {
-        let x = assoc_impl(ctx, key, alist, testfn)?;
-        if x.as_bool() {
-            x.cdr()
-        } else {
-            Ok(default_value.unwrap_or_else(TulispValue::nil))
-        }
+        lists::alist::alist_get(ctx, key, alist, default_value, remove, testfn)
     }
 
     // predicates begin

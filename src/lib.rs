@@ -1,4 +1,5 @@
 mod eval;
+pub mod lists;
 mod macros;
 mod parse;
 
