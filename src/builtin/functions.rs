@@ -190,7 +190,12 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     #[crate_fn(add_func = "ctx")]
     fn equal(object1: TulispValue, object2: TulispValue) -> bool {
-        object1 == object2
+        object1.equal(&object2)
+    }
+
+    #[crate_fn(add_func = "ctx")]
+    fn eq(object1: TulispValue, object2: TulispValue) -> bool {
+        object1.eq(&object2)
     }
 
     #[crate_fn(add_func = "ctx", name = "mod")]

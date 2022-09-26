@@ -60,6 +60,14 @@ impl TulispValue {
         .into()
     }
 
+    pub fn equal(&self, other: &TulispValue) -> bool {
+        *self.rc.as_ref().borrow() == *other.rc.as_ref().borrow()
+    }
+
+    pub fn eq(&self, other: &TulispValue) -> bool {
+        Rc::ptr_eq(&self.rc, &other.rc)
+    }
+
     pub(crate) fn symbol(name: String) -> TulispValue {
         TulispValueEnum::symbol(name).into()
     }
