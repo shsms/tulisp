@@ -1,3 +1,6 @@
+pub use alist::{alist_get, assoc};
+pub use plist::plist_get;
+
 pub mod alist {
     use crate::{eval::eval, list, Error, ErrorKind, TulispContext, TulispValue};
 
