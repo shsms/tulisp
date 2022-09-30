@@ -344,14 +344,50 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         varlist: TulispValue,
         rest: TulispValue,
     ) -> Result<TulispValue, Error> {
-        if rest.consp() {
-            ctx.r#let(varlist, &rest)
-        } else {
-            Err(Error::new(
+        if !rest.consp() {
+            return Err(Error::new(
                 ErrorKind::TypeMismatch,
                 "let: expected varlist and body".to_string(),
-            ))
+            ));
         }
+        let mut local = Scope::default();
+        for varitem in varlist.base_iter() {
+            if varitem.as_symbol().is_ok() {
+                local.set(varitem, TulispValue::nil())?;
+            } else if varitem.consp() {
+                let span = varitem.span();
+                destruct_bind!((&optional name value &rest rest) = varitem);
+                if name.null() {
+                    return Err(Error::new(
+                        ErrorKind::Undefined,
+                        "let varitem requires name".to_string(),
+                    )
+                    .with_span(span));
+                }
+                if !rest.null() {
+                    return Err(Error::new(
+                        ErrorKind::Undefined,
+                        "let varitem has too many values".to_string(),
+                    )
+                    .with_span(span));
+                }
+                local.set(name, eval(ctx, &value)?)?;
+            } else {
+                return Err(Error::new(
+                    ErrorKind::SyntaxError,
+                    format!(
+                        "varitems inside a let-varlist should be a var or a binding: {}",
+                        varitem
+                    ),
+                )
+                .with_span(varlist.span()));
+            };
+        }
+
+        let ret = ctx.eval_progn(&rest);
+        local.remove_all()?;
+
+        ret
     }
 
     #[crate_fn_no_eval(add_func = "ctx")]

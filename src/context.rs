@@ -1,12 +1,6 @@
 use std::{collections::HashMap, fs};
 
-use crate::{
-    builtin, destruct_bind,
-    error::{Error, ErrorKind},
-    eval::eval,
-    parse::parse,
-    value::TulispValue,
-};
+use crate::{builtin, error::Error, eval::eval, parse::parse, value::TulispValue};
 
 #[derive(Debug, Default, Clone)]
 pub(crate) struct Scope {
@@ -63,51 +57,6 @@ impl TulispContext {
 
     pub(crate) fn intern_soft(&mut self, name: &str) -> Option<TulispValue> {
         self.obarray.get(name).map(|x| x.to_owned())
-    }
-
-    pub(crate) fn r#let(
-        &mut self,
-        varlist: TulispValue,
-        body: &TulispValue,
-    ) -> Result<TulispValue, Error> {
-        let mut local = Scope::default();
-        for varitem in varlist.base_iter() {
-            if varitem.as_symbol().is_ok() {
-                local.set(varitem, TulispValue::nil())?;
-            } else if varitem.consp() {
-                let span = varitem.span();
-                destruct_bind!((&optional name value &rest rest) = varitem);
-                if name.null() {
-                    return Err(Error::new(
-                        ErrorKind::Undefined,
-                        "let varitem requires name".to_string(),
-                    )
-                    .with_span(span));
-                }
-                if !rest.null() {
-                    return Err(Error::new(
-                        ErrorKind::Undefined,
-                        "let varitem has too many values".to_string(),
-                    )
-                    .with_span(span));
-                }
-                local.set(name, eval(self, &value)?)?;
-            } else {
-                return Err(Error::new(
-                    ErrorKind::SyntaxError,
-                    format!(
-                        "varitems inside a let-varlist should be a var or a binding: {}",
-                        varitem
-                    ),
-                )
-                .with_span(varlist.span()));
-            };
-        }
-
-        let ret = self.eval_progn(body);
-        local.remove_all()?;
-
-        ret
     }
 
     pub fn eval(&mut self, value: &TulispValue) -> Result<TulispValue, Error> {
