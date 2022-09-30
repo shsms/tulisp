@@ -143,6 +143,7 @@ impl SymbolBindings {
     }
 }
 
+#[doc(hidden)]
 #[derive(Clone)]
 pub enum TulispValueEnum {
     Nil,
