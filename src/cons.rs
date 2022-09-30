@@ -5,10 +5,16 @@ use crate::error::ErrorKind;
 use crate::value::{Span, TulispValue};
 use crate::value_enum::TulispValueEnum;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct Cons {
     car: TulispValue,
     cdr: TulispValue,
+}
+
+impl PartialEq for Cons {
+    fn eq(&self, other: &Self) -> bool {
+        self.car.equal(&other.car) && self.cdr.equal(&other.cdr)
+    }
 }
 
 impl Cons {

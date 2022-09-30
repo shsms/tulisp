@@ -83,7 +83,7 @@ fn mark_tail_calls(
     let span = tail.span();
     let tail_ident = tail.car()?;
     let tail_name_str = tail_ident.as_symbol()?;
-    let new_tail = if tail_ident == name {
+    let new_tail = if tail_ident.eq(&name) {
         let ret_tail = TulispValue::nil()
             .append(tail.cdr()?)?
             .to_owned()

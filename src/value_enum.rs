@@ -244,11 +244,13 @@ impl PartialEq for TulispValueEnum {
             (Self::Float { value: l0, .. }, Self::Float { value: r0, .. }) => l0 == r0,
             (Self::String { value: l0, .. }, Self::String { value: r0, .. }) => l0 == r0,
             (Self::List { cons: l_cons, .. }, Self::List { cons: r_cons, .. }) => l_cons == r_cons,
-            (Self::Quote { value: l0, .. }, Self::Quote { value: r0, .. }) => l0 == r0,
-            (Self::Sharpquote { value: l0, .. }, Self::Sharpquote { value: r0, .. }) => l0 == r0,
-            (Self::Backquote { value: l0, .. }, Self::Backquote { value: r0, .. }) => l0 == r0,
-            (Self::Unquote { value: l0, .. }, Self::Unquote { value: r0, .. }) => l0 == r0,
-            (Self::Splice { value: l0, .. }, Self::Splice { value: r0, .. }) => l0 == r0,
+            (Self::Quote { value: l0, .. }, Self::Quote { value: r0, .. }) => l0.equal(r0),
+            (Self::Sharpquote { value: l0, .. }, Self::Sharpquote { value: r0, .. }) => {
+                l0.equal(r0)
+            }
+            (Self::Backquote { value: l0, .. }, Self::Backquote { value: r0, .. }) => l0.equal(r0),
+            (Self::Unquote { value: l0, .. }, Self::Unquote { value: r0, .. }) => l0.equal(r0),
+            (Self::Splice { value: l0, .. }, Self::Splice { value: r0, .. }) => l0.equal(r0),
 
             (Self::Int { value: l0, .. }, Self::Float { value: r0, .. }) => *l0 as f64 == *r0,
             (Self::Float { value: l0, .. }, Self::Int { value: r0, .. }) => *l0 == *r0 as f64,

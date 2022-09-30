@@ -10,7 +10,7 @@ macro_rules! tulisp_assert {
         })?;
         let expected = $ctx.eval_string($result)?;
         assert!(
-            output == expected,
+            output.equal(&expected),
             "\n{}:{}: program: {}\n  output: {},\n  expected: {}\n",
             file!(),
             line!(),

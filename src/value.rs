@@ -33,12 +33,6 @@ impl Default for TulispValue {
     }
 }
 
-impl PartialEq for TulispValue {
-    fn eq(&self, other: &Self) -> bool {
-        *self.rc.as_ref().borrow() == *other.rc.as_ref().borrow()
-    }
-}
-
 impl std::cmp::PartialEq<TulispValueEnum> for TulispValue {
     fn eq(&self, other: &TulispValueEnum) -> bool {
         *self.rc.as_ref().borrow() == *other
