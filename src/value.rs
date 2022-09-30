@@ -319,6 +319,27 @@ impl TryFrom<TulispValue> for Rc<dyn Any> {
     }
 }
 
+macro_rules! try_into_option {
+    ($ty: ty) => {
+        impl TryFrom<TulispValue> for Option<$ty> {
+            type Error = Error;
+
+            fn try_from(value: TulispValue) -> Result<Self, Self::Error> {
+                if value.null() {
+                    Ok(None)
+                } else {
+                    value.try_into().map(|x| Some(x))
+                }
+            }
+        }
+    };
+}
+
+try_into_option!(f64);
+try_into_option!(i64);
+try_into_option!(String);
+try_into_option!(Rc<dyn Any>);
+
 impl From<i64> for TulispValue {
     fn from(vv: i64) -> Self {
         TulispValueEnum::from(vv).into_ref()
