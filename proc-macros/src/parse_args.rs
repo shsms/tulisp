@@ -22,6 +22,7 @@ struct ArgInfo {
     iter: bool,
     ctx: bool,
     rest: bool,
+    has_receiver: bool,
     extract_stmts: TokenStream2,
 }
 
@@ -43,7 +44,7 @@ impl ArgInfo {
             tulisp_compile_error!(self.ty, "Tulisp functions currently support `ctx: &mut TulispContext` as the only reference argument type.");
         }
 
-        if self.pos > 0 {
+        if self.pos > self.has_receiver as usize {
             tulisp_compile_error!(
                 self.ty,
                 "If a context argument is specified, it has to be the first one."
@@ -97,6 +98,7 @@ pub(crate) fn parse_args(
     let mut self_param = quote!();
     let mut has_optional = false;
     let mut has_rest = false;
+    let mut has_receiver = false;
     let args = &inp.sig.inputs;
 
     for (pos, arg) in args.iter().enumerate() {
@@ -108,9 +110,11 @@ pub(crate) fn parse_args(
             eval_args,
             has_optional,
             has_rest,
+            has_receiver,
         )? {
             Some(vv) => vv,
             None => {
+                has_receiver = true;
                 self_param.extend(quote!(#arg, ));
                 continue;
             }
@@ -132,6 +136,7 @@ fn process_arg(
     eval_args: bool,
     has_optional: bool,
     has_rest: bool,
+    has_receiver: bool,
 ) -> Result<Option<ArgInfo>, TokenStream> {
     let (arg_name, arg_type) = match get_name_and_type(arg)? {
         Some(vv) => vv,
@@ -150,6 +155,7 @@ fn process_arg(
         iter: false,
         ctx: false,
         rest: false,
+        has_receiver,
         extract_stmts: quote!(),
     };
     if arg_info.is_ctx()? {
