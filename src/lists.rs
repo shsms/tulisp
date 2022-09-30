@@ -26,7 +26,7 @@ pub mod alist {
             };
             assoc_find(key, alist, &mut testfn)
         } else {
-            let mut testfn = |_1: &TulispValue, _2: &TulispValue| Ok(_1.eq(&_2));
+            let mut testfn = |_1: &TulispValue, _2: &TulispValue| Ok(_1.eq(_2));
             assoc_find(key, alist, &mut testfn)
         }
     }

@@ -549,6 +549,7 @@ fn test_any() -> Result<(), Error> {
     fn make_any(inp: i64) -> Rc<dyn Any> {
         Rc::new(TestStruct { value: inp })
     }
+
     #[tulisp_fn(add_func = "ctx")]
     fn make_any_res(inp: i64) -> Result<Rc<dyn Any>, Error> {
         Ok(Rc::new(TestStruct { value: inp }))
