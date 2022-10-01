@@ -65,7 +65,6 @@ And in your `main.rs`:
 */
 
 mod eval;
-pub mod lists;
 mod macros;
 mod parse;
 
@@ -81,6 +80,9 @@ pub use context::TulispContext;
 
 mod error;
 pub use error::{Error, ErrorKind};
+
+mod lists;
+pub use lists::{alist_get, assoc, plist_get};
 
 mod value_enum;
 pub use value_enum::TulispValueEnum;
