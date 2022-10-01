@@ -341,7 +341,7 @@ impl TulispValueEnum {
         }
     }
 
-    pub fn set(&mut self, to_set: TulispValue, span: Option<Span>) -> Result<(), Error> {
+    pub fn set(&mut self, to_set: TulispValue) -> Result<(), Error> {
         if let TulispValueEnum::Symbol { value, .. } = self {
             value.set(to_set);
             Ok(())
@@ -349,12 +349,11 @@ impl TulispValueEnum {
             Err(Error::new(
                 ErrorKind::TypeMismatch,
                 "Can bind values only to Symbols".to_string(),
-            )
-            .with_span(span))
+            ))
         }
     }
 
-    pub fn set_scope(&mut self, to_set: TulispValue, span: Option<Span>) -> Result<(), Error> {
+    pub fn set_scope(&mut self, to_set: TulispValue) -> Result<(), Error> {
         if let TulispValueEnum::Symbol { value, .. } = self {
             value.set_scope(to_set);
             Ok(())
@@ -362,8 +361,7 @@ impl TulispValueEnum {
             Err(Error::new(
                 ErrorKind::TypeMismatch,
                 format!("Expected Symbol: Can't assign to {self}"),
-            )
-            .with_span(span))
+            ))
         }
     }
 

@@ -67,7 +67,12 @@ macro_rules! extractor_fn_with_err {
     };
 }
 
+// pub methods on TulispValue
 impl TulispValue {
+    pub fn nil() -> TulispValue {
+        TulispValue::from(TulispValueEnum::Nil)
+    }
+
     pub fn cons(car: TulispValue, cdr: TulispValue) -> TulispValue {
         TulispValueEnum::List {
             cons: Cons::new(car, cdr),
@@ -84,15 +89,46 @@ impl TulispValue {
         Rc::ptr_eq(&self.rc, &other.rc)
     }
 
-    pub(crate) fn symbol(name: String) -> TulispValue {
-        TulispValueEnum::symbol(name).into()
+    pub fn base_iter(&self) -> cons::BaseIter {
+        self.rc.as_ref().borrow().base_iter()
+    }
+
+    pub fn iter<T: std::convert::TryFrom<TulispValue>>(&self) -> cons::Iter<T> {
+        cons::Iter::new(self.base_iter())
+    }
+
+    pub fn push(&self, val: TulispValue) -> Result<&TulispValue, Error> {
+        self.rc
+            .as_ref()
+            .borrow_mut()
+            .push(val)
+            .map(|_| self)
+            .map_err(|e| e.with_span(self.span()))
+    }
+
+    pub fn append(&self, val: TulispValue) -> Result<&TulispValue, Error> {
+        self.rc
+            .as_ref()
+            .borrow_mut()
+            .append(val)
+            .map(|_| self)
+            .map_err(|e| e.with_span(self.span()))
+    }
+
+    pub fn set(&self, to_set: TulispValue) -> Result<(), Error> {
+        self.rc
+            .as_ref()
+            .borrow_mut()
+            .set(to_set)
+            .map_err(|e| e.with_span(self.span()))
     }
 
     pub fn set_scope(&self, to_set: TulispValue) -> Result<(), Error> {
-        self.rc.as_ref().borrow_mut().set_scope(to_set, self.span())
-    }
-    pub fn set(&self, to_set: TulispValue) -> Result<(), Error> {
-        self.rc.as_ref().borrow_mut().set(to_set, self.span())
+        self.rc
+            .as_ref()
+            .borrow_mut()
+            .set_scope(to_set)
+            .map_err(|e| e.with_span(self.span()))
     }
 
     pub fn unset(&self) -> Result<(), Error> {
@@ -103,53 +139,28 @@ impl TulispValue {
             .map_err(|e| e.with_span(self.span()))
     }
 
-    pub fn get(&self) -> Result<TulispValue, Error> {
-        self.rc
-            .as_ref()
-            .borrow()
-            .get()
-            .map_err(|e| e.with_span(self.span()))
+    pub fn fmt_string(&self) -> String {
+        self.rc.as_ref().borrow().fmt_string()
     }
 
-    pub(crate) fn new(vv: TulispValueEnum) -> TulispValue {
-        Self {
-            rc: Rc::new(RefCell::new(vv)),
-            span: Cell::new(None),
-        }
+    pub fn span(&self) -> Option<Span> {
+        self.span.get()
     }
 
-    pub fn nil() -> TulispValue {
-        TulispValue::from(TulispValueEnum::Nil)
-    }
+    // extractors begin
+    extractor_fn_with_err!(f64, try_float);
+    extractor_fn_with_err!(i64, try_int);
 
-    pub(crate) fn strong_count(&self) -> usize {
-        Rc::strong_count(&self.rc)
-    }
-    pub(crate) fn assign(&self, vv: TulispValueEnum) {
-        *self.rc.as_ref().borrow_mut() = vv
-    }
-    pub fn base_iter(&self) -> cons::BaseIter {
-        self.rc.as_ref().borrow().base_iter()
-    }
-    pub fn iter<T: std::convert::TryFrom<TulispValue>>(&self) -> cons::Iter<T> {
-        cons::Iter::new(self.base_iter())
-    }
-    pub fn push(&self, val: TulispValue) -> Result<&TulispValue, Error> {
-        self.rc
-            .as_ref()
-            .borrow_mut()
-            .push(val)
-            .map(|_| self)
-            .map_err(|e| e.with_span(self.span()))
-    }
-    pub fn append(&self, val: TulispValue) -> Result<&TulispValue, Error> {
-        self.rc
-            .as_ref()
-            .borrow_mut()
-            .append(val)
-            .map(|_| self)
-            .map_err(|e| e.with_span(self.span()))
-    }
+    extractor_fn_with_err!(f64, as_float);
+    extractor_fn_with_err!(i64, as_int);
+    extractor_fn_with_err!(String, as_symbol);
+    extractor_fn_with_err!(String, as_string);
+    extractor_fn_with_err!(Rc<dyn Any>, as_any);
+
+    extractor_fn_with_err!(TulispValue, car);
+    extractor_fn_with_err!(TulispValue, cdr);
+    extractor_fn_with_err!(TulispValue, get);
+    // extractors end
 
     // predicates begin
     predicate_fn!(pub, consp);
@@ -165,24 +176,32 @@ impl TulispValue {
 
     predicate_fn!(pub(crate), is_bounce);
     // predicates end
+}
 
-    // extractors begin
-    extractor_fn_with_err!(f64, try_float);
-    extractor_fn_with_err!(i64, try_int);
+// pub(crate) methods on TulispValue
+impl TulispValue {
+    pub(crate) fn symbol(name: String) -> TulispValue {
+        TulispValueEnum::symbol(name).into()
+    }
 
-    extractor_fn_with_err!(f64, as_float);
-    extractor_fn_with_err!(i64, as_int);
-    extractor_fn_with_err!(String, as_symbol);
-    extractor_fn_with_err!(String, as_string);
-    extractor_fn_with_err!(Rc<dyn Any>, as_any);
+    pub(crate) fn new(vv: TulispValueEnum) -> TulispValue {
+        Self {
+            rc: Rc::new(RefCell::new(vv)),
+            span: Cell::new(None),
+        }
+    }
 
-    extractor_fn_with_err!(TulispValue, car);
-    extractor_fn_with_err!(TulispValue, cdr);
-    // extractors end
+    pub(crate) fn strong_count(&self) -> usize {
+        Rc::strong_count(&self.rc)
+    }
+    pub(crate) fn assign(&self, vv: TulispValueEnum) {
+        *self.rc.as_ref().borrow_mut() = vv
+    }
 
     pub(crate) fn clone_inner(&self) -> TulispValueEnum {
         self.rc.as_ref().borrow().clone()
     }
+
     pub(crate) fn inner_ref(&self) -> Ref<'_, TulispValueEnum> {
         self.rc.as_ref().borrow()
     }
@@ -190,22 +209,19 @@ impl TulispValue {
     pub(crate) fn as_list_cons(&self) -> Option<Cons> {
         self.rc.as_ref().borrow().as_list_cons()
     }
-    pub fn fmt_string(&self) -> String {
-        self.rc.as_ref().borrow().fmt_string()
-    }
+
     pub(crate) fn ctxobj(&self) -> Option<TulispValue> {
         self.rc.as_ref().borrow().ctxobj()
     }
+
     pub(crate) fn with_ctxobj(&self, in_ctxobj: Option<TulispValue>) -> Self {
         self.rc.as_ref().borrow_mut().with_ctxobj(in_ctxobj);
         self.clone()
     }
+
     pub(crate) fn with_span(&self, in_span: Option<Span>) -> Self {
         self.span.set(in_span);
         self.clone()
-    }
-    pub fn span(&self) -> Option<Span> {
-        self.span.get()
     }
     pub(crate) fn take(&self) -> TulispValueEnum {
         self.rc.as_ref().borrow_mut().take()
