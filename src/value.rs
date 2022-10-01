@@ -115,6 +115,10 @@ impl TulispValue {
             .map_err(|e| e.with_span(self.span()))
     }
 
+    pub fn fmt_string(&self) -> String {
+        self.rc.as_ref().borrow().fmt_string()
+    }
+
     pub fn set(&self, to_set: TulispValue) -> Result<(), Error> {
         self.rc
             .as_ref()
@@ -139,15 +143,11 @@ impl TulispValue {
             .map_err(|e| e.with_span(self.span()))
     }
 
-    pub fn fmt_string(&self) -> String {
-        self.rc.as_ref().borrow().fmt_string()
-    }
-
-    pub fn span(&self) -> Option<Span> {
-        self.span.get()
-    }
-
     // extractors begin
+    extractor_fn_with_err!(TulispValue, get);
+    extractor_fn_with_err!(TulispValue, car);
+    extractor_fn_with_err!(TulispValue, cdr);
+
     extractor_fn_with_err!(f64, try_float);
     extractor_fn_with_err!(i64, try_int);
 
@@ -157,9 +157,6 @@ impl TulispValue {
     extractor_fn_with_err!(String, as_string);
     extractor_fn_with_err!(Rc<dyn Any>, as_any);
 
-    extractor_fn_with_err!(TulispValue, car);
-    extractor_fn_with_err!(TulispValue, cdr);
-    extractor_fn_with_err!(TulispValue, get);
     // extractors end
 
     // predicates begin
@@ -176,6 +173,11 @@ impl TulispValue {
 
     predicate_fn!(pub(crate), is_bounce);
     // predicates end
+
+    #[doc(hidden)]
+    pub fn span(&self) -> Option<Span> {
+        self.span.get()
+    }
 }
 
 // pub(crate) methods on TulispValue
