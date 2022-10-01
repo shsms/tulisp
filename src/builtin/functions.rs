@@ -582,35 +582,20 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     }
 
     // predicates begin
-    #[crate_fn(add_func = "ctx")]
-    fn consp(arg: TulispValue) -> bool {
-        arg.consp()
+    macro_rules! predicate_function {
+        ($name: ident) => {
+            #[crate_fn(add_func = "ctx")]
+            fn $name(arg: TulispValue) -> bool {
+                arg.$name()
+            }
+        };
     }
-
-    #[crate_fn(add_func = "ctx")]
-    fn listp(arg: TulispValue) -> bool {
-        arg.listp()
-    }
-
-    #[crate_fn(add_func = "ctx")]
-    fn floatp(val: TulispValue) -> bool {
-        val.floatp()
-    }
-
-    #[crate_fn(add_func = "ctx")]
-    fn integerp(val: TulispValue) -> bool {
-        val.integerp()
-    }
-
-    #[crate_fn(add_func = "ctx")]
-    fn numberp(val: TulispValue) -> bool {
-        val.numberp()
-    }
-
-    #[crate_fn(add_func = "ctx")]
-    fn stringp(val: TulispValue) -> bool {
-        val.stringp()
-    }
+    predicate_function!(consp);
+    predicate_function!(listp);
+    predicate_function!(floatp);
+    predicate_function!(integerp);
+    predicate_function!(numberp);
+    predicate_function!(stringp);
 
     // predicates end
 }
