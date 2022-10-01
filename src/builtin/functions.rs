@@ -561,7 +561,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         alist: TulispValue,
         testfn: Option<TulispValue>,
     ) -> Result<TulispValue, Error> {
-        lists::alist::assoc(ctx, &key, &alist, testfn)
+        lists::assoc(ctx, &key, &alist, testfn)
     }
 
     #[crate_fn(add_func = "ctx", name = "alist-get")]
@@ -573,12 +573,12 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         remove: Option<TulispValue>, // TODO: implement after `setf`
         testfn: Option<TulispValue>,
     ) -> Result<TulispValue, Error> {
-        lists::alist::alist_get(ctx, &key, &alist, default_value, remove, testfn)
+        lists::alist_get(ctx, &key, &alist, default_value, remove, testfn)
     }
 
     #[crate_fn(add_func = "ctx", name = "plist-get")]
     fn plist_get(plist: TulispValue, property: TulispValue) -> Result<TulispValue, Error> {
-        lists::plist::plist_get(plist, &property)
+        lists::plist_get(plist, &property)
     }
 
     // predicates begin
