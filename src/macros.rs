@@ -1,3 +1,39 @@
+/**
+Provides a lisp-like syntax for constructing lists.
+
+## Example
+
+```rust
+use tulisp::{list, TulispValue, Error};
+
+fn main() -> Result<(), Error> {
+    // Create a list with 3 values inside.
+    let list1 = list!(
+        ,10.into()
+        ,"hello".into()
+        ,5.2.into()
+    )?;
+    assert_eq!(
+        list1.to_string(),
+        r#"(10 "hello" 5.2)"#
+    );
+
+    // Create a list that splices `list1` in the second pos.
+    let list2 = list!(
+        ,20.into()
+        ,@list1.clone()
+        ,list1
+        ,"world".into()
+    )?;
+    assert_eq!(
+        list2.to_string(),
+        r#"(20 10 "hello" 5.2 (10 "hello" 5.2) "world")"#
+    );
+
+    Ok(())
+}
+```
+*/
 #[macro_export]
 macro_rules! list {
     (@push $ret:ident, $item:expr) => {
@@ -23,6 +59,59 @@ macro_rules! list {
     () => { TulispValue::nil() }
 }
 
+/**
+Destructures lists and binds the components to separate symbols.
+
+Has a syntax similar to emacs lisp defun parameters.
+
+## Example
+
+```rust
+use tulisp::{destruct_bind, list, TulispValue, Error, ErrorKind};
+
+fn main() -> Result<(), Error> {
+    // Destruct from a list with just the required item present.
+    let list1 = list!(
+        ,10.into()
+    )?;
+    destruct_bind!((num1 &optional str1 num2) = list1);
+
+    assert_eq!(num1.as_int()?, 10);
+    assert!(str1.null());
+    assert!(num2.null());
+
+    // Destruct from a list with just the required items present.
+    let list1 = list!(
+        ,10.into()
+        ,"hello".into()
+        ,5.2.into()
+    )?;
+    destruct_bind!((num1 str1 num2 &rest other) = list1);
+
+    assert_eq!(num1.as_int()?, 10);
+    assert_eq!(str1.as_string()?, "hello");
+    assert_eq!(num2.as_float()?, 5.2);
+    assert!(other.null());
+
+    // Destruct from a list with all values present.
+    let list1 = list!(
+        ,10.into()
+        ,"hello".into()
+        ,5.2.into()
+        ,22.into()
+        ,42.into()
+    )?;
+    destruct_bind!((num1 &optional str1 num2 &rest other) = list1);
+
+    assert_eq!(num1.as_int()?, 10);
+    assert_eq!(str1.as_string()?, "hello");
+    assert_eq!(num2.as_float()?, 5.2);
+    assert_eq!(other.to_string(), "(22 42)");
+
+    Ok(())
+}
+ ```
+*/
 #[macro_export]
 macro_rules! destruct_bind {
     (@reqr $vv:ident, $var:ident) => {
