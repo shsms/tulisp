@@ -1,5 +1,10 @@
 use crate::{eval::eval, list, Error, ErrorKind, TulispContext, TulispValue};
 
+/// Returns the first association for key in alist, comparing key against the
+/// alist elements using testfn if it is a function, and equal otherwise.
+///
+/// Read more about `alist`s
+/// [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Association-Lists.html).
 pub fn assoc(
     ctx: &mut TulispContext,
     key: &TulispValue,
@@ -27,6 +32,11 @@ pub fn assoc(
     }
 }
 
+/// Finds the first association (key . value) by comparing key with alist
+/// elements, and, if found, returns the value of that association.
+///
+/// Read more about `alist`s
+/// [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Association-Lists.html).
 pub fn alist_get(
     ctx: &mut TulispContext,
     key: &TulispValue,
@@ -63,6 +73,11 @@ fn assoc_find(
     Ok(TulispValue::nil())
 }
 
+/// Returns the value of the property `property` stored in the property list
+/// `plist`.
+///
+/// Read more about `plist`s
+/// [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Property-Lists.html).
 pub fn plist_get(plist: TulispValue, property: &TulispValue) -> Result<TulispValue, Error> {
     let mut next = plist;
     while let Some(cons) = next.as_list_cons() {
