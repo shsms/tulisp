@@ -573,9 +573,9 @@ impl TulispValueEnum {
         matches!(self, TulispValueEnum::Symbol { .. })
     }
 
-    pub fn as_str(&self) -> Result<&str, Error> {
+    pub fn as_string(&self) -> Result<String, Error> {
         match self {
-            TulispValueEnum::String { value, .. } => Ok(value),
+            TulispValueEnum::String { value, .. } => Ok(value.to_owned()),
             _ => Err(Error::new(
                 ErrorKind::TypeMismatch,
                 format!("Expected string: {}", self),

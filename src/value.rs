@@ -148,8 +148,7 @@ impl TulispValue {
         self.rc
             .as_ref()
             .borrow()
-            .as_str()
-            .map(|x| x.to_owned())
+            .as_string()
             .map_err(|e| e.with_span(self.span()))
     }
     pub(crate) fn clone_inner(&self) -> TulispValueEnum {
