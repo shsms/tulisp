@@ -569,6 +569,10 @@ impl TulispValueEnum {
         matches!(self, TulispValueEnum::String { .. })
     }
 
+    pub fn symbolp(&self) -> bool {
+        matches!(self, TulispValueEnum::Symbol { .. })
+    }
+
     pub fn as_str(&self) -> Result<&str, Error> {
         match self {
             TulispValueEnum::String { value, .. } => Ok(value),

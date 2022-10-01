@@ -141,6 +141,9 @@ impl TulispValue {
     pub fn stringp(&self) -> bool {
         self.rc.as_ref().borrow().stringp()
     }
+    pub fn symbolp(&self) -> bool {
+        self.rc.as_ref().borrow().symbolp()
+    }
     pub fn as_string(&self) -> Result<String, Error> {
         self.rc
             .as_ref()
