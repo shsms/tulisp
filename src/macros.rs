@@ -4,7 +4,7 @@ macro_rules! list {
         $ret.push($item)
     };
     (@push $ret:ident, @ $item:expr) => {
-        $ret.append($item)
+        $item.deep_copy().and_then(|ret| $ret.append(ret))
     };
     (@push $ret:ident, $item:expr, $($items:tt)+) => {
         list!(@push $ret, $item).and_then(|ret|

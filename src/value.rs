@@ -173,11 +173,6 @@ impl TulispValue {
 
     predicate_fn!(pub(crate), is_bounce);
     // predicates end
-
-    #[doc(hidden)]
-    pub fn span(&self) -> Option<Span> {
-        self.span.get()
-    }
 }
 
 // pub(crate) methods on TulispValue
@@ -229,15 +224,28 @@ impl TulispValue {
         self.rc.as_ref().borrow_mut().take()
     }
 
-    pub(crate) fn deep_copy(&self) -> Result<TulispValue, Error> {
+    #[doc(hidden)]
+    pub fn span(&self) -> Option<Span> {
+        self.span.get()
+    }
+
+    #[doc(hidden)]
+    pub fn deep_copy(&self) -> Result<TulispValue, Error> {
         let mut val = self.clone();
         let mut ret = TulispValueEnum::Nil;
-        if !val.consp() {
+        if val.symbolp() {
+            return Ok(val);
+        } else if !val.consp() {
             ret = val.clone_inner();
         } else {
             loop {
                 let (first, rest) = (val.car()?, val.cdr()?);
-                ret.push_with_meta(first.clone_inner().into_ref(), val.span(), val.ctxobj())?;
+                let first = if first.symbolp() {
+                    first
+                } else {
+                    first.clone_inner().into_ref()
+                };
+                ret.push_with_meta(first, val.span(), val.ctxobj())?;
                 if !rest.consp() {
                     ret.append(rest)?;
                     break;
