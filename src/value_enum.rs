@@ -367,27 +367,25 @@ impl TulispValueEnum {
         }
     }
 
-    pub fn unset(&mut self, span: Option<Span>) -> Result<(), Error> {
+    pub fn unset(&mut self) -> Result<(), Error> {
         if let TulispValueEnum::Symbol { value, .. } = self {
-            value.unset().map_err(|e| e.with_span(span))
+            value.unset()
         } else {
             Err(Error::new(
                 ErrorKind::TypeMismatch,
                 "Can unbind only from Symbols".to_string(),
-            )
-            .with_span(span))
+            ))
         }
     }
 
-    pub fn get(&self, span: Option<Span>) -> Result<TulispValue, Error> {
+    pub fn get(&self) -> Result<TulispValue, Error> {
         if let TulispValueEnum::Symbol { value, .. } = self {
-            value.get().map_err(|e| e.with_span(span))
+            value.get()
         } else {
             Err(Error::new(
                 ErrorKind::TypeMismatch,
-                "Can unbind only from Symbols".to_string(),
-            )
-            .with_span(span))
+                "Can get only from Symbols".to_string(),
+            ))
         }
     }
 

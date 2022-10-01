@@ -96,11 +96,19 @@ impl TulispValue {
     }
 
     pub fn unset(&self) -> Result<(), Error> {
-        self.rc.as_ref().borrow_mut().unset(self.span())
+        self.rc
+            .as_ref()
+            .borrow_mut()
+            .unset()
+            .map_err(|e| e.with_span(self.span()))
     }
 
     pub fn get(&self) -> Result<TulispValue, Error> {
-        self.rc.as_ref().borrow().get(self.span())
+        self.rc
+            .as_ref()
+            .borrow()
+            .get()
+            .map_err(|e| e.with_span(self.span()))
     }
 
     pub(crate) fn new(vv: TulispValueEnum) -> TulispValue {
