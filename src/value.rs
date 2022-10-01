@@ -45,6 +45,14 @@ impl std::fmt::Display for TulispValue {
     }
 }
 
+macro_rules! predicate_fn {
+    ($visibility: vis, $name: ident $(, $doc: literal)?) => {
+        $(#[doc=$doc])?
+        $visibility fn $name(&self) -> bool {
+            self.rc.as_ref().borrow().$name()
+        }
+    };
+}
 impl TulispValue {
     pub fn cons(car: TulispValue, cdr: TulispValue) -> TulispValue {
         TulispValueEnum::List {
@@ -120,30 +128,22 @@ impl TulispValue {
             .map(|_| self)
             .map_err(|e| e.with_span(self.span()))
     }
-    pub(crate) fn is_bounce(&self) -> bool {
-        self.rc.as_ref().borrow().is_bounce()
-    }
-    pub fn consp(&self) -> bool {
-        self.rc.as_ref().borrow().consp()
-    }
-    pub fn listp(&self) -> bool {
-        self.rc.as_ref().borrow().listp()
-    }
-    pub fn integerp(&self) -> bool {
-        self.rc.as_ref().borrow().integerp()
-    }
-    pub fn floatp(&self) -> bool {
-        self.rc.as_ref().borrow().floatp()
-    }
-    pub fn numberp(&self) -> bool {
-        self.rc.as_ref().borrow().numberp()
-    }
-    pub fn stringp(&self) -> bool {
-        self.rc.as_ref().borrow().stringp()
-    }
-    pub fn symbolp(&self) -> bool {
-        self.rc.as_ref().borrow().symbolp()
-    }
+
+    // predicates begin
+    predicate_fn!(pub, consp);
+    predicate_fn!(pub, listp);
+    predicate_fn!(pub, integerp);
+    predicate_fn!(pub, floatp);
+    predicate_fn!(pub, numberp);
+    predicate_fn!(pub, stringp);
+    predicate_fn!(pub, symbolp);
+
+    predicate_fn!(pub, null);
+    predicate_fn!(pub, as_bool);
+
+    predicate_fn!(pub(crate), is_bounce);
+    // predicates end
+
     pub fn as_string(&self) -> Result<String, Error> {
         self.rc
             .as_ref()
@@ -151,9 +151,6 @@ impl TulispValue {
             .as_str()
             .map(|x| x.to_owned())
             .map_err(|e| e.with_span(self.span()))
-    }
-    pub fn null(&self) -> bool {
-        self.rc.as_ref().borrow().null()
     }
     pub(crate) fn clone_inner(&self) -> TulispValueEnum {
         self.rc.as_ref().borrow().clone()
@@ -188,9 +185,6 @@ impl TulispValue {
             .borrow()
             .try_int()
             .map_err(|e| e.with_span(self.span()))
-    }
-    pub fn as_bool(&self) -> bool {
-        self.rc.as_ref().borrow().as_bool()
     }
     pub fn as_symbol(&self) -> Result<String, Error> {
         self.rc
