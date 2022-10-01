@@ -22,6 +22,14 @@ impl Scope {
     }
 }
 
+/// Represents an instance of the _Tulisp_ interpreter.
+///
+/// Owns the
+/// [`obarray`](https://www.gnu.org/software/emacs/manual/html_node/elisp/Creating-Symbols.html)
+/// which keeps track of all interned `Symbol`s.
+///
+/// All evaluation of _Tulisp_ programs need to be done on a `TulispContext`
+/// instance.
 pub struct TulispContext {
     obarray: HashMap<String, TulispValue>,
 }
@@ -43,7 +51,10 @@ impl TulispContext {
         ctx
     }
 
-    // https://www.gnu.org/software/emacs/manual/html_node/elisp/Creating-Symbols.html#index-intern
+    /// Returns an interned symbol with the given name.
+    ///
+    /// Read more about creating and interning symbols
+    /// [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Creating-Symbols.html).
     pub fn intern(&mut self, name: &str) -> TulispValue {
         if let Some(sym) = self.obarray.get(name) {
             sym.clone()
@@ -59,31 +70,39 @@ impl TulispContext {
         self.obarray.get(name).map(|x| x.to_owned())
     }
 
+    /// Evaluates the given value and returns the result.
     pub fn eval(&mut self, value: &TulispValue) -> Result<TulispValue, Error> {
         eval(self, value)
     }
 
+    /// Parses and evaluates the given string, and returns the result.
     pub fn eval_string(&mut self, string: &str) -> Result<TulispValue, Error> {
         let vv = parse(self, string)?;
         self.eval_progn(&vv)
     }
 
-    pub fn eval_progn(&mut self, value: &TulispValue) -> Result<TulispValue, Error> {
+    /// Evaluates each item in the given sequence, and returns the value of the
+    /// last one.
+    pub fn eval_progn(&mut self, seq: &TulispValue) -> Result<TulispValue, Error> {
         let mut ret = TulispValue::nil();
-        for val in value.base_iter() {
+        for val in seq.base_iter() {
             ret = eval(self, &val)?;
         }
         Ok(ret)
     }
 
-    pub fn eval_each(&mut self, value: &TulispValue) -> Result<TulispValue, Error> {
+    /// Evaluates each item in the given sequence, and returns the value of
+    /// each.
+    pub fn eval_each(&mut self, seq: &TulispValue) -> Result<TulispValue, Error> {
         let ret = TulispValue::nil();
-        for val in value.base_iter() {
+        for val in seq.base_iter() {
             ret.push(eval(self, &val)?)?;
         }
         Ok(ret)
     }
 
+    /// Parses and evaluates the contents of the given file and returns the
+    /// value.
     pub fn eval_file(&mut self, filename: &str) -> Result<TulispValue, Error> {
         let contents = fs::read_to_string(filename).expect("Something went wrong reading the file");
         self.eval_string(&contents)
