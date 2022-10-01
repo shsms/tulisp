@@ -4,7 +4,7 @@ pub fn assoc(
     ctx: &mut TulispContext,
     key: &TulispValue,
     alist: &TulispValue,
-    _testfn: Option<TulispValue>,
+    testfn: Option<TulispValue>,
 ) -> Result<TulispValue, Error> {
     if !alist.consp() {
         return Err(
@@ -12,7 +12,7 @@ pub fn assoc(
                 .with_span(alist.span()),
         );
     }
-    if let Some(testfn) = _testfn {
+    if let Some(testfn) = testfn {
         let pred = eval(ctx, &testfn)?;
 
         let mut testfn = |_1: &TulispValue, _2: &TulispValue| -> Result<bool, Error> {

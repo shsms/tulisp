@@ -264,10 +264,10 @@ fn test_lists() -> Result<(), Error> {
     tulisp_assert! {
         program: r##"
         (let ((vv '((20 . "person") (30 . 120))))
-          (list (assoc 30 vv)
+          (list (assoc 30 vv 'eq)
                 (assoc 30 vv 'equal)
 
-                (alist-get 20 vv)
+                (alist-get 20 vv nil nil 'eq)
                 (alist-get 20 vv nil nil 'equal)
 
                 (alist-get 40 vv)
@@ -276,7 +276,7 @@ fn test_lists() -> Result<(), Error> {
                 (alist-get 40 vv "something")
                 (alist-get 40 vv "something" nil 'equal)))
         "##,
-        result: r##"'(nil (30 . 120) nil "person" nil nil "something" "something")"##,
+        result: r##"'((30 . 120) (30 . 120) "person" "person" nil nil "something" "something")"##,
     }
 
     tulisp_assert! {

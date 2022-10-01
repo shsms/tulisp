@@ -1,4 +1,4 @@
-use std::{fmt::Write, iter::Peekable, str::Chars};
+use std::{collections::HashMap, fmt::Write, iter::Peekable, str::Chars};
 
 use crate::{
     eval::{eval, macroexpand},
@@ -271,6 +271,8 @@ enum MacroExpand {
 struct Parser<'a, 'b> {
     tokenizer: Peekable<Tokenizer<'a>>,
     ctx: &'b mut TulispContext,
+    ints: HashMap<i64, TulispValue>,
+    strings: HashMap<String, TulispValue>,
 }
 
 impl Parser<'_, '_> {
@@ -278,6 +280,8 @@ impl Parser<'_, '_> {
         Parser {
             tokenizer: Tokenizer::new(program).peekable(),
             ctx,
+            ints: Default::default(),
+            strings: Default::default(),
         }
     }
 
@@ -444,17 +448,26 @@ impl Parser<'_, '_> {
                         .with_span(Some(span)),
                 ))
             }
-            Token::String { span, value } => Ok(Some(
-                TulispValueEnum::String { value }
-                    .into_ref()
-                    .with_span(Some(span)),
-            )),
+            Token::String { span, value } => Ok(Some(match self.strings.get(&value) {
+                Some(vv) => vv.with_span(Some(span)),
+                None => {
+                    let vv = TulispValueEnum::String {
+                        value: value.clone(),
+                    }
+                    .into_ref();
+                    self.strings.insert(value, vv.clone());
+                    vv.with_span(Some(span))
+                }
+            })),
 
-            Token::Integer { span, value } => Ok(Some(
-                TulispValueEnum::Int { value }
-                    .into_ref()
-                    .with_span(Some(span)),
-            )),
+            Token::Integer { span, value } => Ok(Some(match self.ints.get(&value) {
+                Some(vv) => vv.with_span(Some(span)),
+                None => {
+                    let vv = TulispValueEnum::Int { value }.into_ref();
+                    self.ints.insert(value, vv.clone());
+                    vv.with_span(Some(span))
+                }
+            })),
             Token::Float { span, value } => Ok(Some(
                 TulispValueEnum::Float { value }
                     .into_ref()
