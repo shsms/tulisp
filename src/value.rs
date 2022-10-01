@@ -53,6 +53,20 @@ macro_rules! predicate_fn {
         }
     };
 }
+
+macro_rules! extractor_fn_with_err {
+    ($retty: ty, $name: ident $(, $doc: literal)?) => {
+        $(#[doc=$doc])?
+        pub fn $name(&self) -> Result<$retty, Error> {
+            self.rc
+                .as_ref()
+                .borrow()
+                .$name()
+                .map_err(|e| e.with_span(self.span()))
+        }
+    };
+}
+
 impl TulispValue {
     pub fn cons(car: TulispValue, cdr: TulispValue) -> TulispValue {
         TulispValueEnum::List {
@@ -144,77 +158,29 @@ impl TulispValue {
     predicate_fn!(pub(crate), is_bounce);
     // predicates end
 
-    pub fn as_string(&self) -> Result<String, Error> {
-        self.rc
-            .as_ref()
-            .borrow()
-            .as_string()
-            .map_err(|e| e.with_span(self.span()))
-    }
+    // extractors begin
+    extractor_fn_with_err!(f64, try_float);
+    extractor_fn_with_err!(i64, try_int);
+
+    extractor_fn_with_err!(f64, as_float);
+    extractor_fn_with_err!(i64, as_int);
+    extractor_fn_with_err!(String, as_symbol);
+    extractor_fn_with_err!(String, as_string);
+    extractor_fn_with_err!(Rc<dyn Any>, as_any);
+
+    extractor_fn_with_err!(TulispValue, car);
+    extractor_fn_with_err!(TulispValue, cdr);
+    // extractors end
+
     pub(crate) fn clone_inner(&self) -> TulispValueEnum {
         self.rc.as_ref().borrow().clone()
     }
     pub(crate) fn inner_ref(&self) -> Ref<'_, TulispValueEnum> {
         self.rc.as_ref().borrow()
     }
-    pub fn as_float(&self) -> Result<f64, Error> {
-        self.rc
-            .as_ref()
-            .borrow()
-            .as_float()
-            .map_err(|e| e.with_span(self.span()))
-    }
-    pub fn as_int(&self) -> Result<i64, Error> {
-        self.rc
-            .as_ref()
-            .borrow()
-            .as_int()
-            .map_err(|e| e.with_span(self.span()))
-    }
-    pub fn try_float(&self) -> Result<f64, Error> {
-        self.rc
-            .as_ref()
-            .borrow()
-            .try_float()
-            .map_err(|e| e.with_span(self.span()))
-    }
-    pub fn try_int(&self) -> Result<i64, Error> {
-        self.rc
-            .as_ref()
-            .borrow()
-            .try_int()
-            .map_err(|e| e.with_span(self.span()))
-    }
-    pub fn as_symbol(&self) -> Result<String, Error> {
-        self.rc
-            .as_ref()
-            .borrow()
-            .as_symbol()
-            .map_err(|e| e.with_span(self.span()))
-    }
-    pub fn as_any(&self) -> Result<Rc<dyn Any>, Error> {
-        self.rc
-            .as_ref()
-            .borrow()
-            .as_any()
-            .map_err(|e| e.with_span(self.span()))
-    }
+
     pub(crate) fn as_list_cons(&self) -> Option<Cons> {
         self.rc.as_ref().borrow().as_list_cons()
-    }
-    pub fn car(&self) -> Result<TulispValue, Error> {
-        self.rc
-            .as_ref()
-            .borrow()
-            .car()
-            .map_err(|e| e.with_span(self.span()))
-    }
-    pub fn cdr(&self) -> Result<TulispValue, Error> {
-        self.rc
-            .as_ref()
-            .borrow()
-            .cdr()
-            .map_err(|e| e.with_span(self.span()))
     }
     pub fn fmt_string(&self) -> String {
         self.rc.as_ref().borrow().fmt_string()
