@@ -352,7 +352,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         }
         let mut local = Scope::default();
         for varitem in varlist.base_iter() {
-            if varitem.as_symbol().is_ok() {
+            if varitem.symbolp() {
                 local.set(varitem, TulispValue::nil())?;
             } else if varitem.consp() {
                 let span = varitem.span();
