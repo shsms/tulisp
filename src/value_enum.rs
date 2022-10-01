@@ -398,7 +398,7 @@ impl TulispValueEnum {
         }
     }
 
-    pub fn push(&mut self, val: TulispValue) -> Result<&mut TulispValueEnum, Error> {
+    pub fn push(&mut self, val: TulispValue) -> Result<(), Error> {
         self.push_with_meta(val, None, None)
     }
 
@@ -407,16 +407,16 @@ impl TulispValueEnum {
         val: TulispValue,
         span_in: Option<Span>,
         ctxobj: Option<TulispValue>,
-    ) -> Result<&mut TulispValueEnum, Error> {
+    ) -> Result<(), Error> {
         if let TulispValueEnum::List { cons, .. } = self {
             let span = val.span();
             cons.push_with_meta(val, span_in, ctxobj)
                 .map_err(|e| e.with_span(span))?;
-            Ok(self)
+            Ok(())
         } else if self.null() {
             let cons = Cons::new(val, TulispValue::nil());
             *self = TulispValueEnum::List { cons, ctxobj };
-            Ok(self)
+            Ok(())
         } else {
             Err(
                 Error::new(ErrorKind::TypeMismatch, "unable to push".to_string())
@@ -425,11 +425,11 @@ impl TulispValueEnum {
         }
     }
 
-    pub fn append(&mut self, val: TulispValue) -> Result<&mut TulispValueEnum, Error> {
+    pub fn append(&mut self, val: TulispValue) -> Result<(), Error> {
         if let TulispValueEnum::List { cons, .. } = self {
             let span = val.span();
             cons.append(val).map_err(|e| e.with_span(span))?;
-            Ok(self)
+            Ok(())
         } else if self.null() {
             if !val.null() {
                 *self = TulispValueEnum::List {
@@ -439,7 +439,7 @@ impl TulispValueEnum {
                     ctxobj: None,
                 };
             }
-            Ok(self)
+            Ok(())
         } else {
             Err(Error::new(
                 ErrorKind::TypeMismatch,
