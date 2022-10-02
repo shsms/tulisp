@@ -21,6 +21,7 @@ impl Span {
     }
 }
 
+/// A type for representing tulisp objects.
 #[derive(Debug, Clone)]
 pub struct TulispValue {
     rc: Rc<RefCell<TulispValueEnum>>,
@@ -69,10 +70,19 @@ macro_rules! extractor_fn_with_err {
 
 // pub methods on TulispValue
 impl TulispValue {
+    /// Create a new `nil` value.
+    ///
+    /// `nil` is the `False` value in _Tulisp_.  It is also the value of an
+    /// empty list.  So it is possible to construct lists, by chaining calls to
+    /// `push` on a `nil` value.
+    ///
+    /// Read more about `nil` in Emacs Lisp
+    /// [here](https://www.gnu.org/software/emacs/manual/html_node/eintr/nil-explained.html).
     pub fn nil() -> TulispValue {
         TulispValue::from(TulispValueEnum::Nil)
     }
 
+    /// Make a cons cell with the given car and cdr values.
     pub fn cons(car: TulispValue, cdr: TulispValue) -> TulispValue {
         TulispValueEnum::List {
             cons: Cons::new(car, cdr),
@@ -81,22 +91,55 @@ impl TulispValue {
         .into()
     }
 
+    /// Returns true if `self` and `other` have equal values.
+    ///
+    /// Read more about Emacs equality predicates
+    /// [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Equality-Predicates.html).
     pub fn equal(&self, other: &TulispValue) -> bool {
         *self.rc.as_ref().borrow() == *other.rc.as_ref().borrow()
     }
 
+    /// Returns true if `self` and `other` are the same object.
+    ///
+    /// Read more about Emacs equality predicates
+    /// [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Equality-Predicates.html).
     pub fn eq(&self, other: &TulispValue) -> bool {
         Rc::ptr_eq(&self.rc, &other.rc)
     }
 
+    /// Returns an iterator over the values inside `self`.
     pub fn base_iter(&self) -> cons::BaseIter {
         self.rc.as_ref().borrow().base_iter()
     }
 
+    /// Returns an iterator over the `TryInto` results on the values inside
+    /// `self`.
+    ///
+    /// ## Example
+    /// ```rust
+    /// # use tulisp::{TulispContext, Error};
+    /// #
+    /// # fn main() -> Result<(), Error> {
+    /// # let mut ctx = TulispContext::new();
+    /// #
+    /// let items = ctx.eval_string("'(10 20 30 40 -5)")?;
+    ///
+    /// let items_vec: Vec<i64> = items
+    ///     .iter::<i64>()
+    ///     .map(|x| x.unwrap()) // works because there are only i64 values.
+    ///     .collect();
+    ///
+    /// assert_eq!(items_vec, vec![10, 20, 30, 40, -5]);
+    /// #
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn iter<T: std::convert::TryFrom<TulispValue>>(&self) -> cons::Iter<T> {
         cons::Iter::new(self.base_iter())
     }
 
+    /// Adds the given value to the end of a list. Returns an Error if `self` is
+    /// not a list.
     pub fn push(&self, val: TulispValue) -> Result<&TulispValue, Error> {
         self.rc
             .as_ref()
@@ -106,19 +149,27 @@ impl TulispValue {
             .map_err(|e| e.with_span(self.span()))
     }
 
-    pub fn append(&self, val: TulispValue) -> Result<&TulispValue, Error> {
+    /// Attaches the other list to the end of self.  Returns an Error if `self`
+    /// is not a list.
+    pub fn append(&self, other_list: TulispValue) -> Result<&TulispValue, Error> {
         self.rc
             .as_ref()
             .borrow_mut()
-            .append(val)
+            .append(other_list)
             .map(|_| self)
             .map_err(|e| e.with_span(self.span()))
     }
 
+    /// Returns a string representation of `self`, similar to the Emacs Lisp
+    /// function `princ`.
     pub fn fmt_string(&self) -> String {
         self.rc.as_ref().borrow().fmt_string()
     }
 
+    /// Sets a value to `self` in the current scope. If there was a previous
+    /// value assigned to `self` in the current scope, it will be lost.
+    ///
+    /// Returns an Error if `self` is not a `Symbol`.
     pub fn set(&self, to_set: TulispValue) -> Result<(), Error> {
         self.rc
             .as_ref()
@@ -127,6 +178,10 @@ impl TulispValue {
             .map_err(|e| e.with_span(self.span()))
     }
 
+    /// Sets a value to `self`, in the new scope, such that when it is `unset`,
+    /// the previous value becomes active again.
+    ///
+    /// Returns an Error if `self` is not a `Symbol`.
     pub fn set_scope(&self, to_set: TulispValue) -> Result<(), Error> {
         self.rc
             .as_ref()
@@ -135,6 +190,9 @@ impl TulispValue {
             .map_err(|e| e.with_span(self.span()))
     }
 
+    /// Unsets the value from the most recent scope.
+    ///
+    /// Returns an Error if `self` is not a `Symbol`.
     pub fn unset(&self) -> Result<(), Error> {
         self.rc
             .as_ref()
@@ -144,34 +202,113 @@ impl TulispValue {
     }
 
     // extractors begin
-    extractor_fn_with_err!(TulispValue, get);
-    extractor_fn_with_err!(TulispValue, car);
-    extractor_fn_with_err!(TulispValue, cdr);
+    extractor_fn_with_err!(
+        TulispValue,
+        get,
+        "Gets the value from `self`.\n\nReturns an Error if `self` is not a `Symbol`."
+    );
+    extractor_fn_with_err!(
+        TulispValue,
+        car,
+        "Returns the `car` of `self` if it is a list, and an Error otherwise."
+    );
+    extractor_fn_with_err!(
+        TulispValue,
+        cdr,
+        "Returns the `cdr` of `self` if it is a list, and an Error otherwise."
+    );
 
-    extractor_fn_with_err!(f64, try_float);
-    extractor_fn_with_err!(i64, try_int);
+    extractor_fn_with_err!(
+        f64,
+        try_float,
+        "Returns a float if `self` holds a float or an int, and an Error otherwise."
+    );
+    extractor_fn_with_err!(
+        i64,
+        try_int,
+        "Returns an int if `self` holds a float or an int, and an Error otherwise."
+    );
 
-    extractor_fn_with_err!(f64, as_float);
-    extractor_fn_with_err!(i64, as_int);
-    extractor_fn_with_err!(String, as_symbol);
-    extractor_fn_with_err!(String, as_string);
-    extractor_fn_with_err!(Rc<dyn Any>, as_any);
+    extractor_fn_with_err!(
+        f64,
+        as_float,
+        "Returns a float is `self` holds a float, and an Error otherwise."
+    );
+    extractor_fn_with_err!(
+        i64,
+        as_int,
+        "Returns an int is `self` holds an int, and an Error otherwise."
+    );
+    extractor_fn_with_err!(
+        String,
+        as_symbol,
+        "Returns a string containing symbol name, if `self` is a symbol, and an Error otherwise."
+    );
+    extractor_fn_with_err!(
+        String,
+        as_string,
+        "Returns a string if `self` contains a string, and an Error otherwise."
+    );
+    extractor_fn_with_err!(
+        Rc<dyn Any>,
+        as_any,
+        r#"Returns a boxed value if `self` contains a boxed value, and an Error otherwise.
+
+Functions exported to _Tulisp_ can return arbitrary boxed values, which can be extracted
+with `as_any`, and downcast to desired types.
+
+## Example
+```rust
+# use tulisp::{TulispContext, tulisp_fn, Error};
+# use std::any::Any;
+# use std::rc::Rc;
+#
+# fn main() -> Result<(), Error> {
+let mut ctx = TulispContext::new();
+
+struct TestStruct {
+    value: i64,
+}
+
+#[tulisp_fn(add_func = "ctx")]
+fn make_any(inp: i64) -> Rc<dyn Any> {
+    Rc::new(TestStruct { value: inp })
+}
+
+let out = ctx.eval_string("(make_any 25)")?;
+let ts = out.as_any()?.downcast::<TestStruct>().unwrap();
+
+assert_eq!(ts.value, 25);
+#
+# Ok(())
+# }
+```
+"#
+    );
 
     // extractors end
 
     // predicates begin
-    predicate_fn!(pub, consp);
-    predicate_fn!(pub, listp);
-    predicate_fn!(pub, integerp);
-    predicate_fn!(pub, floatp);
-    predicate_fn!(pub, numberp);
-    predicate_fn!(pub, stringp);
-    predicate_fn!(pub, symbolp);
+    predicate_fn!(pub, consp, "Returns True if `self` is a cons cell.");
+    predicate_fn!(
+        pub,
+        listp,
+        "Returns True if `self` is a list. i.e., a cons cell or nil."
+    );
+    predicate_fn!(pub, integerp, "Returns True if `self` is an integer.");
+    predicate_fn!(pub, floatp, "Returns True if `self` is a float.");
+    predicate_fn!(
+        pub,
+        numberp,
+        "Returns True if `self` is a number. i.e., an integer or a float."
+    );
+    predicate_fn!(pub, stringp, "Returns True if `self` is a string.");
+    predicate_fn!(pub, symbolp, "Returns True if `self` is a Symbol.");
 
-    predicate_fn!(pub, null);
-    predicate_fn!(pub, as_bool);
+    predicate_fn!(pub, null, "Returns True if `self` is `nil`.");
+    predicate_fn!(pub, as_bool, "Returns True if `self` is not `nil`.");
 
-    predicate_fn!(pub(crate), is_bounce);
+    predicate_fn!(pub(crate), is_bounce, "Returns True if `self` is a tail-call trampoline bounce object.");
     // predicates end
 }
 
