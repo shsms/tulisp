@@ -111,5 +111,6 @@ impl TulispContext {
             )
         })?;
         self.eval_string(&contents)
+            .map_err(|e| e.with_filename(filename.to_owned()))
     }
 }
