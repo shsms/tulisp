@@ -87,7 +87,7 @@ fn test_defun() -> Result<(), Error> {
     }
     tulisp_assert! {
         program: "(defun j (&rest x y) nil) (j)",
-        error: "ERROR:TypeMismatch: Too many &rest parameters, in Some(Span { start: 18, end: 19 })",
+        error: "ERROR:TypeMismatch: Too many &rest parameters, in Some(Span { start: (1, 18), end: (1, 19) })",
     }
     tulisp_assert! {
         program: r##"(defun j (&rest x) x) (list (j) (j 10) (j 100 200))"##,
@@ -107,11 +107,11 @@ fn test_defun() -> Result<(), Error> {
         }
     tulisp_assert! {
         program: "(defun add (x y) (+ x y)) (add 10)",
-        error: "ERROR:TypeMismatch: Too few arguments, in Some(Span { start: 26, end: 34 })",
+        error: "ERROR:TypeMismatch: Too few arguments, in Some(Span { start: (1, 26), end: (1, 34) })",
     }
     tulisp_assert! {
         program: "(defun add (x y) (+ x y)) (add 10 20 30)",
-        error: "ERROR:TypeMismatch: Too many arguments, in Some(Span { start: 37, end: 39 })",
+        error: "ERROR:TypeMismatch: Too many arguments, in Some(Span { start: (1, 37), end: (1, 39) })",
     }
     tulisp_assert! {
         program: "(defmacro num ()  4) (macroexpand '(num))",
@@ -133,11 +133,11 @@ fn test_defun() -> Result<(), Error> {
     }
     tulisp_assert! {
         program: "(defmacro inc (var)  (list 'setq var (list '+ 1 var))) (let ((x 4)) (inc))",
-        error: "ERROR:TypeMismatch: Too few arguments, in Some(Span { start: 68, end: 73 })",
+        error: "ERROR:TypeMismatch: Too few arguments, in Some(Span { start: (1, 68), end: (1, 73) })",
     }
     tulisp_assert! {
         program: "(defmacro inc (var)  (list 'setq var (list '+ 1 var))) (let ((x 4)) (inc 4 5))",
-        error: "ERROR:TypeMismatch: Too many arguments, in Some(Span { start: 75, end: 76 })",
+        error: "ERROR:TypeMismatch: Too many arguments, in Some(Span { start: (1, 75), end: (1, 76) })",
     }
     tulisp_assert! {
         program: r##"
@@ -189,7 +189,7 @@ fn test_eval() -> Result<(), Error> {
 fn test_strings() -> Result<(), Error> {
     tulisp_assert! {
         program: r##"(concat 'hello 'world)"##,
-        error: "ERROR:TypeMismatch: Not a string: 'hello, in Some(Span { start: 0, end: 22 })"
+        error: "ERROR:TypeMismatch: Not a string: 'hello, in Some(Span { start: (1, 0), end: (1, 22) })"
     }
     tulisp_assert! { program: r##"(concat "hello" " world")"##, result: r#""hello world""# }
     tulisp_assert! {
@@ -229,8 +229,11 @@ fn test_lists() -> Result<(), Error> {
     }
 
     tulisp_assert! {
-        program: "(setq items (append items '(10)))",
-        error: "ERROR:TypeMismatch: Variable definition is void: items, in Some(Span { start: 20, end: 25 })",
+        program: r#"
+        (setq items
+              (append items '(10)))
+        "#,
+        error: "ERROR:TypeMismatch: Variable definition is void: items, in Some(Span { start: (3, 22), end: (3, 27) })",
     }
 
     tulisp_assert! {
@@ -298,7 +301,7 @@ fn test_lists() -> Result<(), Error> {
 fn test_math() -> Result<(), Error> {
     tulisp_assert! {
         program: "(/ 10 0)",
-        error: "ERROR:Undefined: Division by zero, in Some(Span { start: 0, end: 8 })",
+        error: "ERROR:Undefined: Division by zero, in Some(Span { start: (1, 0), end: (1, 8) })",
     }
 
     tulisp_assert! { program: "(/ 24 2 2)",                result: "6"     }
@@ -337,16 +340,20 @@ fn test_let() -> Result<(), Error> {
         result: "'(77)",
     }
     tulisp_assert! {
-        program: "(let ((vv (+ 55 1)) (jj 20)) (append kk (+ vv jj 1)))",
-        error: "ERROR:TypeMismatch: Variable definition is void: kk, in Some(Span { start: 37, end: 39 })",
+        program: r#"
+        (let ((vv (+ 55 1))
+              (jj 20))
+          (append kk (+ vv jj 1)))
+        "#,
+        error: "ERROR:TypeMismatch: Variable definition is void: kk, in Some(Span { start: (4, 18), end: (4, 20) })",
     }
     tulisp_assert! {
         program: "(let ((22 (+ 55 1)) (jj 20)) (+ vv jj 1))",
-        error: "ERROR:TypeMismatch: Expected Symbol: Can't assign to 22, in Some(Span { start: 7, end: 9 })",
+        error: "ERROR:TypeMismatch: Expected Symbol: Can't assign to 22, in Some(Span { start: (1, 7), end: (1, 9) })",
     }
     tulisp_assert! {
         program: "(let (18 (vv (+ 55 1)) (jj 20)) (+ vv jj 1))",
-        error: "ERROR:SyntaxError: varitems inside a let-varlist should be a var or a binding: 18, in Some(Span { start: 5, end: 31 })",
+        error: "ERROR:SyntaxError: varitems inside a let-varlist should be a var or a binding: 18, in Some(Span { start: (1, 5), end: (1, 31) })",
     }
 
     tulisp_assert! {
@@ -393,7 +400,7 @@ fn test_sort() -> Result<(), Error> {
     }
     tulisp_assert! {
         program: "(sort '(20 10 30 15 45) '<<)",
-        error: "ERROR:TypeMismatch: Variable definition is void: <<, in Some(Span { start: 25, end: 27 })",
+        error: "ERROR:TypeMismatch: Variable definition is void: <<, in Some(Span { start: (1, 25), end: (1, 27) })",
     }
     tulisp_assert! {
         program: "(defun << (v1 v2) (> v1 v2)) (sort '(20 10 30 15 45) '<<)",
@@ -529,12 +536,12 @@ fn test_typed_iter() -> Result<(), Error> {
     tulisp_assert! {
         ctx: ctx,
         program: "(add_ints_no_default 20)",
-        error: "ERROR:TypeMismatch: In call to \"add_ints_no_default\", arg \"ints\" needs to be a list, in Some(Span { start: 21, end: 23 })",
+        error: "ERROR:TypeMismatch: In call to \"add_ints_no_default\", arg \"ints\" needs to be a list, in Some(Span { start: (1, 21), end: (1, 23) })",
     }
     tulisp_assert! {
         ctx: ctx,
         program: "(add_ints 20)",
-        error: "ERROR:TypeMismatch: In call to \"add_ints\", arg \"ints\" needs to be a list, in Some(Span { start: 10, end: 12 })",
+        error: "ERROR:TypeMismatch: In call to \"add_ints\", arg \"ints\" needs to be a list, in Some(Span { start: (1, 10), end: (1, 12) })",
     }
     Ok(())
 }
@@ -580,7 +587,7 @@ fn test_any() -> Result<(), Error> {
     tulisp_assert! {
         ctx: ctx,
         program: "(get_int 55)",
-        error: "ERROR:TypeMismatch: Expected Any(Rc<dyn Any>): 55, in Some(Span { start: 9, end: 11 })",
+        error: "ERROR:TypeMismatch: Expected Any(Rc<dyn Any>): 55, in Some(Span { start: (1, 9), end: (1, 11) })",
     }
     Ok(())
 }

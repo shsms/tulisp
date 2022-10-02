@@ -9,8 +9,8 @@ use crate::{
 
 struct Tokenizer<'a> {
     chars: Peekable<Chars<'a>>,
-    char_pos: usize,
-    line_pos: usize,
+    line: usize,
+    pos: usize,
 }
 
 #[derive(PartialEq, Debug)]
@@ -59,8 +59,8 @@ impl Tokenizer<'_> {
         let chars = program.chars().peekable();
         Tokenizer {
             chars,
-            char_pos: 0,
-            line_pos: 1,
+            line: 1,
+            pos: 0,
         }
     }
 
@@ -70,14 +70,19 @@ impl Tokenizer<'_> {
 
     fn next_char(&mut self) -> Option<char> {
         self.chars.next().map(|ch| {
-            self.char_pos += 1;
+            if ch == '\n' {
+                self.line += 1;
+                self.pos = 0;
+            } else {
+                self.pos += 1;
+            }
             ch
         })
     }
 
     fn read_string(&mut self) -> Option<Token> {
         assert_eq!(self.next_char()?, '"');
-        let start_pos = self.char_pos;
+        let start_pos = (self.line, self.pos);
         let mut output = String::new();
         while let Some(ch) = self.next_char() {
             match ch {
@@ -92,8 +97,8 @@ impl Tokenizer<'_> {
                                 ParserErrorKind::SyntaxError,
                                 format!("Unknown escape char {}", e),
                                 Span {
-                                    start: self.char_pos - 1,
-                                    end: self.char_pos,
+                                    start: (self.line, self.pos - 1),
+                                    end: (self.line, self.pos),
                                 },
                             )))
                         }
@@ -104,7 +109,7 @@ impl Tokenizer<'_> {
                     return Some(Token::String {
                         span: Span {
                             start: start_pos,
-                            end: self.char_pos,
+                            end: (self.line, self.pos),
                         },
                         value: output,
                     })
@@ -117,13 +122,13 @@ impl Tokenizer<'_> {
             "Incomplete string literal".to_owned(),
             Span {
                 start: start_pos,
-                end: self.char_pos,
+                end: (self.line, self.pos),
             },
         )))
     }
 
     fn read_num_ident(&mut self) -> Option<Token> {
-        let start_pos = self.char_pos;
+        let start_pos = (self.line, self.pos);
         let mut output = String::new();
         let mut first_char = true;
         let mut is_int = true;
@@ -162,17 +167,17 @@ impl Tokenizer<'_> {
         }
         if is_int && output != "-" {
             Some(Token::Integer {
-                span: Span::new(start_pos, self.char_pos),
+                span: Span::new(start_pos, (self.line, self.pos)),
                 value: output.parse::<i64>().unwrap(),
             })
         } else if is_float {
             Some(Token::Float {
-                span: Span::new(start_pos, self.char_pos),
+                span: Span::new(start_pos, (self.line, self.pos)),
                 value: output.parse::<f64>().unwrap(),
             })
         } else {
             Some(Token::Ident {
-                span: Span::new(start_pos, self.char_pos),
+                span: Span::new(start_pos, (self.line, self.pos)),
                 value: output,
             })
         }
@@ -188,7 +193,6 @@ impl Iterator for Tokenizer<'_> {
 
             match ch {
                 '\n' => {
-                    self.line_pos += 1;
                     self.next_char()?;
                     continue;
                 }
@@ -199,31 +203,31 @@ impl Iterator for Tokenizer<'_> {
                 '(' => {
                     self.next_char()?;
                     return Some(Token::OpenParen {
-                        span: Span::new(self.char_pos - 1, self.char_pos),
+                        span: Span::new((self.line, self.pos - 1), (self.line, self.pos)),
                     });
                 }
                 ')' => {
                     self.next_char()?;
                     return Some(Token::CloseParen {
-                        span: Span::new(self.char_pos - 1, self.char_pos),
+                        span: Span::new((self.line, self.pos - 1), (self.line, self.pos)),
                     });
                 }
                 '\'' => {
                     self.next_char()?;
                     return Some(Token::Quote {
-                        span: Span::new(self.char_pos - 1, self.char_pos),
+                        span: Span::new((self.line, self.pos - 1), (self.line, self.pos)),
                     });
                 }
                 '`' => {
                     self.next_char()?;
                     return Some(Token::Backtick {
-                        span: Span::new(self.char_pos - 1, self.char_pos),
+                        span: Span::new((self.line, self.pos - 1), (self.line, self.pos)),
                     });
                 }
                 '.' => {
                     self.next_char()?;
                     return Some(Token::Dot {
-                        span: Span::new(self.char_pos - 1, self.char_pos),
+                        span: Span::new((self.line, self.pos - 1), (self.line, self.pos)),
                     });
                 }
                 '#' => {
@@ -231,12 +235,12 @@ impl Iterator for Tokenizer<'_> {
                     if self.peek_char()? == '\'' {
                         self.next_char()?;
                         return Some(Token::SharpQuote {
-                            span: Span::new(self.char_pos - 2, self.char_pos),
+                            span: Span::new((self.line, self.pos - 2), (self.line, self.pos)),
                         });
                     }
                     return Some(Token::ParserError(ParserError::syntax_error(
                         "Unknown token #.  Did you mean #' ?".to_string(),
-                        Span::new(self.char_pos - 1, self.char_pos),
+                        Span::new((self.line, self.pos - 1), (self.line, self.pos)),
                     )));
                 }
                 ',' => {
@@ -244,11 +248,11 @@ impl Iterator for Tokenizer<'_> {
                     if self.peek_char()? == '@' {
                         self.next_char()?;
                         return Some(Token::Splice {
-                            span: Span::new(self.char_pos - 2, self.char_pos),
+                            span: Span::new((self.line, self.pos - 2), (self.line, self.pos)),
                         });
                     }
                     return Some(Token::Comma {
-                        span: Span::new(self.char_pos - 1, self.char_pos),
+                        span: Span::new((self.line, self.pos - 1), (self.line, self.pos)),
                     });
                 }
                 '"' => {
