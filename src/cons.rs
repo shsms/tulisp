@@ -2,13 +2,14 @@ use std::marker::PhantomData;
 
 use crate::error::Error;
 use crate::error::ErrorKind;
-use crate::value::{Span, TulispValue};
-use crate::value_enum::TulispValueEnum;
+use crate::object::Span;
+use crate::TulispObject;
+use crate::TulispValue;
 
 #[derive(Debug, Clone)]
 pub struct Cons {
-    car: TulispValue,
-    cdr: TulispValue,
+    car: TulispObject,
+    cdr: TulispObject,
 }
 
 impl PartialEq for Cons {
@@ -18,19 +19,19 @@ impl PartialEq for Cons {
 }
 
 impl Cons {
-    pub fn new(car: TulispValue, cdr: TulispValue) -> Self {
+    pub fn new(car: TulispObject, cdr: TulispObject) -> Self {
         Cons { car, cdr }
     }
 
-    pub fn push(&mut self, val: TulispValue) -> Result<&mut Self, Error> {
+    pub fn push(&mut self, val: TulispObject) -> Result<&mut Self, Error> {
         self.push_with_meta(val, None, None)
     }
 
     pub(crate) fn push_with_meta(
         &mut self,
-        val: TulispValue,
+        val: TulispObject,
         span: Option<Span>,
-        ctxobj: Option<TulispValue>,
+        ctxobj: Option<TulispObject>,
     ) -> Result<&mut Self, Error> {
         let mut last = self.cdr.clone();
 
@@ -38,10 +39,10 @@ impl Cons {
             last = last.cdr()?;
         }
         if last.null() {
-            last.assign(TulispValueEnum::List {
+            last.assign(TulispValue::List {
                 cons: Cons {
                     car: val,
-                    cdr: TulispValue::nil(),
+                    cdr: TulispObject::nil(),
                 },
                 ctxobj,
             });
@@ -55,7 +56,7 @@ impl Cons {
         Ok(self)
     }
 
-    pub fn append(&mut self, val: TulispValue) -> Result<&mut Self, Error> {
+    pub fn append(&mut self, val: TulispObject) -> Result<&mut Self, Error> {
         let mut last = self.cdr.clone();
 
         while last.consp() {
@@ -78,11 +79,11 @@ impl Cons {
         }
     }
 
-    pub(crate) fn car(&self) -> &TulispValue {
+    pub(crate) fn car(&self) -> &TulispObject {
         &self.car
     }
 
-    pub(crate) fn cdr(&self) -> &TulispValue {
+    pub(crate) fn cdr(&self) -> &TulispObject {
         &self.cdr
     }
 }
@@ -93,7 +94,7 @@ impl Drop for Cons {
             return;
         }
         let mut cdr = self.cdr.take();
-        while let TulispValueEnum::List { cons, .. } = cdr {
+        while let TulispValue::List { cons, .. } = cdr {
             if cons.cdr.strong_count() > 1 {
                 break;
             }
@@ -108,7 +109,7 @@ pub struct BaseIter {
 }
 
 impl Iterator for BaseIter {
-    type Item = TulispValue;
+    type Item = TulispObject;
 
     fn next(&mut self) -> Option<Self::Item> {
         match &self.next {
@@ -122,12 +123,12 @@ impl Iterator for BaseIter {
     }
 }
 
-pub struct Iter<T: std::convert::TryFrom<TulispValue>> {
+pub struct Iter<T: std::convert::TryFrom<TulispObject>> {
     iter: BaseIter,
     _d: PhantomData<T>,
 }
 
-impl<T: std::convert::TryFrom<TulispValue>> Iter<T> {
+impl<T: std::convert::TryFrom<TulispObject>> Iter<T> {
     pub fn new(iter: BaseIter) -> Self {
         Self {
             iter,
@@ -136,7 +137,7 @@ impl<T: std::convert::TryFrom<TulispValue>> Iter<T> {
     }
 }
 
-impl<T: 'static + std::convert::TryFrom<TulispValue>> Iterator for Iter<T> {
+impl<T: 'static + std::convert::TryFrom<TulispObject>> Iterator for Iter<T> {
     type Item = Result<T, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {

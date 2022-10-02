@@ -2,9 +2,8 @@ use std::{collections::HashMap, fmt::Write, iter::Peekable, str::Chars};
 
 use crate::{
     eval::{eval, macroexpand},
-    value::Span,
-    value_enum::TulispValueEnum,
-    Error, ErrorKind, TulispContext, TulispValue,
+    object::Span,
+    Error, ErrorKind, TulispContext, TulispObject, TulispValue,
 };
 
 struct Tokenizer<'a> {
@@ -275,8 +274,8 @@ enum MacroExpand {
 struct Parser<'a, 'b> {
     tokenizer: Peekable<Tokenizer<'a>>,
     ctx: &'b mut TulispContext,
-    ints: HashMap<i64, TulispValue>,
-    strings: HashMap<String, TulispValue>,
+    ints: HashMap<i64, TulispObject>,
+    strings: HashMap<String, TulispObject>,
 }
 
 impl Parser<'_, '_> {
@@ -293,8 +292,8 @@ impl Parser<'_, '_> {
         &mut self,
         start_span: Span,
         expand_macros: &MacroExpand,
-    ) -> Result<TulispValue, Error> {
-        let inner = TulispValue::nil();
+    ) -> Result<TulispObject, Error> {
+        let inner = TulispObject::nil();
         let mut got_dot = false;
         loop {
             let token = if let Some(token) = self.tokenizer.peek() {
@@ -354,7 +353,7 @@ impl Parser<'_, '_> {
         }
     }
 
-    fn parse_value(&mut self, expand_macros: &MacroExpand) -> Result<Option<TulispValue>, Error> {
+    fn parse_value(&mut self, expand_macros: &MacroExpand) -> Result<Option<TulispObject>, Error> {
         let token = if let Some(token) = self.tokenizer.next() {
             token
         } else {
@@ -379,7 +378,7 @@ impl Parser<'_, '_> {
                     }
                 };
                 Ok(Some(
-                    TulispValueEnum::Quote { value: next }
+                    TulispValue::Quote { value: next }
                         .into_ref()
                         .with_span(Some(span)),
                 ))
@@ -400,7 +399,7 @@ impl Parser<'_, '_> {
                     }
                 };
                 Ok(Some(
-                    TulispValueEnum::Backquote { value: next }
+                    TulispValue::Backquote { value: next }
                         .into_ref()
                         .with_span(Some(span)),
                 ))
@@ -426,7 +425,7 @@ impl Parser<'_, '_> {
                     }
                 };
                 Ok(Some(
-                    TulispValueEnum::Unquote { value: next }
+                    TulispValue::Unquote { value: next }
                         .into_ref()
                         .with_span(Some(span)),
                 ))
@@ -447,7 +446,7 @@ impl Parser<'_, '_> {
                     }
                 };
                 Ok(Some(
-                    TulispValueEnum::Splice { value: next }
+                    TulispValue::Splice { value: next }
                         .into_ref()
                         .with_span(Some(span)),
                 ))
@@ -455,7 +454,7 @@ impl Parser<'_, '_> {
             Token::String { span, value } => Ok(Some(match self.strings.get(&value) {
                 Some(vv) => vv.with_span(Some(span)),
                 None => {
-                    let vv = TulispValueEnum::String {
+                    let vv = TulispValue::String {
                         value: value.clone(),
                     }
                     .into_ref();
@@ -467,13 +466,13 @@ impl Parser<'_, '_> {
             Token::Integer { span, value } => Ok(Some(match self.ints.get(&value) {
                 Some(vv) => vv.with_span(Some(span)),
                 None => {
-                    let vv = TulispValueEnum::Int { value }.into_ref();
+                    let vv = TulispValue::Int { value }.into_ref();
                     self.ints.insert(value, vv.clone());
                     vv.with_span(Some(span))
                 }
             })),
             Token::Float { span, value } => Ok(Some(
-                TulispValueEnum::Float { value }
+                TulispValue::Float { value }
                     .into_ref()
                     .with_span(Some(span)),
             )),
@@ -481,9 +480,9 @@ impl Parser<'_, '_> {
                 Some(vv) => vv.with_span(Some(span)),
                 None => {
                     if value == "t" {
-                        TulispValueEnum::T.into_ref()
+                        TulispValue::T.into_ref()
                     } else if value == "nil" {
-                        TulispValue::nil()
+                        TulispObject::nil()
                     } else {
                         self.ctx.intern(&value).with_span(Some(span))
                     }
@@ -497,8 +496,8 @@ impl Parser<'_, '_> {
         }
     }
 
-    fn parse(&mut self) -> Result<TulispValue, Error> {
-        let output = TulispValue::nil();
+    fn parse(&mut self) -> Result<TulispObject, Error> {
+        let output = TulispObject::nil();
         while let Some(next) = self.parse_value(&MacroExpand::Yes)? {
             output.push(next)?;
         }
@@ -506,6 +505,6 @@ impl Parser<'_, '_> {
     }
 }
 
-pub fn parse(ctx: &mut TulispContext, program: &str) -> Result<TulispValue, Error> {
+pub fn parse(ctx: &mut TulispContext, program: &str) -> Result<TulispObject, Error> {
     Parser::new(ctx, program).parse()
 }

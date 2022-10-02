@@ -53,7 +53,7 @@ And in your `main.rs`:
 /*!
 ## Next steps
 
-1. Values in _Tulisp_ are represented in rust as [`TulispValue`](TulispValue)s.
+1. Values in _Tulisp_ are represented in rust as [`TulispObject`](TulispObject)s.
    That struct implements methods for performing operations on Tulisp values.
 
 1. [`TulispContext`](TulispContext) tracks the state of the interpreter and
@@ -84,8 +84,8 @@ pub use error::{Error, ErrorKind};
 mod lists;
 pub use lists::{alist_get, assoc, plist_get};
 
-mod value_enum;
-pub use value_enum::TulispValueEnum;
-
 mod value;
 pub use value::TulispValue;
+
+mod object;
+pub use object::TulispObject;

@@ -1,4 +1,4 @@
-use crate::value::Span;
+use crate::object::Span;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ErrorKind {

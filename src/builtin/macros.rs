@@ -5,11 +5,11 @@ use tulisp_proc_macros::{crate_add_macro, crate_fn_no_eval};
 use crate::cons::Cons;
 use crate::context::TulispContext;
 use crate::error::Error;
-use crate::value::TulispValue;
-use crate::value_enum::TulispValueEnum;
+use crate::TulispObject;
+use crate::TulispValue;
 use crate::{destruct_bind, list};
 
-fn thread_first(_ctx: &mut TulispContext, vv: &TulispValue) -> Result<TulispValue, Error> {
+fn thread_first(_ctx: &mut TulispContext, vv: &TulispObject) -> Result<TulispObject, Error> {
     destruct_bind!((_name x &optional form &rest more) = vv);
     if form.null() {
         Ok(x)
@@ -20,12 +20,12 @@ fn thread_first(_ctx: &mut TulispContext, vv: &TulispValue) -> Result<TulispValu
             Ok(list!(,form ,x.clone())?)
         }
     } else {
-        let inner = thread_first(_ctx, &list!(,TulispValue::nil() ,x.clone() ,form.clone())?)?;
-        thread_first(_ctx, &list!(,TulispValue::nil() ,inner ,@more.clone())?)
+        let inner = thread_first(_ctx, &list!(,TulispObject::nil() ,x.clone() ,form.clone())?)?;
+        thread_first(_ctx, &list!(,TulispObject::nil() ,inner ,@more.clone())?)
     }
 }
 
-fn thread_last(_ctx: &mut TulispContext, vv: &TulispValue) -> Result<TulispValue, Error> {
+fn thread_last(_ctx: &mut TulispContext, vv: &TulispObject) -> Result<TulispObject, Error> {
     destruct_bind!((_name x &optional form &rest more) = vv);
     if form.null() {
         Ok(x)
@@ -36,25 +36,25 @@ fn thread_last(_ctx: &mut TulispContext, vv: &TulispValue) -> Result<TulispValue
             Ok(list!(,form ,x.clone())?)
         }
     } else {
-        let inner = thread_last(_ctx, &list!(,TulispValue::nil() ,x.clone() ,form.clone())?)?;
-        thread_last(_ctx, &list!(,TulispValue::nil() ,inner ,@more.clone())?)
+        let inner = thread_last(_ctx, &list!(,TulispObject::nil() ,x.clone() ,form.clone())?)?;
+        thread_last(_ctx, &list!(,TulispObject::nil() ,inner ,@more.clone())?)
     }
 }
 
 #[crate_fn_no_eval]
 fn let_star(
     ctx: &mut TulispContext,
-    varlist: TulispValue,
-    rest: TulispValue,
-) -> Result<TulispValue, Error> {
+    varlist: TulispObject,
+    rest: TulispObject,
+) -> Result<TulispObject, Error> {
     fn unwrap_varlist(
         ctx: &mut TulispContext,
-        varlist: TulispValue,
-        body: TulispValue,
-    ) -> Result<TulispValue, Error> {
+        varlist: TulispObject,
+        body: TulispObject,
+    ) -> Result<TulispObject, Error> {
         destruct_bind!((nextvar &rest rest) = varlist);
 
-        let mut ret = Cons::new(ctx.intern("let"), TulispValue::nil());
+        let mut ret = Cons::new(ctx.intern("let"), TulispObject::nil());
         ret.push(list!(,nextvar)?)?;
         if !rest.null() {
             ret.push(unwrap_varlist(ctx, rest, body)?)?;
@@ -63,7 +63,7 @@ fn let_star(
                 ret.push(ele.clone())?;
             }
         }
-        Ok(TulispValueEnum::List {
+        Ok(TulispValue::List {
             cons: ret,
             ctxobj: Some(ctx.intern("let").get()?),
         }
@@ -74,16 +74,16 @@ fn let_star(
 
 pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.intern("->")
-        .set_scope(TulispValueEnum::Macro(Rc::new(thread_first)).into_ref())
+        .set_scope(TulispValue::Macro(Rc::new(thread_first)).into_ref())
         .unwrap();
     ctx.intern("thread-first")
-        .set_scope(TulispValueEnum::Macro(Rc::new(thread_first)).into_ref())
+        .set_scope(TulispValue::Macro(Rc::new(thread_first)).into_ref())
         .unwrap();
     ctx.intern("->>")
-        .set_scope(TulispValueEnum::Macro(Rc::new(thread_last)).into_ref())
+        .set_scope(TulispValue::Macro(Rc::new(thread_last)).into_ref())
         .unwrap();
     ctx.intern("thread-last")
-        .set_scope(TulispValueEnum::Macro(Rc::new(thread_last)).into_ref())
+        .set_scope(TulispValue::Macro(Rc::new(thread_last)).into_ref())
         .unwrap();
 
     crate_add_macro!(ctx, let_star, "let*");

@@ -4,7 +4,7 @@ Provides a lisp-like syntax for constructing lists.
 ## Example
 
 ```rust
-use tulisp::{list, TulispValue, Error};
+use tulisp::{list, TulispObject, Error};
 
 fn main() -> Result<(), Error> {
     // Create a list with 3 values inside.
@@ -52,11 +52,11 @@ macro_rules! list {
     };
     (, $($items:tt)+) => { list!($($items)+) };
     ($($items:tt)+) => {{
-	let ret = TulispValue::nil();
+	let ret = TulispObject::nil();
         list!(@push ret, $($items)+)
             .and_then(|ret| Ok(ret.to_owned()))
     }};
-    () => { TulispValue::nil() }
+    () => { TulispObject::nil() }
 }
 
 /**
@@ -67,7 +67,7 @@ Has a syntax similar to emacs lisp defun parameters.
 ## Example
 
 ```rust
-use tulisp::{destruct_bind, list, TulispValue, Error, ErrorKind};
+use tulisp::{destruct_bind, list, TulispObject, Error, ErrorKind};
 
 fn main() -> Result<(), Error> {
     // Destruct from a list with just the required item present.
@@ -130,7 +130,7 @@ macro_rules! destruct_bind {
     };
     (@rest $rest:ident $vv:ident) => {
         let $rest = if $vv.null() {
-            TulispValue::nil()
+            TulispObject::nil()
         } else {
             $vv
         };
@@ -139,7 +139,7 @@ macro_rules! destruct_bind {
         let ($var, $vv) = if !$vv.null() {
             ($vv.car()?, $vv.cdr()?)
         } else {
-            (TulispValue::nil(), TulispValue::nil())
+            (TulispObject::nil(), TulispObject::nil())
         };
     };
     (@optvar $vv:ident, $var:ident $($vars:ident)+) => {
