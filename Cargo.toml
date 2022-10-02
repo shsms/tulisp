@@ -19,4 +19,4 @@ name = "tulisp"
 path = "src/lib.rs"
 
 [dependencies]
-proc-macros = { path = "proc-macros" }
+tulisp-proc-macros = { version = "0.1.0" }

@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use proc_macros::{crate_add_macro, crate_fn_no_eval};
+use tulisp_proc_macros::{crate_add_macro, crate_fn_no_eval};
 
 use crate::cons::Cons;
 use crate::context::TulispContext;

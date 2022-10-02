@@ -8,10 +8,9 @@ use crate::lists;
 use crate::value::TulispValue;
 use crate::value_enum::TulispValueEnum;
 use crate::{destruct_bind, list};
-use proc_macros::crate_fn;
-use proc_macros::crate_fn_no_eval;
 use std::cmp::Ordering;
 use std::convert::TryInto;
+use tulisp_proc_macros::{crate_fn, crate_fn_no_eval};
 
 macro_rules! max_min_ops {
     ($oper:tt) => {{
