@@ -1,5 +1,8 @@
 # _Tulisp_
 
+[<img alt="docs.rs" src="https://img.shields.io/docsrs/tulisp">](https://docs.rs/tulisp/latest/tulisp/)
+[<img alt="Crates.io" src="https://img.shields.io/crates/v/tulisp">](https://crates.io/crates/tulisp)
+
 Tulisp is a Lisp interpreter that can be embedded into Rust programs.  The
 syntax tries to closely match that of Emacs Lisp.  It was primarily designed to
 be a configuration language, but it also works well as a general purpose
@@ -17,7 +20,7 @@ Add it as a dependency in your `Cargo.toml`:
 
   ```toml
   [dependencies]
-  tulisp = { git = "https://github.com/shsms/tulisp" }
+  tulisp = "0.2.0"
   ```
 
 And in your `main.rs`:
