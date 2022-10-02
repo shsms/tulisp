@@ -104,7 +104,12 @@ impl TulispContext {
     /// Parses and evaluates the contents of the given file and returns the
     /// value.
     pub fn eval_file(&mut self, filename: &str) -> Result<TulispValue, Error> {
-        let contents = fs::read_to_string(filename).expect("Something went wrong reading the file");
+        let contents = fs::read_to_string(filename).map_err(|e| {
+            Error::new(
+                crate::ErrorKind::Undefined,
+                format!("Unable to read file: {filename}. Error: {e}"),
+            )
+        })?;
         self.eval_string(&contents)
     }
 }
