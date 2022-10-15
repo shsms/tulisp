@@ -14,16 +14,9 @@ already familiar with Emacs Lisp, there's no need to learn an extra language.
 
 ## Getting started
 
-It is very easy to get started with using Tulisp.
+It is very easy to get started with using Tulisp.  Requires `rustc` version 1.58 or higher.
 
-Add it as a dependency in your `Cargo.toml`:
-
-  ```toml
-  [dependencies]
-  tulisp = "0.2.0"
-  ```
-
-And in your `main.rs`:
+Here's an example:
 
   ```rust
   use tulisp::{TulispContext, tulisp_fn, Error};
