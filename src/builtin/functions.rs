@@ -198,6 +198,21 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         object1.eq(&object2)
     }
 
+    #[crate_fn(add_func = "ctx", name = "1+")]
+    fn impl_1_plus(number: TulispObject) -> Result<TulispObject, Error> {
+        if number.integerp() {
+            Ok((number.as_int()? + 1).into())
+        } else if number.floatp() {
+            Ok((number.as_float()? + 1.0).into())
+        } else {
+            Err(Error::new(
+                ErrorKind::TypeMismatch,
+                "expected a number as argument.".to_string(),
+            )
+            .with_span(number.span()))
+        }
+    }
+
     #[crate_fn(add_func = "ctx", name = "mod")]
     fn impl_mod(dividend: TulispObject, divisor: TulispObject) -> Result<TulispObject, Error> {
         binary_ops!(std::ops::Rem::rem)(dividend, divisor)
@@ -541,6 +556,19 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 .with_span(span)),
             None => Ok(TulispObject::nil()),
         }
+    }
+
+    #[crate_fn(add_func = "ctx")]
+    fn mapcar(
+        ctx: &mut TulispContext,
+        func: TulispObject,
+        items: TulispObject,
+    ) -> Result<TulispObject, Error> {
+        let mut ret = TulispValue::Nil;
+        for item in items.base_iter() {
+            ret.push(ctx.eval(&list!(,func.clone() ,item)?)?)?;
+        }
+        Ok(ret.into())
     }
 
     #[crate_fn(add_func = "ctx")]

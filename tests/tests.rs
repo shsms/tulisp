@@ -300,6 +300,10 @@ fn test_lists() -> Result<(), Error> {
         result: r#"'("01.01.2001" person nil)"#,
     }
 
+    tulisp_assert! {
+        program: "(mapcar '1+ '(10 20 30))",
+        result: "'(11 21 31)",
+    }
     Ok(())
 }
 
