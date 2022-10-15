@@ -411,13 +411,27 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             e
         })?;
         name.set_scope(
-            TulispValue::Defun {
+            TulispValue::Lambda {
                 params: params.try_into()?,
                 body,
             }
             .into_ref(),
         )?;
         Ok(TulispObject::nil())
+    }
+
+    #[crate_fn_no_eval(add_func = "ctx")]
+    fn lambda(params: TulispObject, rest: TulispObject) -> Result<TulispObject, Error> {
+        let body = if rest.car()?.as_string().is_ok() {
+            rest.cdr()?
+        } else {
+            rest
+        };
+        Ok(TulispValue::Lambda {
+            params: params.try_into()?,
+            body,
+        }
+        .into_ref())
     }
 
     #[crate_fn_no_eval(add_func = "ctx")]

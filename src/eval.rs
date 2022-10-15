@@ -72,7 +72,7 @@ fn eval_function<E: Evaluator>(
     Ok(result)
 }
 
-fn eval_defun(
+fn eval_lambda(
     ctx: &mut TulispContext,
     params: &DefunParams,
     body: &TulispObject,
@@ -99,7 +99,7 @@ fn eval_form(ctx: &mut TulispContext, val: &TulispObject) -> Result<TulispObject
     let func = match val.ctxobj() {
         func @ Some(_) => func,
         None => {
-            let func = name.get()?;
+            let func = eval(ctx, &name)?;
             if !func.null() {
                 val.with_ctxobj(Some(func.clone()));
             }
@@ -109,7 +109,7 @@ fn eval_form(ctx: &mut TulispContext, val: &TulispObject) -> Result<TulispObject
     match func {
         Some(item) => match &*item.inner_ref() {
             TulispValue::Func(func) => func(ctx, val),
-            TulispValue::Defun { params, body } => eval_defun(ctx, params, body, &val.cdr()?),
+            TulispValue::Lambda { params, body } => eval_lambda(ctx, params, body, &val.cdr()?),
             TulispValue::Macro(_) | TulispValue::Defmacro { .. } => {
                 let expanded = macroexpand(ctx, val.clone())?;
                 eval(ctx, &expanded)
@@ -133,6 +133,7 @@ pub(crate) fn eval(ctx: &mut TulispContext, expr: &TulispObject) -> Result<Tulis
         TulispValue::Int { .. }
         | TulispValue::Float { .. }
         | TulispValue::String { .. }
+        | TulispValue::Lambda { .. }
         | TulispValue::Bounce
         | TulispValue::Nil
         | TulispValue::T => Ok(expr.clone()),
@@ -213,11 +214,6 @@ pub(crate) fn eval(ctx: &mut TulispContext, expr: &TulispObject) -> Result<Tulis
         TulispValue::Defmacro { .. } => Err(Error::new(
             ErrorKind::Undefined,
             "Can't eval TulispValue::Defmacro".to_owned(),
-        )
-        .with_span(expr.span())),
-        TulispValue::Defun { .. } => Err(Error::new(
-            ErrorKind::Undefined,
-            "Can't eval TulispValue::Defun".to_owned(),
         )
         .with_span(expr.span())),
     }

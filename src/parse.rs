@@ -343,7 +343,9 @@ impl Parser<'_, '_> {
             inner.append(next)?;
         }
 
-        if let Ok("defun" | "defmacro") = inner.car()?.as_symbol().as_ref().map(|x| x.as_str()) {
+        if let Ok("defun" | "defmacro" | "lambda") =
+            inner.car()?.as_symbol().as_ref().map(|x| x.as_str())
+        {
             eval(self.ctx, &inner)?;
         }
         if *expand_macros == MacroExpand::Yes {

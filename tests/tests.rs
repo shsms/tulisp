@@ -173,6 +173,12 @@ fn test_defun() -> Result<(), Error> {
         "##,
         result: "20000",
     }
+
+    tulisp_assert! {
+        program: "((lambda (v1 v2) (+ v1 v2)) 10 20)",
+        result: "30",
+    }
+
     Ok(())
 }
 
@@ -404,6 +410,11 @@ fn test_sort() -> Result<(), Error> {
     }
     tulisp_assert! {
         program: "(defun << (v1 v2) (> v1 v2)) (sort '(20 10 30 15 45) '<<)",
+        result: "'(45 30 20 15 10)",
+    }
+
+    tulisp_assert! {
+        program: "(sort '(20 10 30 15 45) '(lambda (v1 v2) (> v1 v2)))",
         result: "'(45 30 20 15 10)",
     }
     Ok(())

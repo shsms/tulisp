@@ -187,7 +187,7 @@ pub enum TulispValue {
         params: DefunParams,
         body: TulispObject,
     },
-    Defun {
+    Lambda {
         params: DefunParams,
         body: TulispObject,
     },
@@ -227,7 +227,7 @@ impl std::fmt::Debug for TulispValue {
                 .field("params", params)
                 .field("body", body)
                 .finish(),
-            Self::Defun { params, body } => f
+            Self::Lambda { params, body } => f
                 .debug_struct("Defun")
                 .field("params", params)
                 .field("body", body)
@@ -327,7 +327,7 @@ impl std::fmt::Display for TulispValue {
             TulispValue::Func(_) => f.write_str("Func"),
             TulispValue::Macro(_) => f.write_str("Macro"),
             TulispValue::Defmacro { .. } => f.write_str("Defmacro"),
-            TulispValue::Defun { .. } => f.write_str("Defun"),
+            TulispValue::Lambda { .. } => f.write_str("Defun"),
         }
     }
 }
