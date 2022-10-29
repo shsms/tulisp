@@ -87,4 +87,21 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         .unwrap();
 
     crate_add_macro!(ctx, let_star, "let*");
+
+    #[crate_fn_no_eval(add_macro = "ctx")]
+    fn when(
+        ctx: &mut TulispContext,
+        cond: TulispObject,
+        rest: TulispObject,
+    ) -> Result<TulispObject, Error> {
+        list!(,ctx.intern("if") ,cond ,TulispObject::cons(ctx.intern("progn"), rest))
+    }
+
+    #[crate_fn_no_eval(add_macro = "ctx")]
+    fn unless(ctx: &mut TulispContext, cond: TulispObject, rest: TulispObject) -> TulispObject {
+        TulispObject::cons(
+            ctx.intern("if"),
+            TulispObject::cons(cond, TulispObject::cons(TulispObject::nil(), rest)),
+        )
+    }
 }

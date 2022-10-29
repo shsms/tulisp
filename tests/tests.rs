@@ -46,6 +46,17 @@ fn test_if() -> Result<(), Error> {
 
        (list (cf 2) (cf 200) (cf 8))
     "##, result: r#"'(nil gt45 gt5)"#}
+
+    tulisp_assert! { program: "(when t 10 20 30)", result: "30" }
+    tulisp_assert! { program: "(when nil 10 20 30)", result: "nil" }
+    tulisp_assert! { program: "(when (> 20 10) 10 20 30)", result: "30" }
+    tulisp_assert! { program: "(when (> 10 20) 10 20 30)", result: "nil" }
+
+    tulisp_assert! { program: "(unless t 10 20 30)", result: "nil" }
+    tulisp_assert! { program: "(unless nil 10 20 30)", result: "30" }
+    tulisp_assert! { program: "(unless (> 20 10) 10 20 30)", result: "nil" }
+    tulisp_assert! { program: "(unless (> 10 20) 10 20 30)", result: "30" }
+
     Ok(())
 }
 
