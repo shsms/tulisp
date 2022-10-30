@@ -467,41 +467,22 @@ try_into_option!(i64);
 try_into_option!(String);
 try_into_option!(Rc<dyn Any>);
 
-impl From<i64> for TulispObject {
-    fn from(vv: i64) -> Self {
-        TulispValue::from(vv).into_ref()
-    }
+macro_rules! tulisp_object_from {
+    ($ty: ty) => {
+        impl From<$ty> for TulispObject {
+            fn from(vv: $ty) -> Self {
+                TulispValue::from(vv).into_ref()
+            }
+        }
+    };
 }
 
-impl From<f64> for TulispObject {
-    fn from(vv: f64) -> Self {
-        TulispValue::from(vv).into_ref()
-    }
-}
-
-impl From<&str> for TulispObject {
-    fn from(vv: &str) -> Self {
-        TulispValue::from(vv).into_ref()
-    }
-}
-
-impl From<String> for TulispObject {
-    fn from(vv: String) -> Self {
-        TulispValue::from(vv).into_ref()
-    }
-}
-
-impl From<bool> for TulispObject {
-    fn from(vv: bool) -> Self {
-        TulispValue::from(vv).into_ref()
-    }
-}
-
-impl From<Rc<dyn Any>> for TulispObject {
-    fn from(value: Rc<dyn Any>) -> Self {
-        TulispValue::from(value).into_ref()
-    }
-}
+tulisp_object_from!(i64);
+tulisp_object_from!(f64);
+tulisp_object_from!(&str);
+tulisp_object_from!(String);
+tulisp_object_from!(bool);
+tulisp_object_from!(Rc<dyn Any>);
 
 impl From<TulispValue> for TulispObject {
     fn from(vv: TulispValue) -> Self {
