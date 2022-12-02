@@ -4,6 +4,8 @@ use crate::context::TulispContext;
 use crate::error::Error;
 use crate::error::ErrorKind;
 use crate::eval::eval;
+use crate::eval::eval_basic;
+use crate::eval::eval_check_null;
 use crate::lists;
 use crate::TulispObject;
 use crate::TulispValue;
@@ -14,7 +16,7 @@ use tulisp_proc_macros::{crate_fn, crate_fn_no_eval};
 
 macro_rules! max_min_ops {
     ($oper:tt) => {{
-        |selfobj: TulispObject, other: TulispObject| -> Result<TulispObject, Error> {
+        |selfobj: &TulispObject, other: &TulispObject| -> Result<TulispObject, Error> {
             if let Ok(s) = selfobj.as_float() {
                 let o: f64 = other.try_into()?;
                 Ok(f64::$oper(s, o).into())
@@ -32,7 +34,7 @@ macro_rules! max_min_ops {
 
 macro_rules! binary_ops {
     ($oper:expr) => {{
-        |selfobj: TulispObject, other: TulispObject| -> Result<TulispObject, Error> {
+        |selfobj: &TulispObject, other: &TulispObject| -> Result<TulispObject, Error> {
             if let Ok(s) = selfobj.as_float() {
                 let o: f64 = other.try_into()?;
                 Ok($oper(&s, &o).into())
@@ -51,17 +53,34 @@ macro_rules! binary_ops {
 fn reduce_with(
     ctx: &mut TulispContext,
     list: TulispObject,
-    method: fn(TulispObject, TulispObject) -> Result<TulispObject, Error>,
+    method: fn(&TulispObject, &TulispObject) -> Result<TulispObject, Error>,
 ) -> Result<TulispObject, Error> {
-    list.base_iter()
-        .map(|x| eval(ctx, &x))
-        .reduce(|v1, v2| method(v1?, v2?))
-        .unwrap_or_else(|| {
-            Err(Error::new(
-                ErrorKind::TypeMismatch,
-                "Incorrect number of arguments: 0".to_string(),
-            ))
-        })
+    let mut eval_result = None;
+    let mut iter = list.base_iter();
+    let mut first = if let Some(first) = iter.next() {
+        first
+    } else {
+        return Err(Error::new(
+            ErrorKind::TypeMismatch,
+            "Incorrect number of arguments: 0".to_string(),
+        ));
+    };
+
+    eval_basic(ctx, &first, &mut eval_result)?;
+    if eval_result.is_some() {
+        first = eval_result.take().unwrap();
+    }
+
+    for next in iter {
+        eval_basic(ctx, &next, &mut eval_result)?;
+        if eval_result.is_some() {
+            first = method(&first, &eval_result.take().unwrap())?
+        } else {
+            first = method(&first, &next)?
+        }
+    }
+
+    Ok(first)
 }
 
 fn mark_tail_calls(
@@ -130,7 +149,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     fn sub(ctx: &mut TulispContext, rest: TulispObject) -> Result<TulispObject, Error> {
         if let Some(cons) = rest.as_list_cons() {
             if cons.cdr().null() {
-                let vv = binary_ops!(std::ops::Sub::sub)(0.into(), eval(ctx, cons.car())?)?;
+                let vv = binary_ops!(std::ops::Sub::sub)(&0.into(), &eval(ctx, cons.car())?)?;
                 Ok(vv)
             } else {
                 reduce_with(ctx, rest, binary_ops!(std::ops::Sub::sub))
@@ -232,7 +251,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     #[crate_fn(add_func = "ctx", name = "mod")]
     fn impl_mod(dividend: TulispObject, divisor: TulispObject) -> Result<TulispObject, Error> {
-        binary_ops!(std::ops::Rem::rem)(dividend, divisor)
+        binary_ops!(std::ops::Rem::rem)(&dividend, &divisor)
     }
 
     #[crate_fn(add_func = "ctx")]
@@ -327,10 +346,16 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         then_body: TulispObject,
         rest: TulispObject, // else_body
     ) -> Result<TulispObject, Error> {
-        if eval(ctx, &condition)?.as_bool() {
-            eval(ctx, &then_body)
-        } else {
+        if eval_check_null(ctx, &condition)? {
             ctx.eval_progn(&rest)
+        } else {
+            let mut result = None;
+            eval_basic(ctx, &then_body, &mut result)?;
+            if let Some(result) = result {
+                Ok(result)
+            } else {
+                Ok(then_body)
+            }
         }
     }
 
@@ -338,7 +363,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     fn cond(ctx: &mut TulispContext, rest: TulispObject) -> Result<TulispObject, Error> {
         for item in rest.base_iter() {
             destruct_bind!((condition &rest body) = item);
-            if eval(ctx, &condition)?.as_bool() {
+            if !eval_check_null(ctx, &condition)? {
                 return ctx.eval_progn(&body);
             }
         }
@@ -352,7 +377,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         rest: TulispObject,
     ) -> Result<TulispObject, Error> {
         let mut result = TulispObject::nil();
-        while eval(ctx, &condition)?.as_bool() {
+        while !eval_check_null(ctx, &condition)? {
             result = ctx.eval_progn(&rest)?;
         }
         Ok(result)
@@ -600,13 +625,10 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             let vv = list!(,TulispObject::nil() ,v1.clone() ,v2.clone()).unwrap();
             vv.with_ctxobj(Some(pred.clone()));
 
-            if eval(ctx, &vv)
-                .unwrap_or_else(|_| TulispObject::nil())
-                .as_bool()
-            {
-                Ordering::Less
-            } else {
+            if eval_check_null(ctx, &vv).unwrap_or_else(|_| false) {
                 Ordering::Equal
+            } else {
+                Ordering::Less
             }
         });
         let ret = vec

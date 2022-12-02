@@ -6,20 +6,32 @@ use crate::{
 };
 
 trait Evaluator {
-    fn eval(ctx: &mut TulispContext, value: &TulispObject) -> Result<TulispObject, Error>;
+    fn eval(
+        ctx: &mut TulispContext,
+        value: &TulispObject,
+        result: &mut Option<TulispObject>,
+    ) -> Result<(), Error>;
 }
 
 struct Eval;
 impl Evaluator for Eval {
-    fn eval(ctx: &mut TulispContext, value: &TulispObject) -> Result<TulispObject, Error> {
-        eval(ctx, value)
+    fn eval(
+        ctx: &mut TulispContext,
+        value: &TulispObject,
+        result: &mut Option<TulispObject>,
+    ) -> Result<(), Error> {
+        eval_basic(ctx, value, result)
     }
 }
 
 struct DummyEval;
 impl Evaluator for DummyEval {
-    fn eval(_ctx: &mut TulispContext, value: &TulispObject) -> Result<TulispObject, Error> {
-        Ok(value.clone())
+    fn eval(
+        _ctx: &mut TulispContext,
+        _value: &TulispObject,
+        _result: &mut Option<TulispObject>,
+    ) -> Result<(), Error> {
+        Ok(())
     }
 }
 
@@ -29,20 +41,26 @@ fn zip_function_args<E: Evaluator>(
     args: &TulispObject,
 ) -> Result<(), Error> {
     let mut args_iter = args.base_iter();
+    let mut eval_result = None;
     for param in params.iter() {
         let val = if param.is_optional {
             match args_iter.next() {
-                Some(vv) => E::eval(ctx, &vv)?,
+                Some(vv) => {
+                    E::eval(ctx, &vv, &mut eval_result)?;
+                    eval_result.take().unwrap_or(vv)
+                }
                 None => TulispObject::nil(),
             }
         } else if param.is_rest {
             let ret = TulispObject::nil();
             for arg in args_iter.by_ref() {
-                ret.push(E::eval(ctx, &arg)?)?;
+                E::eval(ctx, &arg, &mut eval_result)?;
+                ret.push(eval_result.take().unwrap_or(arg))?;
             }
             ret
         } else if let Some(vv) = args_iter.next() {
-            E::eval(ctx, &vv)?
+            E::eval(ctx, &vv, &mut eval_result)?;
+            eval_result.take().unwrap_or(vv)
         } else {
             return Err(
                 Error::new(ErrorKind::TypeMismatch, "Too few arguments".to_string())
@@ -119,22 +137,49 @@ fn eval_form(ctx: &mut TulispContext, val: &TulispObject) -> Result<TulispObject
 }
 
 pub(crate) fn eval(ctx: &mut TulispContext, expr: &TulispObject) -> Result<TulispObject, Error> {
+    let mut result = None;
+    eval_basic(ctx, expr, &mut result)?;
+    if let Some(result) = result {
+        Ok(result)
+    } else {
+        Ok(expr.clone())
+    }
+}
+
+pub(crate) fn eval_check_null(ctx: &mut TulispContext, expr: &TulispObject) -> Result<bool, Error> {
+    let mut result = None;
+    eval_basic(ctx, expr, &mut result)?;
+    if let Some(result) = result {
+        Ok(result.null())
+    } else {
+        Ok(expr.null())
+    }
+}
+
+pub(crate) fn eval_basic<'a, 'b>(
+    ctx: &'b mut TulispContext,
+    expr: &'a TulispObject,
+    result: &'a mut Option<TulispObject>,
+) -> Result<(), Error> {
     match &*expr.inner_ref() {
-        TulispValue::List { .. } => eval_form(ctx, expr).map_err(|e| e.with_span(expr.span())),
-        TulispValue::Symbol { value, .. } => value.get().map_err(|e| e.with_span(expr.span())),
+        TulispValue::List { .. } => {
+            *result = Some(eval_form(ctx, expr).map_err(|e| e.with_span(expr.span()))?);
+        }
+        TulispValue::Symbol { value, .. } => {
+            *result = Some(value.get().map_err(|e| e.with_span(expr.span()))?);
+        }
         TulispValue::Int { .. }
         | TulispValue::Float { .. }
         | TulispValue::String { .. }
         | TulispValue::Lambda { .. }
         | TulispValue::Bounce
         | TulispValue::Nil
-        | TulispValue::T => Ok(expr.clone()),
-        TulispValue::Quote { value, .. } => Ok(value.clone()),
+        | TulispValue::T => {}
+        TulispValue::Quote { value, .. } => {
+            *result = Some(value.clone());
+        }
         TulispValue::Backquote { value } => {
             let mut ret = TulispValue::Nil;
-            if !value.consp() {
-                return Ok(value.clone());
-            }
             fn bq_eval_next(
                 ctx: &mut TulispContext,
                 ret: &mut TulispValue,
@@ -176,39 +221,58 @@ pub(crate) fn eval(ctx: &mut TulispContext, expr: &TulispObject) -> Result<Tulis
                     vv = rest;
                 }
             }
-            bq_eval_next(ctx, &mut ret, value.clone()).map_err(|e| e.with_span(expr.span()))?;
-            Ok(ret.into_ref())
+            if !value.consp() {
+                *result = Some(value.clone());
+            } else {
+                bq_eval_next(ctx, &mut ret, value.clone()).map_err(|e| e.with_span(expr.span()))?;
+                *result = Some(ret.into_ref());
+            }
         }
-        TulispValue::Unquote { .. } => Err(Error::new(
-            ErrorKind::TypeMismatch,
-            "Unquote without backquote".to_string(),
-        )),
-        TulispValue::Splice { .. } => Err(Error::new(
-            ErrorKind::TypeMismatch,
-            "Splice without backquote".to_string(),
-        )),
-        TulispValue::Sharpquote { value, .. } => Ok(value.clone()),
-        TulispValue::Any(_) => Err(Error::new(
-            ErrorKind::Undefined,
-            "Can't eval TulispValue::Any".to_owned(),
-        )
-        .with_span(expr.span())),
-        TulispValue::Func(_) => Err(Error::new(
-            ErrorKind::Undefined,
-            "Can't eval TulispValue::Func".to_owned(),
-        )
-        .with_span(expr.span())),
-        TulispValue::Macro(_) => Err(Error::new(
-            ErrorKind::Undefined,
-            "Can't eval TulispValue::Macro".to_owned(),
-        )
-        .with_span(expr.span())),
-        TulispValue::Defmacro { .. } => Err(Error::new(
-            ErrorKind::Undefined,
-            "Can't eval TulispValue::Defmacro".to_owned(),
-        )
-        .with_span(expr.span())),
-    }
+        TulispValue::Unquote { .. } => {
+            return Err(Error::new(
+                ErrorKind::TypeMismatch,
+                "Unquote without backquote".to_string(),
+            ))
+        }
+        TulispValue::Splice { .. } => {
+            return Err(Error::new(
+                ErrorKind::TypeMismatch,
+                "Splice without backquote".to_string(),
+            ))
+        }
+        TulispValue::Sharpquote { value, .. } => {
+            *result = Some(value.clone());
+        }
+        TulispValue::Any(_) => {
+            return Err(Error::new(
+                ErrorKind::Undefined,
+                "Can't eval TulispValue::Any".to_owned(),
+            )
+            .with_span(expr.span()))
+        }
+        TulispValue::Func(_) => {
+            return Err(Error::new(
+                ErrorKind::Undefined,
+                "Can't eval TulispValue::Func".to_owned(),
+            )
+            .with_span(expr.span()))
+        }
+        TulispValue::Macro(_) => {
+            return Err(Error::new(
+                ErrorKind::Undefined,
+                "Can't eval TulispValue::Macro".to_owned(),
+            )
+            .with_span(expr.span()))
+        }
+        TulispValue::Defmacro { .. } => {
+            return Err(Error::new(
+                ErrorKind::Undefined,
+                "Can't eval TulispValue::Defmacro".to_owned(),
+            )
+            .with_span(expr.span()))
+        }
+    };
+    Ok(())
 }
 
 pub fn macroexpand(ctx: &mut TulispContext, inp: TulispObject) -> Result<TulispObject, Error> {

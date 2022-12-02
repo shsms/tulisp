@@ -423,6 +423,32 @@ impl TryFrom<TulispObject> for i64 {
     }
 }
 
+impl TryFrom<&TulispObject> for f64 {
+    type Error = Error;
+
+    fn try_from(value: &TulispObject) -> Result<Self, Self::Error> {
+        value
+            .rc
+            .as_ref()
+            .borrow()
+            .try_float()
+            .map_err(|e| e.with_span(value.span()))
+    }
+}
+
+impl TryFrom<&TulispObject> for i64 {
+    type Error = Error;
+
+    fn try_from(value: &TulispObject) -> Result<Self, Self::Error> {
+        value
+            .rc
+            .as_ref()
+            .borrow()
+            .as_int()
+            .map_err(|e| e.with_span(value.span()))
+    }
+}
+
 impl TryFrom<TulispObject> for String {
     type Error = Error;
 

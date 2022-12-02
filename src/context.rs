@@ -1,6 +1,12 @@
 use std::{collections::HashMap, fs};
 
-use crate::{builtin, error::Error, eval::eval, parse::parse, TulispObject};
+use crate::{
+    builtin,
+    error::Error,
+    eval::{eval, eval_basic},
+    parse::parse,
+    TulispObject,
+};
 
 #[derive(Debug, Default, Clone)]
 pub(crate) struct Scope {
@@ -84,11 +90,13 @@ impl TulispContext {
     /// Evaluates each item in the given sequence, and returns the value of the
     /// last one.
     pub fn eval_progn(&mut self, seq: &TulispObject) -> Result<TulispObject, Error> {
-        let mut ret = TulispObject::nil();
+        let mut ret = None;
+        let mut result = None;
         for val in seq.base_iter() {
-            ret = eval(self, &val)?;
+            eval_basic(self, &val, &mut result)?;
+            ret = Some(result.take().unwrap_or(val))
         }
-        Ok(ret)
+        Ok(ret.unwrap_or_else(|| TulispObject::nil()))
     }
 
     /// Evaluates each item in the given sequence, and returns the value of
