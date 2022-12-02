@@ -309,6 +309,7 @@ assert_eq!(ts.value, 25);
     predicate_fn!(pub, as_bool, "Returns True if `self` is not `nil`.");
 
     predicate_fn!(pub(crate), is_bounce, "Returns True if `self` is a tail-call trampoline bounce object.");
+    predicate_fn!(pub(crate), is_bounced, "Returns True if `self` is a tail-call trampoline bounced function call.");
     // predicates end
 }
 

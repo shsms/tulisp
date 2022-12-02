@@ -538,6 +538,13 @@ impl TulispValue {
         matches!(self, TulispValue::Nil)
     }
 
+    pub fn is_bounced(&self) -> bool {
+        match self {
+            TulispValue::List { cons, .. } => cons.car().is_bounce(),
+            _ => false,
+        }
+    }
+
     pub fn is_bounce(&self) -> bool {
         matches!(self, TulispValue::Bounce)
     }

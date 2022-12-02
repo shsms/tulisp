@@ -79,7 +79,7 @@ fn eval_lambda(
     args: &TulispObject,
 ) -> Result<TulispObject, Error> {
     let mut result = eval_function::<Eval>(ctx, params, body, args)?;
-    while let Ok(true) = result.car().map(|x| x.is_bounce()) {
+    while result.is_bounced() {
         result = eval_function::<DummyEval>(ctx, params, body, &result.cdr()?)?;
     }
     Ok(result)
