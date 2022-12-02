@@ -128,13 +128,19 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     #[crate_fn_no_eval(add_func = "ctx", name = "-")]
     fn sub(ctx: &mut TulispContext, rest: TulispObject) -> Result<TulispObject, Error> {
-        let args = rest.clone();
-        destruct_bind!((first &rest ohne_first) = args);
-        if ohne_first.null() {
-            let vv = binary_ops!(std::ops::Sub::sub)(0.into(), eval(ctx, &first)?)?;
-            Ok(vv)
+        if let Some(cons) = rest.as_list_cons() {
+            if cons.cdr().null() {
+                let vv = binary_ops!(std::ops::Sub::sub)(0.into(), eval(ctx, cons.car())?)?;
+                Ok(vv)
+            } else {
+                reduce_with(ctx, rest, binary_ops!(std::ops::Sub::sub))
+            }
         } else {
-            reduce_with(ctx, rest, binary_ops!(std::ops::Sub::sub))
+            Err(Error::new(
+                ErrorKind::MissingArgument,
+                "Call to `sub` without any arguments".to_string(),
+            )
+            .with_span(rest.span()))
         }
     }
 
@@ -200,16 +206,27 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     #[crate_fn(add_func = "ctx", name = "1+")]
     fn impl_1_plus(number: TulispObject) -> Result<TulispObject, Error> {
-        if number.integerp() {
-            Ok((number.as_int()? + 1).into())
-        } else if number.floatp() {
-            Ok((number.as_float()? + 1.0).into())
-        } else {
-            Err(Error::new(
+        match &*number.inner_ref() {
+            TulispValue::Int { value } => Ok((*value + 1).into()),
+            TulispValue::Float { value } => Ok((*value + 1.0).into()),
+            _ => Err(Error::new(
                 ErrorKind::TypeMismatch,
                 "expected a number as argument.".to_string(),
             )
-            .with_span(number.span()))
+            .with_span(number.span())),
+        }
+    }
+
+    #[crate_fn(add_func = "ctx", name = "1-")]
+    fn impl_1_minus(number: TulispObject) -> Result<TulispObject, Error> {
+        match &*number.inner_ref() {
+            TulispValue::Int { value } => Ok((*value - 1).into()),
+            TulispValue::Float { value } => Ok((*value - 1.0).into()),
+            _ => Err(Error::new(
+                ErrorKind::TypeMismatch,
+                "expected a number as argument.".to_string(),
+            )
+            .with_span(number.span())),
         }
     }
 
