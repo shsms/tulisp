@@ -97,37 +97,29 @@ pub(crate) fn eval_defmacro(
 fn eval_form(ctx: &mut TulispContext, val: &TulispObject) -> Result<TulispObject, Error> {
     let name = val.car()?;
     let func = match val.ctxobj() {
-        func @ Some(_) => func,
-        None => {
-            let func = eval(ctx, &name)?;
-            if !func.null() {
-                val.with_ctxobj(Some(func.clone()));
-            }
-            Some(func)
-        }
+        Some(func) => func,
+        None => eval(ctx, &name)?,
     };
-    match func {
-        Some(item) => match &*item.inner_ref() {
-            TulispValue::Func(func) => func(ctx, val),
-            TulispValue::Lambda { params, body } => eval_lambda(ctx, params, body, &val.cdr()?),
-            TulispValue::Macro(_) | TulispValue::Defmacro { .. } => {
-                let expanded = macroexpand(ctx, val.clone())?;
-                eval(ctx, &expanded)
-            }
-            _ => Err(
-                Error::new(ErrorKind::Undefined, format!("function is void: {}", name))
-                    .with_span(val.span()),
-            ),
-        },
-        None => Err(Error::new(
-            ErrorKind::Undefined,
-            format!("Unknown function name: {}", name),
-        )),
-    }
+    let x = match &*func.inner_ref() {
+        TulispValue::Func(ref func) => func(ctx, val),
+        TulispValue::Lambda {
+            ref params,
+            ref body,
+        } => eval_lambda(ctx, params, body, &val.cdr()?),
+        TulispValue::Macro(_) | TulispValue::Defmacro { .. } => {
+            let expanded = macroexpand(ctx, val.clone())?;
+            eval(ctx, &expanded)
+        }
+        _ => Err(
+            Error::new(ErrorKind::Undefined, format!("function is void: {}", name))
+                .with_span(val.span()),
+        ),
+    };
+    x
 }
 
 pub(crate) fn eval(ctx: &mut TulispContext, expr: &TulispObject) -> Result<TulispObject, Error> {
-    match expr.clone_inner() {
+    match &*expr.inner_ref() {
         TulispValue::List { .. } => eval_form(ctx, expr).map_err(|e| e.with_span(expr.span())),
         TulispValue::Symbol { value, .. } => value.get().map_err(|e| e.with_span(expr.span())),
         TulispValue::Int { .. }
@@ -137,11 +129,11 @@ pub(crate) fn eval(ctx: &mut TulispContext, expr: &TulispObject) -> Result<Tulis
         | TulispValue::Bounce
         | TulispValue::Nil
         | TulispValue::T => Ok(expr.clone()),
-        TulispValue::Quote { value, .. } => Ok(value),
+        TulispValue::Quote { value, .. } => Ok(value.clone()),
         TulispValue::Backquote { value } => {
             let mut ret = TulispValue::Nil;
             if !value.consp() {
-                return Ok(value);
+                return Ok(value.clone());
             }
             fn bq_eval_next(
                 ctx: &mut TulispContext,
@@ -184,7 +176,7 @@ pub(crate) fn eval(ctx: &mut TulispContext, expr: &TulispObject) -> Result<Tulis
                     vv = rest;
                 }
             }
-            bq_eval_next(ctx, &mut ret, value).map_err(|e| e.with_span(expr.span()))?;
+            bq_eval_next(ctx, &mut ret, value.clone()).map_err(|e| e.with_span(expr.span()))?;
             Ok(ret.into_ref())
         }
         TulispValue::Unquote { .. } => Err(Error::new(
@@ -195,7 +187,7 @@ pub(crate) fn eval(ctx: &mut TulispContext, expr: &TulispObject) -> Result<Tulis
             ErrorKind::TypeMismatch,
             "Splice without backquote".to_string(),
         )),
-        TulispValue::Sharpquote { value, .. } => Ok(value),
+        TulispValue::Sharpquote { value, .. } => Ok(value.clone()),
         TulispValue::Any(_) => Err(Error::new(
             ErrorKind::Undefined,
             "Can't eval TulispValue::Any".to_owned(),
@@ -234,16 +226,17 @@ pub fn macroexpand(ctx: &mut TulispContext, inp: TulispObject) -> Result<TulispO
         Ok(val) => val,
         Err(_) => return Ok(expr),
     };
-    match value.clone_inner() {
+    let x = match &*value.inner_ref() {
         TulispValue::Macro(func) => {
             let expansion = func(ctx, &expr)?;
             macroexpand(ctx, expansion)
         }
         TulispValue::Defmacro { params, body } => {
-            let expansion = eval_defmacro(ctx, &params, &body, &expr.cdr()?)
+            let expansion = eval_defmacro(ctx, params, body, &expr.cdr()?)
                 .map_err(|e| e.with_span(inp.span()))?;
             macroexpand(ctx, expansion)
         }
         _ => Ok(expr),
-    }
+    };
+    x
 }

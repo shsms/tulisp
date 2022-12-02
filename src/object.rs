@@ -337,7 +337,7 @@ impl TulispObject {
     }
 
     pub(crate) fn inner_ref(&self) -> Ref<'_, TulispValue> {
-        self.rc.as_ref().borrow()
+        self.rc.borrow()
     }
 
     pub(crate) fn as_list_cons(&self) -> Option<Cons> {
