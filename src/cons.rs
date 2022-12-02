@@ -23,7 +23,7 @@ impl Cons {
         Cons { car, cdr }
     }
 
-    pub fn push(&mut self, val: TulispObject) -> Result<&mut Self, Error> {
+    pub fn push(&mut self, val: TulispObject) -> Result<(), Error> {
         self.push_with_meta(val, None, None)
     }
 
@@ -32,7 +32,7 @@ impl Cons {
         val: TulispObject,
         span: Option<Span>,
         ctxobj: Option<TulispObject>,
-    ) -> Result<&mut Self, Error> {
+    ) -> Result<(), Error> {
         let mut last = self.cdr.clone();
 
         while last.consp() {
@@ -53,10 +53,10 @@ impl Cons {
                 "Cons: unable to push".to_string(),
             ));
         }
-        Ok(self)
+        Ok(())
     }
 
-    pub fn append(&mut self, val: TulispObject) -> Result<&mut Self, Error> {
+    pub fn append(&mut self, val: TulispObject) -> Result<(), Error> {
         let mut last = self.cdr.clone();
 
         while last.consp() {
@@ -70,7 +70,7 @@ impl Cons {
                 format!("Unable to append: {}", val),
             ));
         }
-        Ok(self)
+        Ok(())
     }
 
     pub fn iter(&self) -> BaseIter {
