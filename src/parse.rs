@@ -347,12 +347,45 @@ impl Parser<'_, '_> {
             inner.car()?.as_symbol().as_ref().map(|x| x.as_str())
         {
             eval(self.ctx, &inner)?;
+            // In the case of recursive functions, ctxobj is available only
+            // after they've been evaluated, so need a second pass.
+            fn recursive_update_ctxobj_pass_2(
+                ctx: &mut TulispContext,
+                body: &TulispObject,
+            ) -> Result<(), Error> {
+                if !body.consp() {
+                    return Ok(());
+                }
+                let name = body.car()?;
+                if name.symbolp() {
+                    let ctxobj = eval(ctx, &name).ok();
+                    body.with_ctxobj(ctxobj);
+                }
+                let rest = body.cdr()?;
+                if !rest.consp() {
+                    return Ok(());
+                }
+                for item in rest.base_iter() {
+                    recursive_update_ctxobj_pass_2(ctx, &item)?;
+                }
+                Ok(())
+            }
+            recursive_update_ctxobj_pass_2(self.ctx, &inner)?;
         }
-        if *expand_macros == MacroExpand::Yes {
+        let res = if *expand_macros == MacroExpand::Yes {
             macroexpand(self.ctx, inner)
         } else {
             Ok(inner)
-        }
+        };
+        // TODO: do nested if necessary
+        if let Ok(ref inner) = res {
+            if inner.consp() {
+                let name = inner.car()?;
+                let ctxobj = eval(self.ctx, &name).ok();
+                inner.with_ctxobj(ctxobj);
+            }
+        };
+        res
     }
 
     fn parse_value(&mut self, expand_macros: &MacroExpand) -> Result<Option<TulispObject>, Error> {
