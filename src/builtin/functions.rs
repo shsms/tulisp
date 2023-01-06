@@ -17,10 +17,12 @@ use tulisp_proc_macros::{crate_fn, crate_fn_no_eval};
 macro_rules! max_min_ops {
     ($oper:tt) => {{
         |selfobj: &TulispObject, other: &TulispObject| -> Result<TulispObject, Error> {
-            if let Ok(s) = selfobj.as_float() {
+            if selfobj.floatp() {
+                let s: f64 = selfobj.as_float().unwrap();
                 let o: f64 = other.try_into()?;
                 Ok(f64::$oper(s, o).into())
-            } else if let Ok(o) = other.as_float() {
+            } else if other.floatp() {
+                let o: f64 = other.as_float().unwrap();
                 let s: f64 = selfobj.try_into()?;
                 Ok(f64::$oper(s, o).into())
             } else {
@@ -35,10 +37,12 @@ macro_rules! max_min_ops {
 macro_rules! binary_ops {
     ($oper:expr) => {{
         |selfobj: &TulispObject, other: &TulispObject| -> Result<TulispObject, Error> {
-            if let Ok(s) = selfobj.as_float() {
+            if selfobj.floatp() {
+                let s: f64 = selfobj.as_float().unwrap();
                 let o: f64 = other.try_into()?;
                 Ok($oper(&s, &o).into())
-            } else if let Ok(o) = other.as_float() {
+            } else if other.floatp() {
+                let o: f64 = other.as_float().unwrap();
                 let s: f64 = selfobj.try_into()?;
                 Ok($oper(&s, &o).into())
             } else {
@@ -68,15 +72,17 @@ fn reduce_with(
 
     eval_basic(ctx, &first, &mut eval_result)?;
     if eval_result.is_some() {
-        first = eval_result.take().unwrap();
+        first = eval_result.unwrap();
+        eval_result = None;
     }
 
     for next in iter {
         eval_basic(ctx, &next, &mut eval_result)?;
         if eval_result.is_some() {
-            first = method(&first, &eval_result.take().unwrap())?
+            first = method(&first, &eval_result.unwrap())?;
+            eval_result = None;
         } else {
-            first = method(&first, &next)?
+            first = method(&first, &next)?;
         }
     }
 
