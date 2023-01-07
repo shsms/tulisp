@@ -24,8 +24,7 @@ impl Span {
 /// A type for representing tulisp objects.
 #[derive(Debug, Clone)]
 pub struct TulispObject {
-    rc: Rc<RefCell<TulispValue>>,
-    span: Cell<Option<Span>>,
+    rc_span: Rc<(RefCell<TulispValue>, Cell<Option<Span>>)>,
 }
 
 impl Default for TulispObject {
@@ -36,13 +35,13 @@ impl Default for TulispObject {
 
 impl std::cmp::PartialEq<TulispValue> for TulispObject {
     fn eq(&self, other: &TulispValue) -> bool {
-        *self.rc.as_ref().borrow() == *other
+        *self.rc_span.0.borrow() == *other
     }
 }
 
 impl std::fmt::Display for TulispObject {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("{}", self.rc.as_ref().borrow()))
+        f.write_fmt(format_args!("{}", self.rc_span.0.borrow()))
     }
 }
 
@@ -50,7 +49,7 @@ macro_rules! predicate_fn {
     ($visibility: vis, $name: ident $(, $doc: literal)?) => {
         $(#[doc=$doc])?
         $visibility fn $name(&self) -> bool {
-            self.rc.as_ref().borrow().$name()
+            self.rc_span.0.borrow().$name()
         }
     };
 }
@@ -59,8 +58,7 @@ macro_rules! extractor_fn_with_err {
     ($retty: ty, $name: ident $(, $doc: literal)?) => {
         $(#[doc=$doc])?
         pub fn $name(&self) -> Result<$retty, Error> {
-            self.rc
-                .as_ref()
+            self.rc_span.0
                 .borrow()
                 .$name()
                 .map_err(|e| e.with_span(self.span()))
@@ -96,7 +94,7 @@ impl TulispObject {
     /// Read more about Emacs equality predicates
     /// [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Equality-Predicates.html).
     pub fn equal(&self, other: &TulispObject) -> bool {
-        *self.rc.as_ref().borrow() == *other.rc.as_ref().borrow()
+        *self.rc_span.0.borrow() == *other.rc_span.0.borrow()
     }
 
     /// Returns true if `self` and `other` are the same object.
@@ -104,12 +102,12 @@ impl TulispObject {
     /// Read more about Emacs equality predicates
     /// [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Equality-Predicates.html).
     pub fn eq(&self, other: &TulispObject) -> bool {
-        Rc::ptr_eq(&self.rc, &other.rc)
+        Rc::ptr_eq(&self.rc_span, &other.rc_span)
     }
 
     /// Returns an iterator over the values inside `self`.
     pub fn base_iter(&self) -> cons::BaseIter {
-        self.rc.as_ref().borrow().base_iter()
+        self.rc_span.0.borrow().base_iter()
     }
 
     /// Returns an iterator over the `TryInto` results on the values inside
@@ -141,8 +139,8 @@ impl TulispObject {
     /// Adds the given value to the end of a list. Returns an Error if `self` is
     /// not a list.
     pub fn push(&self, val: TulispObject) -> Result<&TulispObject, Error> {
-        self.rc
-            .as_ref()
+        self.rc_span
+            .0
             .borrow_mut()
             .push(val)
             .map(|_| self)
@@ -152,8 +150,8 @@ impl TulispObject {
     /// Attaches the other list to the end of self.  Returns an Error if `self`
     /// is not a list.
     pub fn append(&self, other_list: TulispObject) -> Result<&TulispObject, Error> {
-        self.rc
-            .as_ref()
+        self.rc_span
+            .0
             .borrow_mut()
             .append(other_list)
             .map(|_| self)
@@ -163,7 +161,7 @@ impl TulispObject {
     /// Returns a string representation of `self`, similar to the Emacs Lisp
     /// function `princ`.
     pub fn fmt_string(&self) -> String {
-        self.rc.as_ref().borrow().fmt_string()
+        self.rc_span.0.borrow().fmt_string()
     }
 
     /// Sets a value to `self` in the current scope. If there was a previous
@@ -171,8 +169,8 @@ impl TulispObject {
     ///
     /// Returns an Error if `self` is not a `Symbol`.
     pub fn set(&self, to_set: TulispObject) -> Result<(), Error> {
-        self.rc
-            .as_ref()
+        self.rc_span
+            .0
             .borrow_mut()
             .set(to_set)
             .map_err(|e| e.with_span(self.span()))
@@ -183,8 +181,8 @@ impl TulispObject {
     ///
     /// Returns an Error if `self` is not a `Symbol`.
     pub fn set_scope(&self, to_set: TulispObject) -> Result<(), Error> {
-        self.rc
-            .as_ref()
+        self.rc_span
+            .0
             .borrow_mut()
             .set_scope(to_set)
             .map_err(|e| e.with_span(self.span()))
@@ -194,8 +192,8 @@ impl TulispObject {
     ///
     /// Returns an Error if `self` is not a `Symbol`.
     pub fn unset(&self) -> Result<(), Error> {
-        self.rc
-            .as_ref()
+        self.rc_span
+            .0
             .borrow_mut()
             .unset()
             .map_err(|e| e.with_span(self.span()))
@@ -321,50 +319,49 @@ impl TulispObject {
 
     pub(crate) fn new(vv: TulispValue) -> TulispObject {
         Self {
-            rc: Rc::new(RefCell::new(vv)),
-            span: Cell::new(None),
+            rc_span: Rc::new((RefCell::new(vv), Cell::new(None))),
         }
     }
 
     pub(crate) fn strong_count(&self) -> usize {
-        Rc::strong_count(&self.rc)
+        Rc::strong_count(&self.rc_span)
     }
     pub(crate) fn assign(&self, vv: TulispValue) {
-        *self.rc.as_ref().borrow_mut() = vv
+        *self.rc_span.0.borrow_mut() = vv
     }
 
     pub(crate) fn clone_inner(&self) -> TulispValue {
-        self.rc.as_ref().borrow().clone()
+        self.rc_span.0.borrow().clone()
     }
 
     pub(crate) fn inner_ref(&self) -> Ref<'_, TulispValue> {
-        self.rc.borrow()
+        self.rc_span.0.borrow()
     }
 
     pub(crate) fn as_list_cons(&self) -> Option<Cons> {
-        self.rc.as_ref().borrow().as_list_cons()
+        self.rc_span.0.borrow().as_list_cons()
     }
 
     pub(crate) fn ctxobj(&self) -> Option<TulispObject> {
-        self.rc.as_ref().borrow().ctxobj()
+        self.rc_span.0.borrow().ctxobj()
     }
 
     pub(crate) fn with_ctxobj(&self, in_ctxobj: Option<TulispObject>) -> Self {
-        self.rc.as_ref().borrow_mut().with_ctxobj(in_ctxobj);
+        self.rc_span.0.borrow_mut().with_ctxobj(in_ctxobj);
         self.clone()
     }
 
     pub(crate) fn with_span(&self, in_span: Option<Span>) -> Self {
-        self.span.set(in_span);
+        self.rc_span.1.set(in_span);
         self.clone()
     }
     pub(crate) fn take(&self) -> TulispValue {
-        self.rc.as_ref().borrow_mut().take()
+        self.rc_span.0.borrow_mut().take()
     }
 
     #[doc(hidden)]
     pub fn span(&self) -> Option<Span> {
-        self.span.get()
+        self.rc_span.1.get()
     }
 
     #[doc(hidden)]
@@ -402,8 +399,8 @@ impl TryFrom<TulispObject> for f64 {
 
     fn try_from(value: TulispObject) -> Result<Self, Self::Error> {
         value
-            .rc
-            .as_ref()
+            .rc_span
+            .0
             .borrow()
             .try_float()
             .map_err(|e| e.with_span(value.span()))
@@ -415,8 +412,8 @@ impl TryFrom<TulispObject> for i64 {
 
     fn try_from(value: TulispObject) -> Result<Self, Self::Error> {
         value
-            .rc
-            .as_ref()
+            .rc_span
+            .0
             .borrow()
             .as_int()
             .map_err(|e| e.with_span(value.span()))
@@ -428,8 +425,8 @@ impl TryFrom<&TulispObject> for f64 {
 
     fn try_from(value: &TulispObject) -> Result<Self, Self::Error> {
         value
-            .rc
-            .as_ref()
+            .rc_span
+            .0
             .borrow()
             .try_float()
             .map_err(|e| e.with_span(value.span()))
@@ -441,8 +438,8 @@ impl TryFrom<&TulispObject> for i64 {
 
     fn try_from(value: &TulispObject) -> Result<Self, Self::Error> {
         value
-            .rc
-            .as_ref()
+            .rc_span
+            .0
             .borrow()
             .as_int()
             .map_err(|e| e.with_span(value.span()))
