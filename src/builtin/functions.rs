@@ -614,6 +614,13 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     }
 
     #[crate_fn(add_func = "ctx")]
+    fn length(list: TulispObject) -> Result<i64, Error> {
+        lists::length(&list)
+    }
+
+    }
+
+    #[crate_fn(add_func = "ctx")]
     fn mapcar(
         ctx: &mut TulispContext,
         func: TulispObject,

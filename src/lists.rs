@@ -1,5 +1,12 @@
 use crate::{eval::eval, list, Error, ErrorKind, TulispContext, TulispObject};
 
+/// Returns the number of elements in the given list.
+pub fn length(list: &TulispObject) -> Result<i64, Error> {
+    list.base_iter()
+        .count()
+        .try_into()
+        .map_err(|e: _| Error::new(ErrorKind::OutOfRange, format!("{}", e)).with_span(list.span()))
+}
 /// Returns the first association for key in alist, comparing key against the
 /// alist elements using testfn if it is a function, and equal otherwise.
 ///

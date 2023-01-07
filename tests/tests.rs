@@ -246,6 +246,11 @@ fn test_lists() -> Result<(), Error> {
     }
 
     tulisp_assert! {
+        program: "(let ((items '(4 20 3 22 55))) (length items))",
+        result: "5"
+    }
+
+    tulisp_assert! {
         program: r#"
         (setq items
               (append items '(10)))

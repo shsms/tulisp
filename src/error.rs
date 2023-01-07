@@ -9,6 +9,7 @@ pub enum ErrorKind {
     Uninitialized,
     SyntaxError,
     MissingArgument,
+    OutOfRange,
 }
 
 impl std::fmt::Display for ErrorKind {
@@ -21,6 +22,7 @@ impl std::fmt::Display for ErrorKind {
             ErrorKind::Uninitialized => f.write_str("Uninitialized"),
             ErrorKind::SyntaxError => f.write_str("SyntaxError"),
             ErrorKind::MissingArgument => f.write_str("MissingArgument"),
+            ErrorKind::OutOfRange => f.write_str("OutOfRange"),
         }
     }
 }
