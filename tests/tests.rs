@@ -302,6 +302,16 @@ fn test_lists() -> Result<(), Error> {
     }
 
     tulisp_assert! {
+        program: "(let ((res 0)) (list (dotimes (vv 4) (setq res (+ res vv))) res))",
+        result: "'(nil 6)",
+    }
+
+    tulisp_assert! {
+        program: "(let ((res 0)) (list (dotimes (vv 4 res) (setq res (+ res vv))) res))",
+        result: "'(6 6)",
+    }
+
+    tulisp_assert! {
         program: r##"
         (let ((vv '((name . "person") (age . 120))))
           (list (assoc 'age vv) (alist-get 'name vv) (alist-get 'names vv) (alist-get 'names vv "something")))

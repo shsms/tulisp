@@ -594,6 +594,23 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     }
 
     #[crate_fn_no_eval(add_func = "ctx")]
+    fn dotimes(
+        ctx: &mut TulispContext,
+        spec: TulispObject,
+        rest: TulispObject,
+    ) -> Result<TulispObject, Error> {
+        destruct_bind!((var count &optional result) = spec);
+        for counter in 0..count.as_int()? {
+            let mut scope = Scope::default();
+            scope.set(var.clone(), TulispObject::from(counter))?;
+            let eval_res = ctx.eval_progn(&rest);
+            scope.remove_all()?;
+            eval_res?;
+        }
+        ctx.eval(&result)
+    }
+
+    #[crate_fn_no_eval(add_func = "ctx")]
     fn list(ctx: &mut TulispContext, rest: TulispObject) -> Result<TulispObject, Error> {
         let (ctxobj, span) = (rest.ctxobj(), rest.span());
         let mut cons: Option<Cons> = None;
