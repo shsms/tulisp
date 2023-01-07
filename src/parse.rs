@@ -389,9 +389,7 @@ impl Parser<'_, '_> {
     }
 
     fn parse_value(&mut self, expand_macros: &MacroExpand) -> Result<Option<TulispObject>, Error> {
-        let token = if let Some(token) = self.tokenizer.next() {
-            token
-        } else {
+        let Some(token) = self.tokenizer.next()  else {
             return Ok(None);
         };
         match token {

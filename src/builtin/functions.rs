@@ -61,9 +61,7 @@ fn reduce_with(
 ) -> Result<TulispObject, Error> {
     let mut eval_result = None;
     let mut iter = list.base_iter();
-    let mut first = if let Some(first) = iter.next() {
-        first
-    } else {
+    let Some(mut first) = iter.next() else {
         return Err(Error::new(
             ErrorKind::TypeMismatch,
             "Incorrect number of arguments: 0".to_string(),
@@ -301,9 +299,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 output.push(ch);
                 continue;
             }
-            let next_arg = if let Some(val) = args.next() {
-                val
-            } else {
+            let Some(next_arg) = args.next() else {
                 return Err(Error::new(
                     ErrorKind::MissingArgument,
                     "format has missing args".to_string(),
