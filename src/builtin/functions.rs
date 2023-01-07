@@ -618,6 +618,14 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         lists::length(&list)
     }
 
+    #[crate_fn(add_func = "ctx")]
+    fn nthcdr(n: i64, list: TulispObject) -> Result<TulispObject, Error> {
+        lists::nthcdr(n, list)
+    }
+
+    #[crate_fn(add_func = "ctx")]
+    fn nth(n: i64, list: TulispObject) -> Result<TulispObject, Error> {
+        lists::nth(n, list)
     }
 
     #[crate_fn(add_func = "ctx")]

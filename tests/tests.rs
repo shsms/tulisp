@@ -251,6 +251,29 @@ fn test_lists() -> Result<(), Error> {
     }
 
     tulisp_assert! {
+        program: r##"
+        (let ((items '(4 20 3 22 55)))
+          (list
+           (nth 0 items)
+           (nth 2 items)
+           (nth 4 items)
+           (nth 5 items)))
+        "##,
+        result: "'(4 3 55 nil)"
+    }
+
+    tulisp_assert! {
+        program: r##"
+        (let ((items '(4 20 3 22 55)))
+          (list (nthcdr 0 items)
+                (nthcdr 2 items)
+                (nthcdr 4 items)
+                (nthcdr 5 items)))
+        "##,
+        result: "'((4 20 3 22 55) (3 22 55) (55) nil)"
+    }
+
+    tulisp_assert! {
         program: r#"
         (setq items
               (append items '(10)))

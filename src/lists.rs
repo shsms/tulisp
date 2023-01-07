@@ -7,6 +7,25 @@ pub fn length(list: &TulispObject) -> Result<i64, Error> {
         .try_into()
         .map_err(|e: _| Error::new(ErrorKind::OutOfRange, format!("{}", e)).with_span(list.span()))
 }
+
+/// Repeatedly takes the the CDR of the list n-times, and returns the n-th cdr
+/// of the given list.
+pub fn nthcdr(n: i64, list: TulispObject) -> Result<TulispObject, Error> {
+    let mut next = list;
+    for _ in 0..n {
+        if next.null() {
+            return Ok(next);
+        }
+        next = next.cdr()?;
+    }
+    Ok(next)
+}
+
+/// Returns the n-th element in the given list.
+pub fn nth(n: i64, list: TulispObject) -> Result<TulispObject, Error> {
+    nthcdr(n, list).and_then(|x| x.car())
+}
+
 /// Returns the first association for key in alist, comparing key against the
 /// alist elements using testfn if it is a function, and equal otherwise.
 ///
