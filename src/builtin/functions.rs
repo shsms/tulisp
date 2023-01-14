@@ -107,13 +107,11 @@ fn mark_tail_calls(
         return Ok(body);
     }
     let span = tail.span();
+    let ctxobj = tail.ctxobj();
     let tail_ident = tail.car()?;
     let tail_name_str = tail_ident.as_symbol()?;
     let new_tail = if tail_ident.eq(&name) {
-        let ret_tail = TulispObject::nil()
-            .append(tail.cdr()?)?
-            .to_owned()
-            .with_span(span);
+        let ret_tail = TulispObject::nil().append(tail.cdr()?)?.to_owned();
         list!(,ctx.intern("list")
               ,TulispValue::Bounce.into_ref()
               ,@ret_tail)?
@@ -143,7 +141,7 @@ fn mark_tail_calls(
     } else {
         tail
     };
-    ret.push(new_tail)?;
+    ret.push(new_tail.with_ctxobj(ctxobj).with_span(span))?;
     Ok(ret)
 }
 
