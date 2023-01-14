@@ -278,6 +278,21 @@ struct Parser<'a, 'b> {
     strings: HashMap<String, TulispObject>,
 }
 
+fn recursive_update_ctxobj(ctx: &mut TulispContext, body: &TulispObject) -> Result<(), Error> {
+    if !body.consp() {
+        return Ok(());
+    }
+    let name = body.car()?;
+    if name.symbolp() && body.ctxobj().is_none() {
+        let ctxobj = eval(ctx, &name).ok();
+        body.with_ctxobj(ctxobj);
+    }
+    for item in body.base_iter() {
+        recursive_update_ctxobj(ctx, &item)?;
+    }
+    Ok(())
+}
+
 impl Parser<'_, '_> {
     fn new<'b, 'a>(ctx: &'b mut TulispContext, program: &'a str) -> Parser<'a, 'b> {
         Parser {
@@ -347,45 +362,20 @@ impl Parser<'_, '_> {
             inner.car()?.as_symbol().as_ref().map(|x| x.as_str())
         {
             eval(self.ctx, &inner)?;
-            // In the case of recursive functions, ctxobj is available only
-            // after they've been evaluated, so need a second pass.
-            fn recursive_update_ctxobj_pass_2(
-                ctx: &mut TulispContext,
-                body: &TulispObject,
-            ) -> Result<(), Error> {
-                if !body.consp() {
-                    return Ok(());
-                }
-                let name = body.car()?;
-                if name.symbolp() {
-                    let ctxobj = eval(ctx, &name).ok();
-                    body.with_ctxobj(ctxobj);
-                }
-                let rest = body.cdr()?;
-                if !rest.consp() {
-                    return Ok(());
-                }
-                for item in rest.base_iter() {
-                    recursive_update_ctxobj_pass_2(ctx, &item)?;
-                }
-                Ok(())
-            }
-            recursive_update_ctxobj_pass_2(self.ctx, &inner)?;
+            // recursively update ctx obj in case it is a recursive function.
+            recursive_update_ctxobj(self.ctx, &inner)?;
         }
         let res = if *expand_macros == MacroExpand::Yes {
-            macroexpand(self.ctx, inner)
+            macroexpand(self.ctx, inner)?
         } else {
-            Ok(inner)
+            inner
         };
-        // TODO: do nested if necessary
-        if let Ok(ref inner) = res {
-            if inner.consp() {
-                let name = inner.car()?;
-                let ctxobj = eval(self.ctx, &name).ok();
-                inner.with_ctxobj(ctxobj);
-            }
-        };
-        res
+        if res.consp() {
+            let name = res.car()?;
+            let ctxobj = eval(self.ctx, &name).ok();
+            res.with_ctxobj(ctxobj);
+        }
+        Ok(res)
     }
 
     fn parse_value(&mut self, expand_macros: &MacroExpand) -> Result<Option<TulispObject>, Error> {
