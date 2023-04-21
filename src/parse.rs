@@ -8,8 +8,8 @@ use crate::{
 
 struct Tokenizer<'a> {
     chars: Peekable<Chars<'a>>,
-    line: u16,
-    pos: u16,
+    line: usize,
+    pos: usize,
 }
 
 #[derive(PartialEq, Debug)]
