@@ -311,9 +311,7 @@ impl Parser<'_, '_> {
         let inner = TulispObject::nil();
         let mut got_dot = false;
         loop {
-            let token = if let Some(token) = self.tokenizer.peek() {
-                token
-            } else {
+            let Some(token) = self.tokenizer.peek() else {
                 return Err(
                     Error::new(ErrorKind::ParsingError, "Unclosed list".to_string())
                         .with_span(Some(start_span)),
