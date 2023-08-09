@@ -6,6 +6,8 @@ use crate::error::ErrorKind;
 use crate::eval::eval;
 use crate::eval::eval_basic;
 use crate::eval::eval_check_null;
+use crate::eval::eval_form;
+use crate::eval::DummyEval;
 use crate::lists;
 use crate::TulispObject;
 use crate::TulispValue;
@@ -650,7 +652,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ) -> Result<TulispObject, Error> {
         let mut ret = TulispValue::Nil;
         for item in items.base_iter() {
-            ret.push(ctx.eval(&list!(,func.clone() ,quote(item))?)?)?;
+            ret.push(eval_form::<DummyEval>(ctx, &list!(,func.clone() ,item)?)?)?;
         }
         Ok(ret.into())
     }

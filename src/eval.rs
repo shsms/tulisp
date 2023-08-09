@@ -5,7 +5,7 @@ use crate::{
     TulispObject, TulispValue,
 };
 
-trait Evaluator {
+pub(crate) trait Evaluator {
     fn eval(
         ctx: &mut TulispContext,
         value: &TulispObject,
@@ -13,7 +13,7 @@ trait Evaluator {
     ) -> Result<(), Error>;
 }
 
-struct Eval;
+pub(crate) struct Eval;
 impl Evaluator for Eval {
     fn eval(
         ctx: &mut TulispContext,
@@ -24,7 +24,7 @@ impl Evaluator for Eval {
     }
 }
 
-struct DummyEval;
+pub(crate) struct DummyEval;
 impl Evaluator for DummyEval {
     fn eval(
         _ctx: &mut TulispContext,
@@ -90,13 +90,13 @@ fn eval_function<E: Evaluator>(
     Ok(result)
 }
 
-fn eval_lambda(
+fn eval_lambda<E: Evaluator>(
     ctx: &mut TulispContext,
     params: &DefunParams,
     body: &TulispObject,
     args: &TulispObject,
 ) -> Result<TulispObject, Error> {
-    let mut result = eval_function::<Eval>(ctx, params, body, args)?;
+    let mut result = eval_function::<E>(ctx, params, body, args)?;
     while result.is_bounced() {
         result = eval_function::<DummyEval>(ctx, params, body, &result.cdr()?)?;
     }
@@ -112,7 +112,10 @@ pub(crate) fn eval_defmacro(
     eval_function::<DummyEval>(ctx, params, body, args)
 }
 
-fn eval_form(ctx: &mut TulispContext, val: &TulispObject) -> Result<TulispObject, Error> {
+pub(crate) fn eval_form<E: Evaluator>(
+    ctx: &mut TulispContext,
+    val: &TulispObject,
+) -> Result<TulispObject, Error> {
     let name = val.car()?;
     let func = match val.ctxobj() {
         Some(func) => func,
@@ -123,7 +126,7 @@ fn eval_form(ctx: &mut TulispContext, val: &TulispObject) -> Result<TulispObject
         TulispValue::Lambda {
             ref params,
             ref body,
-        } => eval_lambda(ctx, params, body, &val.cdr()?),
+        } => eval_lambda::<E>(ctx, params, body, &val.cdr()?),
         TulispValue::Macro(_) | TulispValue::Defmacro { .. } => {
             let expanded = macroexpand(ctx, val.clone())?;
             eval(ctx, &expanded)
@@ -163,7 +166,7 @@ pub(crate) fn eval_basic<'a, 'b>(
 ) -> Result<(), Error> {
     match &*expr.inner_ref() {
         TulispValue::List { .. } => {
-            *result = Some(eval_form(ctx, expr).map_err(|e| e.with_span(expr.span()))?);
+            *result = Some(eval_form::<Eval>(ctx, expr).map_err(|e| e.with_span(expr.span()))?);
         }
         TulispValue::Symbol { value, .. } => {
             if value.is_constant() {
