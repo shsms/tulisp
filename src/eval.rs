@@ -166,6 +166,9 @@ pub(crate) fn eval_basic<'a, 'b>(
             *result = Some(eval_form(ctx, expr).map_err(|e| e.with_span(expr.span()))?);
         }
         TulispValue::Symbol { value, .. } => {
+            if value.is_constant() {
+                return Ok(());
+            }
             *result = Some(value.get().map_err(|e| e.with_span(expr.span()))?);
         }
         TulispValue::Int { .. }

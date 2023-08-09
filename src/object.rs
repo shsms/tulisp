@@ -313,8 +313,8 @@ assert_eq!(ts.value, 25);
 
 // pub(crate) methods on TulispValue
 impl TulispObject {
-    pub(crate) fn symbol(name: String) -> TulispObject {
-        TulispValue::symbol(name).into()
+    pub(crate) fn symbol(name: String, constant: bool) -> TulispObject {
+        TulispValue::symbol(name, constant).into()
     }
 
     pub(crate) fn new(vv: TulispValue) -> TulispObject {

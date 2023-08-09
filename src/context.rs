@@ -66,7 +66,8 @@ impl TulispContext {
             sym.clone()
         } else {
             let name = name.to_string();
-            let sym = TulispObject::symbol(name.clone());
+            let constant = if name.starts_with(":") { true } else { false };
+            let sym = TulispObject::symbol(name.clone(), constant);
             self.obarray.insert(name, sym.clone());
             sym
         }
