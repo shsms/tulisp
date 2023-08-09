@@ -3,7 +3,8 @@ use std::{collections::HashMap, fs};
 use crate::{
     builtin,
     error::Error,
-    eval::{eval, eval_basic},
+    eval::{eval, eval_basic, eval_form, DummyEval},
+    list,
     parse::parse,
     TulispObject,
 };
@@ -80,6 +81,36 @@ impl TulispContext {
     /// Evaluates the given value and returns the result.
     pub fn eval(&mut self, value: &TulispObject) -> Result<TulispObject, Error> {
         eval(self, value)
+    }
+
+    /// Maps the given function over the given sequence, and returns the result.
+    pub fn map(&mut self, func: &TulispObject, seq: &TulispObject) -> Result<TulispObject, Error> {
+        let func = self.eval(func)?;
+        let ret = TulispObject::nil();
+        for item in seq.base_iter() {
+            let form = list!(,TulispObject::nil() ,item)?;
+            form.with_ctxobj(Some(func.clone()));
+            ret.push(eval_form::<DummyEval>(self, &form)?)?;
+        }
+        Ok(ret)
+    }
+
+    /// Filters the given sequence using the given function, and returns the
+    /// result.
+    pub fn filter(
+        &mut self,
+        func: &TulispObject,
+        seq: &TulispObject,
+    ) -> Result<TulispObject, Error> {
+        let ret = TulispObject::nil();
+        for item in seq.base_iter() {
+            let form = list!(,TulispObject::nil() ,item.clone())?;
+            form.with_ctxobj(Some(func.clone()));
+            if eval_form::<DummyEval>(self, &form)?.as_bool() {
+                ret.push(item)?;
+            }
+        }
+        Ok(ret)
     }
 
     /// Parses and evaluates the given string, and returns the result.
