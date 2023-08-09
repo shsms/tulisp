@@ -339,12 +339,10 @@ fn test_lists() -> Result<(), Error> {
 
     tulisp_assert! {
         program: r#"
-        (let ((plist (cdr '(_
-                            :name person
-                            :dob "01.01.2001"))))
-          (list (plist-get plist ':dob)
-                (plist-get plist ':name)
-                (plist-get plist ':age)))
+        (let ((plist '(:name person :dob "01.01.2001")))
+          (list (plist-get plist :dob)
+                (plist-get plist :name)
+                (plist-get plist :age)))
         "#,
         result: r#"'("01.01.2001" person nil)"#,
     }
@@ -352,6 +350,11 @@ fn test_lists() -> Result<(), Error> {
     tulisp_assert! {
         program: "(mapcar '1+ '(10 20 30))",
         result: "'(11 21 31)",
+    }
+
+    tulisp_assert! {
+        program: r#"(mapcar (lambda (vv) (plist-get vv :age)) '((:name "person" :age 20) (:name "person2" :age 30)))"#,
+        result: "'(20 30)",
     }
     Ok(())
 }

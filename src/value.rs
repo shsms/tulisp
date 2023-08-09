@@ -105,20 +105,35 @@ type TulispFn = dyn Fn(&mut TulispContext, &TulispObject) -> Result<TulispObject
 #[derive(Default, Clone, Debug)]
 pub struct SymbolBindings {
     name: String,
+    constant: bool,
     items: Vec<TulispObject>,
 }
 
 impl SymbolBindings {
-    pub fn set(&mut self, to_set: TulispObject) {
+    pub fn set(&mut self, to_set: TulispObject) -> Result<(), Error> {
+        if self.constant {
+            return Err(Error::new(
+                ErrorKind::Undefined,
+                format!("Can't set constant symbol: {}", self.name),
+            ));
+        }
         if self.items.is_empty() {
             self.items.push(to_set);
         } else {
             *self.items.last_mut().unwrap() = to_set;
         }
+        Ok(())
     }
 
-    pub fn set_scope(&mut self, to_set: TulispObject) {
+    pub fn set_scope(&mut self, to_set: TulispObject) -> Result<(), Error> {
+        if self.constant {
+            return Err(Error::new(
+                ErrorKind::Undefined,
+                format!("Can't set constant symbol: {}", self.name),
+            ));
+        }
         self.items.push(to_set);
+        Ok(())
     }
 
     pub fn unset(&mut self) -> Result<(), Error> {
@@ -140,6 +155,10 @@ impl SymbolBindings {
             ));
         }
         return Ok(self.items.last().unwrap().clone());
+    }
+
+    pub(crate) fn is_constant(&self) -> bool {
+        self.constant
     }
 }
 
@@ -333,10 +352,11 @@ impl std::fmt::Display for TulispValue {
 }
 
 impl TulispValue {
-    pub(crate) fn symbol(name: String) -> TulispValue {
+    pub(crate) fn symbol(name: String, constant: bool) -> TulispValue {
         TulispValue::Symbol {
             value: SymbolBindings {
                 name,
+                constant,
                 items: Default::default(),
             },
         }
@@ -344,8 +364,7 @@ impl TulispValue {
 
     pub fn set(&mut self, to_set: TulispObject) -> Result<(), Error> {
         if let TulispValue::Symbol { value, .. } = self {
-            value.set(to_set);
-            Ok(())
+            value.set(to_set)
         } else {
             Err(Error::new(
                 ErrorKind::TypeMismatch,
@@ -356,8 +375,7 @@ impl TulispValue {
 
     pub fn set_scope(&mut self, to_set: TulispObject) -> Result<(), Error> {
         if let TulispValue::Symbol { value, .. } = self {
-            value.set_scope(to_set);
-            Ok(())
+            value.set_scope(to_set)
         } else {
             Err(Error::new(
                 ErrorKind::TypeMismatch,
@@ -379,6 +397,9 @@ impl TulispValue {
 
     pub fn get(&self) -> Result<TulispObject, Error> {
         if let TulispValue::Symbol { value, .. } = self {
+            if value.is_constant() {
+                return Ok(self.clone().into());
+            }
             value.get()
         } else {
             Err(Error::new(

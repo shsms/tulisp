@@ -523,6 +523,11 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(TulispObject::nil())
     }
 
+    #[crate_fn_no_eval(add_func = "ctx")]
+    fn quote(arg: TulispObject) -> TulispObject {
+        TulispValue::Quote { value: arg }.into()
+    }
+
     #[crate_fn(add_func = "ctx")]
     fn null(arg: TulispObject) -> bool {
         arg.null()
@@ -651,7 +656,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ) -> Result<TulispObject, Error> {
         let mut ret = TulispValue::Nil;
         for item in items.base_iter() {
-            ret.push(ctx.eval(&list!(,func.clone() ,item)?)?)?;
+            ret.push(ctx.eval(&list!(,func.clone() ,quote(item))?)?)?;
         }
         Ok(ret.into())
     }
