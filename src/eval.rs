@@ -122,7 +122,7 @@ pub(crate) fn eval_form<E: Evaluator>(
         None => eval(ctx, &name)?,
     };
     let x = match &*func.inner_ref() {
-        TulispValue::Func(ref func) => func(ctx, val),
+        TulispValue::Func(ref func) => func(ctx, &val.cdr()?),
         TulispValue::Lambda {
             ref params,
             ref body,
@@ -298,7 +298,7 @@ pub fn macroexpand(ctx: &mut TulispContext, inp: TulispObject) -> Result<TulispO
     };
     let x = match &*value.inner_ref() {
         TulispValue::Macro(func) => {
-            let expansion = func(ctx, &expr)?;
+            let expansion = func(ctx, &expr.cdr()?)?;
             macroexpand(ctx, expansion)
         }
         TulispValue::Defmacro { params, body } => {

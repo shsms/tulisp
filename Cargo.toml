@@ -19,5 +19,4 @@ name = "tulisp"
 path = "src/lib.rs"
 
 [dependencies]
-tulisp-proc-macros = "0.2.0"
-
+tulisp-proc-macros = "0.3.0"
