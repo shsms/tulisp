@@ -708,3 +708,15 @@ impl From<Rc<dyn Any>> for TulispValue {
         TulispValue::Any(value)
     }
 }
+
+impl FromIterator<TulispObject> for TulispValue {
+    fn from_iter<T: IntoIterator<Item = TulispObject>>(iter: T) -> Self {
+        let mut list = TulispValue::Nil;
+        for item in iter {
+            // because only push is called, and never append, it is safe to
+            // ignore the returned Result.
+            let _ = list.push(item);
+        }
+        list
+    }
+}

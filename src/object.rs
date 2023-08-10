@@ -513,3 +513,9 @@ impl From<TulispValue> for TulispObject {
         vv.into_ref()
     }
 }
+
+impl FromIterator<TulispObject> for TulispObject {
+    fn from_iter<T: IntoIterator<Item = TulispObject>>(iter: T) -> Self {
+        TulispValue::from_iter(iter).into_ref()
+    }
+}

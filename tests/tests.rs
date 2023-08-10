@@ -1,6 +1,6 @@
 use std::{any::Any, rc::Rc};
 
-use tulisp::{tulisp_add_func, tulisp_fn, Error, Iter, TulispContext};
+use tulisp::{tulisp_add_func, tulisp_fn, Error, Iter, TulispContext, TulispObject};
 
 macro_rules! tulisp_assert {
     (@impl $ctx: expr, program:$input:expr, result:$result:expr $(,)?) => {
@@ -570,6 +570,13 @@ fn test_tulisp_fn() -> Result<(), Error> {
         result: "5",
     }
 
+    Ok(())
+}
+
+#[test]
+fn test_from_iter() -> Result<(), Error> {
+    let obj: TulispObject = (1..10).into_iter().map(|x| (x * 2).into()).collect();
+    assert_eq!(obj.to_string(), "(2 4 6 8 10 12 14 16 18)");
     Ok(())
 }
 
