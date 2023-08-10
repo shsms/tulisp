@@ -1,6 +1,6 @@
 use std::{any::Any, rc::Rc};
 
-use tulisp::{tulisp_add_func, tulisp_fn, Error, Iter, TulispContext};
+use tulisp::{tulisp_add_func, tulisp_fn, Error, Iter, TulispContext, TulispObject};
 
 macro_rules! tulisp_assert {
     (@impl $ctx: expr, program:$input:expr, result:$result:expr $(,)?) => {
@@ -451,6 +451,43 @@ fn test_while() -> Result<(), Error> {
 }
 
 #[test]
+fn test_sequences() -> Result<(), Error> {
+    tulisp_assert! {
+        program: "(seq-map #'1+ '(2 4 6))",
+        result: "'(3 5 7)",
+    }
+    tulisp_assert! {
+        program: r#"(seq-filter #'numberp '(2 4 6 "hello" 8))"#,
+        result: "'(2 4 6 8)",
+    }
+    tulisp_assert! {
+        program: r#"(seq-filter (lambda (x) (> x 5)) '(2 4 6 8))"#,
+        result: "'(6 8)",
+    }
+    tulisp_assert! {
+        program: r##"
+        (let
+            ((items '(2 4 6 "hello" 8)))
+         (list (seq-find #'numberp items) (seq-find #'stringp items)))
+        "##,
+        result: r#"'(2 "hello")"#,
+    }
+    tulisp_assert! {
+        program: r##"
+        (seq-reduce #'+ '(2 4 6 8) 0)
+        "##,
+        result: "20",
+    }
+    tulisp_assert! {
+        program: r##"
+        (seq-reduce (lambda (x y) (+ x y)) '(2 4 6 8) 5)
+        "##,
+        result: "25",
+    }
+    Ok(())
+}
+
+#[test]
 fn test_sort() -> Result<(), Error> {
     tulisp_assert! {
         program: "(sort '(20 10 30 15 45) '<)",
@@ -553,6 +590,13 @@ fn test_tulisp_fn() -> Result<(), Error> {
         result: "5",
     }
 
+    Ok(())
+}
+
+#[test]
+fn test_from_iter() -> Result<(), Error> {
+    let obj: TulispObject = (1..10).into_iter().map(|x| (x * 2).into()).collect();
+    assert_eq!(obj.to_string(), "(2 4 6 8 10 12 14 16 18)");
     Ok(())
 }
 
