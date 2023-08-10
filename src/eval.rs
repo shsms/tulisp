@@ -1,6 +1,7 @@
 use crate::{
     context::TulispContext,
     error::{Error, ErrorKind},
+    list,
     value::DefunParams,
     TulispObject, TulispValue,
 };
@@ -112,6 +113,28 @@ pub(crate) fn eval_defmacro(
     eval_function::<DummyEval>(ctx, params, body, args)
 }
 
+pub(crate) fn funcall<E: Evaluator>(
+    ctx: &mut TulispContext,
+    func: &TulispObject,
+    args: &TulispObject,
+) -> Result<TulispObject, Error> {
+    match &*func.inner_ref() {
+        TulispValue::Func(ref func) => func(ctx, &args),
+        TulispValue::Lambda {
+            ref params,
+            ref body,
+        } => eval_lambda::<E>(ctx, params, body, &args),
+        TulispValue::Macro(_) | TulispValue::Defmacro { .. } => {
+            let expanded = macroexpand(ctx, list!(func.clone(), args.clone())?)?;
+            eval(ctx, &expanded)
+        }
+        _ => Err(
+            Error::new(ErrorKind::Undefined, format!("function is void: {}", func))
+                .with_span(func.span()),
+        ),
+    }
+}
+
 pub(crate) fn eval_form<E: Evaluator>(
     ctx: &mut TulispContext,
     val: &TulispObject,
@@ -121,22 +144,7 @@ pub(crate) fn eval_form<E: Evaluator>(
         Some(func) => func,
         None => eval(ctx, &name)?,
     };
-    let x = match &*func.inner_ref() {
-        TulispValue::Func(ref func) => func(ctx, &val.cdr()?),
-        TulispValue::Lambda {
-            ref params,
-            ref body,
-        } => eval_lambda::<E>(ctx, params, body, &val.cdr()?),
-        TulispValue::Macro(_) | TulispValue::Defmacro { .. } => {
-            let expanded = macroexpand(ctx, val.clone())?;
-            eval(ctx, &expanded)
-        }
-        _ => Err(
-            Error::new(ErrorKind::Undefined, format!("function is void: {}", name))
-                .with_span(val.span()),
-        ),
-    };
-    x
+    funcall::<E>(ctx, &func, &val.cdr()?)
 }
 
 pub(crate) fn eval(ctx: &mut TulispContext, expr: &TulispObject) -> Result<TulispObject, Error> {

@@ -3,7 +3,7 @@ use std::{collections::HashMap, fs};
 use crate::{
     builtin,
     error::Error,
-    eval::{eval, eval_basic, eval_form, DummyEval},
+    eval::{eval, eval_basic, eval_form, funcall, DummyEval},
     list,
     parse::parse,
     TulispObject,
@@ -81,6 +81,15 @@ impl TulispContext {
     /// Evaluates the given value and returns the result.
     pub fn eval(&mut self, value: &TulispObject) -> Result<TulispObject, Error> {
         eval(self, value)
+    }
+
+    pub fn funcall(
+        &mut self,
+        func: &TulispObject,
+        args: &TulispObject,
+    ) -> Result<TulispObject, Error> {
+        let func = self.eval(func)?;
+        funcall::<DummyEval>(self, &func, args)
     }
 
     /// Maps the given function over the given sequence, and returns the result.

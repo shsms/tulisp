@@ -6,6 +6,8 @@ use crate::error::ErrorKind;
 use crate::eval::eval;
 use crate::eval::eval_basic;
 use crate::eval::eval_check_null;
+use crate::eval::DummyEval;
+use crate::eval::Eval;
 use crate::lists;
 use crate::TulispObject;
 use crate::TulispValue;
@@ -529,6 +531,21 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     #[crate_fn(add_func = "ctx", name = "eval")]
     fn impl_eval(ctx: &mut TulispContext, arg: TulispObject) -> Result<TulispObject, Error> {
         crate::eval::eval(ctx, &arg)
+    }
+
+    #[crate_fn_no_eval(add_func = "ctx", name = "funcall")]
+    fn funcall(
+        ctx: &mut TulispContext,
+        name: TulispObject,
+        rest: TulispObject,
+    ) -> Result<TulispObject, Error> {
+        let name = eval(ctx, &name)?;
+        let name = eval(ctx, &name)?;
+        if matches!(&*name.inner_ref(), TulispValue::Lambda { .. }) {
+            crate::eval::funcall::<Eval>(ctx, &name, &rest)
+        } else {
+            crate::eval::funcall::<DummyEval>(ctx, &name, &rest)
+        }
     }
 
     #[crate_fn(add_func = "ctx", name = "macroexpand")]
