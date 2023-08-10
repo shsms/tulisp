@@ -464,6 +464,26 @@ fn test_sequences() -> Result<(), Error> {
         program: r#"(seq-filter (lambda (x) (> x 5)) '(2 4 6 8))"#,
         result: "'(6 8)",
     }
+    tulisp_assert! {
+        program: r##"
+        (let
+            ((items '(2 4 6 "hello" 8)))
+         (list (seq-find #'numberp items) (seq-find #'stringp items)))
+        "##,
+        result: r#"'(2 "hello")"#,
+    }
+    tulisp_assert! {
+        program: r##"
+        (seq-reduce #'+ '(2 4 6 8) 0)
+        "##,
+        result: "20",
+    }
+    tulisp_assert! {
+        program: r##"
+        (seq-reduce (lambda (x y) (+ x y)) '(2 4 6 8) 5)
+        "##,
+        result: "25",
+    }
     Ok(())
 }
 

@@ -1,5 +1,5 @@
 use crate::{
-    eval::{eval, eval_check_null},
+    eval::{eval, eval_check_null, eval_form, DummyEval},
     list, lists, Error, TulispContext, TulispObject,
 };
 use std::cmp::Ordering;
@@ -20,6 +20,16 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         ctx.map(&func, &seq)
     }
 
+    #[crate_fn(add_func = "ctx", name = "seq-reduce")]
+    fn seq_reduce(
+        ctx: &mut TulispContext,
+        func: TulispObject,
+        seq: TulispObject,
+        initial_value: TulispObject,
+    ) -> Result<TulispObject, Error> {
+        ctx.reduce(&func, &seq, &initial_value)
+    }
+
     #[crate_fn(add_func = "ctx", name = "seq-filter")]
     fn seq_filter(
         ctx: &mut TulispContext,
@@ -27,6 +37,29 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         seq: TulispObject,
     ) -> Result<TulispObject, Error> {
         ctx.filter(&func, &seq)
+    }
+
+    #[crate_fn(add_func = "ctx", name = "seq-find")]
+    fn seq_find(
+        ctx: &mut TulispContext,
+        func: TulispObject,
+        seq: TulispObject,
+        default: Option<TulispObject>,
+    ) -> Result<TulispObject, Error> {
+        let func = eval(ctx, &func)?;
+        for item in seq.base_iter() {
+            let form = list!(,TulispObject::nil() ,item.clone())?;
+            form.with_ctxobj(Some(func.clone()));
+            let ret = eval_form::<DummyEval>(ctx, &form)?;
+            if !eval_check_null(ctx, &ret)? {
+                return Ok(item);
+            }
+        }
+        if let Some(default) = default {
+            Ok(default)
+        } else {
+            Ok(TulispObject::nil())
+        }
     }
 
     #[crate_fn(add_func = "ctx")]

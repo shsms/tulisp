@@ -114,6 +114,24 @@ impl TulispContext {
         Ok(ret)
     }
 
+    /// Reduces the given sequence using the given function, and returns the
+    /// result.
+    pub fn reduce(
+        &mut self,
+        func: &TulispObject,
+        seq: &TulispObject,
+        initial_value: &TulispObject,
+    ) -> Result<TulispObject, Error> {
+        let func = self.eval(func)?;
+        let mut ret = initial_value.clone();
+        for item in seq.base_iter() {
+            let form = list!(,TulispObject::nil() ,ret ,item)?;
+            form.with_ctxobj(Some(func.clone()));
+            ret = eval_form::<DummyEval>(self, &form)?;
+        }
+        Ok(ret)
+    }
+
     /// Parses and evaluates the given string, and returns the result.
     pub fn eval_string(&mut self, string: &str) -> Result<TulispObject, Error> {
         let vv = parse(self, string)?;
