@@ -102,6 +102,7 @@ impl TulispContext {
         func: &TulispObject,
         seq: &TulispObject,
     ) -> Result<TulispObject, Error> {
+        let func = self.eval(func)?;
         let ret = TulispObject::nil();
         for item in seq.base_iter() {
             let form = list!(,TulispObject::nil() ,item.clone())?;

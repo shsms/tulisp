@@ -11,6 +11,24 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         lists::length(&list)
     }
 
+    #[crate_fn(add_func = "ctx", name = "seq-map")]
+    fn seq_map(
+        ctx: &mut TulispContext,
+        func: TulispObject,
+        seq: TulispObject,
+    ) -> Result<TulispObject, Error> {
+        ctx.map(&func, &seq)
+    }
+
+    #[crate_fn(add_func = "ctx", name = "seq-filter")]
+    fn seq_filter(
+        ctx: &mut TulispContext,
+        func: TulispObject,
+        seq: TulispObject,
+    ) -> Result<TulispObject, Error> {
+        ctx.filter(&func, &seq)
+    }
+
     #[crate_fn(add_func = "ctx")]
     fn sort(
         ctx: &mut TulispContext,

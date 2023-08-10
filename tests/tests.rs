@@ -451,6 +451,23 @@ fn test_while() -> Result<(), Error> {
 }
 
 #[test]
+fn test_sequences() -> Result<(), Error> {
+    tulisp_assert! {
+        program: "(seq-map #'1+ '(2 4 6))",
+        result: "'(3 5 7)",
+    }
+    tulisp_assert! {
+        program: r#"(seq-filter #'numberp '(2 4 6 "hello" 8))"#,
+        result: "'(2 4 6 8)",
+    }
+    tulisp_assert! {
+        program: r#"(seq-filter (lambda (x) (> x 5)) '(2 4 6 8))"#,
+        result: "'(6 8)",
+    }
+    Ok(())
+}
+
+#[test]
 fn test_sort() -> Result<(), Error> {
     tulisp_assert! {
         program: "(sort '(20 10 30 15 45) '<)",
