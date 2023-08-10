@@ -1,5 +1,5 @@
 use crate::{
-    eval::{eval, eval_check_null, eval_form, DummyEval},
+    eval::{eval, funcall, DummyEval},
     list, lists, Error, TulispContext, TulispObject,
 };
 use std::cmp::Ordering;
@@ -48,10 +48,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ) -> Result<TulispObject, Error> {
         let func = eval(ctx, &func)?;
         for item in seq.base_iter() {
-            let form = list!(,TulispObject::nil() ,item.clone())?;
-            form.with_ctxobj(Some(func.clone()));
-            let ret = eval_form::<DummyEval>(ctx, &form)?;
-            if !eval_check_null(ctx, &ret)? {
+            if funcall::<DummyEval>(ctx, &func, &list!(item.clone())?)?.as_bool() {
                 return Ok(item);
             }
         }
@@ -71,10 +68,10 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         let pred = eval(ctx, &pred)?;
         let mut vec: Vec<_> = seq.base_iter().collect();
         vec.sort_by(|v1, v2| {
-            let vv = list!(,TulispObject::nil() ,v1.clone() ,v2.clone()).unwrap();
-            vv.with_ctxobj(Some(pred.clone()));
-
-            if eval_check_null(ctx, &vv).unwrap_or_else(|_| false) {
+            if funcall::<DummyEval>(ctx, &pred, &list!(v1.clone(), v2.clone()).unwrap())
+                .map(|v| v.null())
+                .unwrap_or(false)
+            {
                 Ordering::Equal
             } else {
                 Ordering::Less

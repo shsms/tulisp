@@ -200,8 +200,38 @@ fn test_eval() -> Result<(), Error> {
         result: "2",
     }
 
+    tulisp_assert! {
+        program: r#"(setq f 'list)(funcall f 'x 'y 'z)"#,
+        result: "'(x y z)",
+    }
+
+    tulisp_assert! {
+        program: r#"(funcall '1+ 4)"#,
+        result: "5",
+    }
+
+    tulisp_assert! {
+        program: r#"(funcall '+ 4 5)"#,
+        result: "9",
+    }
+
+    tulisp_assert! {
+        program: "(let ((x 10)) (funcall '+ x 2))",
+        result: "12",
+    }
+
+    tulisp_assert! {
+        program: "(let ((x 10)) (funcall (lambda (x y) (+ x y)) x 2))",
+        result: "12",
+    }
+
+    tulisp_assert! {
+        program: "(let ((x 10)) (funcall '(lambda (x y) (+ x y)) x 2))",
+        result: "12",
+    }
     Ok(())
 }
+
 #[test]
 fn test_strings() -> Result<(), Error> {
     tulisp_assert! {

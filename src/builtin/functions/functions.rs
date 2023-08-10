@@ -6,6 +6,8 @@ use crate::error::ErrorKind;
 use crate::eval::eval;
 use crate::eval::eval_basic;
 use crate::eval::eval_check_null;
+use crate::eval::DummyEval;
+use crate::eval::Eval;
 use crate::lists;
 use crate::TulispObject;
 use crate::TulispValue;
@@ -61,8 +63,6 @@ fn reduce_with(
 ) -> Result<TulispObject, Error> {
     let mut eval_result = None;
     let mut iter = list.base_iter();
-
-    let _name = iter.next();
 
     let Some(mut first) = iter.next() else {
         return Err(Error::new(
@@ -160,10 +160,8 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     fn sub(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
         if let Some(cons) = args.as_list_cons() {
-            let ohne_name = cons.cdr();
-            if ohne_name.cdr()?.null() {
-                let vv =
-                    binary_ops!(std::ops::Sub::sub)(&0.into(), &eval(ctx, &ohne_name.car()?)?)?;
+            if cons.cdr().null() {
+                let vv = binary_ops!(std::ops::Sub::sub)(&0.into(), &eval(ctx, cons.car())?)?;
                 Ok(vv)
             } else {
                 reduce_with(ctx, args, binary_ops!(std::ops::Sub::sub))
@@ -184,9 +182,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     intern_set_func!(ctx, mul, "*");
 
     fn div(ctx: &mut TulispContext, rest: &TulispObject) -> Result<TulispObject, Error> {
-        let args = rest.clone();
-        destruct_bind!((_first &rest ohne_first) = args);
-        for ele in ohne_first.base_iter() {
+        for ele in rest.base_iter() {
             if ele == TulispValue::from(0) || ele == TulispValue::from(0.0) {
                 return Err(Error::new(
                     ErrorKind::Undefined,
@@ -354,7 +350,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     }
 
     fn impl_if(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
-        destruct_bind!((_name condition then_body &rest body) = args);
+        destruct_bind!((condition then_body &rest body) = args);
         if eval_check_null(ctx, &condition)? {
             ctx.eval_progn(&body)
         } else {
@@ -535,6 +531,21 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     #[crate_fn(add_func = "ctx", name = "eval")]
     fn impl_eval(ctx: &mut TulispContext, arg: TulispObject) -> Result<TulispObject, Error> {
         crate::eval::eval(ctx, &arg)
+    }
+
+    #[crate_fn_no_eval(add_func = "ctx", name = "funcall")]
+    fn funcall(
+        ctx: &mut TulispContext,
+        name: TulispObject,
+        rest: TulispObject,
+    ) -> Result<TulispObject, Error> {
+        let name = eval(ctx, &name)?;
+        let name = eval(ctx, &name)?;
+        if matches!(&*name.inner_ref(), TulispValue::Lambda { .. }) {
+            crate::eval::funcall::<Eval>(ctx, &name, &rest)
+        } else {
+            crate::eval::funcall::<DummyEval>(ctx, &name, &rest)
+        }
     }
 
     #[crate_fn(add_func = "ctx", name = "macroexpand")]

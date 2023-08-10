@@ -10,7 +10,7 @@ use crate::TulispValue;
 use crate::{destruct_bind, list};
 
 fn thread_first(_ctx: &mut TulispContext, vv: &TulispObject) -> Result<TulispObject, Error> {
-    destruct_bind!((_name x &optional form &rest more) = vv);
+    destruct_bind!((x &optional form &rest more) = vv);
     if form.null() {
         Ok(x)
     } else if more.null() {
@@ -20,13 +20,13 @@ fn thread_first(_ctx: &mut TulispContext, vv: &TulispObject) -> Result<TulispObj
             Ok(list!(,form ,x.clone())?)
         }
     } else {
-        let inner = thread_first(_ctx, &list!(,TulispObject::nil() ,x.clone() ,form.clone())?)?;
-        thread_first(_ctx, &list!(,TulispObject::nil() ,inner ,@more.clone())?)
+        let inner = thread_first(_ctx, &list!(,x.clone() ,form.clone())?)?;
+        thread_first(_ctx, &list!(,inner ,@more.clone())?)
     }
 }
 
 fn thread_last(_ctx: &mut TulispContext, vv: &TulispObject) -> Result<TulispObject, Error> {
-    destruct_bind!((_name x &optional form &rest more) = vv);
+    destruct_bind!((x &optional form &rest more) = vv);
     if form.null() {
         Ok(x)
     } else if more.null() {
@@ -36,8 +36,8 @@ fn thread_last(_ctx: &mut TulispContext, vv: &TulispObject) -> Result<TulispObje
             Ok(list!(,form ,x.clone())?)
         }
     } else {
-        let inner = thread_last(_ctx, &list!(,TulispObject::nil() ,x.clone() ,form.clone())?)?;
-        thread_last(_ctx, &list!(,TulispObject::nil() ,inner ,@more.clone())?)
+        let inner = thread_last(_ctx, &list!(,x.clone() ,form.clone())?)?;
+        thread_last(_ctx, &list!(,inner ,@more.clone())?)
     }
 }
 
