@@ -3,7 +3,7 @@ use std::{collections::HashMap, fs};
 use crate::{
     builtin,
     error::Error,
-    eval::{eval, eval_basic, eval_form, funcall, DummyEval},
+    eval::{eval, eval_basic, funcall, DummyEval},
     list,
     parse::parse,
     TulispObject,
@@ -97,9 +97,7 @@ impl TulispContext {
         let func = self.eval(func)?;
         let ret = TulispObject::nil();
         for item in seq.base_iter() {
-            let form = list!(,TulispObject::nil() ,item)?;
-            form.with_ctxobj(Some(func.clone()));
-            ret.push(eval_form::<DummyEval>(self, &form)?)?;
+            ret.push(funcall::<DummyEval>(self, &func, &list!(item)?)?)?;
         }
         Ok(ret)
     }
@@ -114,9 +112,7 @@ impl TulispContext {
         let func = self.eval(func)?;
         let ret = TulispObject::nil();
         for item in seq.base_iter() {
-            let form = list!(,TulispObject::nil() ,item.clone())?;
-            form.with_ctxobj(Some(func.clone()));
-            if eval_form::<DummyEval>(self, &form)?.as_bool() {
+            if funcall::<DummyEval>(self, &func, &list!(item.clone())?)?.as_bool() {
                 ret.push(item)?;
             }
         }
@@ -134,9 +130,7 @@ impl TulispContext {
         let func = self.eval(func)?;
         let mut ret = initial_value.clone();
         for item in seq.base_iter() {
-            let form = list!(,TulispObject::nil() ,ret ,item)?;
-            form.with_ctxobj(Some(func.clone()));
-            ret = eval_form::<DummyEval>(self, &form)?;
+            ret = funcall::<DummyEval>(self, &func, &list!(ret, item)?)?;
         }
         Ok(ret)
     }
