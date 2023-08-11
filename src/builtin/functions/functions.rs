@@ -349,33 +349,6 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(val)
     }
 
-    fn impl_if(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
-        destruct_bind!((condition then_body &rest body) = args);
-        if eval_check_null(ctx, &condition)? {
-            ctx.eval_progn(&body)
-        } else {
-            let mut result = None;
-            eval_basic(ctx, &then_body, &mut result)?;
-            if let Some(result) = result {
-                Ok(result)
-            } else {
-                Ok(then_body)
-            }
-        }
-    }
-    intern_set_func!(ctx, impl_if, "if");
-
-    #[crate_fn_no_eval(add_func = "ctx")]
-    fn cond(ctx: &mut TulispContext, rest: TulispObject) -> Result<TulispObject, Error> {
-        for item in rest.base_iter() {
-            destruct_bind!((condition &rest body) = item);
-            if !eval_check_null(ctx, &condition)? {
-                return ctx.eval_progn(&body);
-            }
-        }
-        Ok(TulispObject::nil())
-    }
-
     #[crate_fn_no_eval(add_func = "ctx", name = "while")]
     fn impl_while(
         ctx: &mut TulispContext,

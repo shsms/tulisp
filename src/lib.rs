@@ -73,7 +73,7 @@ mod error;
 pub use error::{Error, ErrorKind};
 
 mod lists;
-pub use lists::{alist_get, assoc, plist_get};
+pub use lists::{alist_from, alist_get, assoc, plist_from, plist_get};
 
 mod value;
 pub use value::TulispValue;
