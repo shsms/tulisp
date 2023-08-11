@@ -271,11 +271,11 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(f64::powf(base.try_into()?, pow.try_into()?).into())
     }
 
-    #[crate_fn_no_eval(add_func = "ctx")]
-    fn concat(ctx: &mut TulispContext, rest: TulispObject) -> Result<TulispObject, Error> {
+    #[crate_fn(add_func = "ctx")]
+    fn concat(rest: TulispObject) -> Result<TulispObject, Error> {
         let mut ret = String::new();
         for ele in rest.base_iter() {
-            match eval(ctx, &ele)?.as_string() {
+            match ele.as_string() {
                 Ok(ref s) => ret.push_str(s),
                 _ => {
                     return Err(Error::new(
@@ -546,15 +546,10 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         TulispObject::cons(car, cdr)
     }
 
-    #[crate_fn_no_eval(add_func = "ctx")]
-    fn append(
-        ctx: &mut TulispContext,
-        first: TulispObject,
-        rest: TulispObject,
-    ) -> Result<TulispObject, Error> {
-        let first = eval(ctx, &first)?;
+    #[crate_fn(add_func = "ctx")]
+    fn append(first: TulispObject, rest: TulispObject) -> Result<TulispObject, Error> {
         for ele in rest.base_iter() {
-            first.append(eval(ctx, &ele)?.deep_copy()?)?;
+            first.append(ele.deep_copy()?)?;
         }
         Ok(first)
     }

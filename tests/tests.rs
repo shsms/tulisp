@@ -263,7 +263,7 @@ fn test_eval() -> Result<(), Error> {
 fn test_strings() -> Result<(), Error> {
     tulisp_assert! {
         program: r##"(concat 'hello 'world)"##,
-        error: "<eval_string>:1.0-1.22: ERR TypeMismatch: Not a string: 'hello"
+        error: "<eval_string>:1.0-1.22: ERR TypeMismatch: Not a string: hello"
     }
     tulisp_assert! { program: r##"(concat "hello" " world")"##, result: r#""hello world""# }
     tulisp_assert! {
