@@ -4,7 +4,7 @@ use crate::{
     list, Error, TulispContext, TulispObject, TulispValue,
 };
 use std::rc::Rc;
-use tulisp_proc_macros::crate_fn_no_eval;
+use tulisp_proc_macros::{crate_fn, crate_fn_no_eval};
 
 macro_rules! intern_set_func {
     ($ctx:ident, $func: ident, $name: literal) => {
@@ -57,5 +57,38 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             }
         }
         Ok(TulispObject::nil())
+    }
+
+    // Constructs for combining conditions
+    #[crate_fn(add_func = "ctx")]
+    fn not(condition: bool) -> bool {
+        !condition
+    }
+
+    #[crate_fn_no_eval(add_func = "ctx")]
+    fn and(ctx: &mut TulispContext, rest: TulispObject) -> bool {
+        for item in rest.base_iter() {
+            if let Ok(false) = eval_check_null(ctx, &item) {
+                continue;
+            } else {
+                return false;
+            }
+        }
+        true
+    }
+
+    #[crate_fn_no_eval(add_func = "ctx")]
+    fn or(ctx: &mut TulispContext, rest: TulispObject) -> bool {
+        for item in rest.base_iter() {
+            if let Ok(false) = eval_check_null(ctx, &item) {
+                return true;
+            }
+        }
+        false
+    }
+
+    #[crate_fn(add_func = "ctx")]
+    fn xor(cond1: bool, cond2: bool) -> bool {
+        cond1 ^ cond2
     }
 }

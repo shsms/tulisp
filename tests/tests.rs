@@ -34,7 +34,7 @@ macro_rules! tulisp_assert {
 }
 
 #[test]
-fn test_if() -> Result<(), Error> {
+fn test_conditionals() -> Result<(), Error> {
     tulisp_assert! { program: "(if t 10 15 20)",      result: "10" }
     tulisp_assert! { program: "(if nil 10 15 20)",    result: "20" }
     tulisp_assert! { program: "(if (> 20 10) 10 20)", result: "10" }
@@ -56,6 +56,33 @@ fn test_if() -> Result<(), Error> {
     tulisp_assert! { program: "(unless nil 10 20 30)", result: "30" }
     tulisp_assert! { program: "(unless (> 20 10) 10 20 30)", result: "nil" }
     tulisp_assert! { program: "(unless (> 10 20) 10 20 30)", result: "30" }
+
+    tulisp_assert! { program: "(not t)", result: "nil" }
+    tulisp_assert! { program: "(not nil)", result: "t" }
+    tulisp_assert! { program: "(not (< 10 20))", result: "nil" }
+    tulisp_assert! { program: "(not (> 10 20))", result: "t" }
+
+    tulisp_assert! { program: "(and t t t)", result: "t" }
+    tulisp_assert! { program: "(and t t nil)", result: "nil" }
+    tulisp_assert! { program: "(and (> 10 5) (< 10 20))", result: "t" }
+    tulisp_assert! { program: "(and (> 10 5) (> 10 20))", result: "nil" }
+    tulisp_assert! { program: "(and (< 10 5) (> 10 20))", result: "nil" }
+
+    tulisp_assert! { program: "(or t t t)", result: "t" }
+    tulisp_assert! { program: "(or t t nil)", result: "t" }
+    tulisp_assert! { program: "(or nil nil nil)", result: "nil" }
+    tulisp_assert! { program: "(or (> 10 5) (< 10 20))", result: "t" }
+    tulisp_assert! { program: "(or (> 10 5) (> 10 20))", result: "t" }
+    tulisp_assert! { program: "(or (< 10 5) (> 10 20))", result: "nil" }
+
+    tulisp_assert! { program: "(xor t t)", result: "nil" }
+    tulisp_assert! { program: "(xor t nil)", result: "t" }
+    tulisp_assert! { program: "(xor nil t)", result: "t" }
+    tulisp_assert! { program: "(xor nil nil)", result: "nil" }
+    tulisp_assert! { program: "(xor (> 10 5) (< 10 20))", result: "nil" }
+    tulisp_assert! { program: "(xor (> 10 5) (> 10 20))", result: "t" }
+    tulisp_assert! { program: "(xor (< 10 5) (< 10 20))", result: "t" }
+    tulisp_assert! { program: "(xor (< 10 5) (> 10 20))", result: "nil" }
 
     Ok(())
 }
