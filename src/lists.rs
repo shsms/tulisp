@@ -26,6 +26,25 @@ pub fn nth(n: i64, list: TulispObject) -> Result<TulispObject, Error> {
     nthcdr(n, list).and_then(|x| x.car())
 }
 
+/// Makes an alist from the given arguments.
+pub fn alist_from<const N: usize>(input: [(TulispObject, TulispObject); N]) -> TulispObject {
+    let alist = TulispObject::nil();
+    for (key, value) in input.into_iter() {
+        let _ = alist.push(TulispObject::cons(key, value));
+    }
+    alist
+}
+
+/// Makes a plist from the given arguments.
+pub fn plist_from<const N: usize>(input: [(TulispObject, TulispObject); N]) -> TulispObject {
+    let plist = TulispObject::nil();
+    for (key, value) in input.into_iter() {
+        let _ = plist.push(key);
+        let _ = plist.push(value);
+    }
+    plist
+}
+
 /// Returns the first association for key in alist, comparing key against the
 /// alist elements using testfn if it is a function, and equal otherwise.
 ///
@@ -38,10 +57,11 @@ pub fn assoc(
     testfn: Option<TulispObject>,
 ) -> Result<TulispObject, Error> {
     if !alist.consp() {
-        return Err(
-            Error::new(ErrorKind::TypeMismatch, "expected alist".to_owned())
-                .with_span(alist.span()),
-        );
+        return Err(Error::new(
+            ErrorKind::TypeMismatch,
+            format!("expected alist. got: {}", alist),
+        )
+        .with_span(alist.span()));
     }
     if let Some(testfn) = testfn {
         let pred = eval(ctx, &testfn)?;
@@ -115,4 +135,46 @@ pub fn plist_get(plist: TulispObject, property: &TulispObject) -> Result<TulispO
         next = cdr.clone();
     }
     Ok(TulispObject::nil())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{alist_from, alist_get, plist_from, plist_get, Error, TulispContext};
+
+    #[test]
+    fn test_alist() -> Result<(), Error> {
+        let mut ctx = TulispContext::new();
+        let a = ctx.intern("a");
+        let b = ctx.intern("b");
+        let c = ctx.intern("c");
+        let d = ctx.intern("d");
+        let list = alist_from([
+            (a.clone(), 20.into()),
+            (b.clone(), 30.into()),
+            (c.clone(), 40.into()),
+        ]);
+        assert_eq!(alist_get(&mut ctx, &b, &list, None, None, None)?, 30.into());
+        assert_eq!(
+            alist_get(&mut ctx, &d, &list, None, None, None)?.null(),
+            true
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_plist() -> Result<(), Error> {
+        let mut ctx = TulispContext::new();
+        let a = ctx.intern("a");
+        let b = ctx.intern("b");
+        let c = ctx.intern("c");
+        let d = ctx.intern("d");
+        let list = plist_from([
+            (a.clone(), 20.into()),
+            (b.clone(), 30.into()),
+            (c.clone(), 40.into()),
+        ]);
+        assert_eq!(plist_get(list.clone(), &b)?, 30.into());
+        assert_eq!(plist_get(list, &d)?.null(), true);
+        Ok(())
+    }
 }
