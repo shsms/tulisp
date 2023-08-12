@@ -1,4 +1,7 @@
-use crate::{eval::eval, list, Error, ErrorKind, TulispContext, TulispObject};
+use crate::{
+    eval::{eval, funcall, DummyEval},
+    list, Error, ErrorKind, TulispContext, TulispObject,
+};
 
 /// Returns the number of elements in the given list.
 pub fn length(list: &TulispObject) -> Result<i64, Error> {
@@ -67,9 +70,8 @@ pub fn assoc(
         let pred = eval(ctx, &testfn)?;
 
         let mut testfn = |_1: &TulispObject, _2: &TulispObject| -> Result<bool, Error> {
-            let vv = list!(,TulispObject::nil() ,_1.clone() ,_2.clone()).unwrap();
-            vv.with_ctxobj(Some(pred.clone()));
-            eval(ctx, &vv).map(|vv| vv.as_bool())
+            funcall::<DummyEval>(ctx, &pred, &list!(,_1.clone() ,_2.clone()).unwrap())
+                .map(|x| x.as_bool())
         };
         assoc_find(key, alist, &mut testfn)
     } else {
@@ -91,7 +93,7 @@ pub fn alist_get(
     _remove: Option<TulispObject>, // TODO: implement after `setf`
     testfn: Option<TulispObject>,
 ) -> Result<TulispObject, Error> {
-    let x = crate::lists::assoc(ctx, key, alist, testfn)?;
+    let x = assoc(ctx, key, alist, testfn)?;
     if x.as_bool() {
         x.cdr()
     } else {

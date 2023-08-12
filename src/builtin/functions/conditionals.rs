@@ -66,29 +66,52 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     }
 
     #[crate_fn_no_eval(add_func = "ctx")]
-    fn and(ctx: &mut TulispContext, rest: TulispObject) -> bool {
+    fn and(ctx: &mut TulispContext, rest: TulispObject) -> Result<TulispObject, Error> {
+        let mut ret = TulispObject::nil();
         for item in rest.base_iter() {
-            if let Ok(false) = eval_check_null(ctx, &item) {
-                continue;
+            let mut result = None;
+            eval_basic(ctx, &item, &mut result)?;
+            if let Some(result) = result {
+                if result.null() {
+                    return Ok(result);
+                }
+                ret = result;
             } else {
-                return false;
+                if item.null() {
+                    return Ok(item);
+                }
+                ret = item;
             }
         }
-        true
+        Ok(ret)
     }
 
     #[crate_fn_no_eval(add_func = "ctx")]
-    fn or(ctx: &mut TulispContext, rest: TulispObject) -> bool {
+    fn or(ctx: &mut TulispContext, rest: TulispObject) -> Result<TulispObject, Error> {
         for item in rest.base_iter() {
-            if let Ok(false) = eval_check_null(ctx, &item) {
-                return true;
+            let mut result = None;
+            eval_basic(ctx, &item, &mut result)?;
+            if let Some(result) = result {
+                if !result.null() {
+                    return Ok(result);
+                }
+            } else {
+                if !item.null() {
+                    return Ok(item);
+                }
             }
         }
-        false
+        Ok(TulispObject::nil())
     }
 
     #[crate_fn(add_func = "ctx")]
-    fn xor(cond1: bool, cond2: bool) -> bool {
-        cond1 ^ cond2
+    fn xor(cond1: TulispObject, cond2: TulispObject) -> TulispObject {
+        if cond1.null() {
+            cond2
+        } else if cond2.null() {
+            cond1
+        } else {
+            TulispObject::nil()
+        }
     }
 }
