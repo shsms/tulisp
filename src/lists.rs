@@ -11,6 +11,40 @@ pub fn length(list: &TulispObject) -> Result<i64, Error> {
         .map_err(|e: _| Error::new(ErrorKind::OutOfRange, format!("{}", e)).with_span(list.span()))
 }
 
+/// Returns the last link in the given list.
+pub fn last(list: &TulispObject, n: Option<i64>) -> Result<TulispObject, Error> {
+    if list.null() {
+        return Ok(list.clone());
+    }
+    if !list.consp() {
+        return Err(Error::new(
+            ErrorKind::TypeMismatch,
+            format!("expected list, got: {}", list),
+        )
+        .with_span(list.span()));
+    }
+
+    // TODO: emacs' implementation uses the `safe-length` function for this, but
+    // we don't have a `safe-length` function yet, because we don't have a way
+    // to detect cycles in lists.
+    let len = length(list)?;
+    if let Some(n) = n {
+        if n < 0 {
+            return Err(Error::new(
+                ErrorKind::OutOfRange,
+                format!("n must be positive. got: {}", n),
+            )
+            .with_span(list.span()));
+        }
+        if n < len {
+            return nthcdr(len - n, list.clone());
+        }
+    } else {
+        return nthcdr(len - 1, list.clone());
+    }
+    Ok(list.clone())
+}
+
 /// Repeatedly takes the the CDR of the list n-times, and returns the n-th cdr
 /// of the given list.
 pub fn nthcdr(n: i64, list: TulispObject) -> Result<TulispObject, Error> {

@@ -42,4 +42,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     fn nthcdr(n: i64, list: TulispObject) -> Result<TulispObject, Error> {
         lists::nthcdr(n, list)
     }
+
+    #[crate_fn(add_func = "ctx")]
+    fn last(list: TulispObject, n: Option<i64>) -> Result<TulispObject, Error> {
+        lists::last(&list, n)
+    }
 }
