@@ -541,6 +541,26 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         name.cdr()
     }
 
+    #[crate_fn(add_func = "ctx", name = "caar")]
+    fn impl_caar(name: TulispObject) -> Result<TulispObject, Error> {
+        name.caar()
+    }
+
+    #[crate_fn(add_func = "ctx", name = "cadr")]
+    fn impl_cadr(name: TulispObject) -> Result<TulispObject, Error> {
+        name.cadr()
+    }
+
+    #[crate_fn(add_func = "ctx", name = "cdar")]
+    fn impl_cdar(name: TulispObject) -> Result<TulispObject, Error> {
+        name.cdar()
+    }
+
+    #[crate_fn(add_func = "ctx", name = "cddr")]
+    fn impl_cddr(name: TulispObject) -> Result<TulispObject, Error> {
+        name.cddr()
+    }
+
     #[crate_fn(add_func = "ctx", name = "cons")]
     fn impl_cons(car: TulispObject, cdr: TulispObject) -> TulispObject {
         TulispObject::cons(car, cdr)

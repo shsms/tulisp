@@ -477,26 +477,42 @@ impl TulispValue {
         }
     }
 
-    pub fn car(&self) -> Result<TulispObject, Error> {
+    fn cxr(
+        &self,
+        step: impl Fn(&Cons) -> Result<TulispObject, Error>,
+    ) -> Result<TulispObject, Error> {
         match self {
-            TulispValue::List { cons, .. } => Ok(cons.car().clone()),
+            TulispValue::List { cons, .. } => step(cons),
             TulispValue::Nil => Ok(TulispObject::nil()),
             _ => Err(Error::new(
                 ErrorKind::TypeMismatch,
-                format!("car: Not a Cons: {}", self),
+                format!("cxr: Not a Cons: {}", self),
             )),
         }
     }
 
+    pub fn car(&self) -> Result<TulispObject, Error> {
+        self.cxr(|cons| Ok(cons.car().clone()))
+    }
+
     pub fn cdr(&self) -> Result<TulispObject, Error> {
-        match self {
-            TulispValue::List { cons, .. } => Ok(cons.cdr().clone()),
-            TulispValue::Nil => Ok(TulispObject::nil()),
-            _ => Err(Error::new(
-                ErrorKind::TypeMismatch,
-                format!("cdr: Not a Cons: {}", self),
-            )),
-        }
+        self.cxr(|cons| Ok(cons.cdr().clone()))
+    }
+
+    pub fn caar(&self) -> Result<TulispObject, Error> {
+        self.cxr(|cons| cons.car().car())
+    }
+
+    pub fn cadr(&self) -> Result<TulispObject, Error> {
+        self.cxr(|cons| cons.cdr().car())
+    }
+
+    pub fn cdar(&self) -> Result<TulispObject, Error> {
+        self.cxr(|cons| cons.car().cdr())
+    }
+
+    pub fn cddr(&self) -> Result<TulispObject, Error> {
+        self.cxr(|cons| cons.cdr().cdr())
     }
 
     pub fn as_symbol(&self) -> Result<String, Error> {

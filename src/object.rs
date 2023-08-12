@@ -215,6 +215,26 @@ impl TulispObject {
         cdr,
         "Returns the `cdr` of `self` if it is a list, and an Error otherwise."
     );
+    extractor_fn_with_err!(
+        TulispObject,
+        caar,
+        "Returns the `caar` of `self` if it is a list, and an Error otherwise."
+    );
+    extractor_fn_with_err!(
+        TulispObject,
+        cadr,
+        "Returns the `cadr` of `self` if it is a list, and an Error otherwise."
+    );
+    extractor_fn_with_err!(
+        TulispObject,
+        cdar,
+        "Returns the `cdar` of `self` if it is a list, and an Error otherwise."
+    );
+    extractor_fn_with_err!(
+        TulispObject,
+        cddr,
+        "Returns the `cddr` of `self` if it is a list, and an Error otherwise."
+    );
 
     extractor_fn_with_err!(
         f64,
