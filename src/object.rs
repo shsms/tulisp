@@ -205,36 +205,6 @@ impl TulispObject {
         get,
         "Gets the value from `self`.\n\nReturns an Error if `self` is not a `Symbol`."
     );
-    extractor_fn_with_err!(
-        TulispObject,
-        car,
-        "Returns the `car` of `self` if it is a list, and an Error otherwise."
-    );
-    extractor_fn_with_err!(
-        TulispObject,
-        cdr,
-        "Returns the `cdr` of `self` if it is a list, and an Error otherwise."
-    );
-    extractor_fn_with_err!(
-        TulispObject,
-        caar,
-        "Returns the `caar` of `self` if it is a list, and an Error otherwise."
-    );
-    extractor_fn_with_err!(
-        TulispObject,
-        cadr,
-        "Returns the `cadr` of `self` if it is a list, and an Error otherwise."
-    );
-    extractor_fn_with_err!(
-        TulispObject,
-        cdar,
-        "Returns the `cdar` of `self` if it is a list, and an Error otherwise."
-    );
-    extractor_fn_with_err!(
-        TulispObject,
-        cddr,
-        "Returns the `cddr` of `self` if it is a list, and an Error otherwise."
-    );
 
     extractor_fn_with_err!(
         f64,
@@ -538,4 +508,71 @@ impl FromIterator<TulispObject> for TulispObject {
     fn from_iter<T: IntoIterator<Item = TulispObject>>(iter: T) -> Self {
         TulispValue::from_iter(iter).into_ref()
     }
+}
+
+macro_rules! extractor_cxr_fn {
+    ($name: ident, $doc: literal) => {
+        #[doc=concat!("Returns the ", $doc, " of `self` if it is a list, and an Error otherwise.")]
+        pub fn $name(&self) -> Result<TulispObject, Error> {
+            self.rc_span
+                .0
+                .borrow()
+                .$name()
+                .map_err(|e| e.with_span(self.span()))
+        }
+    };
+    ($name: ident) => {
+        #[doc(hidden)]
+        pub fn $name(&self) -> Result<TulispObject, Error> {
+            self.rc_span
+                .0
+                .borrow()
+                .$name()
+                .map_err(|e| e.with_span(self.span()))
+        }
+    };
+}
+
+/// This impl block contains all the `car`/`cdr`/`caar`/`cadr`/etc. functions.
+/// In addition to the functions documented below, there are also 8 `cxxxr`
+/// functions, like `caadr`, `cdddr`, etc., and 16 `cxxxxr` functions, like
+/// `caaaar`, `cddddr`, etc., which are not documented here, to avoid
+/// repetition.
+impl TulispObject {
+    extractor_cxr_fn!(car, "`car`");
+    extractor_cxr_fn!(cdr, "`cdr`");
+    extractor_cxr_fn!(caar, "`car` of `car`");
+    extractor_cxr_fn!(cadr, "`car` of `cdr`");
+    extractor_cxr_fn!(cdar, "`cdr` of `car`");
+    extractor_cxr_fn!(cddr, "`cdr` of `cdr`");
+
+    extractor_cxr_fn!(caaar);
+    extractor_cxr_fn!(caadr);
+    extractor_cxr_fn!(cadar);
+    extractor_cxr_fn!(caddr);
+
+    extractor_cxr_fn!(cdaar);
+    extractor_cxr_fn!(cdadr);
+    extractor_cxr_fn!(cddar);
+    extractor_cxr_fn!(cdddr);
+
+    extractor_cxr_fn!(caaaar);
+    extractor_cxr_fn!(caaadr);
+    extractor_cxr_fn!(caadar);
+    extractor_cxr_fn!(caaddr);
+
+    extractor_cxr_fn!(cadaar);
+    extractor_cxr_fn!(cadadr);
+    extractor_cxr_fn!(caddar);
+    extractor_cxr_fn!(cadddr);
+
+    extractor_cxr_fn!(cdaaar);
+    extractor_cxr_fn!(cdaadr);
+    extractor_cxr_fn!(cdadar);
+    extractor_cxr_fn!(cdaddr);
+
+    extractor_cxr_fn!(cddaar);
+    extractor_cxr_fn!(cddadr);
+    extractor_cxr_fn!(cdddar);
+    extractor_cxr_fn!(cddddr);
 }

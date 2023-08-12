@@ -477,44 +477,6 @@ impl TulispValue {
         }
     }
 
-    fn cxr(
-        &self,
-        step: impl Fn(&Cons) -> Result<TulispObject, Error>,
-    ) -> Result<TulispObject, Error> {
-        match self {
-            TulispValue::List { cons, .. } => step(cons),
-            TulispValue::Nil => Ok(TulispObject::nil()),
-            _ => Err(Error::new(
-                ErrorKind::TypeMismatch,
-                format!("cxr: Not a Cons: {}", self),
-            )),
-        }
-    }
-
-    pub fn car(&self) -> Result<TulispObject, Error> {
-        self.cxr(|cons| Ok(cons.car().clone()))
-    }
-
-    pub fn cdr(&self) -> Result<TulispObject, Error> {
-        self.cxr(|cons| Ok(cons.cdr().clone()))
-    }
-
-    pub fn caar(&self) -> Result<TulispObject, Error> {
-        self.cxr(|cons| cons.car().car())
-    }
-
-    pub fn cadr(&self) -> Result<TulispObject, Error> {
-        self.cxr(|cons| cons.cdr().car())
-    }
-
-    pub fn cdar(&self) -> Result<TulispObject, Error> {
-        self.cxr(|cons| cons.car().cdr())
-    }
-
-    pub fn cddr(&self) -> Result<TulispObject, Error> {
-        self.cxr(|cons| cons.cdr().cdr())
-    }
-
     pub fn as_symbol(&self) -> Result<String, Error> {
         match self {
             TulispValue::Symbol { value } => Ok(value.name.to_string()),
@@ -735,4 +697,63 @@ impl FromIterator<TulispObject> for TulispValue {
         }
         list
     }
+}
+
+macro_rules! make_cxr {
+    ($name:ident, $step:expr) => {
+        pub fn $name(&self) -> Result<TulispObject, Error> {
+            self.cxr($step)
+        }
+    };
+}
+
+// cxr implementations
+impl TulispValue {
+    fn cxr(
+        &self,
+        step: impl Fn(&Cons) -> Result<TulispObject, Error>,
+    ) -> Result<TulispObject, Error> {
+        match self {
+            TulispValue::List { cons, .. } => step(cons),
+            TulispValue::Nil => Ok(TulispObject::nil()),
+            _ => Err(Error::new(
+                ErrorKind::TypeMismatch,
+                format!("cxr: Not a Cons: {}", self),
+            )),
+        }
+    }
+
+    make_cxr!(car, |x| Ok(x.car().clone()));
+    make_cxr!(cdr, |x| Ok(x.cdr().clone()));
+    make_cxr!(caar, |x| x.car().car());
+    make_cxr!(cadr, |x| x.cdr().car());
+    make_cxr!(cdar, |x| x.car().cdr());
+    make_cxr!(cddr, |x| x.cdr().cdr());
+
+    make_cxr!(caaar, |x| x.car().caar());
+    make_cxr!(caadr, |x| x.cdr().caar());
+    make_cxr!(cadar, |x| x.car().cadr());
+    make_cxr!(caddr, |x| x.cdr().cadr());
+    make_cxr!(cdaar, |x| x.car().cdar());
+    make_cxr!(cdadr, |x| x.cdr().cdar());
+    make_cxr!(cddar, |x| x.car().cddr());
+    make_cxr!(cdddr, |x| x.cdr().cddr());
+
+    make_cxr!(caaaar, |x| x.car().caaar());
+    make_cxr!(caaadr, |x| x.cdr().caaar());
+    make_cxr!(caadar, |x| x.car().caadr());
+    make_cxr!(caaddr, |x| x.cdr().caadr());
+    make_cxr!(cadaar, |x| x.car().cadar());
+    make_cxr!(cadadr, |x| x.cdr().cadar());
+    make_cxr!(caddar, |x| x.car().caddr());
+    make_cxr!(cadddr, |x| x.cdr().caddr());
+
+    make_cxr!(cdaaar, |x| x.car().cdaar());
+    make_cxr!(cdaadr, |x| x.cdr().cdaar());
+    make_cxr!(cdadar, |x| x.car().cdadr());
+    make_cxr!(cdaddr, |x| x.cdr().cdadr());
+    make_cxr!(cddaar, |x| x.car().cddar());
+    make_cxr!(cddadr, |x| x.cdr().cddar());
+    make_cxr!(cdddar, |x| x.car().cdddr());
+    make_cxr!(cddddr, |x| x.cdr().cdddr());
 }
