@@ -531,16 +531,6 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     // List functions
 
-    #[crate_fn(add_func = "ctx", name = "car")]
-    fn impl_car(name: TulispObject) -> Result<TulispObject, Error> {
-        name.car()
-    }
-
-    #[crate_fn(add_func = "ctx", name = "cdr")]
-    fn impl_cdr(name: TulispObject) -> Result<TulispObject, Error> {
-        name.cdr()
-    }
-
     #[crate_fn(add_func = "ctx", name = "cons")]
     fn impl_cons(car: TulispObject, cdr: TulispObject) -> TulispObject {
         TulispObject::cons(car, cdr)
@@ -609,16 +599,6 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 .with_span(span)),
             None => Ok(TulispObject::nil()),
         }
-    }
-
-    #[crate_fn(add_func = "ctx")]
-    fn nthcdr(n: i64, list: TulispObject) -> Result<TulispObject, Error> {
-        lists::nthcdr(n, list)
-    }
-
-    #[crate_fn(add_func = "ctx")]
-    fn nth(n: i64, list: TulispObject) -> Result<TulispObject, Error> {
-        lists::nth(n, list)
     }
 
     #[crate_fn(add_func = "ctx")]
