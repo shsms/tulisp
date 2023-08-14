@@ -105,16 +105,6 @@ fn mark_tail_calls(
 
 pub(crate) fn add(ctx: &mut TulispContext) {
     #[crate_fn(add_func = "ctx")]
-    fn equal(object1: TulispObject, object2: TulispObject) -> bool {
-        object1.equal(&object2)
-    }
-
-    #[crate_fn(add_func = "ctx")]
-    fn eq(object1: TulispObject, object2: TulispObject) -> bool {
-        object1.eq(&object2)
-    }
-
-    #[crate_fn(add_func = "ctx")]
     fn expt(base: TulispObject, pow: TulispObject) -> Result<TulispObject, Error> {
         Ok(f64::powf(base.try_into()?, pow.try_into()?).into())
     }

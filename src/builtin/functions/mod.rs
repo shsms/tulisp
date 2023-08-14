@@ -53,6 +53,7 @@ macro_rules! intern_set_func {
 mod arithmetic_operations;
 mod comparison_of_numbers;
 mod conditionals;
+mod equality_predicates;
 mod functions;
 mod list_elements;
 mod sequences;
@@ -61,7 +62,8 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     arithmetic_operations::add(ctx);
     comparison_of_numbers::add(ctx);
     conditionals::add(ctx);
+    equality_predicates::add(ctx);
     functions::add(ctx);
-    sequences::add(ctx);
     list_elements::add(ctx);
+    sequences::add(ctx);
 }

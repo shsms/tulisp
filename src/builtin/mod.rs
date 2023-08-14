@@ -48,6 +48,16 @@ Click [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Compariso
 | `min` | ☑️      |                                                     |
 
 
+## Equality Predicates
+
+Click [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Equality-Predicates.html) for the Emacs lisp manual page for equality predicates.
+
+| Name    | Status | Details |
+|---------|--------|---------|
+| `eq`    | ☑️      |         |
+| `equal` | ☑️      |         |
+
+
 ## Accessing Elements of Lists
 
 Click [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/List-Elements.html) for the Emacs lisp manual page for accessing elements of lists.
