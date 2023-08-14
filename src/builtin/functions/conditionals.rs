@@ -6,14 +6,6 @@ use crate::{
 use std::rc::Rc;
 use tulisp_proc_macros::{crate_fn, crate_fn_no_eval};
 
-macro_rules! intern_set_func {
-    ($ctx:ident, $func: ident, $name: literal) => {
-        $ctx.intern($name)
-            .set_scope(TulispValue::Func(Rc::new($func)).into())
-            .unwrap();
-    };
-}
-
 pub(crate) fn add(ctx: &mut TulispContext) {
     fn impl_if(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
         destruct_bind!((condition then_body &rest body) = args);

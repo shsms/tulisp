@@ -175,7 +175,7 @@ pub fn plist_get(plist: TulispObject, property: &TulispObject) -> Result<TulispO
 
 #[cfg(test)]
 mod tests {
-    use crate::{alist_from, alist_get, plist_from, plist_get, Error, TulispContext};
+    use crate::lists::{alist_from, alist_get, plist_from, plist_get, Error, TulispContext};
 
     #[test]
     fn test_alist() -> Result<(), Error> {

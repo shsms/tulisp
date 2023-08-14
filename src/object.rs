@@ -80,6 +80,14 @@ impl TulispObject {
         TulispObject::from(TulispValue::Nil)
     }
 
+    /// Create a new `t` value.
+    ///
+    /// Any value that is not `nil` is considered `True`.  `t` may be used as a
+    /// way to explicitly specify `True`.
+    pub fn t() -> TulispObject {
+        TulispObject::from(TulispValue::T)
+    }
+
     /// Make a cons cell with the given car and cdr values.
     pub fn cons(car: TulispObject, cdr: TulispObject) -> TulispObject {
         TulispValue::List {
