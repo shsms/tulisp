@@ -31,6 +31,22 @@ Click  [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Conditio
 | `when-let`  | 🔳     |                                                  |
 | `while-let` | 🔳     |                                                  |
 
+## Comparison of Numbers
+
+Click [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Comparison-of-Numbers.html) for the Emacs lisp manual page for comparison of numbers.
+
+| Name  | Status | Details                                             |
+|-------|--------|-----------------------------------------------------|
+| `>`   | ☑️      | currently broken for more than 2 args               |
+| `<`   | ☑️      | 〃 [#26](https://github.com/shsms/tulisp/issues/26) |
+| `>=`  | ☑️      | 〃                                                  |
+| `<=`  | ☑️      | 〃                                                  |
+| `=`   | 🔳     |                                                     |
+| `eql` | 🔳     |                                                     |
+| `/=`  | 🔳     |                                                     |
+| `max` | ☑️      |                                                     |
+| `min` | ☑️      |                                                     |
+
 
 ## Accessing Elements of Lists
 
