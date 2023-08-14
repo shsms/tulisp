@@ -83,6 +83,8 @@ impl TulispContext {
         eval(self, value)
     }
 
+    /// Calls the given function with the given arguments, and returns the
+    /// result.
     pub fn funcall(
         &mut self,
         func: &TulispObject,
