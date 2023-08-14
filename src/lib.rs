@@ -61,7 +61,7 @@ mod parse;
 
 pub use tulisp_proc_macros::{tulisp_add_func, tulisp_add_macro, tulisp_fn, tulisp_fn_no_eval};
 
-mod builtin;
+pub mod builtin;
 
 mod cons;
 pub use cons::{BaseIter, Iter};
@@ -72,8 +72,7 @@ pub use context::TulispContext;
 mod error;
 pub use error::{Error, ErrorKind};
 
-mod lists;
-pub use lists::{alist_from, alist_get, assoc, plist_from, plist_get};
+pub mod lists;
 
 mod value;
 pub use value::TulispValue;
