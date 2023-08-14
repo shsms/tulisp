@@ -2,6 +2,21 @@
 A list of currently implemented functions and macros:
 
 
+## Arithmetic Operations
+
+Click [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Arithmetic-Operations.html) for the Emacs lisp manual page for arithmetic operations.
+
+| Name  | Status | Details |
+|-------|--------|---------|
+| `1+`  | ☑️      |         |
+| `1-`  | ☑️      |         |
+| `+`   | ☑️      |         |
+| `-`   | ☑️      |         |
+| `*`   | ☑️      |         |
+| `/`   | ☑️      |         |
+| `%`   | 🔳     |         |
+| `mod` | ☑️      |         |
+
 ## Conditionals
 
 Click  [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Conditionals.html) for the Emacs lisp manual page for conditionals.
