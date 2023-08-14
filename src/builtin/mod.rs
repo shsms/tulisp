@@ -112,6 +112,53 @@ Because there are a huge number of sequence functions that are not yet implement
 | `seq-subseq` | 🔳     |         |
 | `seq-let` | 🔳     |         |
 
+## Others
+
+These functions need to be organized into categories.  They are grouped here for now.
+
+| Name                                                                                                    | Status | Details                                           |
+|---------------------------------------------------------------------------------------------------------|--------|---------------------------------------------------|
+| [`while`](https://www.gnu.org/software/emacs/manual/html_node/eintr/while.html)                         | ☑️      |                                                   |
+| [`format`](https://www.gnu.org/software/emacs/manual/html_node/elisp/Formatting-Strings.html)           | ☑️      |                                                   |
+| [`let`](https://www.gnu.org/software/emacs/manual/html_node/eintr/let.html)                             | ☑️      |                                                   |
+| [`let*`](https://www.gnu.org/software/emacs/manual/html_node/elisp/Local-Variables.html#index-let_002a) | ☑️      |                                                   |
+| [`progn`](https://www.gnu.org/software/emacs/manual/html_node/eintr/progn.html)                         | ☑️      |                                                   |
+| `defun`                                                                                                 | ☑️      |                                                   |
+| `defmacro`                                                                                              | ☑️      |                                                   |
+| `lambda`                                                                                                | ☑️      |                                                   |
+| `quote`                                                                                                 | ☑️      |                                                   |
+| `null`                                                                                                  | ☑️      |                                                   |
+| `eval`                                                                                                  | ☑️      |                                                   |
+| `funcall`                                                                                               | ☑️      |                                                   |
+| `macroexpand`                                                                                           | ☑️      |                                                   |
+| `cons`                                                                                                  | ☑️      |                                                   |
+| `append`                                                                                                | ☑️      |                                                   |
+| `dolist`                                                                                                | ☑️      |                                                   |
+| `dotimes`                                                                                               | ☑️      |                                                   |
+| `list`                                                                                                  | ☑️      |                                                   |
+| `mapcar`                                                                                                | ☑️      |                                                   |
+| `assoc`                                                                                                 | ☑️      |                                                   |
+| `alist-get`                                                                                             | ☑️      |                                                   |
+| `plist-get`                                                                                             | ☑️      |                                                   |
+| `print`                                                                                                 | ☑️      | behaves like `princ`, not like emacs lisp `print` |
+| `princ`                                                                                                 | ☑️      |                                                   |
+| `prin1-to-string`                                                                                       | ☑️      |                                                   |
+| `setq`                                                                                                  | ☑️      |                                                   |
+| `concat`                                                                                                | ☑️      | for strings                                       |
+| `expt`                                                                                                  | ☑️      |                                                   |
+
+
+## Other predicates
+
+| Name       | Status | Details |
+|------------|--------|---------|
+| `symbolp`  | ☑️      |         |
+| `numberp`  | ☑️      |         |
+| `stringp`  | ☑️      |         |
+| `listp`    | ☑️      |         |
+| `consp`    | ☑️      |         |
+| `floatp`   | ☑️      |         |
+| `integerp` | ☑️      |         |
 
 */
 
