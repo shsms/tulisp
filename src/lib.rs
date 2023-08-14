@@ -39,6 +39,10 @@ It is very easy to get started.  Here's an example:
       Ok(())
   }
   ```
+
+## Builtin functions
+
+A list of currently available builtin functions can be found [here](builtin).
 */
 
 /*!
