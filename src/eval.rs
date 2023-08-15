@@ -228,6 +228,10 @@ pub(crate) fn eval_basic<'a, 'b>(
         | TulispValue::Float { .. }
         | TulispValue::String { .. }
         | TulispValue::Lambda { .. }
+        | TulispValue::Func(_)
+        | TulispValue::Macro(_)
+        | TulispValue::Defmacro { .. }
+        | TulispValue::Any(_)
         | TulispValue::Bounce
         | TulispValue::Nil
         | TulispValue::T => {}
@@ -258,34 +262,6 @@ pub(crate) fn eval_basic<'a, 'b>(
         }
         TulispValue::Sharpquote { value, .. } => {
             *result = Some(value.clone());
-        }
-        TulispValue::Any(_) => {
-            return Err(Error::new(
-                ErrorKind::Undefined,
-                "Can't eval TulispValue::Any".to_owned(),
-            )
-            .with_span(expr.span()))
-        }
-        TulispValue::Func(_) => {
-            return Err(Error::new(
-                ErrorKind::Undefined,
-                "Can't eval TulispValue::Func".to_owned(),
-            )
-            .with_span(expr.span()))
-        }
-        TulispValue::Macro(_) => {
-            return Err(Error::new(
-                ErrorKind::Undefined,
-                "Can't eval TulispValue::Macro".to_owned(),
-            )
-            .with_span(expr.span()))
-        }
-        TulispValue::Defmacro { .. } => {
-            return Err(Error::new(
-                ErrorKind::Undefined,
-                "Can't eval TulispValue::Defmacro".to_owned(),
-            )
-            .with_span(expr.span()))
         }
     };
     Ok(())
