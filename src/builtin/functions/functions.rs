@@ -493,4 +493,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     predicate_function!(symbolp);
 
     // predicates end
+
+    #[crate_fn_no_eval(add_func = "ctx")]
+    fn declare(_rest: TulispObject) {
+        // no-op
+    }
 }
