@@ -707,6 +707,24 @@ macro_rules! make_cxr {
     };
 }
 
+macro_rules! make_cxr_with {
+    ($name:ident, $($step:tt)+) => {
+        pub fn $name<Out: From<TulispObject>>(
+            &self,
+            func: impl FnMut(&TulispObject) -> Result<Out, Error>,
+        ) -> Result<Out, Error> {
+            match self {
+                TulispValue::List { cons, .. } => cons.$($step)+(func),
+                TulispValue::Nil => Ok(TulispObject::nil().into()),
+                _ => Err(Error::new(
+                    ErrorKind::TypeMismatch,
+                    format!("cxr: Not a Cons: {}", self),
+                )),
+            }
+        }
+    };
+}
+
 // cxr implementations
 impl TulispValue {
     fn cxr(
@@ -756,4 +774,63 @@ impl TulispValue {
     make_cxr!(cddadr, |x| x.cdr().cddar());
     make_cxr!(cdddar, |x| x.car().cdddr());
     make_cxr!(cddddr, |x| x.cdr().cdddr());
+
+    pub fn car_with<Out: From<TulispObject>>(
+        &self,
+        mut func: impl FnMut(&TulispObject) -> Result<Out, Error>,
+    ) -> Result<Out, Error> {
+        match self {
+            TulispValue::List { cons, .. } => func(cons.car()),
+            TulispValue::Nil => Ok(TulispObject::nil().into()),
+            _ => Err(Error::new(
+                ErrorKind::TypeMismatch,
+                format!("cxr: Not a Cons: {}", self),
+            )),
+        }
+    }
+
+    pub fn cdr_with<Out: From<TulispObject>>(
+        &self,
+        mut func: impl FnMut(&TulispObject) -> Result<Out, Error>,
+    ) -> Result<Out, Error> {
+        match self {
+            TulispValue::List { cons, .. } => func(cons.cdr()),
+            TulispValue::Nil => Ok(TulispObject::nil().into()),
+            _ => Err(Error::new(
+                ErrorKind::TypeMismatch,
+                format!("cxr: Not a Cons: {}", self),
+            )),
+        }
+    }
+
+    make_cxr_with!(caar_with, car().car_with);
+    make_cxr_with!(cadr_with, cdr().car_with);
+    make_cxr_with!(cdar_with, car().cdr_with);
+    make_cxr_with!(cddr_with, cdr().cdr_with);
+    make_cxr_with!(caaar_with, car().caar_with);
+    make_cxr_with!(caadr_with, cdr().caar_with);
+    make_cxr_with!(cadar_with, car().cadr_with);
+    make_cxr_with!(caddr_with, cdr().cadr_with);
+    make_cxr_with!(cdaar_with, car().cdar_with);
+    make_cxr_with!(cdadr_with, cdr().cdar_with);
+    make_cxr_with!(cddar_with, car().cddr_with);
+    make_cxr_with!(cdddr_with, cdr().cddr_with);
+
+    make_cxr_with!(caaaar_with, car().caaar_with);
+    make_cxr_with!(caaadr_with, cdr().caaar_with);
+    make_cxr_with!(caadar_with, car().caadr_with);
+    make_cxr_with!(caaddr_with, cdr().caadr_with);
+    make_cxr_with!(cadaar_with, car().cadar_with);
+    make_cxr_with!(cadadr_with, cdr().cadar_with);
+    make_cxr_with!(caddar_with, car().caddr_with);
+    make_cxr_with!(cadddr_with, cdr().caddr_with);
+
+    make_cxr_with!(cdaaar_with, car().cdaar_with);
+    make_cxr_with!(cdaadr_with, cdr().cdaar_with);
+    make_cxr_with!(cdadar_with, car().cdadr_with);
+    make_cxr_with!(cdaddr_with, cdr().cdadr_with);
+    make_cxr_with!(cddaar_with, car().cddar_with);
+    make_cxr_with!(cddadr_with, cdr().cddar_with);
+    make_cxr_with!(cdddar_with, car().cdddr_with);
+    make_cxr_with!(cddddr_with, cdr().cdddr_with);
 }
