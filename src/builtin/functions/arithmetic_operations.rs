@@ -38,7 +38,11 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     intern_set_func!(ctx, mul, "*");
 
     fn div(ctx: &mut TulispContext, rest: &TulispObject) -> Result<TulispObject, Error> {
-        for ele in rest.base_iter() {
+        let mut iter = rest.base_iter();
+        // Skip the first element, that can be zero.
+        iter.next();
+        while let Some(ele) = iter.eval_next(ctx) {
+            let ele = ele?;
             if ele == TulispValue::from(0) || ele == TulispValue::from(0.0) {
                 return Err(Error::new(
                     ErrorKind::Undefined,
