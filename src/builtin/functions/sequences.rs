@@ -48,7 +48,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ) -> Result<TulispObject, Error> {
         let func = eval(ctx, &func)?;
         for item in seq.base_iter() {
-            if funcall::<DummyEval>(ctx, &func, &list!(item.clone())?)?.as_bool() {
+            if funcall::<DummyEval>(ctx, &func, &list!(item.clone())?)?.is_truthy() {
                 return Ok(item);
             }
         }

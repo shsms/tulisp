@@ -391,7 +391,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         destruct_bind!((var list &optional result) = spec);
         let body = rest;
         let mut list = ctx.eval(&list)?;
-        while list.as_bool() {
+        while list.is_truthy() {
             let mut scope = Scope::default();
             scope.set(var.clone(), list.car()?)?;
             let eval_res = ctx.eval_progn(&body);

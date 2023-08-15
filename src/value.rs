@@ -529,7 +529,7 @@ impl TulispValue {
         }
     }
 
-    pub fn as_bool(&self) -> bool {
+    pub fn is_truthy(&self) -> bool {
         !self.null()
     }
 
@@ -642,7 +642,7 @@ impl TryFrom<TulispValue> for bool {
     type Error = Error;
 
     fn try_from(value: TulispValue) -> Result<Self, Self::Error> {
-        Ok(value.as_bool())
+        Ok(value.is_truthy())
     }
 }
 

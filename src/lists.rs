@@ -105,7 +105,7 @@ pub fn assoc(
 
         let mut testfn = |_1: &TulispObject, _2: &TulispObject| -> Result<bool, Error> {
             funcall::<DummyEval>(ctx, &pred, &list!(,_1.clone() ,_2.clone()).unwrap())
-                .map(|x| x.as_bool())
+                .map(|x| x.is_truthy())
         };
         assoc_find(key, alist, &mut testfn)
     } else {
@@ -128,7 +128,7 @@ pub fn alist_get(
     testfn: Option<TulispObject>,
 ) -> Result<TulispObject, Error> {
     let x = assoc(ctx, key, alist, testfn)?;
-    if x.as_bool() {
+    if x.is_truthy() {
         x.cdr()
     } else {
         Ok(default_value.unwrap_or_else(TulispObject::nil))

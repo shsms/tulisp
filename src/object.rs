@@ -302,7 +302,7 @@ assert_eq!(ts.value, 25);
     predicate_fn!(pub, symbolp, "Returns True if `self` is a Symbol.");
 
     predicate_fn!(pub, null, "Returns True if `self` is `nil`.");
-    predicate_fn!(pub, as_bool, "Returns True if `self` is not `nil`.");
+    predicate_fn!(pub, is_truthy, "Returns True if `self` is not `nil`.");
 
     predicate_fn!(pub(crate), is_bounce, "Returns True if `self` is a tail-call trampoline bounce object.");
     predicate_fn!(pub(crate), is_bounced, "Returns True if `self` is a tail-call trampoline bounced function call.");
@@ -456,7 +456,7 @@ impl TryFrom<TulispObject> for bool {
     type Error = Error;
 
     fn try_from(value: TulispObject) -> Result<Self, Self::Error> {
-        Ok(value.as_bool())
+        Ok(value.is_truthy())
     }
 }
 
