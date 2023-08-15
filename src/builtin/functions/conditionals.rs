@@ -8,10 +8,12 @@ use tulisp_proc_macros::{crate_fn, crate_fn_no_eval};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
     fn impl_if(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
-        destruct_bind!((condition then_body &rest body) = args);
+        let condition = args.car()?;
         if eval_check_null(ctx, &condition)? {
-            ctx.eval_progn(&body)
+            let else_body = args.cddr()?;
+            ctx.eval_progn(&else_body)
         } else {
+            let then_body = args.cadr()?;
             let mut result = None;
             eval_basic(ctx, &then_body, &mut result)?;
             if let Some(result) = result {
