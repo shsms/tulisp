@@ -114,7 +114,7 @@ impl TulispContext {
         let func = self.eval(func)?;
         let ret = TulispObject::nil();
         for item in seq.base_iter() {
-            if funcall::<DummyEval>(self, &func, &list!(item.clone())?)?.as_bool() {
+            if funcall::<DummyEval>(self, &func, &list!(item.clone())?)?.is_truthy() {
                 ret.push(item)?;
             }
         }

@@ -302,7 +302,7 @@ assert_eq!(ts.value, 25);
     predicate_fn!(pub, symbolp, "Returns True if `self` is a Symbol.");
 
     predicate_fn!(pub, null, "Returns True if `self` is `nil`.");
-    predicate_fn!(pub, as_bool, "Returns True if `self` is not `nil`.");
+    predicate_fn!(pub, is_truthy, "Returns True if `self` is not `nil`.");
 
     predicate_fn!(pub(crate), is_bounce, "Returns True if `self` is a tail-call trampoline bounce object.");
     predicate_fn!(pub(crate), is_bounced, "Returns True if `self` is a tail-call trampoline bounced function call.");
@@ -452,11 +452,9 @@ impl TryFrom<TulispObject> for String {
     }
 }
 
-impl TryFrom<TulispObject> for bool {
-    type Error = Error;
-
-    fn try_from(value: TulispObject) -> Result<Self, Self::Error> {
-        Ok(value.as_bool())
+impl From<TulispObject> for bool {
+    fn from(value: TulispObject) -> Self {
+        value.is_truthy()
     }
 }
 
@@ -541,6 +539,35 @@ macro_rules! extractor_cxr_fn {
     };
 }
 
+macro_rules! extractor_cxr_with_fn {
+    ($name: ident, $doc: literal) => {
+        #[doc=concat!("Returns the ", $doc, " of `self` if it is a list, and an Error otherwise.")]
+        pub fn $name<Out: From<TulispObject>>(
+            &self,
+            f: impl FnMut(&TulispObject) -> Result<Out, Error>,
+        ) -> Result<Out, Error> {
+            self.rc_span
+                .0
+                .borrow()
+                .$name(f)
+                .map_err(|e| e.with_span(self.span()))
+        }
+    };
+    ($name: ident) => {
+        #[doc(hidden)]
+        pub fn $name<Out: From<TulispObject>>(
+            &self,
+            f: impl FnMut(&TulispObject) -> Result<Out, Error>,
+        ) -> Result<Out, Error> {
+            self.rc_span
+                .0
+                .borrow()
+                .$name::<Out>(f)
+                .map_err(|e| e.with_span(self.span()))
+        }
+    };
+}
+
 /// This impl block contains all the `car`/`cdr`/`caar`/`cadr`/etc. functions.
 /// In addition to the functions documented below, there are also 8 `cxxxr`
 /// functions, like `caadr`, `cdddr`, etc., and 16 `cxxxxr` functions, like
@@ -583,4 +610,41 @@ impl TulispObject {
     extractor_cxr_fn!(cddadr);
     extractor_cxr_fn!(cdddar);
     extractor_cxr_fn!(cddddr);
+
+    extractor_cxr_with_fn!(car_with);
+    extractor_cxr_with_fn!(cdr_with);
+    extractor_cxr_with_fn!(caar_with);
+    extractor_cxr_with_fn!(cadr_with);
+    extractor_cxr_with_fn!(cdar_with);
+    extractor_cxr_with_fn!(cddr_with);
+
+    extractor_cxr_with_fn!(caaar_with);
+    extractor_cxr_with_fn!(caadr_with);
+    extractor_cxr_with_fn!(cadar_with);
+    extractor_cxr_with_fn!(caddr_with);
+
+    extractor_cxr_with_fn!(cdaar_with);
+    extractor_cxr_with_fn!(cdadr_with);
+    extractor_cxr_with_fn!(cddar_with);
+    extractor_cxr_with_fn!(cdddr_with);
+
+    extractor_cxr_with_fn!(caaaar_with);
+    extractor_cxr_with_fn!(caaadr_with);
+    extractor_cxr_with_fn!(caadar_with);
+    extractor_cxr_with_fn!(caaddr_with);
+
+    extractor_cxr_with_fn!(cadaar_with);
+    extractor_cxr_with_fn!(cadadr_with);
+    extractor_cxr_with_fn!(caddar_with);
+    extractor_cxr_with_fn!(cadddr_with);
+
+    extractor_cxr_with_fn!(cdaaar_with);
+    extractor_cxr_with_fn!(cdaadr_with);
+    extractor_cxr_with_fn!(cdadar_with);
+    extractor_cxr_with_fn!(cdaddr_with);
+
+    extractor_cxr_with_fn!(cddaar_with);
+    extractor_cxr_with_fn!(cddadr_with);
+    extractor_cxr_with_fn!(cdddar_with);
+    extractor_cxr_with_fn!(cddddr_with);
 }

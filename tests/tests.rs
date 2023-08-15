@@ -422,6 +422,14 @@ fn test_math() -> Result<(), Error> {
         program: "(/ 10 0)",
         error: "<eval_string>:1.0-1.8: ERR Undefined: Division by zero",
     }
+    tulisp_assert! {
+        program: "(/ 0 10)",
+        result: "0",
+    }
+    tulisp_assert! {
+        program: "(let ((a 10) (b 0)) (/ a b))",
+        error: "<eval_string>:1.20-1.27: ERR Undefined: Division by zero",
+    }
 
     tulisp_assert! { program: "(/ 24 2 2)",                result: "6"     }
     tulisp_assert! { program: "(+ 40 (* 2.5 4) (- 4 12))", result: "42.0"  }

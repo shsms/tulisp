@@ -1,6 +1,6 @@
 use crate::{
     destruct_bind,
-    eval::{eval_basic, eval_check_null},
+    eval::{eval_basic, eval_check_null, eval_is_truthy},
     list, Error, TulispContext, TulispObject, TulispValue,
 };
 use std::rc::Rc;
@@ -8,17 +8,10 @@ use tulisp_proc_macros::{crate_fn, crate_fn_no_eval};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
     fn impl_if(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
-        destruct_bind!((condition then_body &rest body) = args);
-        if eval_check_null(ctx, &condition)? {
-            ctx.eval_progn(&body)
+        if args.car_with(|x| eval_is_truthy(ctx, x))? {
+            args.cadr_with(|x| ctx.eval(x))
         } else {
-            let mut result = None;
-            eval_basic(ctx, &then_body, &mut result)?;
-            if let Some(result) = result {
-                Ok(result)
-            } else {
-                Ok(then_body)
-            }
+            args.cddr_with(|x| ctx.eval_progn(x))
         }
     }
     intern_set_func!(ctx, impl_if, "if");
@@ -53,8 +46,8 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     // Constructs for combining conditions
     #[crate_fn(add_func = "ctx")]
-    fn not(condition: bool) -> bool {
-        !condition
+    fn not(condition: TulispObject) -> bool {
+        condition.null()
     }
 
     #[crate_fn_no_eval(add_func = "ctx")]
