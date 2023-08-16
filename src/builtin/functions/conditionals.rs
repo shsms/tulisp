@@ -33,16 +33,15 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         )
     }
 
-    #[crate_fn_no_eval(add_func = "ctx")]
-    fn cond(ctx: &mut TulispContext, rest: TulispObject) -> Result<TulispObject, Error> {
-        for item in rest.base_iter() {
-            destruct_bind!((condition &rest body) = item);
-            if !eval_check_null(ctx, &condition)? {
-                return ctx.eval_progn(&body);
+    fn cond(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+        for item in args.base_iter() {
+            if item.car_and_then(|x| eval_is_truthy(ctx, x))? {
+                return item.cdr_and_then(|x| ctx.eval_progn(x));
             }
         }
         Ok(TulispObject::nil())
     }
+    intern_set_func!(ctx, cond, "cond");
 
     // Constructs for combining conditions
     #[crate_fn(add_func = "ctx")]
