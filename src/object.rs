@@ -539,9 +539,11 @@ macro_rules! extractor_cxr_fn {
     };
 }
 
-macro_rules! extractor_cxr_with_fn {
+macro_rules! extractor_cxr_and_then_fn {
     ($name: ident, $doc: literal) => {
-        #[doc=concat!("Returns the ", $doc, " of `self` if it is a list, and an Error otherwise.")]
+        #[doc=concat!(
+            "Executes the given function on the ", $doc, " of `self` and returns the result."
+        )]
         pub fn $name<Out: From<TulispObject>>(
             &self,
             f: impl FnMut(&TulispObject) -> Result<Out, Error>,
@@ -611,40 +613,40 @@ impl TulispObject {
     extractor_cxr_fn!(cdddar);
     extractor_cxr_fn!(cddddr);
 
-    extractor_cxr_with_fn!(car_with);
-    extractor_cxr_with_fn!(cdr_with);
-    extractor_cxr_with_fn!(caar_with);
-    extractor_cxr_with_fn!(cadr_with);
-    extractor_cxr_with_fn!(cdar_with);
-    extractor_cxr_with_fn!(cddr_with);
+    extractor_cxr_and_then_fn!(car_and_then, "`car`");
+    extractor_cxr_and_then_fn!(cdr_and_then, "`cdr`");
+    extractor_cxr_and_then_fn!(caar_and_then, "`car` of `car`");
+    extractor_cxr_and_then_fn!(cadr_and_then, "`car` of `cdr`");
+    extractor_cxr_and_then_fn!(cdar_and_then, "`cdr` of `car`");
+    extractor_cxr_and_then_fn!(cddr_and_then, "`cdr` of `cdr`");
 
-    extractor_cxr_with_fn!(caaar_with);
-    extractor_cxr_with_fn!(caadr_with);
-    extractor_cxr_with_fn!(cadar_with);
-    extractor_cxr_with_fn!(caddr_with);
+    extractor_cxr_and_then_fn!(caaar_and_then);
+    extractor_cxr_and_then_fn!(caadr_and_then);
+    extractor_cxr_and_then_fn!(cadar_and_then);
+    extractor_cxr_and_then_fn!(caddr_and_then);
 
-    extractor_cxr_with_fn!(cdaar_with);
-    extractor_cxr_with_fn!(cdadr_with);
-    extractor_cxr_with_fn!(cddar_with);
-    extractor_cxr_with_fn!(cdddr_with);
+    extractor_cxr_and_then_fn!(cdaar_and_then);
+    extractor_cxr_and_then_fn!(cdadr_and_then);
+    extractor_cxr_and_then_fn!(cddar_and_then);
+    extractor_cxr_and_then_fn!(cdddr_and_then);
 
-    extractor_cxr_with_fn!(caaaar_with);
-    extractor_cxr_with_fn!(caaadr_with);
-    extractor_cxr_with_fn!(caadar_with);
-    extractor_cxr_with_fn!(caaddr_with);
+    extractor_cxr_and_then_fn!(caaaar_and_then);
+    extractor_cxr_and_then_fn!(caaadr_and_then);
+    extractor_cxr_and_then_fn!(caadar_and_then);
+    extractor_cxr_and_then_fn!(caaddr_and_then);
 
-    extractor_cxr_with_fn!(cadaar_with);
-    extractor_cxr_with_fn!(cadadr_with);
-    extractor_cxr_with_fn!(caddar_with);
-    extractor_cxr_with_fn!(cadddr_with);
+    extractor_cxr_and_then_fn!(cadaar_and_then);
+    extractor_cxr_and_then_fn!(cadadr_and_then);
+    extractor_cxr_and_then_fn!(caddar_and_then);
+    extractor_cxr_and_then_fn!(cadddr_and_then);
 
-    extractor_cxr_with_fn!(cdaaar_with);
-    extractor_cxr_with_fn!(cdaadr_with);
-    extractor_cxr_with_fn!(cdadar_with);
-    extractor_cxr_with_fn!(cdaddr_with);
+    extractor_cxr_and_then_fn!(cdaaar_and_then);
+    extractor_cxr_and_then_fn!(cdaadr_and_then);
+    extractor_cxr_and_then_fn!(cdadar_and_then);
+    extractor_cxr_and_then_fn!(cdaddr_and_then);
 
-    extractor_cxr_with_fn!(cddaar_with);
-    extractor_cxr_with_fn!(cddadr_with);
-    extractor_cxr_with_fn!(cdddar_with);
-    extractor_cxr_with_fn!(cddddr_with);
+    extractor_cxr_and_then_fn!(cddaar_and_then);
+    extractor_cxr_and_then_fn!(cddadr_and_then);
+    extractor_cxr_and_then_fn!(cdddar_and_then);
+    extractor_cxr_and_then_fn!(cddddr_and_then);
 }

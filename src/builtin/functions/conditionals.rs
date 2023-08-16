@@ -8,10 +8,10 @@ use tulisp_proc_macros::{crate_fn, crate_fn_no_eval};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
     fn impl_if(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
-        if args.car_with(|x| eval_is_truthy(ctx, x))? {
-            args.cadr_with(|x| ctx.eval(x))
+        if args.car_and_then(|x| eval_is_truthy(ctx, x))? {
+            args.cadr_and_then(|x| ctx.eval(x))
         } else {
-            args.cddr_with(|x| ctx.eval_progn(x))
+            args.cddr_and_then(|x| ctx.eval_progn(x))
         }
     }
     intern_set_func!(ctx, impl_if, "if");
