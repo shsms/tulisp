@@ -84,6 +84,59 @@ fn test_conditionals() -> Result<(), Error> {
     tulisp_assert! { program: "(xor (< 10 5) (< 10 20))", result: "t" }
     tulisp_assert! { program: "(xor (< 10 5) (> 10 20))", result: "nil" }
 
+    tulisp_assert! {
+        program: "(defun test (val) (if-let (a val) (+ a 10))) (test nil)",
+        result: "nil",
+    }
+    tulisp_assert! {
+        program: "(defun test (val) (if-let (a val) (+ a 10))) (test 10)",
+        result: "20",
+    }
+
+    tulisp_assert! {
+        program: "(macroexpand '(if-let (c) (+ c 10) 2))",
+        result: "'(let ((s (and t c))) (if s (+ c 10) 2))",
+    }
+    tulisp_assert! {
+        program: "(defun test (&optional c) (if-let (c) (+ c 10) 2)) (list (test) (test 2))",
+        result: "'(2 12)",
+    }
+    tulisp_assert! {
+        program: "(defun test (&optional c) (if-let (q c) (+ q 10) 2)) (list (test) (test 2))",
+        result: "'(2 12)",
+    }
+    tulisp_assert! {
+        program: "(defun test (&optional c) (if-let ((q c)) (+ q 10) 2)) (list (test) (test 2))",
+        result: "'(2 12)",
+    }
+    tulisp_assert! {
+        program: "(defun test (&optional c d) (if-let ((q c) d) (+ q d 10) 2)) (list (test) (test 2) (test 2 3)) ",
+        result: "'(2 2 15)",
+    }
+    tulisp_assert! {
+        program: "(defun test (&optional c d) (if-let ((q c) d (w 10)) (+ q d w) 2)) (list (test) (test 2) (test 2 3)) ",
+        result: "'(2 2 15)",
+    }
+
+    tulisp_assert! {
+        program: "(macroexpand '(when-let (c) (+ c 10)))",
+        result: "'(let ((s (and t c))) (if s (+ c 10) nil))",
+    }
+    tulisp_assert! {
+        program: "(macroexpand '(when-let (c) (+ c 10) 2))",
+        result: "'(let ((s (and t c))) (if s (progn (+ c 10) 2) nil))",
+    }
+    tulisp_assert! {
+        program: "(macroexpand '(when-let ((q c) d (w 10)) 2 (+ c d w)))",
+        result: r#"'
+        (let ((q (and t c)))
+          (let ((d (and q d)))
+            (let ((w (and d 10)))
+              (if w
+                  (progn 2 (+ c d w))
+                 nil))))
+        "#,
+    }
     Ok(())
 }
 

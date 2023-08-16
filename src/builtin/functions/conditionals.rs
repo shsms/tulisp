@@ -1,7 +1,8 @@
 use crate::{
-    destruct_bind,
-    eval::{eval_basic, eval_check_null, eval_is_truthy},
-    list, Error, TulispContext, TulispObject, TulispValue,
+    eval::{eval_basic, eval_is_truthy},
+    list,
+    lists::{last, length},
+    Error, ErrorKind, TulispContext, TulispObject, TulispValue,
 };
 use std::rc::Rc;
 use tulisp_proc_macros::{crate_fn, crate_fn_no_eval};
@@ -98,4 +99,94 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             TulispObject::nil()
         }
     }
+
+    #[crate_fn_no_eval(add_macro = "ctx", name = "if-let*")]
+    fn if_let_star(
+        ctx: &mut TulispContext,
+        varlist: TulispObject,
+        then: TulispObject,
+        rest: TulispObject,
+    ) -> Result<TulispObject, Error> {
+        if varlist.null() {
+            return list!(,ctx.intern("let*") ,varlist ,then);
+        }
+        let varlist = build_bindings(ctx, &varlist)?;
+        let cond = last(&varlist, None)?.caar()?;
+        list!(,ctx.intern("let*") ,varlist
+              ,list!(,ctx.intern("if")
+                     ,cond
+                     ,then
+                     ,@rest
+              )?
+        )
+    }
+
+    #[crate_fn_no_eval(add_macro = "ctx", name = "if-let")]
+    fn if_let(
+        ctx: &mut TulispContext,
+        spec: TulispObject,
+        then: TulispObject,
+        rest: TulispObject,
+    ) -> Result<TulispObject, Error> {
+        let spec = if length(&spec)? <= 2 && !spec.car()?.listp() {
+            list!(,spec)?
+        } else {
+            spec
+        };
+        let macroexp_progn_on_rest = if rest.cdr()?.is_truthy() {
+            list!(,ctx.intern("progn") ,@rest)?
+        } else {
+            rest.car()?
+        };
+        list!(,ctx.intern("if-let*") ,spec ,then ,macroexp_progn_on_rest)
+    }
+
+    #[crate_fn_no_eval(add_macro = "ctx", name = "when-let")]
+    fn when_let(
+        ctx: &mut TulispContext,
+        spec: TulispObject,
+        rest: TulispObject,
+    ) -> Result<TulispObject, Error> {
+        let macroexp_progn_on_rest = if rest.cdr()?.is_truthy() {
+            list!(,ctx.intern("progn") ,@rest)?
+        } else {
+            rest.car()?
+        };
+        list!(,ctx.intern("if-let") ,spec ,macroexp_progn_on_rest)
+    }
+}
+
+fn build_binding(
+    ctx: &mut TulispContext,
+    binding: &TulispObject,
+    prev_var: &TulispObject,
+) -> Result<TulispObject, Error> {
+    let binding = if binding.symbolp() {
+        list!(,binding.clone() ,binding.clone())?
+    } else if binding.cdr()?.null() {
+        list!(,TulispObject::symbol("s".to_string(), false) ,binding.car()?)?
+    } else {
+        binding.clone()
+    };
+
+    if length(&binding)? > 2 {
+        return Err(Error::new(
+            ErrorKind::SyntaxError,
+            format!("`let` bindings can have only one value-form {}", &binding),
+        ));
+    }
+
+    let var = binding.car()?;
+    list!(,var ,list!(,ctx.intern("and")  ,prev_var.clone() ,binding.cadr()?)?)
+}
+
+fn build_bindings(ctx: &mut TulispContext, bindings: &TulispObject) -> Result<TulispObject, Error> {
+    let mut prev_var = TulispObject::t();
+    let ret = TulispObject::nil();
+    for binding in bindings.base_iter() {
+        let binding = build_binding(ctx, &binding, &prev_var)?;
+        prev_var = binding.car()?;
+        ret.push(binding)?;
+    }
+    Ok(ret)
 }

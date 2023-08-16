@@ -31,8 +31,8 @@ Click  [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Conditio
 | `and`      | ☑️      |                                                  |
 | `or`      | ☑️      |                                                  |
 | `xor`      | ☑️      |                                                  |
-| `if-let`    | 🔳     | [#11](https://github.com/shsms/tulisp/issues/11) |
-| `when-let`  | 🔳     |                                                  |
+| `if-let`    | ☑️
+| `when-let`  | ☑️     |                                                  |
 | `while-let` | 🔳     |                                                  |
 
 ## Comparison of Numbers
