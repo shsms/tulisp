@@ -707,7 +707,7 @@ macro_rules! make_cxr {
     };
 }
 
-macro_rules! make_cxr_with {
+macro_rules! make_cxr_and_then {
     ($name:ident, $($step:tt)+) => {
         pub fn $name<Out: From<TulispObject>>(
             &self,
@@ -775,7 +775,7 @@ impl TulispValue {
     make_cxr!(cdddar, |x| x.car().cdddr());
     make_cxr!(cddddr, |x| x.cdr().cdddr());
 
-    pub fn car_with<Out: From<TulispObject>>(
+    pub fn car_and_then<Out: From<TulispObject>>(
         &self,
         mut func: impl FnMut(&TulispObject) -> Result<Out, Error>,
     ) -> Result<Out, Error> {
@@ -789,7 +789,7 @@ impl TulispValue {
         }
     }
 
-    pub fn cdr_with<Out: From<TulispObject>>(
+    pub fn cdr_and_then<Out: From<TulispObject>>(
         &self,
         mut func: impl FnMut(&TulispObject) -> Result<Out, Error>,
     ) -> Result<Out, Error> {
@@ -803,34 +803,34 @@ impl TulispValue {
         }
     }
 
-    make_cxr_with!(caar_with, car().car_with);
-    make_cxr_with!(cadr_with, cdr().car_with);
-    make_cxr_with!(cdar_with, car().cdr_with);
-    make_cxr_with!(cddr_with, cdr().cdr_with);
-    make_cxr_with!(caaar_with, car().caar_with);
-    make_cxr_with!(caadr_with, cdr().caar_with);
-    make_cxr_with!(cadar_with, car().cadr_with);
-    make_cxr_with!(caddr_with, cdr().cadr_with);
-    make_cxr_with!(cdaar_with, car().cdar_with);
-    make_cxr_with!(cdadr_with, cdr().cdar_with);
-    make_cxr_with!(cddar_with, car().cddr_with);
-    make_cxr_with!(cdddr_with, cdr().cddr_with);
+    make_cxr_and_then!(caar_and_then, car().car_and_then);
+    make_cxr_and_then!(cadr_and_then, cdr().car_and_then);
+    make_cxr_and_then!(cdar_and_then, car().cdr_and_then);
+    make_cxr_and_then!(cddr_and_then, cdr().cdr_and_then);
+    make_cxr_and_then!(caaar_and_then, car().caar_and_then);
+    make_cxr_and_then!(caadr_and_then, cdr().caar_and_then);
+    make_cxr_and_then!(cadar_and_then, car().cadr_and_then);
+    make_cxr_and_then!(caddr_and_then, cdr().cadr_and_then);
+    make_cxr_and_then!(cdaar_and_then, car().cdar_and_then);
+    make_cxr_and_then!(cdadr_and_then, cdr().cdar_and_then);
+    make_cxr_and_then!(cddar_and_then, car().cddr_and_then);
+    make_cxr_and_then!(cdddr_and_then, cdr().cddr_and_then);
 
-    make_cxr_with!(caaaar_with, car().caaar_with);
-    make_cxr_with!(caaadr_with, cdr().caaar_with);
-    make_cxr_with!(caadar_with, car().caadr_with);
-    make_cxr_with!(caaddr_with, cdr().caadr_with);
-    make_cxr_with!(cadaar_with, car().cadar_with);
-    make_cxr_with!(cadadr_with, cdr().cadar_with);
-    make_cxr_with!(caddar_with, car().caddr_with);
-    make_cxr_with!(cadddr_with, cdr().caddr_with);
+    make_cxr_and_then!(caaaar_and_then, car().caaar_and_then);
+    make_cxr_and_then!(caaadr_and_then, cdr().caaar_and_then);
+    make_cxr_and_then!(caadar_and_then, car().caadr_and_then);
+    make_cxr_and_then!(caaddr_and_then, cdr().caadr_and_then);
+    make_cxr_and_then!(cadaar_and_then, car().cadar_and_then);
+    make_cxr_and_then!(cadadr_and_then, cdr().cadar_and_then);
+    make_cxr_and_then!(caddar_and_then, car().caddr_and_then);
+    make_cxr_and_then!(cadddr_and_then, cdr().caddr_and_then);
 
-    make_cxr_with!(cdaaar_with, car().cdaar_with);
-    make_cxr_with!(cdaadr_with, cdr().cdaar_with);
-    make_cxr_with!(cdadar_with, car().cdadr_with);
-    make_cxr_with!(cdaddr_with, cdr().cdadr_with);
-    make_cxr_with!(cddaar_with, car().cddar_with);
-    make_cxr_with!(cddadr_with, cdr().cddar_with);
-    make_cxr_with!(cdddar_with, car().cdddr_with);
-    make_cxr_with!(cddddr_with, cdr().cdddr_with);
+    make_cxr_and_then!(cdaaar_and_then, car().cdaar_and_then);
+    make_cxr_and_then!(cdaadr_and_then, cdr().cdaar_and_then);
+    make_cxr_and_then!(cdadar_and_then, car().cdadr_and_then);
+    make_cxr_and_then!(cdaddr_and_then, cdr().cdadr_and_then);
+    make_cxr_and_then!(cddaar_and_then, car().cddar_and_then);
+    make_cxr_and_then!(cddadr_and_then, cdr().cddar_and_then);
+    make_cxr_and_then!(cdddar_and_then, car().cdddr_and_then);
+    make_cxr_and_then!(cddddr_and_then, cdr().cdddr_and_then);
 }

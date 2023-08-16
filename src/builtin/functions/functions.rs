@@ -4,7 +4,6 @@ use crate::context::TulispContext;
 use crate::error::Error;
 use crate::error::ErrorKind;
 use crate::eval::eval;
-use crate::eval::eval_basic;
 use crate::eval::eval_check_null;
 use crate::eval::DummyEval;
 use crate::eval::Eval;
@@ -20,30 +19,12 @@ pub(super) fn reduce_with(
     list: &TulispObject,
     method: fn(&TulispObject, &TulispObject) -> Result<TulispObject, Error>,
 ) -> Result<TulispObject, Error> {
-    let mut eval_result = None;
-    let mut iter = list.base_iter();
-
-    let Some(mut first) = iter.next() else {
-        return Err(Error::new(
-            ErrorKind::TypeMismatch,
-            "Incorrect number of arguments: 0".to_string(),
-        ));
-    };
-
-    eval_basic(ctx, &first, &mut eval_result)?;
-    if eval_result.is_some() {
-        first = eval_result.unwrap();
-        eval_result = None;
-    }
-
-    for next in iter {
-        eval_basic(ctx, &next, &mut eval_result)?;
-        if eval_result.is_some() {
-            first = method(&first, &eval_result.unwrap())?;
-            eval_result = None;
-        } else {
-            first = method(&first, &next)?;
-        }
+    let mut first = list.car_and_then(|x| eval(ctx, x))?;
+    let mut rest = list.cdr()?;
+    while rest.is_truthy() {
+        let next = rest.car_and_then(|x| eval(ctx, x))?;
+        first = method(&first, &next)?;
+        rest = rest.cdr()?;
     }
 
     Ok(first)
