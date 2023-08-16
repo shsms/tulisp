@@ -154,6 +154,22 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         };
         list!(,ctx.intern("if-let") ,spec ,macroexp_progn_on_rest)
     }
+
+    #[crate_fn_no_eval(add_macro = "ctx", name = "while-let")]
+    fn while_let(
+        ctx: &mut TulispContext,
+        spec: TulispObject,
+        rest: TulispObject,
+    ) -> Result<TulispObject, Error> {
+        list!(,ctx.intern("while")
+              ,list!(
+                  ,ctx.intern("if-let"),
+                  spec,
+                  list!(,ctx.intern("progn") ,@rest ,TulispObject::t())?,
+                  TulispObject::nil()
+              )?
+        )
+    }
 }
 
 fn build_binding(

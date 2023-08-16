@@ -137,6 +137,15 @@ fn test_conditionals() -> Result<(), Error> {
                  nil))))
         "#,
     }
+
+    tulisp_assert! {
+        program: "(macroexpand '(while-let (c) (+ c 10)))",
+        result: "'(while (let ((s (and t c))) (if s (progn (+ c 10) t) nil)))",
+    }
+    tulisp_assert! {
+        program: "(let ((ll '(1 2 3)) (vv 0)) (while-let (x (car ll))  (setq ll (cdr ll)) (setq vv (+ vv x))) vv)",
+        result: "'6",
+    }
     Ok(())
 }
 

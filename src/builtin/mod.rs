@@ -33,7 +33,7 @@ Click  [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Conditio
 | `xor`      | ☑️      |                                                  |
 | `if-let`    | ☑️
 | `when-let`  | ☑️     |                                                  |
-| `while-let` | 🔳     |                                                  |
+| `while-let` | ☑️     |                                                  |
 
 ## Comparison of Numbers
 
