@@ -35,9 +35,12 @@ fn mark_tail_calls(
     name: TulispObject,
     body: TulispObject,
 ) -> Result<TulispObject, Error> {
+    if !body.consp() {
+        return Ok(body);
+    }
     let ret = TulispObject::nil();
     let mut body_iter = body.base_iter();
-    let mut tail = body_iter.next().unwrap(); // TODO: make safe
+    let mut tail = body_iter.next().unwrap();
     for next in body_iter {
         ret.push(tail)?;
         tail = next;

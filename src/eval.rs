@@ -281,12 +281,7 @@ pub fn macroexpand(ctx: &mut TulispContext, inp: TulispObject) -> Result<TulispO
     if !inp.consp() {
         return Ok(inp);
     }
-    let expr = TulispObject::nil().with_span(inp.span());
-    for item in inp.base_iter() {
-        let item = macroexpand(ctx, item)?;
-        // TODO: switch to tailcall method to propagate inner spans.
-        expr.push(item.clone())?;
-    }
+    let expr = inp.clone();
     expr.with_ctxobj(inp.ctxobj());
     let value = match expr.car()?.get() {
         Ok(val) => val,
@@ -295,14 +290,25 @@ pub fn macroexpand(ctx: &mut TulispContext, inp: TulispObject) -> Result<TulispO
     let x = match &*value.inner_ref() {
         TulispValue::Macro(func) => {
             let expansion = func(ctx, &expr.cdr()?)?;
-            macroexpand(ctx, expansion)
+            macroexpand(ctx, expansion)?
         }
         TulispValue::Defmacro { params, body } => {
             let expansion = eval_defmacro(ctx, params, body, &expr.cdr()?)
                 .map_err(|e| e.with_span(inp.span()))?;
-            macroexpand(ctx, expansion)
+            macroexpand(ctx, expansion)?
         }
-        _ => Ok(expr),
+        _ => expr,
     };
-    x
+
+    if x.consp() {
+        let expr = TulispObject::nil().with_span(x.span());
+        for item in x.base_iter() {
+            let item = macroexpand(ctx, item)?;
+            // TODO: switch to tailcall method to propagate inner spans.
+            expr.push(item.clone())?;
+        }
+        Ok(expr)
+    } else {
+        Ok(x)
+    }
 }

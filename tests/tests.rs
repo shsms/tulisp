@@ -681,6 +681,29 @@ fn test_threading_macros() -> Result<(), Error> {
     }
 
     tulisp_assert! {
+            program: r##"
+            (macroexpand '(thread-last
+                           (if-let (b) (print b))
+                           (if-let (a) (print a))
+                           (if-let ((a) (b))
+                               (print a))))
+            "##,
+        result: r##"
+        '(let ((s (and t a)))
+          (let ((s (and s b)))
+            (if s
+                (print a)
+              (let ((s (and t a)))
+                (if s
+                    (print a)
+                  (let ((s (and t b)))
+                    (if s
+                        (print b)
+                      nil)))))))
+            "##,
+    }
+
+    tulisp_assert! {
         program: "(-> 10)",
         result: "10",
     }
