@@ -704,6 +704,18 @@ fn test_threading_macros() -> Result<(), Error> {
     }
 
     tulisp_assert! {
+        program: r#"
+        (let ((vv 2) (jj 3))
+                (thread-last
+                  (setq vv 4)
+                  (if-let ((a (> 20 10)))
+                      (setq jj 5)))
+                (list vv jj))
+       "#,
+        result: "'(2 5)",
+    }
+
+    tulisp_assert! {
         program: "(-> 10)",
         result: "10",
     }
