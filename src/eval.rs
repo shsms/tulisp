@@ -283,9 +283,10 @@ pub fn macroexpand(ctx: &mut TulispContext, inp: TulispObject) -> Result<TulispO
     }
     let expr = inp.clone();
     expr.with_ctxobj(inp.ctxobj());
-    let value = match expr.car()?.get() {
+    let exp_car = expr.car()?;
+    let value = match exp_car.get() {
         Ok(val) => val,
-        Err(_) => return Ok(expr),
+        Err(_) => exp_car,
     };
     let x = match &*value.inner_ref() {
         TulispValue::Macro(func) => {

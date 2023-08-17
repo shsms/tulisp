@@ -264,13 +264,6 @@ impl Iterator for Tokenizer<'_> {
     }
 }
 
-#[derive(Debug, PartialEq, PartialOrd)]
-enum MacroExpand {
-    Yes,
-    No,
-    Unquote,
-}
-
 struct Parser<'a, 'b> {
     tokenizer: Peekable<Tokenizer<'a>>,
     ctx: &'b mut TulispContext,
@@ -303,11 +296,7 @@ impl Parser<'_, '_> {
         }
     }
 
-    fn parse_list(
-        &mut self,
-        start_span: Span,
-        expand_macros: &MacroExpand,
-    ) -> Result<TulispObject, Error> {
+    fn parse_list(&mut self, start_span: Span) -> Result<TulispObject, Error> {
         let inner = TulispObject::nil();
         let mut got_dot = false;
         loop {
@@ -330,7 +319,7 @@ impl Parser<'_, '_> {
                     break;
                 }
                 _ => {
-                    let next = self.parse_value(expand_macros)?.unwrap();
+                    let next = self.parse_value()?.unwrap();
                     inner.push(next)?;
                 }
             }
@@ -340,7 +329,7 @@ impl Parser<'_, '_> {
         let _ = self.tokenizer.next();
 
         if got_dot {
-            let next = self.parse_value(expand_macros)?.unwrap();
+            let next = self.parse_value()?.unwrap();
             if let Some(Token::CloseParen { span: end_span }) = self.tokenizer.next() {
                 inner.with_span(Some(Span {
                     start: start_span.start,
@@ -363,32 +352,27 @@ impl Parser<'_, '_> {
             // recursively update ctx obj in case it is a recursive function.
             recursive_update_ctxobj(self.ctx, &inner)?;
         }
-        let res = if *expand_macros == MacroExpand::Yes {
-            macroexpand(self.ctx, inner)?
-        } else {
-            inner
-        };
-        if res.consp() {
-            let name = res.car()?;
+        if inner.consp() {
+            let name = inner.car()?;
             let ctxobj = eval(self.ctx, &name).ok();
-            res.with_ctxobj(ctxobj);
+            inner.with_ctxobj(ctxobj);
         }
-        Ok(res)
+        Ok(inner)
     }
 
-    fn parse_value(&mut self, expand_macros: &MacroExpand) -> Result<Option<TulispObject>, Error> {
+    fn parse_value(&mut self) -> Result<Option<TulispObject>, Error> {
         let Some(token) = self.tokenizer.next()  else {
             return Ok(None);
         };
         match token {
-            Token::OpenParen { span } => self.parse_list(span, expand_macros).map(Some),
+            Token::OpenParen { span } => self.parse_list(span).map(Some),
             Token::CloseParen { span } => Err(Error::new(
                 ErrorKind::ParsingError,
                 "Unexpected closing parenthesis".to_string(),
             )
             .with_span(Some(span))),
             Token::SharpQuote { span } | Token::Quote { span } => {
-                let next = match self.parse_value(&MacroExpand::No)? {
+                let next = match self.parse_value()? {
                     Some(next) => next,
                     None => {
                         return Err(Error::new(
@@ -405,11 +389,7 @@ impl Parser<'_, '_> {
                 ))
             }
             Token::Backtick { span } => {
-                let next = match self.parse_value(if *expand_macros != MacroExpand::No {
-                    &MacroExpand::Unquote
-                } else {
-                    expand_macros
-                })? {
+                let next = match self.parse_value()? {
                     Some(next) => next,
                     None => {
                         return Err(Error::new(
@@ -431,11 +411,7 @@ impl Parser<'_, '_> {
             )
             .with_span(Some(span))),
             Token::Comma { span } => {
-                let next = match self.parse_value(if *expand_macros != MacroExpand::No {
-                    &MacroExpand::Yes
-                } else {
-                    expand_macros
-                })? {
+                let next = match self.parse_value()? {
                     Some(next) => next,
                     None => {
                         return Err(Error::new(
@@ -452,11 +428,7 @@ impl Parser<'_, '_> {
                 ))
             }
             Token::Splice { span } => {
-                let next = match self.parse_value(if *expand_macros != MacroExpand::No {
-                    &MacroExpand::Yes
-                } else {
-                    expand_macros
-                })? {
+                let next = match self.parse_value()? {
                     Some(next) => next,
                     None => {
                         return Err(Error::new(
@@ -519,10 +491,10 @@ impl Parser<'_, '_> {
 
     fn parse(&mut self) -> Result<TulispObject, Error> {
         let output = TulispObject::nil();
-        while let Some(next) = self.parse_value(&MacroExpand::Yes)? {
+        while let Some(next) = self.parse_value()? {
             output.push(next)?;
         }
-        Ok(output)
+        macroexpand(self.ctx, output)
     }
 }
 
