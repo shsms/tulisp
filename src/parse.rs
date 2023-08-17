@@ -297,7 +297,7 @@ impl Parser<'_, '_> {
     }
 
     fn parse_list(&mut self, start_span: Span) -> Result<TulispObject, Error> {
-        let inner = TulispObject::nil();
+        let mut inner = TulispObject::nil();
         let mut got_dot = false;
         loop {
             let Some(token) = self.tokenizer.peek() else {
@@ -348,6 +348,7 @@ impl Parser<'_, '_> {
         if let Ok("defun" | "defmacro" | "lambda") =
             inner.car()?.as_symbol().as_ref().map(|x| x.as_str())
         {
+            inner = macroexpand(self.ctx, inner)?;
             eval(self.ctx, &inner)?;
             // recursively update ctx obj in case it is a recursive function.
             recursive_update_ctxobj(self.ctx, &inner)?;
