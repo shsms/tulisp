@@ -176,6 +176,19 @@ fn test_defun() -> Result<(), Error> {
     }
     tulisp_assert! {
         program: r##"
+        (let ((res (test)))
+
+        (defun test ()
+          (let* ((a 5)
+                 (c 7))
+            (when-let ((b 6))
+              (list a b c))))
+        res)
+        "##,
+        result: "'(5 6 7)",
+    }
+    tulisp_assert! {
+        program: r##"
             (defun add (x &rest y)
              (if y
                  (append y (list x))
