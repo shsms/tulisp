@@ -315,7 +315,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     #[crate_fn_no_eval(add_func = "ctx")]
     fn quote(arg: TulispObject) -> TulispObject {
-        TulispValue::Quote { value: arg }.into()
+        arg
     }
 
     #[crate_fn(add_func = "ctx")]
