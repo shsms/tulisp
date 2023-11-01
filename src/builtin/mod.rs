@@ -163,6 +163,7 @@ These functions need to be organized into categories.  They are grouped here for
 | `consp`    | ☑️      |         |
 | `floatp`   | ☑️      |         |
 | `integerp` | ☑️      |         |
+| `boundp`   | ☑️      |         |
 
 */
 

@@ -300,6 +300,11 @@ assert_eq!(ts.value, 25);
     );
     predicate_fn!(pub, stringp, "Returns True if `self` is a string.");
     predicate_fn!(pub, symbolp, "Returns True if `self` is a Symbol.");
+    predicate_fn!(
+        pub,
+        boundp,
+        "Returns True if `self` is bound in the current scope."
+    );
 
     predicate_fn!(pub, null, "Returns True if `self` is `nil`.");
     predicate_fn!(pub, is_truthy, "Returns True if `self` is not `nil`.");

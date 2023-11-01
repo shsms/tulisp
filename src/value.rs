@@ -147,6 +147,10 @@ impl SymbolBindings {
         Ok(())
     }
 
+    pub fn boundp(&self) -> bool {
+        !self.items.is_empty()
+    }
+
     pub fn get(&self) -> Result<TulispObject, Error> {
         if self.items.is_empty() {
             return Err(Error::new(
@@ -406,6 +410,14 @@ impl TulispValue {
                 ErrorKind::TypeMismatch,
                 "Can get only from Symbols".to_string(),
             ))
+        }
+    }
+
+    pub fn boundp(&self) -> bool {
+        if let TulispValue::Symbol { value, .. } = self {
+            value.boundp()
+        } else {
+            false
         }
     }
 

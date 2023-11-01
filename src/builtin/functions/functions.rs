@@ -475,6 +475,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     predicate_function!(numberp);
     predicate_function!(stringp);
     predicate_function!(symbolp);
+    predicate_function!(boundp);
 
     // predicates end
 
