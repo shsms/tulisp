@@ -356,10 +356,30 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     // List functions
 
-    #[crate_fn(add_func = "ctx", name = "cons")]
-    fn impl_cons(car: TulispObject, cdr: TulispObject) -> TulispObject {
-        TulispObject::cons(car, cdr)
+    fn impl_cons(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+        let cdr = args.cdr_and_then(|args| {
+            if args.null() {
+                return Err(Error::new(
+                    ErrorKind::TypeMismatch,
+                    "cons requires exactly 2 arguments".to_string(),
+                )
+                .with_span(args.span()));
+            }
+            args.cdr_and_then(|x| {
+                if !x.null() {
+                    return Err(Error::new(
+                        ErrorKind::TypeMismatch,
+                        "cons requires exactly 2 arguments".to_string(),
+                    )
+                    .with_span(x.span()));
+                }
+                args.car_and_then(|arg| ctx.eval(arg))
+            })
+        })?;
+        let car = args.car_and_then(|arg| ctx.eval(arg))?;
+        Ok(TulispObject::cons(car, cdr))
     }
+    intern_set_func!(ctx, impl_cons, "cons");
 
     #[crate_fn(add_func = "ctx")]
     fn append(first: TulispObject, rest: TulispObject) -> Result<TulispObject, Error> {
