@@ -4,6 +4,7 @@ use crate::context::TulispContext;
 use crate::error::Error;
 use crate::error::ErrorKind;
 use crate::eval::eval;
+use crate::eval::eval_and_then;
 use crate::eval::eval_check_null;
 use crate::eval::DummyEval;
 use crate::eval::Eval;
@@ -12,6 +13,8 @@ use crate::TulispObject;
 use crate::TulispValue;
 use crate::{destruct_bind, list};
 use std::convert::TryInto;
+use std::rc::Rc;
+
 use tulisp_proc_macros::{crate_fn, crate_fn_no_eval};
 
 pub(super) fn reduce_with(
@@ -313,10 +316,25 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(TulispObject::nil())
     }
 
-    #[crate_fn_no_eval(add_func = "ctx")]
-    fn quote(arg: TulispObject) -> TulispObject {
-        arg
+    fn quote(_ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+        if !args.consp() {
+            return Err(Error::new(
+                ErrorKind::TypeMismatch,
+                "quote: expected one argument".to_string(),
+            ));
+        }
+        args.cdr_and_then(|cdr| {
+            if !cdr.null() {
+                return Err(Error::new(
+                    ErrorKind::TypeMismatch,
+                    "quote: expected one argument".to_string(),
+                ));
+            }
+            Ok(())
+        })?;
+        args.car()
     }
+    intern_set_func!(ctx, quote);
 
     #[crate_fn(add_func = "ctx")]
     fn null(arg: TulispObject) -> bool {
@@ -353,10 +371,30 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     // List functions
 
-    #[crate_fn(add_func = "ctx", name = "cons")]
-    fn impl_cons(car: TulispObject, cdr: TulispObject) -> TulispObject {
-        TulispObject::cons(car, cdr)
+    fn impl_cons(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+        let cdr = args.cdr_and_then(|args| {
+            if args.null() {
+                return Err(Error::new(
+                    ErrorKind::TypeMismatch,
+                    "cons requires exactly 2 arguments".to_string(),
+                )
+                .with_span(args.span()));
+            }
+            args.cdr_and_then(|x| {
+                if !x.null() {
+                    return Err(Error::new(
+                        ErrorKind::TypeMismatch,
+                        "cons requires exactly 2 arguments".to_string(),
+                    )
+                    .with_span(x.span()));
+                }
+                args.car_and_then(|arg| ctx.eval(arg))
+            })
+        })?;
+        let car = args.car_and_then(|arg| ctx.eval(arg))?;
+        Ok(TulispObject::cons(car, cdr))
     }
+    intern_set_func!(ctx, impl_cons, "cons");
 
     #[crate_fn(add_func = "ctx")]
     fn append(first: TulispObject, rest: TulispObject) -> Result<TulispObject, Error> {
@@ -366,14 +404,10 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(first)
     }
 
-    #[crate_fn_no_eval(add_func = "ctx")]
-    fn dolist(
-        ctx: &mut TulispContext,
-        spec: TulispObject,
-        rest: TulispObject,
-    ) -> Result<TulispObject, Error> {
+    fn dolist(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+        let spec = args.car()?;
         destruct_bind!((var list &optional result) = spec);
-        let body = rest;
+        let body = args.cdr()?;
         let mut list = ctx.eval(&list)?;
         while list.is_truthy() {
             let mut scope = Scope::default();
@@ -385,29 +419,27 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         }
         ctx.eval(&result)
     }
+    intern_set_func!(ctx, dolist);
 
-    #[crate_fn_no_eval(add_func = "ctx")]
-    fn dotimes(
-        ctx: &mut TulispContext,
-        spec: TulispObject,
-        rest: TulispObject,
-    ) -> Result<TulispObject, Error> {
+    fn dotimes(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+        let spec = args.car()?;
+        let body = args.cdr()?;
         destruct_bind!((var count &optional result) = spec);
         for counter in 0..count.as_int()? {
             let mut scope = Scope::default();
             scope.set(var.clone(), TulispObject::from(counter))?;
-            let eval_res = ctx.eval_progn(&rest);
+            let eval_res = ctx.eval_progn(&body);
             scope.remove_all()?;
             eval_res?;
         }
         ctx.eval(&result)
     }
+    intern_set_func!(ctx, dotimes);
 
-    #[crate_fn_no_eval(add_func = "ctx")]
-    fn list(ctx: &mut TulispContext, rest: TulispObject) -> Result<TulispObject, Error> {
-        let (ctxobj, span) = (rest.ctxobj(), rest.span());
+    fn list(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+        let (ctxobj, span) = (args.ctxobj(), args.span());
         let mut cons: Option<Cons> = None;
-        for ele in rest.base_iter() {
+        for ele in args.base_iter() {
             match cons {
                 Some(ref mut cons) => {
                     cons.push(eval(ctx, &ele)?)?;
@@ -422,6 +454,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             None => Ok(TulispObject::nil()),
         }
     }
+    intern_set_func!(ctx, list);
 
     #[crate_fn(add_func = "ctx")]
     fn mapcar(
@@ -462,10 +495,24 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     // predicates begin
     macro_rules! predicate_function {
         ($name: ident) => {
-            #[crate_fn(add_func = "ctx")]
-            fn $name(arg: TulispObject) -> bool {
-                arg.$name()
+            fn $name(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+                match args.cdr_and_then(|x| Ok(x.null())) {
+                    Err(err) => return Err(err),
+                    Ok(false) => {
+                        return Err(Error::new(
+                            ErrorKind::TypeMismatch,
+                            format!(
+                                "Expected exatly 1 argument for {}. Got args: {}",
+                                stringify!($name),
+                                args
+                            ),
+                        ))
+                    }
+                    Ok(true) => {}
+                }
+                args.car_and_then(|arg| eval_and_then(ctx, &arg, |x| Ok(x.$name().into())))
             }
+            intern_set_func!(ctx, $name);
         };
     }
     predicate_function!(consp);

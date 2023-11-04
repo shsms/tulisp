@@ -209,13 +209,17 @@ pub(crate) fn eval_check_null(ctx: &mut TulispContext, expr: &TulispObject) -> R
     }
 }
 
-pub(crate) fn eval_is_truthy(ctx: &mut TulispContext, expr: &TulispObject) -> Result<bool, Error> {
+pub(crate) fn eval_and_then<T>(
+    ctx: &mut TulispContext,
+    expr: &TulispObject,
+    func: fn(&TulispObject) -> Result<T, Error>,
+) -> Result<T, Error> {
     let mut result = None;
     eval_basic(ctx, expr, &mut result)?;
     if let Some(result) = result {
-        Ok(result.is_truthy())
+        func(&result)
     } else {
-        Ok(expr.is_truthy())
+        func(expr)
     }
 }
 

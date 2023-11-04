@@ -43,10 +43,13 @@ macro_rules! binary_ops {
 }
 
 macro_rules! intern_set_func {
-    ($ctx:ident, $func: ident, $name: literal) => {
+    ($ctx:ident, $func: ident, $name: expr) => {
         $ctx.intern($name)
             .set_scope(TulispValue::Func(Rc::new($func)).into())
             .unwrap();
+    };
+    ($ctx:ident, $func: ident) => {
+        intern_set_func!($ctx, $func, stringify!($func));
     };
 }
 

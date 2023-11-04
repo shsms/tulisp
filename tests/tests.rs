@@ -372,6 +372,48 @@ fn test_strings() -> Result<(), Error> {
 }
 
 #[test]
+fn test_cons() -> Result<(), Error> {
+    tulisp_assert! {
+        program: "(cons 1 2)",
+        result: "'(1 . 2)",
+    };
+    tulisp_assert! {
+        program: "(cons 1 (cons 2 (cons 3 nil)))",
+        result: "'(1 2 3)",
+    };
+    tulisp_assert! {
+        program: "(cons 1)",
+        error: "<eval_string>:1.0-1.8: ERR TypeMismatch: cons requires exactly 2 arguments",
+    };
+    tulisp_assert! {
+        program: "(cons 1 2 3)",
+        error: "<eval_string>:1.0-1.12: ERR TypeMismatch: cons requires exactly 2 arguments",
+    };
+    Ok(())
+}
+
+#[test]
+fn test_quote() -> Result<(), Error> {
+    tulisp_assert! {
+        program: "(quote (1 2 3))",
+        result: "'(1 2 3)",
+    };
+    tulisp_assert! {
+        program: "(quote word)",
+        result: "'word",
+    };
+    tulisp_assert! {
+        program: "(quote)",
+        error: "<eval_string>:1.0-1.7: ERR TypeMismatch: quote: expected one argument",
+    };
+    tulisp_assert! {
+        program: "(quote 1 2)",
+        error: "<eval_string>:1.0-1.11: ERR TypeMismatch: quote: expected one argument",
+    };
+    Ok(())
+}
+
+#[test]
 fn test_lists() -> Result<(), Error> {
     tulisp_assert! {
         program: r##"
