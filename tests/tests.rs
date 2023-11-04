@@ -331,6 +331,14 @@ fn test_eval() -> Result<(), Error> {
         program: "(let ((x 10)) (funcall '(lambda (x y) (+ x y)) x 2))",
         result: "12",
     }
+    tulisp_assert! {
+        program: "(let ((y j) (j 10)) (funcall j))",
+        error: "<eval_string>:1.9-1.10: ERR TypeMismatch: Variable definition is void: j",
+    }
+    tulisp_assert! {
+        program: "(let ((j 10)) (+ j j))(+ j j)",
+        error: "<eval_string>:1.25-1.26: ERR TypeMismatch: Variable definition is void: j",
+    }
     Ok(())
 }
 

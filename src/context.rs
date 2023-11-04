@@ -64,7 +64,7 @@ impl TulispContext {
     /// [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Creating-Symbols.html).
     pub fn intern(&mut self, name: &str) -> TulispObject {
         if let Some(sym) = self.obarray.get(name) {
-            sym.clone()
+            sym.clone_without_span()
         } else {
             let name = name.to_string();
             let constant = if name.starts_with(":") { true } else { false };
@@ -75,7 +75,7 @@ impl TulispContext {
     }
 
     pub(crate) fn intern_soft(&mut self, name: &str) -> Option<TulispObject> {
-        self.obarray.get(name).map(|x| x.to_owned())
+        self.obarray.get(name).map(|x| x.clone_without_span())
     }
 
     /// Evaluates the given value and returns the result.
