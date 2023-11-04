@@ -80,10 +80,8 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 if !result.null() {
                     return Ok(result);
                 }
-            } else {
-                if !item.null() {
-                    return Ok(item);
-                }
+            } else if !item.null() {
+                return Ok(item);
             }
         }
         Ok(TulispObject::nil())

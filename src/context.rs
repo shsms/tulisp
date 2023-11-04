@@ -67,7 +67,7 @@ impl TulispContext {
             sym.clone_without_span()
         } else {
             let name = name.to_string();
-            let constant = if name.starts_with(":") { true } else { false };
+            let constant = name.starts_with(':');
             let sym = TulispObject::symbol(name.clone(), constant);
             self.obarray.insert(name, sym.clone());
             sym
@@ -152,7 +152,7 @@ impl TulispContext {
             eval_basic(self, &val, &mut result)?;
             ret = Some(result.take().unwrap_or(val))
         }
-        Ok(ret.unwrap_or_else(|| TulispObject::nil()))
+        Ok(ret.unwrap_or_else(TulispObject::nil))
     }
 
     /// Evaluates each item in the given sequence, and returns the value of

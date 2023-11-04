@@ -50,7 +50,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 ));
             }
         }
-        reduce_with(ctx, &rest, binary_ops!(std::ops::Div::div))
+        reduce_with(ctx, rest, binary_ops!(std::ops::Div::div))
     }
     intern_set_func!(ctx, div, "/");
 
