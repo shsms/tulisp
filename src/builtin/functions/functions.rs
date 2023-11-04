@@ -4,6 +4,7 @@ use crate::context::TulispContext;
 use crate::error::Error;
 use crate::error::ErrorKind;
 use crate::eval::eval;
+use crate::eval::eval_and_then;
 use crate::eval::eval_check_null;
 use crate::eval::DummyEval;
 use crate::eval::Eval;
@@ -12,6 +13,8 @@ use crate::TulispObject;
 use crate::TulispValue;
 use crate::{destruct_bind, list};
 use std::convert::TryInto;
+use std::rc::Rc;
+
 use tulisp_proc_macros::{crate_fn, crate_fn_no_eval};
 
 pub(super) fn reduce_with(
@@ -462,10 +465,24 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     // predicates begin
     macro_rules! predicate_function {
         ($name: ident) => {
-            #[crate_fn(add_func = "ctx")]
-            fn $name(arg: TulispObject) -> bool {
-                arg.$name()
+            fn $name(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+                match args.cdr_and_then(|x| Ok(x.null())) {
+                    Err(err) => return Err(err),
+                    Ok(false) => {
+                        return Err(Error::new(
+                            ErrorKind::TypeMismatch,
+                            format!(
+                                "Expected exatly 1 argument for {}. Got args: {}",
+                                stringify!($name),
+                                args
+                            ),
+                        ))
+                    }
+                    Ok(true) => {}
+                }
+                args.car_and_then(|arg| eval_and_then(ctx, &arg, |x| Ok(x.$name().into())))
             }
+            intern_set_func!(ctx, $name);
         };
     }
     predicate_function!(consp);
