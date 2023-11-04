@@ -323,6 +323,13 @@ impl TulispObject {
         }
     }
 
+    pub(crate) fn clone_without_span(&self) -> Self {
+        Self {
+            rc: Rc::clone(&self.rc),
+            span: Rc::new(Cell::new(None)),
+        }
+    }
+
     pub(crate) fn strong_count(&self) -> usize {
         Rc::strong_count(&self.rc)
     }
