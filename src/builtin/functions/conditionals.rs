@@ -1,5 +1,5 @@
 use crate::{
-    eval::{eval_basic, eval_is_truthy},
+    eval::{eval_and_then, eval_basic},
     list,
     lists::{last, length},
     Error, ErrorKind, TulispContext, TulispObject, TulispValue,
@@ -9,7 +9,7 @@ use tulisp_proc_macros::{crate_fn, crate_fn_no_eval};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
     fn impl_if(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
-        if args.car_and_then(|x| eval_is_truthy(ctx, x))? {
+        if args.car_and_then(|x| eval_and_then(ctx, x, |x| Ok(x.is_truthy())))? {
             args.cadr_and_then(|x| ctx.eval(x))
         } else {
             args.cddr_and_then(|x| ctx.eval_progn(x))
@@ -36,7 +36,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     fn cond(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
         for item in args.base_iter() {
-            if item.car_and_then(|x| eval_is_truthy(ctx, x))? {
+            if item.car_and_then(|x| eval_and_then(ctx, x, |x| Ok(x.is_truthy())))? {
                 return item.cdr_and_then(|x| ctx.eval_progn(x));
             }
         }
