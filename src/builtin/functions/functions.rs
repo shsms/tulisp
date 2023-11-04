@@ -406,11 +406,10 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         ctx.eval(&result)
     }
 
-    #[crate_fn_no_eval(add_func = "ctx")]
-    fn list(ctx: &mut TulispContext, rest: TulispObject) -> Result<TulispObject, Error> {
-        let (ctxobj, span) = (rest.ctxobj(), rest.span());
+    fn list(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+        let (ctxobj, span) = (args.ctxobj(), args.span());
         let mut cons: Option<Cons> = None;
-        for ele in rest.base_iter() {
+        for ele in args.base_iter() {
             match cons {
                 Some(ref mut cons) => {
                     cons.push(eval(ctx, &ele)?)?;
@@ -425,6 +424,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             None => Ok(TulispObject::nil()),
         }
     }
+    intern_set_func!(ctx, list);
 
     #[crate_fn(add_func = "ctx")]
     fn mapcar(
