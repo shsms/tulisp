@@ -369,14 +369,10 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(first)
     }
 
-    #[crate_fn_no_eval(add_func = "ctx")]
-    fn dolist(
-        ctx: &mut TulispContext,
-        spec: TulispObject,
-        rest: TulispObject,
-    ) -> Result<TulispObject, Error> {
+    fn dolist(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+        let spec = args.car()?;
         destruct_bind!((var list &optional result) = spec);
-        let body = rest;
+        let body = args.cdr()?;
         let mut list = ctx.eval(&list)?;
         while list.is_truthy() {
             let mut scope = Scope::default();
@@ -388,23 +384,22 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         }
         ctx.eval(&result)
     }
+    intern_set_func!(ctx, dolist);
 
-    #[crate_fn_no_eval(add_func = "ctx")]
-    fn dotimes(
-        ctx: &mut TulispContext,
-        spec: TulispObject,
-        rest: TulispObject,
-    ) -> Result<TulispObject, Error> {
+    fn dotimes(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+        let spec = args.car()?;
+        let body = args.cdr()?;
         destruct_bind!((var count &optional result) = spec);
         for counter in 0..count.as_int()? {
             let mut scope = Scope::default();
             scope.set(var.clone(), TulispObject::from(counter))?;
-            let eval_res = ctx.eval_progn(&rest);
+            let eval_res = ctx.eval_progn(&body);
             scope.remove_all()?;
             eval_res?;
         }
         ctx.eval(&result)
     }
+    intern_set_func!(ctx, dotimes);
 
     fn list(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
         let (ctxobj, span) = (args.ctxobj(), args.span());
