@@ -393,6 +393,27 @@ fn test_cons() -> Result<(), Error> {
 }
 
 #[test]
+fn test_quote() -> Result<(), Error> {
+    tulisp_assert! {
+        program: "(quote (1 2 3))",
+        result: "'(1 2 3)",
+    };
+    tulisp_assert! {
+        program: "(quote word)",
+        result: "'word",
+    };
+    tulisp_assert! {
+        program: "(quote)",
+        error: "<eval_string>:1.0-1.7: ERR TypeMismatch: quote: expected one argument",
+    };
+    tulisp_assert! {
+        program: "(quote 1 2)",
+        error: "<eval_string>:1.0-1.11: ERR TypeMismatch: quote: expected one argument",
+    };
+    Ok(())
+}
+
+#[test]
 fn test_lists() -> Result<(), Error> {
     tulisp_assert! {
         program: r##"
