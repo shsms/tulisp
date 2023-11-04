@@ -721,13 +721,13 @@ macro_rules! make_cxr {
 
 macro_rules! make_cxr_and_then {
     ($name:ident, $($step:tt)+) => {
-        pub fn $name<Out: From<TulispObject>>(
+        pub fn $name<Out: Default>(
             &self,
             func: impl FnMut(&TulispObject) -> Result<Out, Error>,
         ) -> Result<Out, Error> {
             match self {
                 TulispValue::List { cons, .. } => cons.$($step)+(func),
-                TulispValue::Nil => Ok(TulispObject::nil().into()),
+                TulispValue::Nil => Ok(Out::default()),
                 _ => Err(Error::new(
                     ErrorKind::TypeMismatch,
                     format!("cxr: Not a Cons: {}", self),
@@ -787,13 +787,13 @@ impl TulispValue {
     make_cxr!(cdddar, |x| x.car().cdddr());
     make_cxr!(cddddr, |x| x.cdr().cdddr());
 
-    pub fn car_and_then<Out: From<TulispObject>>(
+    pub fn car_and_then<Out: Default>(
         &self,
         mut func: impl FnMut(&TulispObject) -> Result<Out, Error>,
     ) -> Result<Out, Error> {
         match self {
             TulispValue::List { cons, .. } => func(cons.car()),
-            TulispValue::Nil => Ok(TulispObject::nil().into()),
+            TulispValue::Nil => Ok(Out::default()),
             _ => Err(Error::new(
                 ErrorKind::TypeMismatch,
                 format!("cxr: Not a Cons: {}", self),
@@ -801,13 +801,13 @@ impl TulispValue {
         }
     }
 
-    pub fn cdr_and_then<Out: From<TulispObject>>(
+    pub fn cdr_and_then<Out: Default>(
         &self,
         mut func: impl FnMut(&TulispObject) -> Result<Out, Error>,
     ) -> Result<Out, Error> {
         match self {
             TulispValue::List { cons, .. } => func(cons.cdr()),
-            TulispValue::Nil => Ok(TulispObject::nil().into()),
+            TulispValue::Nil => Ok(Out::default()),
             _ => Err(Error::new(
                 ErrorKind::TypeMismatch,
                 format!("cxr: Not a Cons: {}", self),

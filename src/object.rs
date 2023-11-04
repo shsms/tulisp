@@ -547,7 +547,7 @@ macro_rules! extractor_cxr_and_then_fn {
         #[doc=concat!(
             "Executes the given function on the ", $doc, " of `self` and returns the result."
         )]
-        pub fn $name<Out: From<TulispObject>>(
+        pub fn $name<Out: Default>(
             &self,
             f: impl FnMut(&TulispObject) -> Result<Out, Error>,
         ) -> Result<Out, Error> {
@@ -559,7 +559,7 @@ macro_rules! extractor_cxr_and_then_fn {
     };
     ($name: ident) => {
         #[doc(hidden)]
-        pub fn $name<Out: From<TulispObject>>(
+        pub fn $name<Out: Default>(
             &self,
             f: impl FnMut(&TulispObject) -> Result<Out, Error>,
         ) -> Result<Out, Error> {
