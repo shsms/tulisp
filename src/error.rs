@@ -1,4 +1,4 @@
-use crate::object::Span;
+use crate::{object::Span, TulispContext};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ErrorKind {
@@ -32,23 +32,20 @@ pub struct Error {
     kind: ErrorKind,
     desc: String,
     span: Option<Span>,
-    filename: String,
 }
 
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Error {
+    pub fn format(&self, ctx: &TulispContext) -> String {
         let span_str = if let Some(span) = self.span {
+            let filename = ctx.get_filename(span.file_id);
             format!(
-                "{}.{}-{}.{}:",
-                span.start.0, span.start.1, span.end.0, span.end.1
+                "{}:{}.{}-{}.{}: ",
+                filename, span.start.0, span.start.1, span.end.0, span.end.1
             )
         } else {
             String::new()
         };
-        f.write_fmt(format_args!(
-            "{}:{} ERR {}: {}",
-            self.filename, span_str, self.kind, self.desc
-        ))
+        format!("{}ERR {}: {}", span_str, self.kind, self.desc)
     }
 }
 
@@ -58,18 +55,12 @@ impl Error {
             kind,
             desc,
             span: None,
-            filename: String::from("<eval_string>"),
         }
     }
     pub fn with_span(mut self, span: Option<Span>) -> Self {
         if self.span.is_none() {
             self.span = span;
         }
-        self
-    }
-
-    pub fn with_filename(mut self, filename: String) -> Self {
-        self.filename = filename;
         self
     }
 

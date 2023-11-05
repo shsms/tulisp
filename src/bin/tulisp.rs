@@ -3,9 +3,8 @@ use std::process;
 
 use tulisp::{Error, TulispContext};
 
-fn run() -> Result<(), Error> {
+fn run(ctx: &mut TulispContext) -> Result<(), Error> {
     let args: Vec<String> = env::args().skip(1).collect();
-    let mut ctx = TulispContext::new();
     for arg in args {
         ctx.eval_file(&arg)?;
     }
@@ -14,8 +13,10 @@ fn run() -> Result<(), Error> {
 }
 
 fn main() {
-    if let Err(e) = run() {
-        println!("{e}");
+    let mut ctx = TulispContext::new();
+
+    if let Err(e) = run(&mut ctx) {
+        println!("{}", e.format(&ctx));
         process::exit(-1);
     }
 }

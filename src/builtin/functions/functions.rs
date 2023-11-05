@@ -92,6 +92,11 @@ fn mark_tail_calls(
 
 pub(crate) fn add(ctx: &mut TulispContext) {
     #[crate_fn(add_func = "ctx")]
+    fn load(ctx: &mut TulispContext, filename: String) -> Result<TulispObject, Error> {
+        ctx.eval_file(&filename)
+    }
+
+    #[crate_fn(add_func = "ctx")]
     fn expt(base: TulispObject, pow: TulispObject) -> Result<TulispObject, Error> {
         Ok(f64::powf(base.try_into()?, pow.try_into()?).into())
     }
