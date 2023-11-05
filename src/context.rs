@@ -39,6 +39,7 @@ impl Scope {
 /// instance.
 pub struct TulispContext {
     obarray: HashMap<String, TulispObject>,
+    pub(crate) filenames: Vec<String>,
 }
 
 impl Default for TulispContext {
@@ -52,6 +53,7 @@ impl TulispContext {
     pub fn new() -> Self {
         let mut ctx = Self {
             obarray: HashMap::new(),
+            filenames: vec!["<eval_string>".to_string()],
         };
         builtin::functions::add(&mut ctx);
         builtin::macros::add(&mut ctx);
@@ -139,7 +141,7 @@ impl TulispContext {
 
     /// Parses and evaluates the given string, and returns the result.
     pub fn eval_string(&mut self, string: &str) -> Result<TulispObject, Error> {
-        let vv = parse(self, string)?;
+        let vv = parse(self, 0, string)?;
         self.eval_progn(&vv)
     }
 
@@ -174,7 +176,10 @@ impl TulispContext {
                 format!("Unable to read file: {filename}. Error: {e}"),
             )
         })?;
-        self.eval_string(&contents)
-            .map_err(|e| e.with_filename(filename.to_owned()))
+        self.filenames.push(filename.to_owned());
+
+        let string: &str = &contents;
+        let vv = parse(self, self.filenames.len() - 1, string)?;
+        self.eval_progn(&vv)
     }
 }

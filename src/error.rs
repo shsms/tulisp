@@ -68,11 +68,6 @@ impl Error {
         self
     }
 
-    pub fn with_filename(mut self, filename: String) -> Self {
-        self.filename = filename;
-        self
-    }
-
     pub fn span(&self) -> Option<Span> {
         self.span.to_owned()
     }

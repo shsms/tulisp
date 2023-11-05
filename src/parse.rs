@@ -7,6 +7,7 @@ use crate::{
 };
 
 struct Tokenizer<'a> {
+    file_id: usize,
     chars: Peekable<Chars<'a>>,
     line: usize,
     pos: usize,
@@ -54,9 +55,10 @@ enum Token {
 }
 
 impl Tokenizer<'_> {
-    fn new(program: &str) -> Tokenizer<'_> {
+    fn new(file_id: usize, program: &str) -> Tokenizer<'_> {
         let chars = program.chars().peekable();
         Tokenizer {
+            file_id,
             chars,
             line: 1,
             pos: 0,
@@ -96,6 +98,7 @@ impl Tokenizer<'_> {
                                 ParserErrorKind::SyntaxError,
                                 format!("Unknown escape char {}", e),
                                 Span {
+                                    file_id: self.file_id,
                                     start: (self.line, self.pos - 1),
                                     end: (self.line, self.pos),
                                 },
@@ -107,6 +110,7 @@ impl Tokenizer<'_> {
                 '"' => {
                     return Some(Token::String {
                         span: Span {
+                            file_id: self.file_id,
                             start: start_pos,
                             end: (self.line, self.pos),
                         },
@@ -120,6 +124,7 @@ impl Tokenizer<'_> {
         Some(Token::ParserError(ParserError::syntax_error(
             "Incomplete string literal".to_owned(),
             Span {
+                file_id: self.file_id,
                 start: start_pos,
                 end: (self.line, self.pos),
             },
@@ -166,17 +171,17 @@ impl Tokenizer<'_> {
         }
         if is_int && output != "-" {
             Some(Token::Integer {
-                span: Span::new(start_pos, (self.line, self.pos)),
+                span: Span::new(self.file_id, start_pos, (self.line, self.pos)),
                 value: output.parse::<i64>().unwrap(),
             })
         } else if is_float {
             Some(Token::Float {
-                span: Span::new(start_pos, (self.line, self.pos)),
+                span: Span::new(self.file_id, start_pos, (self.line, self.pos)),
                 value: output.parse::<f64>().unwrap(),
             })
         } else {
             Some(Token::Ident {
-                span: Span::new(start_pos, (self.line, self.pos)),
+                span: Span::new(self.file_id, start_pos, (self.line, self.pos)),
                 value: output,
             })
         }
@@ -202,31 +207,51 @@ impl Iterator for Tokenizer<'_> {
                 '(' => {
                     self.next_char()?;
                     return Some(Token::OpenParen {
-                        span: Span::new((self.line, self.pos - 1), (self.line, self.pos)),
+                        span: Span::new(
+                            self.file_id,
+                            (self.line, self.pos - 1),
+                            (self.line, self.pos),
+                        ),
                     });
                 }
                 ')' => {
                     self.next_char()?;
                     return Some(Token::CloseParen {
-                        span: Span::new((self.line, self.pos - 1), (self.line, self.pos)),
+                        span: Span::new(
+                            self.file_id,
+                            (self.line, self.pos - 1),
+                            (self.line, self.pos),
+                        ),
                     });
                 }
                 '\'' => {
                     self.next_char()?;
                     return Some(Token::Quote {
-                        span: Span::new((self.line, self.pos - 1), (self.line, self.pos)),
+                        span: Span::new(
+                            self.file_id,
+                            (self.line, self.pos - 1),
+                            (self.line, self.pos),
+                        ),
                     });
                 }
                 '`' => {
                     self.next_char()?;
                     return Some(Token::Backtick {
-                        span: Span::new((self.line, self.pos - 1), (self.line, self.pos)),
+                        span: Span::new(
+                            self.file_id,
+                            (self.line, self.pos - 1),
+                            (self.line, self.pos),
+                        ),
                     });
                 }
                 '.' => {
                     self.next_char()?;
                     return Some(Token::Dot {
-                        span: Span::new((self.line, self.pos - 1), (self.line, self.pos)),
+                        span: Span::new(
+                            self.file_id,
+                            (self.line, self.pos - 1),
+                            (self.line, self.pos),
+                        ),
                     });
                 }
                 '#' => {
@@ -234,12 +259,20 @@ impl Iterator for Tokenizer<'_> {
                     if self.peek_char()? == '\'' {
                         self.next_char()?;
                         return Some(Token::SharpQuote {
-                            span: Span::new((self.line, self.pos - 2), (self.line, self.pos)),
+                            span: Span::new(
+                                self.file_id,
+                                (self.line, self.pos - 2),
+                                (self.line, self.pos),
+                            ),
                         });
                     }
                     return Some(Token::ParserError(ParserError::syntax_error(
                         "Unknown token #.  Did you mean #' ?".to_string(),
-                        Span::new((self.line, self.pos - 1), (self.line, self.pos)),
+                        Span::new(
+                            self.file_id,
+                            (self.line, self.pos - 1),
+                            (self.line, self.pos),
+                        ),
                     )));
                 }
                 ',' => {
@@ -247,11 +280,19 @@ impl Iterator for Tokenizer<'_> {
                     if self.peek_char()? == '@' {
                         self.next_char()?;
                         return Some(Token::Splice {
-                            span: Span::new((self.line, self.pos - 2), (self.line, self.pos)),
+                            span: Span::new(
+                                self.file_id,
+                                (self.line, self.pos - 2),
+                                (self.line, self.pos),
+                            ),
                         });
                     }
                     return Some(Token::Comma {
-                        span: Span::new((self.line, self.pos - 1), (self.line, self.pos)),
+                        span: Span::new(
+                            self.file_id,
+                            (self.line, self.pos - 1),
+                            (self.line, self.pos),
+                        ),
                     });
                 }
                 '"' => {
@@ -265,6 +306,7 @@ impl Iterator for Tokenizer<'_> {
 }
 
 struct Parser<'a, 'b> {
+    file_id: usize,
     tokenizer: Peekable<Tokenizer<'a>>,
     ctx: &'b mut TulispContext,
     ints: HashMap<i64, TulispObject>,
@@ -287,9 +329,10 @@ fn recursive_update_ctxobj(ctx: &mut TulispContext, body: &TulispObject) -> Resu
 }
 
 impl Parser<'_, '_> {
-    fn new<'b, 'a>(ctx: &'b mut TulispContext, program: &'a str) -> Parser<'a, 'b> {
+    fn new<'b, 'a>(ctx: &'b mut TulispContext, file_id: usize, program: &'a str) -> Parser<'a, 'b> {
         Parser {
-            tokenizer: Tokenizer::new(program).peekable(),
+            file_id,
+            tokenizer: Tokenizer::new(file_id, program).peekable(),
             ctx,
             ints: Default::default(),
             strings: Default::default(),
@@ -309,6 +352,7 @@ impl Parser<'_, '_> {
             match token {
                 Token::CloseParen { span: end_span } => {
                     inner.with_span(Some(Span {
+                        file_id: self.file_id,
                         start: start_span.start,
                         end: end_span.end,
                     }));
@@ -332,6 +376,7 @@ impl Parser<'_, '_> {
             let next = self.parse_value()?.unwrap();
             if let Some(Token::CloseParen { span: end_span }) = self.tokenizer.next() {
                 inner.with_span(Some(Span {
+                    file_id: self.file_id,
                     start: start_span.start,
                     end: end_span.end,
                 }));
@@ -362,7 +407,7 @@ impl Parser<'_, '_> {
     }
 
     fn parse_value(&mut self) -> Result<Option<TulispObject>, Error> {
-        let Some(token) = self.tokenizer.next()  else {
+        let Some(token) = self.tokenizer.next() else {
             return Ok(None);
         };
         match token {
@@ -499,6 +544,10 @@ impl Parser<'_, '_> {
     }
 }
 
-pub fn parse(ctx: &mut TulispContext, program: &str) -> Result<TulispObject, Error> {
-    Parser::new(ctx, program).parse()
+pub fn parse(
+    ctx: &mut TulispContext,
+    file_id: usize,
+    program: &str,
+) -> Result<TulispObject, Error> {
+    Parser::new(ctx, file_id, program).parse()
 }

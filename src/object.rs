@@ -11,13 +11,18 @@ use std::{
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
 pub struct Span {
+    pub file_id: usize,
     pub start: (usize, usize),
     pub end: (usize, usize),
 }
 
 impl Span {
-    pub fn new(start: (usize, usize), end: (usize, usize)) -> Self {
-        Span { start, end }
+    pub fn new(file_id: usize, start: (usize, usize), end: (usize, usize)) -> Self {
+        Span {
+            file_id,
+            start,
+            end,
+        }
     }
 }
 
