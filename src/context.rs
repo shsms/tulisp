@@ -182,4 +182,8 @@ impl TulispContext {
         let vv = parse(self, self.filenames.len() - 1, string)?;
         self.eval_progn(&vv)
     }
+
+    pub fn get_filename(&self, file_id: usize) -> String {
+        self.filenames[file_id].clone()
+    }
 }

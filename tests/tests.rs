@@ -5,7 +5,7 @@ use tulisp::{tulisp_add_func, tulisp_fn, Error, Iter, TulispContext, TulispObjec
 macro_rules! tulisp_assert {
     (@impl $ctx: expr, program:$input:expr, result:$result:expr $(,)?) => {
         let output = $ctx.eval_string($input).map_err(|err| {
-            println!("{}:{}: execution failed: {}", file!(), line!(),err.to_string());
+            println!("{}:{}: execution failed: {}", file!(), line!(),err.format(&$ctx));
             err
         })?;
         let expected = $ctx.eval_string($result)?;
@@ -22,7 +22,7 @@ macro_rules! tulisp_assert {
     (@impl $ctx: expr, program:$input:expr, error:$desc:expr $(,)?) => {
         let output = $ctx.eval_string($input);
         assert!(output.is_err());
-        assert_eq!(output.unwrap_err().to_string(), $desc);
+        assert_eq!(output.unwrap_err().format(&$ctx), $desc);
     };
     (ctx: $ctx: expr, program: $($tail:tt)+) => {
         tulisp_assert!(@impl $ctx, program: $($tail)+)
