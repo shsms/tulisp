@@ -150,7 +150,7 @@ These functions need to be organized into categories.  They are grouped here for
 | `setq`                                                                                                  | ☑️      |                                                   |
 | `concat`                                                                                                | ☑️      | for strings                                       |
 | `expt`                                                                                                  | ☑️      |                                                   |
-
+| `load`                                                                                                  | ☑️      |                                                   |
 
 ## Other predicates
 

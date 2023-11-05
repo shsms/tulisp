@@ -1,5 +1,4 @@
 use std::{any::Any, rc::Rc};
-
 use tulisp::{tulisp_add_func, tulisp_fn, Error, Iter, TulispContext, TulispObject};
 
 macro_rules! tulisp_assert {
@@ -925,5 +924,24 @@ fn test_any() -> Result<(), Error> {
         program: "(get_int 55)",
         error: "<eval_string>:1.9-1.11: ERR TypeMismatch: Expected Any(Rc<dyn Any>): 55",
     }
+    Ok(())
+}
+
+#[test]
+fn test_load() -> Result<(), Error> {
+    let mut ctx = TulispContext::new();
+
+    tulisp_assert! {
+        ctx: ctx,
+        program: r#"(load "tests/good-load.lisp")"#,
+        result: "'(1 2 3)",
+    }
+
+    tulisp_assert! {
+        ctx: ctx,
+        program: r#"(load "tests/bad-load.lisp")"#,
+        error: "tests/bad-load.lisp:1.8-1.9: ERR ParsingError: Unexpected closing parenthesis",
+    }
+
     Ok(())
 }
