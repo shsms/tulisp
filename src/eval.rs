@@ -125,7 +125,7 @@ pub(crate) fn funcall<E: Evaluator>(
             ref body,
         } => eval_lambda::<E>(ctx, params, body, args),
         TulispValue::Macro(_) | TulispValue::Defmacro { .. } => {
-            let expanded = macroexpand(ctx, list!(func.clone(), args.clone())?)?;
+            let expanded = macroexpand(ctx, list!(func.clone() ,@args.clone())?)?;
             eval(ctx, &expanded)
         }
         _ => Err(
