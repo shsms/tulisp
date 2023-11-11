@@ -61,7 +61,7 @@ impl Tokenizer<'_> {
             file_id,
             chars,
             line: 1,
-            pos: 0,
+            pos: 1,
         }
     }
 
@@ -73,7 +73,7 @@ impl Tokenizer<'_> {
         self.chars.next().map(|ch| {
             if ch == '\n' {
                 self.line += 1;
-                self.pos = 0;
+                self.pos = 1;
             } else {
                 self.pos += 1;
             }
