@@ -79,6 +79,7 @@ pub use error::{Error, ErrorKind};
 pub mod lists;
 
 mod value;
+#[doc(hidden)]
 pub use value::TulispValue;
 
 mod object;
