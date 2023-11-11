@@ -48,11 +48,11 @@ A list of currently available builtin functions can be found [here](builtin).
 /*!
 ## Next steps
 
-1. Values in _Tulisp_ are represented in rust as [`TulispObject`](TulispObject)s.
-   That struct implements methods for performing operations on Tulisp values.
+1. Values in _Tulisp_ are represented in rust as [`TulispObject`]s.  That struct
+   implements methods for performing operations on Tulisp values.
 
-1. [`TulispContext`](TulispContext) tracks the state of the interpreter and
-   provides methods for executing _Tulisp_ programs.
+1. [`TulispContext`] tracks the state of the interpreter and provides methods
+   for executing _Tulisp_ programs.
 
 1. [`#[tulisp_fn]`](tulisp_fn) and [`#[tulisp_fn_no_eval]`](tulisp_fn_no_eval)
    are flexible attribute macros for adding many different kinds of functions to
@@ -79,6 +79,7 @@ pub use error::{Error, ErrorKind};
 pub mod lists;
 
 mod value;
+#[doc(hidden)]
 pub use value::TulispValue;
 
 mod object;
