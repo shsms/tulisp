@@ -39,12 +39,6 @@ impl Default for TulispObject {
     }
 }
 
-impl std::cmp::PartialEq<TulispValue> for TulispObject {
-    fn eq(&self, other: &TulispValue) -> bool {
-        *self.rc.borrow() == *other
-    }
-}
-
 impl std::fmt::Display for TulispObject {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!("{}", self.rc.borrow()))

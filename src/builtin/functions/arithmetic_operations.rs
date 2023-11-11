@@ -43,7 +43,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         iter.next();
         while let Some(ele) = iter.eval_next(ctx) {
             let ele = ele?;
-            if ele == TulispValue::from(0) || ele == TulispValue::from(0.0) {
+            if *ele.inner_ref() == TulispValue::from(0)
+                || *ele.inner_ref() == TulispValue::from(0.0)
+            {
                 return Err(Error::new(
                     ErrorKind::Undefined,
                     "Division by zero".to_string(),
