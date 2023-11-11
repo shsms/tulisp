@@ -102,7 +102,11 @@ impl TulispObject {
     /// Read more about Emacs equality predicates
     /// [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Equality-Predicates.html).
     pub fn equal(&self, other: &TulispObject) -> bool {
-        *self.rc.borrow() == *other.rc.borrow()
+        if self.symbolp() {
+            self.eq_ptr(other)
+        } else {
+            self.eq_val(other)
+        }
     }
 
     /// Returns true if `self` and `other` are the same object.
@@ -110,7 +114,7 @@ impl TulispObject {
     /// Read more about Emacs equality predicates
     /// [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Equality-Predicates.html).
     pub fn eq(&self, other: &TulispObject) -> bool {
-        Rc::ptr_eq(&self.rc, &other.rc)
+        self.eq_ptr(other)
     }
 
     /// Returns an iterator over the values inside `self`.
@@ -320,6 +324,14 @@ impl TulispObject {
             rc: Rc::new(RefCell::new(vv)),
             span: Rc::new(Cell::new(None)),
         }
+    }
+
+    pub(crate) fn eq_ptr(&self, other: &TulispObject) -> bool {
+        Rc::ptr_eq(&self.rc, &other.rc)
+    }
+
+    pub(crate) fn eq_val(&self, other: &TulispObject) -> bool {
+        self.inner_ref().eq(&other.inner_ref())
     }
 
     pub(crate) fn clone_without_span(&self) -> Self {
