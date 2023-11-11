@@ -1029,3 +1029,43 @@ fn test_load() -> Result<(), Error> {
 
     Ok(())
 }
+
+#[test]
+fn test_macroexpand() -> Result<(), Error> {
+    let mut ctx = TulispContext::new();
+    tulisp_assert! {
+        ctx: ctx,
+        program: r#"
+        (defmacro make (alist)
+          (setq make-args alist)
+          t)
+
+        (eval (list 'make `(,(cons 'a 1) ,(cons 'b 2))))
+
+        make-args
+        "#,
+        result: r#"'((a . 1) (b . 2))"#,
+    }
+
+    tulisp_assert! {
+        ctx: ctx,
+        program: r#"
+        (macroexpand '(make ((a . 1) (b . 2) (c . 3))))
+
+        make-args
+        "#,
+        result: r#"'((a . 1) (b . 2) (c . 3))"#,
+    }
+
+    tulisp_assert! {
+        ctx: ctx,
+        program: r#"
+        (make ((a . 1) (b . 2) (c . 3) (d . 4)))
+
+        make-args
+        "#,
+        result: r#"'((a . 1) (b . 2) (c . 3) (d . 4))"#,
+    }
+
+    Ok(())
+}
