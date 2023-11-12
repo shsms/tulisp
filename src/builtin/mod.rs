@@ -116,6 +116,16 @@ Because there are a huge number of sequence functions that are not yet implement
 | `seq-subseq` | 🔳     |         |
 | `seq-let` | 🔳     |         |
 
+## Hash Tables
+
+Click [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Hash-Tables.html) for the Emacs lisp manual page for hash tables.
+
+| Name               | Status | Details |
+|--------------------|--------|---------|
+| `make-hash-table`  | ☑️     | takes no arguments, uses `eql` as the test function. |
+| `puthash`          | ☑️     |         |
+| `gethash`          | ☑️     |         |
+
 ## Others
 
 These functions need to be organized into categories.  They are grouped here for now.
