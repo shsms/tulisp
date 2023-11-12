@@ -347,6 +347,10 @@ impl TulispObject {
         self.inner_ref().eq(&other.inner_ref())
     }
 
+    pub(crate) fn addr_as_usize(&self) -> usize {
+        self.rc.as_ptr() as usize
+    }
+
     pub(crate) fn clone_without_span(&self) -> Self {
         Self {
             rc: Rc::clone(&self.rc),
