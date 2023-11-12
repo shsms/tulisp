@@ -117,6 +117,19 @@ impl TulispObject {
         self.eq_ptr(other)
     }
 
+    /// Returns true if `self` and `other` are the same object, or are
+    /// indistinguishable numbers.
+    ///
+    /// Read more about Emacs `eql`
+    /// [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Comparison-of-Numbers.html#index-eql)
+    pub fn eql(&self, other: &TulispObject) -> bool {
+        if self.numberp() {
+            self.eq_val(other)
+        } else {
+            self.eq_ptr(other)
+        }
+    }
+
     /// Returns an iterator over the values inside `self`.
     pub fn base_iter(&self) -> cons::BaseIter {
         self.rc.borrow().base_iter()
@@ -332,6 +345,10 @@ impl TulispObject {
 
     pub(crate) fn eq_val(&self, other: &TulispObject) -> bool {
         self.inner_ref().eq(&other.inner_ref())
+    }
+
+    pub(crate) fn addr_as_usize(&self) -> usize {
+        self.rc.as_ptr() as usize
     }
 
     pub(crate) fn clone_without_span(&self) -> Self {

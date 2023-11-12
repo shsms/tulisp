@@ -1069,3 +1069,27 @@ fn test_macroexpand() -> Result<(), Error> {
 
     Ok(())
 }
+
+#[test]
+fn test_hash_table() -> Result<(), Error> {
+    tulisp_assert! {
+        program: r#"
+        (let ((tbl (make-hash-table)))
+          (puthash 'a 20 tbl)
+          (puthash 'b 30 tbl)
+          (gethash 'a tbl))
+        "#,
+        result: "20",
+    }
+    tulisp_assert! {
+        program: r#"
+        (let ((tbl (make-hash-table)))
+          (puthash 2 20 tbl)
+          (puthash 3 30 tbl)
+          (list (gethash 4 tbl) (gethash 2 tbl)))
+        "#,
+        result: "'(nil 20)",
+    }
+
+    Ok(())
+}

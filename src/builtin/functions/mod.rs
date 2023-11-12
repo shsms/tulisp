@@ -58,6 +58,7 @@ mod comparison_of_numbers;
 mod conditionals;
 mod equality_predicates;
 mod functions;
+mod hash_table;
 mod list_elements;
 mod sequences;
 
@@ -67,6 +68,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     conditionals::add(ctx);
     equality_predicates::add(ctx);
     functions::add(ctx);
+    hash_table::add(ctx);
     list_elements::add(ctx);
     sequences::add(ctx);
 }
