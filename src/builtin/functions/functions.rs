@@ -15,6 +15,7 @@ use crate::{destruct_bind, list};
 use std::convert::TryInto;
 use std::rc::Rc;
 
+use tulisp_proc_macros::crate_add_func;
 use tulisp_proc_macros::{crate_fn, crate_fn_no_eval};
 
 pub(super) fn reduce_with(
@@ -203,7 +204,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(value)
     }
 
-    #[crate_fn_no_eval(add_func = "ctx", name = "let")]
+    #[crate_fn_no_eval]
     fn impl_let(
         ctx: &mut TulispContext,
         varlist: TulispObject,
@@ -254,6 +255,8 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
         ret
     }
+    crate_add_func!(ctx, impl_let, "let");
+    crate_add_func!(ctx, impl_let, "let*");
 
     #[crate_fn_no_eval(add_func = "ctx")]
     fn progn(ctx: &mut TulispContext, rest: TulispObject) -> Result<TulispObject, Error> {

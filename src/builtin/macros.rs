@@ -1,8 +1,5 @@
 use std::rc::Rc;
 
-use tulisp_proc_macros::{crate_add_macro, crate_fn_no_eval};
-
-use crate::cons::Cons;
 use crate::context::TulispContext;
 use crate::error::Error;
 use crate::TulispObject;
@@ -41,37 +38,6 @@ fn thread_last(_ctx: &mut TulispContext, vv: &TulispObject) -> Result<TulispObje
     }
 }
 
-#[crate_fn_no_eval]
-fn let_star(
-    ctx: &mut TulispContext,
-    varlist: TulispObject,
-    rest: TulispObject,
-) -> Result<TulispObject, Error> {
-    fn unwrap_varlist(
-        ctx: &mut TulispContext,
-        varlist: TulispObject,
-        body: TulispObject,
-    ) -> Result<TulispObject, Error> {
-        destruct_bind!((nextvar &rest rest) = varlist);
-
-        let mut ret = Cons::new(ctx.intern("let"), TulispObject::nil());
-        ret.push(list!(,nextvar)?)?;
-        if !rest.null() {
-            ret.push(unwrap_varlist(ctx, rest, body)?)?;
-        } else {
-            for ele in body.base_iter() {
-                ret.push(ele.clone())?;
-            }
-        }
-        Ok(TulispValue::List {
-            cons: ret,
-            ctxobj: Some(ctx.intern("let").get()?),
-        }
-        .into_ref())
-    }
-    unwrap_varlist(ctx, varlist, rest)
-}
-
 pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.intern("->")
         .set_scope(TulispValue::Macro(Rc::new(thread_first)).into_ref())
@@ -85,6 +51,4 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.intern("thread-last")
         .set_scope(TulispValue::Macro(Rc::new(thread_last)).into_ref())
         .unwrap();
-
-    crate_add_macro!(ctx, let_star, "let*");
 }
