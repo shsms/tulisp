@@ -178,7 +178,7 @@ fn test_conditionals() -> Result<(), Error> {
 
     tulisp_assert! {
         program: "(macroexpand '(if-let (c) (+ c 10) 2))",
-        result_str: "'(let ((s (and t c))) (if s (+ c 10) 2))",
+        result_str: "'(let* ((s (and t c))) (if s (+ c 10) 2))",
     }
     tulisp_assert! {
         program: "(defun test (&optional c) (if-let (c) (+ c 10) 2)) (list (test) (test 2))",
@@ -203,27 +203,27 @@ fn test_conditionals() -> Result<(), Error> {
 
     tulisp_assert! {
         program: "(macroexpand '(when-let (c) (+ c 10)))",
-        result_str: "'(let ((s (and t c))) (if s (+ c 10) nil))",
+        result_str: "'(let* ((s (and t c))) (if s (+ c 10) nil))",
     }
     tulisp_assert! {
         program: "(macroexpand '(when-let (c) (+ c 10) 2))",
-        result_str: "'(let ((s (and t c))) (if s (progn (+ c 10) 2) nil))",
+        result_str: "'(let* ((s (and t c))) (if s (progn (+ c 10) 2) nil))",
     }
     tulisp_assert! {
         program: "(macroexpand '(when-let ((q c) d (w 10)) 2 (+ c d w)))",
         result_str: r#"'
-        (let ((q (and t c)))
-          (let ((d (and q d)))
-            (let ((w (and d 10)))
-              (if w
-                  (progn 2 (+ c d w))
-                 nil))))
+        (let* ((q (and t c))
+               (d (and q d))
+               (w (and d 10)))
+          (if w
+              (progn 2 (+ c d w))
+            nil))
         "#,
     }
 
     tulisp_assert! {
         program: "(macroexpand '(while-let (c) (+ c 10)))",
-        result_str: "'(while (let ((s (and t c))) (if s (progn (+ c 10) t) nil)))",
+        result_str: "'(while (let* ((s (and t c))) (if s (progn (+ c 10) t) nil)))",
     }
     tulisp_assert! {
         program: "(let ((ll '(1 2 3)) (vv 0)) (while-let (x (car ll))  (setq ll (cdr ll)) (setq vv (+ vv x))) vv)",
@@ -835,18 +835,18 @@ fn test_threading_macros() -> Result<(), Error> {
                                (print a))))
             "##,
         result_str: r##"
-        '(let ((s (and t a)))
-          (let ((s (and s b)))
-            (if s
-                (print a)
-              (let ((s (and t a)))
-                (if s
-                    (print a)
-                  (let ((s (and t b)))
-                    (if s
-                        (print b)
-                      nil)))))))
-            "##,
+        '(let* ((s (and t a))
+                (s (and s b)))
+           (if s
+               (print a)
+             (let* ((s (and t a)))
+               (if s
+                   (print a)
+                 (let* ((s (and t b)))
+                     (if s
+                         (print b)
+                       nil))))))
+        "##,
     }
 
     tulisp_assert! {
