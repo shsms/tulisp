@@ -582,7 +582,7 @@ macro_rules! extractor_cxr_and_then_fn {
         )]
         pub fn $name<Out: Default>(
             &self,
-            f: impl FnMut(&TulispObject) -> Result<Out, Error>,
+            f: impl FnOnce(&TulispObject) -> Result<Out, Error>,
         ) -> Result<Out, Error> {
             self.rc
                 .borrow()
@@ -594,7 +594,7 @@ macro_rules! extractor_cxr_and_then_fn {
         #[doc(hidden)]
         pub fn $name<Out: Default>(
             &self,
-            f: impl FnMut(&TulispObject) -> Result<Out, Error>,
+            f: impl FnOnce(&TulispObject) -> Result<Out, Error>,
         ) -> Result<Out, Error> {
             self.rc
                 .borrow()

@@ -212,7 +212,7 @@ pub(crate) fn eval_check_null(ctx: &mut TulispContext, expr: &TulispObject) -> R
 pub(crate) fn eval_and_then<T>(
     ctx: &mut TulispContext,
     expr: &TulispObject,
-    func: fn(&TulispObject) -> Result<T, Error>,
+    func: impl FnOnce(&TulispObject) -> Result<T, Error>,
 ) -> Result<T, Error> {
     let mut result = None;
     eval_basic(ctx, expr, &mut result)?;
