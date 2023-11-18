@@ -401,18 +401,22 @@ impl TulispObject {
 
     #[doc(hidden)]
     pub fn deep_copy(&self) -> Result<TulispObject, Error> {
-        let mut val = self.clone();
-        let mut ret = TulispValue::Nil;
-        if val.symbolp() {
-            return Ok(val);
-        } else if !val.consp() {
-            ret = val.clone_inner();
+        if self.symbolp() {
+            return Ok(self.clone());
+        }
+        let mut ret = if !self.consp() {
+            self.clone_inner()
         } else {
+            let mut ret = TulispValue::Nil;
+            let mut val = self.clone(); // TODO: possible CoW optimization here
             loop {
                 let (first, rest) = (val.car()?, val.cdr()?);
-                let first = if first.symbolp() {
+                let first = if !first.consp() {
                     first
                 } else {
+                    // Recursive lists are not deep-copied, only the top-level
+                    // is, because that's all that needed to avoid cycles when
+                    // appending, etc.
                     first.clone_inner().into_ref()
                 };
                 ret.push_with_meta(first, val.span(), val.ctxobj())?;
@@ -422,7 +426,8 @@ impl TulispObject {
                 }
                 val = rest;
             }
-        }
+            ret
+        };
         ret.with_ctxobj(self.ctxobj());
         let ret = ret.into_ref().with_span(self.span());
         Ok(ret)
