@@ -723,7 +723,7 @@ macro_rules! make_cxr_and_then {
     ($name:ident, $($step:tt)+) => {
         pub fn $name<Out: Default>(
             &self,
-            func: impl FnMut(&TulispObject) -> Result<Out, Error>,
+            func: impl FnOnce(&TulispObject) -> Result<Out, Error>,
         ) -> Result<Out, Error> {
             match self {
                 TulispValue::List { cons, .. } => cons.$($step)+(func),
@@ -789,7 +789,7 @@ impl TulispValue {
 
     pub fn car_and_then<Out: Default>(
         &self,
-        mut func: impl FnMut(&TulispObject) -> Result<Out, Error>,
+        func: impl FnOnce(&TulispObject) -> Result<Out, Error>,
     ) -> Result<Out, Error> {
         match self {
             TulispValue::List { cons, .. } => func(cons.car()),
@@ -803,7 +803,7 @@ impl TulispValue {
 
     pub fn cdr_and_then<Out: Default>(
         &self,
-        mut func: impl FnMut(&TulispObject) -> Result<Out, Error>,
+        func: impl FnOnce(&TulispObject) -> Result<Out, Error>,
     ) -> Result<Out, Error> {
         match self {
             TulispValue::List { cons, .. } => func(cons.cdr()),
