@@ -60,12 +60,23 @@ impl Cons {
 
     pub fn append(&mut self, val: TulispObject) -> Result<(), Error> {
         let mut last = self.cdr.clone();
-
+        let mut last_but_one = None;
         while last.consp() {
+            last_but_one = Some(last.clone());
             last = last.cdr()?;
         }
         if last.null() {
-            last.assign(val.clone_inner());
+            if let Some(last_but_one) = last_but_one {
+                last_but_one.assign(TulispValue::List {
+                    cons: Cons {
+                        car: last_but_one.car()?,
+                        cdr: val.deep_copy()?,
+                    },
+                    ctxobj: last_but_one.ctxobj(),
+                })
+            } else {
+                self.cdr = val.deep_copy()?;
+            }
         } else {
             return Err(Error::new(
                 ErrorKind::TypeMismatch,

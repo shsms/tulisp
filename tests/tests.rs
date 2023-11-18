@@ -547,11 +547,6 @@ fn test_lists() -> Result<(), Error> {
     }
 
     tulisp_assert! {
-        program: "(let ((vv '(12 20 30))) `(,(car vv) ,@(cdr vv) ,(cdr vv)))",
-        result: "'(12 20 30 (20 30))",
-    }
-
-    tulisp_assert! {
         program: "(consp '(20))",
         result: "t",
     }
@@ -621,6 +616,24 @@ fn test_lists() -> Result<(), Error> {
         program: r#"(mapcar (lambda (vv) (plist-get vv :age)) '((:name "person" :age 20) (:name "person2" :age 30)))"#,
         result: "'(20 30)",
     }
+    Ok(())
+}
+
+#[test]
+fn test_backquotes() -> Result<(), Error> {
+    tulisp_assert! {
+        program: "(let ((vv '(12 20 30))) `(,(car vv) ,@(cdr vv) ,(cdr vv)))",
+        result: "'(12 20 30 (20 30))",
+    }
+
+    tulisp_assert! {
+        program: r#"
+        (let ((a 10))
+          (eq 'a (cdr `(a . a))))
+        "#,
+        result: r#"t"#,
+    }
+
     Ok(())
 }
 
