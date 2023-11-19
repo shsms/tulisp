@@ -198,16 +198,30 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(result)
     }
 
-    #[crate_fn_no_eval(add_func = "ctx")]
-    fn setq(
-        ctx: &mut TulispContext,
-        name: TulispObject,
-        value: TulispObject,
-    ) -> Result<TulispObject, Error> {
-        let value = eval(ctx, &value)?;
-        name.set(value.clone())?;
+    fn setq(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+        let value = args.cdr_and_then(|args| {
+            if args.null() {
+                return Err(Error::new(
+                    ErrorKind::TypeMismatch,
+                    "setq requires exactly 2 arguments".to_string(),
+                )
+                .with_span(args.span()));
+            }
+            args.cdr_and_then(|x| {
+                if !x.null() {
+                    return Err(Error::new(
+                        ErrorKind::TypeMismatch,
+                        "setq requires exactly 2 arguments".to_string(),
+                    )
+                    .with_span(x.span()));
+                }
+                args.car_and_then(|arg| ctx.eval(arg))
+            })
+        })?;
+        args.car_and_then(|name| name.set(value.clone()))?;
         Ok(value)
     }
+    intern_set_func!(ctx, setq);
 
     #[crate_fn_no_eval]
     fn impl_let(
