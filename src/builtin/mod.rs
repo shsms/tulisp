@@ -162,6 +162,8 @@ These functions need to be organized into categories.  They are grouped here for
 | `expt`                                                                                                  | ☑️      |                                                   |
 | `load`                                                                                                  | ☑️      |                                                   |
 | `intern`                                                                                                | ☑️      | no optional obarray param, always uses default.   |
+| `fround`                                                                                                | ☑️      |                                                   |
+
 
 ## Other predicates
 
