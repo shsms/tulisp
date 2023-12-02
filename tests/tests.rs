@@ -782,6 +782,10 @@ fn test_setq() -> Result<(), Error> {
         program: r##"(let ((xx 10)) (setq zz (+ xx 10))) (* zz 3)"##,
         result: "60",
     }
+    tulisp_assert! {
+        program: r##"(let ((xx 10) (yy 'qq)) (setq zz (+ xx 10)) (set yy 20)) (* zz qq)"##,
+        result: "400",
+    }
 
     Ok(())
 }
