@@ -8,7 +8,7 @@ pub fn length(list: &TulispObject) -> Result<i64, Error> {
     list.base_iter()
         .count()
         .try_into()
-        .map_err(|e: _| Error::new(ErrorKind::OutOfRange, format!("{}", e)).with_span(list.span()))
+        .map_err(|e: _| Error::new(ErrorKind::OutOfRange, format!("{}", e)))
 }
 
 /// Returns the last link in the given list.
@@ -20,8 +20,7 @@ pub fn last(list: &TulispObject, n: Option<i64>) -> Result<TulispObject, Error> 
         return Err(Error::new(
             ErrorKind::TypeMismatch,
             format!("expected list, got: {}", list),
-        )
-        .with_span(list.span()));
+        ));
     }
 
     // TODO: emacs' implementation uses the `safe-length` function for this, but
@@ -33,8 +32,7 @@ pub fn last(list: &TulispObject, n: Option<i64>) -> Result<TulispObject, Error> 
             return Err(Error::new(
                 ErrorKind::OutOfRange,
                 format!("n must be positive. got: {}", n),
-            )
-            .with_span(list.span()));
+            ));
         }
         if n < len {
             return nthcdr(len - n, list.clone());
@@ -97,8 +95,7 @@ pub fn assoc(
         return Err(Error::new(
             ErrorKind::TypeMismatch,
             format!("expected alist. got: {}", alist),
-        )
-        .with_span(alist.span()));
+        ));
     }
     if let Some(testfn) = testfn {
         let pred = eval(ctx, &testfn)?;
@@ -145,8 +142,7 @@ fn assoc_find(
             return Err(Error::new(
                 ErrorKind::TypeMismatch,
                 "expected cons inside alist".to_owned(),
-            )
-            .with_span(kvpair.span()));
+            ));
         }
         if testfn(&kvpair.car()?, key)? {
             return Ok(kvpair);

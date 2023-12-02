@@ -26,8 +26,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             Err(Error::new(
                 ErrorKind::MissingArgument,
                 "Call to `sub` without any arguments".to_string(),
-            )
-            .with_span(args.span()))
+            ))
         }
     }
     intern_set_func!(ctx, sub, "-");
@@ -64,8 +63,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             _ => Err(Error::new(
                 ErrorKind::TypeMismatch,
                 "expected a number as argument.".to_string(),
-            )
-            .with_span(number.span())),
+            )),
         }
     }
 
@@ -77,8 +75,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             _ => Err(Error::new(
                 ErrorKind::TypeMismatch,
                 "expected a number as argument.".to_string(),
-            )
-            .with_span(number.span())),
+            )),
         }
     }
 

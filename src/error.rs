@@ -1,4 +1,4 @@
-use crate::{object::Span, TulispContext};
+use crate::{TulispContext, TulispObject};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ErrorKind {
@@ -27,25 +27,41 @@ impl std::fmt::Display for ErrorKind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct Error {
     kind: ErrorKind,
     desc: String,
-    span: Option<Span>,
+    backtrace: Vec<TulispObject>,
 }
 
 impl Error {
-    pub fn format(&self, ctx: &TulispContext) -> String {
-        let span_str = if let Some(span) = self.span {
+    fn format_span(&self, ctx: &TulispContext, object: &TulispObject) -> String {
+        if let Some(span) = object.span() {
             let filename = ctx.get_filename(span.file_id);
             format!(
-                "{}:{}.{}-{}.{}: ",
+                "{}:{}.{}-{}.{}:",
                 filename, span.start.0, span.start.1, span.end.0, span.end.1
             )
         } else {
             String::new()
-        };
-        format!("{}ERR {}: {}", span_str, self.kind, self.desc)
+        }
+    }
+
+    pub fn format(&self, ctx: &TulispContext) -> String {
+        let mut span_str = format!("ERR {}: {}", self.kind, self.desc);
+        for span in &self.backtrace {
+            let prefix = self.format_span(ctx, span);
+            if prefix.is_empty() {
+                continue;
+            }
+            let string = span.to_string().replace("\n", "\\n");
+            if string.len() > 40 {
+                span_str.push_str(&format!("\n{}  at {:.40}...", prefix, string));
+            } else {
+                span_str.push_str(&format!("\n{}  at {}", prefix, string));
+            }
+        }
+        span_str + "\n"
     }
 }
 
@@ -54,18 +70,12 @@ impl Error {
         Error {
             kind,
             desc,
-            span: None,
+            backtrace: vec![],
         }
     }
-    pub fn with_span(mut self, span: Option<Span>) -> Self {
-        if self.span.is_none() {
-            self.span = span;
-        }
+    pub fn with_trace(mut self, span: TulispObject) -> Self {
+        self.backtrace.push(span);
         self
-    }
-
-    pub fn span(&self) -> Option<Span> {
-        self.span.to_owned()
     }
 
     #[allow(dead_code)]
