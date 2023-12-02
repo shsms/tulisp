@@ -753,20 +753,20 @@ fn test_let() -> Result<(), Error> {
         error: r#"ERR TypeMismatch: Variable definition is void: kk
 <eval_string>:4.19-4.21:  at kk
 <eval_string>:4.11-4.34:  at (append kk (+ vv jj 1))
-<eval_string>:2.9-4.35:  at (let ((vv (+ 55 1)) (jj 20)) (append kk ...
+<eval_string>:2.9-4.35:  at (let ((vv (+ 55 1)) (jj 20)) (append kk (+ vv jj 1)))
 "#
     }
     tulisp_assert! {
         program: "(let ((22 (+ 55 1)) (jj 20)) (+ vv jj 1))",
         error: r#"ERR TypeMismatch: Expected Symbol: Can't assign to 22
 <eval_string>:1.8-1.10:  at 22
-<eval_string>:1.1-1.42:  at (let ((22 (+ 55 1)) (jj 20)) (+ vv jj 1)...
+<eval_string>:1.1-1.42:  at (let ((22 (+ 55 1)) (jj 20)) (+ vv jj 1))
 "#
     }
     tulisp_assert! {
         program: "(let (18 (vv (+ 55 1)) (jj 20)) (+ vv jj 1))",
         error: r#"ERR SyntaxError: varitems inside a let-varlist should be a var or a binding: 18
-<eval_string>:1.1-1.45:  at (let (18 (vv (+ 55 1)) (jj 20)) (+ vv jj...
+<eval_string>:1.1-1.45:  at (let (18 (vv (+ 55 1)) (jj 20)) (+ vv jj 1))
 "#
     }
 

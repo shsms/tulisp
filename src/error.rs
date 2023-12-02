@@ -55,8 +55,8 @@ impl Error {
                 continue;
             }
             let string = span.to_string().replace("\n", "\\n");
-            if string.len() > 40 {
-                span_str.push_str(&format!("\n{}  at {:.40}...", prefix, string));
+            if string.len() > 80 {
+                span_str.push_str(&format!("\n{}  at {:.80}...", prefix, string));
             } else {
                 span_str.push_str(&format!("\n{}  at {}", prefix, string));
             }
