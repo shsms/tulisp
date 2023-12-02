@@ -128,7 +128,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     fn format(input: TulispObject, rest: TulispObject) -> Result<TulispObject, Error> {
         let mut args = rest.base_iter();
         let mut output = String::new();
-        let in_string = input.as_string().map_err(|e| e.with_span(input.span()))?;
+        let in_string = input.as_string().map_err(|e| e.with_trace(input.clone()))?;
         let mut in_chars = in_string.chars();
         while let Some(ch) = in_chars.next() {
             if ch != '%' {
@@ -160,8 +160,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                     return Err(Error::new(
                         ErrorKind::SyntaxError,
                         format!("Invalid format operation: %{}", ch),
-                    )
-                    .with_span(input.span()))
+                    ))
                 }
             }
         }
@@ -204,16 +203,14 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 return Err(Error::new(
                     ErrorKind::TypeMismatch,
                     "setq requires exactly 2 arguments".to_string(),
-                )
-                .with_span(args.span()));
+                ));
             }
             args.cdr_and_then(|x| {
                 if !x.null() {
                     return Err(Error::new(
                         ErrorKind::TypeMismatch,
                         "setq requires exactly 2 arguments".to_string(),
-                    )
-                    .with_span(x.span()));
+                    ));
                 }
                 args.car_and_then(|arg| ctx.eval(arg))
             })
@@ -240,21 +237,18 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             if varitem.symbolp() {
                 local.set(varitem, TulispObject::nil())?;
             } else if varitem.consp() {
-                let span = varitem.span();
                 destruct_bind!((&optional name value &rest rest) = varitem);
                 if name.null() {
                     return Err(Error::new(
                         ErrorKind::Undefined,
                         "let varitem requires name".to_string(),
-                    )
-                    .with_span(span));
+                    ));
                 }
                 if !rest.null() {
                     return Err(Error::new(
                         ErrorKind::Undefined,
                         "let varitem has too many values".to_string(),
-                    )
-                    .with_span(span));
+                    ));
                 }
                 local.set(name, eval(ctx, &value)?)?;
             } else {
@@ -264,8 +258,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                         "varitems inside a let-varlist should be a var or a binding: {}",
                         varitem
                     ),
-                )
-                .with_span(varlist.span()));
+                ));
             };
         }
 
@@ -404,16 +397,14 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 return Err(Error::new(
                     ErrorKind::TypeMismatch,
                     "cons requires exactly 2 arguments".to_string(),
-                )
-                .with_span(args.span()));
+                ));
             }
             args.cdr_and_then(|x| {
                 if !x.null() {
                     return Err(Error::new(
                         ErrorKind::TypeMismatch,
                         "cons requires exactly 2 arguments".to_string(),
-                    )
-                    .with_span(x.span()));
+                    ));
                 }
                 args.car_and_then(|arg| ctx.eval(arg))
             })

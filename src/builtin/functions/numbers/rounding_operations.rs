@@ -10,8 +10,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 return Err(Error::new(
                     ErrorKind::TypeMismatch,
                     format!("Expected exatly 1 argument for fround. Got args: {}", args),
-                )
-                .with_span(args.span()));
+                ));
             }
             Ok(true) => {}
         }
@@ -23,8 +22,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                     Err(Error::new(
                         ErrorKind::TypeMismatch,
                         format!("Expected float for fround. Got: {}", x),
-                    )
-                    .with_span(x.span()))
+                    ))
                 }
             })
         })

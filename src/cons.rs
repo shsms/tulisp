@@ -188,7 +188,6 @@ impl<T: 'static + std::convert::TryFrom<TulispObject>> Iterator for Iter<T> {
                     ErrorKind::TypeMismatch,
                     format!("Iter<{}> can't handle {}", tid, vv),
                 )
-                .with_span(vv.span())
             })
         })
     }

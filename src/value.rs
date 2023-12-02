@@ -49,8 +49,7 @@ impl TryFrom<TulispObject> for DefunParams {
             return Err(Error::new(
                 ErrorKind::SyntaxError,
                 "Parameter list needs to be a list".to_string(),
-            )
-            .with_span(params.span()));
+            ));
         }
         let mut def_params = DefunParams::default();
         let mut params_iter = params.base_iter();
@@ -76,12 +75,11 @@ impl TryFrom<TulispObject> for DefunParams {
                 is_optional,
             });
             if is_rest {
-                if let Some(nn) = params_iter.next() {
+                if params_iter.next().is_some() {
                     return Err(Error::new(
                         ErrorKind::TypeMismatch,
                         "Too many &rest parameters".to_string(),
-                    )
-                    .with_span(nn.span()));
+                    ));
                 }
                 break;
             }
@@ -287,10 +285,10 @@ impl PartialEq for TulispValue {
 /// Formats tulisp lists non-recursively.
 fn fmt_list(mut vv: TulispObject, f: &mut std::fmt::Formatter<'_>) -> Result<(), Error> {
     if let Err(e) = f.write_char('(') {
-        return Err(
-            Error::new(ErrorKind::Undefined, format!("When trying to 'fmt': {}", e))
-                .with_span(vv.span()),
-        );
+        return Err(Error::new(
+            ErrorKind::Undefined,
+            format!("When trying to 'fmt': {}", e),
+        ));
     };
     let mut add_space = false;
     loop {
@@ -298,31 +296,29 @@ fn fmt_list(mut vv: TulispObject, f: &mut std::fmt::Formatter<'_>) -> Result<(),
         if !add_space {
             add_space = true;
         } else if let Err(e) = f.write_char(' ') {
-            return Err(
-                Error::new(ErrorKind::Undefined, format!("When trying to 'fmt': {}", e))
-                    .with_span(vv.span()),
-            );
+            return Err(Error::new(
+                ErrorKind::Undefined,
+                format!("When trying to 'fmt': {}", e),
+            ));
         };
         write!(f, "{}", vv.car()?).map_err(|e| {
             Error::new(ErrorKind::Undefined, format!("When trying to 'fmt': {}", e))
-                .with_span(vv.span())
         })?;
         if rest.null() {
             break;
         } else if !rest.consp() {
             write!(f, " . {}", rest).map_err(|e| {
                 Error::new(ErrorKind::Undefined, format!("When trying to 'fmt': {}", e))
-                    .with_span(vv.span())
             })?;
             break;
         };
         vv = rest;
     }
     if let Err(e) = f.write_char(')') {
-        return Err(
-            Error::new(ErrorKind::Undefined, format!("When trying to 'fmt': {}", e))
-                .with_span(vv.span()),
-        );
+        return Err(Error::new(
+            ErrorKind::Undefined,
+            format!("When trying to 'fmt': {}", e),
+        ));
     };
     Ok(())
 }
@@ -439,26 +435,24 @@ impl TulispValue {
         ctxobj: Option<TulispObject>,
     ) -> Result<(), Error> {
         if let TulispValue::List { cons, .. } = self {
-            let span = val.span();
-            cons.push_with_meta(val, span_in, ctxobj)
-                .map_err(|e| e.with_span(span))?;
+            cons.push_with_meta(val.clone(), span_in, ctxobj)
+                .map_err(|e| e.with_trace(val))?;
             Ok(())
         } else if self.null() {
             let cons = Cons::new(val, TulispObject::nil());
             *self = TulispValue::List { cons, ctxobj };
             Ok(())
         } else {
-            Err(
-                Error::new(ErrorKind::TypeMismatch, "unable to push".to_string())
-                    .with_span(val.span()),
-            )
+            Err(Error::new(
+                ErrorKind::TypeMismatch,
+                "unable to push".to_string(),
+            ))
         }
     }
 
     pub fn append(&mut self, val: TulispObject) -> Result<(), Error> {
         if let TulispValue::List { cons, .. } = self {
-            let span = val.span();
-            cons.append(val).map_err(|e| e.with_span(span))?;
+            cons.append(val.clone()).map_err(|e| e.with_trace(val))?;
             Ok(())
         } else if self.null() {
             if !val.null() {
@@ -731,6 +725,7 @@ macro_rules! make_cxr_and_then {
                 _ => Err(Error::new(
                     ErrorKind::TypeMismatch,
                     format!("cxr: Not a Cons: {}", self),
+
                 )),
             }
         }

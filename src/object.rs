@@ -61,7 +61,7 @@ macro_rules! extractor_fn_with_err {
             self.rc
                 .borrow()
                 .$name()
-                .map_err(|e| e.with_span(self.span()))
+        .map_err(|e| e.with_trace(self.clone()))
         }
     };
 }
@@ -168,7 +168,7 @@ impl TulispObject {
             .borrow_mut()
             .push(val)
             .map(|_| self)
-            .map_err(|e| e.with_span(self.span()))
+            .map_err(|e| e.with_trace(self.clone()))
     }
 
     /// Attaches the other list to the end of self.  Returns an Error if `self`
@@ -178,7 +178,7 @@ impl TulispObject {
             .borrow_mut()
             .append(other_list)
             .map(|_| self)
-            .map_err(|e| e.with_span(self.span()))
+            .map_err(|e| e.with_trace(self.clone()))
     }
 
     /// Returns a string representation of `self`, similar to the Emacs Lisp
@@ -195,7 +195,7 @@ impl TulispObject {
         self.rc
             .borrow_mut()
             .set(to_set)
-            .map_err(|e| e.with_span(self.span()))
+            .map_err(|e| e.with_trace(self.clone()))
     }
 
     /// Sets a value to `self`, in the new scope, such that when it is `unset`,
@@ -206,7 +206,7 @@ impl TulispObject {
         self.rc
             .borrow_mut()
             .set_scope(to_set)
-            .map_err(|e| e.with_span(self.span()))
+            .map_err(|e| e.with_trace(self.clone()))
     }
 
     /// Unsets the value from the most recent scope.
@@ -216,7 +216,7 @@ impl TulispObject {
         self.rc
             .borrow_mut()
             .unset()
-            .map_err(|e| e.with_span(self.span()))
+            .map_err(|e| e.with_trace(self.clone()))
     }
 
     // extractors begin
@@ -438,11 +438,8 @@ impl TryFrom<TulispObject> for f64 {
     type Error = Error;
 
     fn try_from(value: TulispObject) -> Result<Self, Self::Error> {
-        value
-            .rc
-            .borrow()
-            .try_float()
-            .map_err(|e| e.with_span(value.span()))
+        let res = value.rc.borrow().try_float();
+        res.map_err(|e| e.with_trace(value))
     }
 }
 
@@ -450,11 +447,8 @@ impl TryFrom<TulispObject> for i64 {
     type Error = Error;
 
     fn try_from(value: TulispObject) -> Result<Self, Self::Error> {
-        value
-            .rc
-            .borrow()
-            .as_int()
-            .map_err(|e| e.with_span(value.span()))
+        let res = value.rc.borrow().as_int();
+        res.map_err(|e| e.with_trace(value))
     }
 }
 
@@ -466,7 +460,7 @@ impl TryFrom<&TulispObject> for f64 {
             .rc
             .borrow()
             .try_float()
-            .map_err(|e| e.with_span(value.span()))
+            .map_err(|e| e.with_trace(value.clone()))
     }
 }
 
@@ -478,7 +472,7 @@ impl TryFrom<&TulispObject> for i64 {
             .rc
             .borrow()
             .as_int()
-            .map_err(|e| e.with_span(value.span()))
+            .map_err(|e| e.with_trace(value.clone()))
     }
 }
 
@@ -486,7 +480,7 @@ impl TryFrom<TulispObject> for String {
     type Error = Error;
 
     fn try_from(value: TulispObject) -> Result<Self, Self::Error> {
-        value.as_string().map_err(|e| e.with_span(value.span()))
+        value.as_string().map_err(|e| e.with_trace(value))
     }
 }
 
@@ -500,7 +494,7 @@ impl TryFrom<TulispObject> for Rc<dyn Any> {
     type Error = Error;
 
     fn try_from(value: TulispObject) -> Result<Self, Self::Error> {
-        value.as_any().map_err(|e| e.with_span(value.span()))
+        value.as_any().map_err(|e| e.with_trace(value))
     }
 }
 
@@ -561,7 +555,7 @@ macro_rules! extractor_cxr_fn {
             self.rc
                 .borrow()
                 .$name()
-                .map_err(|e| e.with_span(self.span()))
+                .map_err(|e| e.with_trace(self.clone()))
         }
     };
     ($name: ident) => {
@@ -570,7 +564,7 @@ macro_rules! extractor_cxr_fn {
             self.rc
                 .borrow()
                 .$name()
-                .map_err(|e| e.with_span(self.span()))
+                .map_err(|e| e.with_trace(self.clone()))
         }
     };
 }
@@ -587,7 +581,7 @@ macro_rules! extractor_cxr_and_then_fn {
             self.rc
                 .borrow()
                 .$name(f)
-                .map_err(|e| e.with_span(self.span()))
+        .map_err(|e| e.with_trace(self.clone()))
         }
     };
     ($name: ident) => {
@@ -599,7 +593,7 @@ macro_rules! extractor_cxr_and_then_fn {
             self.rc
                 .borrow()
                 .$name::<Out>(f)
-                .map_err(|e| e.with_span(self.span()))
+        .map_err(|e| e.with_trace(self.clone()))
         }
     };
 }

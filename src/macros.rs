@@ -125,7 +125,7 @@ macro_rules! destruct_bind {
     (@reqr $vv:ident,) => {};
     (@no-rest $vv:ident) => {
         if !$vv.null() {
-            return Err(Error::new(ErrorKind::TypeMismatch,"Too many arguments".to_string(), ));
+            return Err(Error::new(ErrorKind::TypeMismatch,"Too many arguments".to_string()));
         }
     };
     (@rest $rest:ident $vv:ident) => {

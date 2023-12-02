@@ -346,7 +346,7 @@ impl Parser<'_, '_> {
             let Some(token) = self.tokenizer.peek() else {
                 return Err(
                     Error::new(ErrorKind::ParsingError, "Unclosed list".to_string())
-                        .with_span(Some(start_span)),
+                        .with_trace(TulispObject::nil().with_span(Some(start_span))),
                 );
             };
             match token {
@@ -385,7 +385,7 @@ impl Parser<'_, '_> {
                     ErrorKind::ParsingError,
                     "Expected only one item in list after dot.".to_string(),
                 )
-                .with_span(next.span()));
+                .with_trace(next));
             }
             inner.append(next)?;
         }
@@ -416,7 +416,7 @@ impl Parser<'_, '_> {
                 ErrorKind::ParsingError,
                 "Unexpected closing parenthesis".to_string(),
             )
-            .with_span(Some(span))),
+            .with_trace(TulispObject::nil().with_span(Some(span)))),
             Token::SharpQuote { span } | Token::Quote { span } => {
                 let next = match self.parse_value()? {
                     Some(next) => next,
@@ -425,7 +425,7 @@ impl Parser<'_, '_> {
                             ErrorKind::ParsingError,
                             "Unexpected EOF".to_string(),
                         )
-                        .with_span(Some(span)))
+                        .with_trace(TulispObject::nil().with_span(Some(span))))
                     }
                 };
                 Ok(Some(
@@ -442,7 +442,7 @@ impl Parser<'_, '_> {
                             ErrorKind::ParsingError,
                             "Unexpected EOF".to_string(),
                         )
-                        .with_span(Some(span)))
+                        .with_trace(TulispObject::nil().with_span(Some(span))))
                     }
                 };
                 Ok(Some(
@@ -455,7 +455,7 @@ impl Parser<'_, '_> {
                 ErrorKind::ParsingError,
                 "Unexpected dot".to_string(),
             )
-            .with_span(Some(span))),
+            .with_trace(TulispObject::nil().with_span(Some(span)))),
             Token::Comma { span } => {
                 let next = match self.parse_value()? {
                     Some(next) => next,
@@ -464,7 +464,7 @@ impl Parser<'_, '_> {
                             ErrorKind::ParsingError,
                             "Unexpected EOF".to_string(),
                         )
-                        .with_span(Some(span)))
+                        .with_trace(TulispObject::nil().with_span(Some(span))))
                     }
                 };
                 Ok(Some(
@@ -481,7 +481,7 @@ impl Parser<'_, '_> {
                             ErrorKind::ParsingError,
                             "Unexpected EOF".to_string(),
                         )
-                        .with_span(Some(span)))
+                        .with_trace(TulispObject::nil().with_span(Some(span))))
                     }
                 };
                 Ok(Some(
@@ -531,7 +531,7 @@ impl Parser<'_, '_> {
                 ErrorKind::ParsingError,
                 format!("{:?} {}", err.kind, err.desc),
             )
-            .with_span(Some(err.span))),
+            .with_trace(TulispObject::nil().with_span(Some(err.span)))),
         }
     }
 

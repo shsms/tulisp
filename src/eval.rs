@@ -63,18 +63,18 @@ fn zip_function_args<E: Evaluator>(
             E::eval(ctx, &vv, &mut eval_result)?;
             eval_result.take().unwrap_or(vv)
         } else {
-            return Err(
-                Error::new(ErrorKind::TypeMismatch, "Too few arguments".to_string())
-                    .with_span(args.span()),
-            );
+            return Err(Error::new(
+                ErrorKind::TypeMismatch,
+                "Too few arguments".to_string(),
+            ));
         };
         param.param.set_scope(val)?;
     }
-    if let Some(nn) = args_iter.next() {
-        return Err(
-            Error::new(ErrorKind::TypeMismatch, "Too many arguments".to_string())
-                .with_span(nn.span()),
-        );
+    if args_iter.next().is_some() {
+        return Err(Error::new(
+            ErrorKind::TypeMismatch,
+            "Too many arguments".to_string(),
+        ));
     }
     Ok(())
 }
@@ -128,10 +128,10 @@ pub(crate) fn funcall<E: Evaluator>(
             let expanded = macroexpand(ctx, list!(func.clone() ,@args.clone())?)?;
             eval(ctx, &expanded)
         }
-        _ => Err(
-            Error::new(ErrorKind::Undefined, format!("function is void: {}", func))
-                .with_span(func.span()),
-        ),
+        _ => Err(Error::new(
+            ErrorKind::Undefined,
+            format!("function is void: {}", func),
+        )),
     }
 }
 
@@ -157,16 +157,16 @@ fn eval_back_quote(
         let first_inner = first.clone_inner();
         let rest_inner = rest.clone_inner();
         if let TulispValue::Unquote { value } = first_inner {
-            ret.push(eval(ctx, &value).map_err(|e| e.with_span(first.span()))?)
-                .map_err(|e| e.with_span(first.span()))?;
+            ret.push(eval(ctx, &value).map_err(|e| e.with_trace(first.clone()))?)
+                .map_err(|e| e.with_trace(first))?;
         } else if let TulispValue::Splice { value } = first_inner {
             ret.append(
                 eval(ctx, &value)
-                    .map_err(|e| e.with_span(first.span()))?
+                    .map_err(|e| e.with_trace(first.clone()))?
                     .deep_copy()
-                    .map_err(|e| e.with_span(first.span()))?,
+                    .map_err(|e| e.with_trace(first.clone()))?,
             )
-            .map_err(|e| e.with_span(first.span()))?;
+            .map_err(|e| e.with_trace(first))?;
         } else {
             ret.push(eval(
                 ctx,
@@ -178,8 +178,8 @@ fn eval_back_quote(
         }
         // TODO: is Nil check necessary
         if let TulispValue::Unquote { value } = rest_inner {
-            ret.append(eval(ctx, &value).map_err(|e| e.with_span(rest.span()))?)
-                .map_err(|e| e.with_span(rest.span()))?;
+            ret.append(eval(ctx, &value).map_err(|e| e.with_trace(rest.clone()))?)
+                .map_err(|e| e.with_trace(rest))?;
             return Ok(());
         } else if !rest.consp() {
             ret.append(rest)?;
@@ -230,13 +230,13 @@ pub(crate) fn eval_basic<'a>(
 ) -> Result<(), Error> {
     match &*expr.inner_ref() {
         TulispValue::List { .. } => {
-            *result = Some(eval_form::<Eval>(ctx, expr).map_err(|e| e.with_span(expr.span()))?);
+            *result = Some(eval_form::<Eval>(ctx, expr).map_err(|e| e.with_trace(expr.clone()))?);
         }
         TulispValue::Symbol { value, .. } => {
             if value.is_constant() {
                 return Ok(());
             }
-            *result = Some(value.get().map_err(|e| e.with_span(expr.span()))?);
+            *result = Some(value.get().map_err(|e| e.with_trace(expr.clone()))?);
         }
         TulispValue::Int { .. }
         | TulispValue::Float { .. }
@@ -258,7 +258,7 @@ pub(crate) fn eval_basic<'a>(
                 *result = Some(value.clone());
             } else {
                 eval_back_quote(ctx, &mut ret, value.clone())
-                    .map_err(|e| e.with_span(expr.span()))?;
+                    .map_err(|e| e.with_trace(expr.clone()))?;
                 *result = Some(ret.into_ref());
             }
         }
@@ -298,8 +298,8 @@ pub fn macroexpand(ctx: &mut TulispContext, inp: TulispObject) -> Result<TulispO
             macroexpand(ctx, expansion)?
         }
         TulispValue::Defmacro { params, body } => {
-            let expansion = eval_defmacro(ctx, params, body, &expr.cdr()?)
-                .map_err(|e| e.with_span(inp.span()))?;
+            let expansion =
+                eval_defmacro(ctx, params, body, &expr.cdr()?).map_err(|e| e.with_trace(inp))?;
             macroexpand(ctx, expansion)?
         }
         _ => expr,

@@ -65,7 +65,10 @@ fn test_comparison_of_numbers() -> Result<(), Error> {
     tulisp_assert! { program: "(> 5.0 10.0)", result: "nil" }
     tulisp_assert! {
         program: "(let ((a 10)) (> a))",
-        error: "<eval_string>:1.15-1.20: ERR OutOfRange: gt requires at least 2 arguments"
+        error: r#"ERR OutOfRange: gt requires at least 2 arguments
+<eval_string>:1.15-1.20:  at (> a)
+<eval_string>:1.1-1.21:  at (let ((a 10)) (> a))
+"#
     }
 
     // Greater than or equal
@@ -80,7 +83,10 @@ fn test_comparison_of_numbers() -> Result<(), Error> {
     tulisp_assert! { program: "(>= 5.0 10.0)", result: "nil" }
     tulisp_assert! {
         program: "(let ((a 10)) (>= a))",
-        error: "<eval_string>:1.15-1.21: ERR OutOfRange: ge requires at least 2 arguments"
+        error: r#"ERR OutOfRange: ge requires at least 2 arguments
+<eval_string>:1.15-1.21:  at (>= a)
+<eval_string>:1.1-1.22:  at (let ((a 10)) (>= a))
+"#
     }
 
     // Less than
@@ -95,7 +101,10 @@ fn test_comparison_of_numbers() -> Result<(), Error> {
     tulisp_assert! { program: "(< 5.0 10.0)", result: "t" }
     tulisp_assert! {
         program: "(let ((a 10)) (< a))",
-        error: "<eval_string>:1.15-1.20: ERR OutOfRange: lt requires at least 2 arguments"
+        error: r#"ERR OutOfRange: lt requires at least 2 arguments
+<eval_string>:1.15-1.20:  at (< a)
+<eval_string>:1.1-1.21:  at (let ((a 10)) (< a))
+"#
     }
 
     // Less than or equal
@@ -110,7 +119,10 @@ fn test_comparison_of_numbers() -> Result<(), Error> {
     tulisp_assert! { program: "(<= 5.0 10.0)", result: "t" }
     tulisp_assert! {
         program: "(let ((a 10)) (<= a))",
-        error: "<eval_string>:1.15-1.21: ERR OutOfRange: le requires at least 2 arguments"
+        error: r#"ERR OutOfRange: le requires at least 2 arguments
+<eval_string>:1.15-1.21:  at (<= a)
+<eval_string>:1.1-1.22:  at (let ((a 10)) (<= a))
+"#
     }
 
     Ok(())
@@ -283,7 +295,9 @@ fn test_defun() -> Result<(), Error> {
     }
     tulisp_assert! {
         program: "(defun j (&rest x y) nil) (j)",
-        error: "<eval_string>:1.19-1.20: ERR TypeMismatch: Too many &rest parameters",
+        error: r#"ERR TypeMismatch: Too many &rest parameters
+<eval_string>:1.1-1.26:  at (defun j (&rest x y) nil)
+"#
     }
     tulisp_assert! {
         program: r##"(defun j (&rest x) x) (list (j) (j 10) (j 100 200))"##,
@@ -303,11 +317,15 @@ fn test_defun() -> Result<(), Error> {
         }
     tulisp_assert! {
         program: "(defun add (x y) (+ x y)) (add 10)",
-        error: "<eval_string>:1.27-1.35: ERR TypeMismatch: Too few arguments",
+        error: r#"ERR TypeMismatch: Too few arguments
+<eval_string>:1.27-1.35:  at (add 10)
+"#
     }
     tulisp_assert! {
         program: "(defun add (x y) (+ x y)) (add 10 20 30)",
-        error: "<eval_string>:1.38-1.40: ERR TypeMismatch: Too many arguments",
+        error: r#"ERR TypeMismatch: Too many arguments
+<eval_string>:1.27-1.41:  at (add 10 20 30)
+"#
     }
     tulisp_assert! {
         program: "(defmacro num ()  4) (macroexpand '(num))",
@@ -329,11 +347,15 @@ fn test_defun() -> Result<(), Error> {
     }
     tulisp_assert! {
         program: "(defmacro inc (var)  (list 'setq var (list '+ 1 var))) (let ((x 4)) (inc))",
-        error: "<eval_string>:1.69-1.74: ERR TypeMismatch: Too few arguments",
+        error: r#"ERR TypeMismatch: Too few arguments
+<eval_string>:1.69-1.74:  at (inc)
+"#
     }
     tulisp_assert! {
         program: "(defmacro inc (var)  (list 'setq var (list '+ 1 var))) (let ((x 4)) (inc 4 5))",
-        error: "<eval_string>:1.76-1.77: ERR TypeMismatch: Too many arguments",
+        error: r#"ERR TypeMismatch: Too many arguments
+<eval_string>:1.69-1.78:  at (inc 4 5)
+"#
     }
     tulisp_assert! {
         program: r##"
@@ -416,11 +438,17 @@ fn test_eval() -> Result<(), Error> {
     }
     tulisp_assert! {
         program: "(let ((y j) (j 10)) (funcall j))",
-        error: "<eval_string>:1.10-1.11: ERR TypeMismatch: Variable definition is void: j",
+        error: r#"ERR TypeMismatch: Variable definition is void: j
+<eval_string>:1.10-1.11:  at j
+<eval_string>:1.1-1.33:  at (let ((y j) (j 10)) (funcall j))
+"#
     }
     tulisp_assert! {
         program: "(let ((j 10)) (+ j j))(+ j j)",
-        error: "<eval_string>:1.26-1.27: ERR TypeMismatch: Variable definition is void: j",
+        error: r#"ERR TypeMismatch: Variable definition is void: j
+<eval_string>:1.26-1.27:  at j
+<eval_string>:1.23-1.30:  at (+ j j)
+"#
     }
     Ok(())
 }
@@ -429,7 +457,9 @@ fn test_eval() -> Result<(), Error> {
 fn test_strings() -> Result<(), Error> {
     tulisp_assert! {
         program: r##"(concat 'hello 'world)"##,
-        error: "<eval_string>:1.1-1.23: ERR TypeMismatch: Not a string: hello"
+        error: r#"ERR TypeMismatch: Not a string: hello
+<eval_string>:1.1-1.23:  at (concat 'hello 'world)
+"#
     }
     tulisp_assert! { program: r##"(concat "hello" " world")"##, result: r#""hello world""# }
     tulisp_assert! {
@@ -466,11 +496,15 @@ fn test_cons() -> Result<(), Error> {
     };
     tulisp_assert! {
         program: "(cons 1)",
-        error: "<eval_string>:1.1-1.9: ERR TypeMismatch: cons requires exactly 2 arguments",
+        error: r#"ERR TypeMismatch: cons requires exactly 2 arguments
+<eval_string>:1.1-1.9:  at (cons 1)
+"#
     };
     tulisp_assert! {
         program: "(cons 1 2 3)",
-        error: "<eval_string>:1.1-1.13: ERR TypeMismatch: cons requires exactly 2 arguments",
+        error: r#"ERR TypeMismatch: cons requires exactly 2 arguments
+<eval_string>:1.1-1.13:  at (cons 1 2 3)
+"#
     };
     Ok(())
 }
@@ -487,11 +521,15 @@ fn test_quote() -> Result<(), Error> {
     };
     tulisp_assert! {
         program: "(quote)",
-        error: "<eval_string>:1.1-1.8: ERR TypeMismatch: quote: expected one argument",
+        error: r#"ERR TypeMismatch: quote: expected one argument
+<eval_string>:1.1-1.8:  at (quote)
+"#
     };
     tulisp_assert! {
         program: "(quote 1 2)",
-        error: "<eval_string>:1.1-1.12: ERR TypeMismatch: quote: expected one argument",
+        error: r#"ERR TypeMismatch: quote: expected one argument
+<eval_string>:1.1-1.12:  at (quote 1 2)
+"#
     };
     Ok(())
 }
@@ -543,7 +581,11 @@ fn test_lists() -> Result<(), Error> {
         (setq items
               (append items '(10)))
         "#,
-        error: "<eval_string>:3.23-3.28: ERR TypeMismatch: Variable definition is void: items",
+        error: r#"ERR TypeMismatch: Variable definition is void: items
+<eval_string>:3.23-3.28:  at items
+<eval_string>:3.15-3.35:  at (append items '(10))
+<eval_string>:2.9-3.36:  at (setq items (append items '(10)))
+"#
     }
 
     tulisp_assert! {
@@ -641,7 +683,9 @@ fn test_backquotes() -> Result<(), Error> {
 fn test_math() -> Result<(), Error> {
     tulisp_assert! {
         program: "(/ 10 0)",
-        error: "<eval_string>:1.1-1.9: ERR Undefined: Division by zero",
+        error: r#"ERR Undefined: Division by zero
+<eval_string>:1.1-1.9:  at (/ 10 0)
+"#,
     }
     tulisp_assert! {
         program: "(/ 0 10)",
@@ -649,7 +693,10 @@ fn test_math() -> Result<(), Error> {
     }
     tulisp_assert! {
         program: "(let ((a 10) (b 0)) (/ a b))",
-        error: "<eval_string>:1.21-1.28: ERR Undefined: Division by zero",
+        error: r#"ERR Undefined: Division by zero
+<eval_string>:1.21-1.28:  at (/ a b)
+<eval_string>:1.1-1.29:  at (let ((a 10) (b 0)) (/ a b))
+"#,
     }
 
     tulisp_assert! { program: "(/ 24 2 2)",                result: "6"     }
@@ -696,15 +743,24 @@ fn test_let() -> Result<(), Error> {
               (jj 20))
           (append kk (+ vv jj 1)))
         "#,
-        error: "<eval_string>:4.19-4.21: ERR TypeMismatch: Variable definition is void: kk",
+        error: r#"ERR TypeMismatch: Variable definition is void: kk
+<eval_string>:4.19-4.21:  at kk
+<eval_string>:4.11-4.34:  at (append kk (+ vv jj 1))
+<eval_string>:2.9-4.35:  at (let ((vv (+ 55 1)) (jj 20)) (append kk ...
+"#
     }
     tulisp_assert! {
         program: "(let ((22 (+ 55 1)) (jj 20)) (+ vv jj 1))",
-        error: "<eval_string>:1.8-1.10: ERR TypeMismatch: Expected Symbol: Can't assign to 22",
+        error: r#"ERR TypeMismatch: Expected Symbol: Can't assign to 22
+<eval_string>:1.8-1.10:  at 22
+<eval_string>:1.1-1.42:  at (let ((22 (+ 55 1)) (jj 20)) (+ vv jj 1)...
+"#
     }
     tulisp_assert! {
         program: "(let (18 (vv (+ 55 1)) (jj 20)) (+ vv jj 1))",
-        error: "<eval_string>:1.6-1.32: ERR SyntaxError: varitems inside a let-varlist should be a var or a binding: 18",
+        error: r#"ERR SyntaxError: varitems inside a let-varlist should be a var or a binding: 18
+<eval_string>:1.1-1.45:  at (let (18 (vv (+ 55 1)) (jj 20)) (+ vv jj...
+"#
     }
 
     tulisp_assert! {
@@ -788,7 +844,10 @@ fn test_sort() -> Result<(), Error> {
     }
     tulisp_assert! {
         program: "(sort '(20 10 30 15 45) '<<)",
-        error: "<eval_string>:1.26-1.28: ERR TypeMismatch: Variable definition is void: <<",
+        error: r#"ERR TypeMismatch: Variable definition is void: <<
+<eval_string>:1.26-1.28:  at <<
+<eval_string>:1.1-1.29:  at (sort '(20 10 30 15 45) '<<)
+"#
     }
     tulisp_assert! {
         program: "(defun << (v1 v2) (> v1 v2)) (sort '(20 10 30 15 45) '<<)",
@@ -971,12 +1030,16 @@ fn test_typed_iter() -> Result<(), Error> {
     tulisp_assert! {
         ctx: ctx,
         program: "(add_ints_no_default 20)",
-        error: "<eval_string>:1.22-1.24: ERR TypeMismatch: In call to \"add_ints_no_default\", arg \"ints\" needs to be a list",
+        error: r#"ERR TypeMismatch: In call to "add_ints_no_default", arg "ints" needs to be a list
+<eval_string>:1.1-1.25:  at (add_ints_no_default 20)
+"#
     }
     tulisp_assert! {
         ctx: ctx,
         program: "(add_ints 20)",
-        error: "<eval_string>:1.11-1.13: ERR TypeMismatch: In call to \"add_ints\", arg \"ints\" needs to be a list",
+        error: r#"ERR TypeMismatch: In call to "add_ints", arg "ints" needs to be a list
+<eval_string>:1.1-1.14:  at (add_ints 20)
+"#
     }
     Ok(())
 }
@@ -1022,7 +1085,11 @@ fn test_any() -> Result<(), Error> {
     tulisp_assert! {
         ctx: ctx,
         program: "(get_int 55)",
-        error: "<eval_string>:1.10-1.12: ERR TypeMismatch: Expected Any(Rc<dyn Any>): 55",
+        error: r#"ERR TypeMismatch: Expected Any(Rc<dyn Any>): 55
+<eval_string>:1.10-1.12:  at 55
+<eval_string>:1.10-1.12:  at 55
+<eval_string>:1.1-1.13:  at (get_int 55)
+"#
     }
     Ok(())
 }
@@ -1040,7 +1107,10 @@ fn test_load() -> Result<(), Error> {
     tulisp_assert! {
         ctx: ctx,
         program: r#"(load "tests/bad-load.lisp")"#,
-        error: "tests/bad-load.lisp:1.9-1.10: ERR ParsingError: Unexpected closing parenthesis",
+        error: r#"ERR ParsingError: Unexpected closing parenthesis
+tests/bad-load.lisp:1.9-1.10:  at nil
+<eval_string>:1.1-1.29:  at (load "tests/bad-load.lisp")
+"#
     }
 
     Ok(())
