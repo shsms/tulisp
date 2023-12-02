@@ -220,6 +220,29 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     }
     intern_set_func!(ctx, setq);
 
+    fn set(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+        let value = args.cdr_and_then(|args| {
+            if args.null() {
+                return Err(Error::new(
+                    ErrorKind::TypeMismatch,
+                    "setq requires exactly 2 arguments".to_string(),
+                ));
+            }
+            args.cdr_and_then(|x| {
+                if !x.null() {
+                    return Err(Error::new(
+                        ErrorKind::TypeMismatch,
+                        "setq requires exactly 2 arguments".to_string(),
+                    ));
+                }
+                args.car_and_then(|arg| ctx.eval(arg))
+            })
+        })?;
+        args.car_and_then(|name_sym| ctx.eval_and_then(name_sym, |name| name.set(value.clone())))?;
+        Ok(value)
+    }
+    intern_set_func!(ctx, set);
+
     #[crate_fn_no_eval]
     fn impl_let(
         ctx: &mut TulispContext,

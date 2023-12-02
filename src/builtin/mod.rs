@@ -157,6 +157,7 @@ These functions need to be organized into categories.  They are grouped here for
 | `print`                                                                                                 | ☑️      | behaves like `princ`, not like emacs lisp `print` |
 | `princ`                                                                                                 | ☑️      |                                                   |
 | `prin1-to-string`                                                                                       | ☑️      |                                                   |
+| `set`                                                                                                   | ☑️      |                                                   |
 | `setq`                                                                                                  | ☑️      |                                                   |
 | `concat`                                                                                                | ☑️      | for strings                                       |
 | `expt`                                                                                                  | ☑️      |                                                   |
