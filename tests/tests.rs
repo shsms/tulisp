@@ -70,6 +70,13 @@ fn test_comparison_of_numbers() -> Result<(), Error> {
 <eval_string>:1.1-1.21:  at (let ((a 10)) (> a))
 "#
     }
+    tulisp_assert! {
+        program: r#"(> 10 "hello")"#,
+        error: r#"ERR TypeMismatch: Expected number, found: "hello"
+<eval_string>:1.8-1.14:  at "hello"
+<eval_string>:1.1-1.15:  at (> 10 "hello")
+"#
+    }
 
     // Greater than or equal
     tulisp_assert! { program: "(>= 10 10)", result: "t" }

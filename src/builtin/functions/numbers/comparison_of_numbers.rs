@@ -36,6 +36,20 @@ macro_rules! compare_impl {
             for items in items.windows(2) {
                 let a = ctx.eval(&items[0])?;
                 let b = ctx.eval(&items[1])?;
+                if !a.numberp() {
+                    return Err(Error::new(
+                        crate::ErrorKind::TypeMismatch,
+                        format!("Expected number, found: {a}"),
+                    )
+                    .with_trace(items[0].clone()));
+                }
+                if !b.numberp() {
+                    return Err(Error::new(
+                        crate::ErrorKind::TypeMismatch,
+                        format!("Expected number, found: {b}"),
+                    )
+                    .with_trace(items[1].clone()));
+                }
                 if !compare_ops!(std::cmp::PartialOrd::$name)(&a, &b)? {
                     return Ok(TulispObject::nil());
                 }
