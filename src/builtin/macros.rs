@@ -40,15 +40,15 @@ fn thread_last(_ctx: &mut TulispContext, vv: &TulispObject) -> Result<TulispObje
 
 pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.intern("->")
-        .set_scope(TulispValue::Macro(Rc::new(thread_first)).into_ref())
+        .set_scope(TulispValue::Macro(Rc::new(thread_first)).into_ref(None))
         .unwrap();
     ctx.intern("thread-first")
-        .set_scope(TulispValue::Macro(Rc::new(thread_first)).into_ref())
+        .set_scope(TulispValue::Macro(Rc::new(thread_first)).into_ref(None))
         .unwrap();
     ctx.intern("->>")
-        .set_scope(TulispValue::Macro(Rc::new(thread_last)).into_ref())
+        .set_scope(TulispValue::Macro(Rc::new(thread_last)).into_ref(None))
         .unwrap();
     ctx.intern("thread-last")
-        .set_scope(TulispValue::Macro(Rc::new(thread_last)).into_ref())
+        .set_scope(TulispValue::Macro(Rc::new(thread_last)).into_ref(None))
         .unwrap();
 }

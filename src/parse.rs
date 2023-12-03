@@ -416,7 +416,7 @@ impl Parser<'_, '_> {
                 ErrorKind::ParsingError,
                 "Unexpected closing parenthesis".to_string(),
             )
-            .with_trace(TulispObject::nil().with_span(Some(span)))),
+            .with_trace(TulispValue::Nil.into_ref(Some(span)))),
             Token::SharpQuote { span } | Token::Quote { span } => {
                 let next = match self.parse_value()? {
                     Some(next) => next,
@@ -425,13 +425,11 @@ impl Parser<'_, '_> {
                             ErrorKind::ParsingError,
                             "Unexpected EOF".to_string(),
                         )
-                        .with_trace(TulispObject::nil().with_span(Some(span))))
+                        .with_trace(TulispValue::Nil.into_ref(Some(span))))
                     }
                 };
                 Ok(Some(
-                    TulispValue::Quote { value: next }
-                        .into_ref()
-                        .with_span(Some(span)),
+                    TulispValue::Quote { value: next }.into_ref(Some(span)),
                 ))
             }
             Token::Backtick { span } => {
@@ -442,20 +440,18 @@ impl Parser<'_, '_> {
                             ErrorKind::ParsingError,
                             "Unexpected EOF".to_string(),
                         )
-                        .with_trace(TulispObject::nil().with_span(Some(span))))
+                        .with_trace(TulispValue::Nil.into_ref(Some(span))))
                     }
                 };
                 Ok(Some(
-                    TulispValue::Backquote { value: next }
-                        .into_ref()
-                        .with_span(Some(span)),
+                    TulispValue::Backquote { value: next }.into_ref(Some(span)),
                 ))
             }
             Token::Dot { span } => Err(Error::new(
                 ErrorKind::ParsingError,
                 "Unexpected dot".to_string(),
             )
-            .with_trace(TulispObject::nil().with_span(Some(span)))),
+            .with_trace(TulispValue::Nil.into_ref(Some(span)))),
             Token::Comma { span } => {
                 let next = match self.parse_value()? {
                     Some(next) => next,
@@ -464,13 +460,11 @@ impl Parser<'_, '_> {
                             ErrorKind::ParsingError,
                             "Unexpected EOF".to_string(),
                         )
-                        .with_trace(TulispObject::nil().with_span(Some(span))))
+                        .with_trace(TulispValue::Nil.into_ref(Some(span))))
                     }
                 };
                 Ok(Some(
-                    TulispValue::Unquote { value: next }
-                        .into_ref()
-                        .with_span(Some(span)),
+                    TulispValue::Unquote { value: next }.into_ref(Some(span)),
                 ))
             }
             Token::Splice { span } => {
@@ -481,13 +475,11 @@ impl Parser<'_, '_> {
                             ErrorKind::ParsingError,
                             "Unexpected EOF".to_string(),
                         )
-                        .with_trace(TulispObject::nil().with_span(Some(span))))
+                        .with_trace(TulispValue::Nil.into_ref(Some(span))))
                     }
                 };
                 Ok(Some(
-                    TulispValue::Splice { value: next }
-                        .into_ref()
-                        .with_span(Some(span)),
+                    TulispValue::Splice { value: next }.into_ref(Some(span)),
                 ))
             }
             Token::String { span, value } => Ok(Some(match self.strings.get(&value) {
@@ -496,32 +488,30 @@ impl Parser<'_, '_> {
                     let vv = TulispValue::String {
                         value: value.clone(),
                     }
-                    .into_ref();
+                    .into_ref(Some(span));
                     self.strings.insert(value, vv.clone());
-                    vv.with_span(Some(span))
+                    vv
                 }
             })),
 
             Token::Integer { span, value } => Ok(Some(match self.ints.get(&value) {
                 Some(vv) => vv.with_span(Some(span)),
                 None => {
-                    let vv = TulispValue::Int { value }.into_ref();
+                    let vv = TulispValue::Int { value }.into_ref(Some(span));
                     self.ints.insert(value, vv.clone());
-                    vv.with_span(Some(span))
+                    vv
                 }
             })),
-            Token::Float { span, value } => Ok(Some(
-                TulispValue::Float { value }
-                    .into_ref()
-                    .with_span(Some(span)),
-            )),
+            Token::Float { span, value } => {
+                Ok(Some(TulispValue::Float { value }.into_ref(Some(span))))
+            }
             Token::Ident { span, value } => Ok(Some(match self.ctx.intern_soft(&value) {
                 Some(vv) => vv.with_span(Some(span)),
                 None => {
                     if value == "t" {
-                        TulispValue::T.into_ref()
+                        TulispValue::T.into_ref(Some(span))
                     } else if value == "nil" {
-                        TulispObject::nil()
+                        TulispValue::Nil.into_ref(Some(span))
                     } else {
                         self.ctx.intern(&value).with_span(Some(span))
                     }
@@ -531,7 +521,7 @@ impl Parser<'_, '_> {
                 ErrorKind::ParsingError,
                 format!("{:?} {}", err.kind, err.desc),
             )
-            .with_trace(TulispObject::nil().with_span(Some(err.span)))),
+            .with_trace(TulispValue::Nil.into_ref(Some(err.span)))),
         }
     }
 

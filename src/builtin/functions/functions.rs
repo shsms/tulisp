@@ -59,7 +59,7 @@ fn mark_tail_calls(
     let new_tail = if tail_ident.eq(&name) {
         let ret_tail = TulispObject::nil().append(tail.cdr()?)?.to_owned();
         list!(,ctx.intern("list")
-              ,TulispValue::Bounce.into_ref()
+              ,TulispValue::Bounce.into_ref(None)
               ,@ret_tail)?
     } else if tail_name_str == "progn" || tail_name_str == "let" || tail_name_str == "let*" {
         list!(,tail_ident ,@mark_tail_calls(ctx, name, tail.cdr()?)?)?
@@ -121,7 +121,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 }
             }
         }
-        Ok(TulispValue::from(ret).into_ref())
+        Ok(TulispValue::from(ret).into_ref(rest.span()))
     }
 
     #[crate_fn(add_func = "ctx")]
@@ -175,7 +175,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     #[crate_fn(add_func = "ctx", name = "prin1-to-string")]
     fn prin1_to_string(arg: TulispObject) -> Result<TulispObject, Error> {
-        Ok(TulispValue::from(arg.fmt_string()).into_ref())
+        Ok(TulispValue::from(arg.fmt_string()).into_ref(arg.span()))
     }
 
     #[crate_fn(add_func = "ctx")]
@@ -319,7 +319,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 params: params.try_into()?,
                 body,
             }
-            .into_ref(),
+            .into_ref(None),
         )?;
         Ok(TulispObject::nil())
     }
@@ -335,7 +335,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             params: params.try_into()?,
             body,
         }
-        .into_ref())
+        .into_ref(None))
     }
 
     #[crate_fn_no_eval(add_func = "ctx")]
@@ -354,7 +354,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 params: params.try_into()?,
                 body,
             }
-            .into_ref(),
+            .into_ref(None),
         )?;
         Ok(TulispObject::nil())
     }
@@ -489,9 +489,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             }
         }
         match cons {
-            Some(cons) => Ok(TulispValue::List { cons, ctxobj }
-                .into_ref()
-                .with_span(span)),
+            Some(cons) => Ok(TulispValue::List { cons, ctxobj }.into_ref(span)),
             None => Ok(TulispObject::nil()),
         }
     }
@@ -564,6 +562,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     predicate_function!(stringp);
     predicate_function!(symbolp);
     predicate_function!(boundp);
+    predicate_function!(keywordp);
 
     // predicates end
 
