@@ -42,6 +42,28 @@ It is very easy to get started.  Here's an example:
   }
   ```
 
+## Features
+
+- `defun`s, `defmacro`s and `lambda`s
+- `intern` to find/create symbols dynamically
+- Backquote/Unquote forms (for example `` `(answer . ,(+ 2 3)) ``)
+- Threading macros (`thread-first` and `thread-last`)
+- Methods for reading from alists and plists
+- Dynamic binding (lexical binding planned)
+- Tailcall Optimization
+- Proc macros for exposing rust functions to tulisp
+- Decl macros for
+  [creating lists](https://docs.rs/tulisp/latest/tulisp/macro.list.html)
+  and
+  [destructuring lists](https://docs.rs/tulisp/latest/tulisp/macro.destruct_bind.html)
+  quickly.
+- Easy to use [interpreter](https://docs.rs/tulisp/latest/tulisp/struct.TulispContext.html) and [object](https://docs.rs/tulisp/latest/tulisp/struct.TulispObject.html)s
+- Backtraces for errors
+
+## Performance
+
+Tulisp has a light-weight tree-walking interpreter with very low startup times and sufficient speed for many config/simulation needs.
+
 ## Builtin functions
 
 A list of currently available builtin functions can be found [here](https://docs.rs/tulisp/latest/tulisp/builtin).
