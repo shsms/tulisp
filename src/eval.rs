@@ -175,16 +175,13 @@ fn eval_back_quote(
             )
             .map_err(|e| e.with_trace(first))?;
         } else {
-            ret.push(
-                eval(
-                    ctx,
-                    &TulispValue::Backquote {
-                        value: first.clone(),
-                    }
-                    .into_ref(),
-                )?
-                .with_span(first.span()),
-            )?;
+            ret.push(eval(
+                ctx,
+                &TulispValue::Backquote {
+                    value: first.clone(),
+                }
+                .into_ref(first.span()),
+            )?)?;
         }
         // TODO: is Nil check necessary
         if let TulispValue::Unquote { value } = rest_inner {

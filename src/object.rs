@@ -417,7 +417,7 @@ impl TulispObject {
                     // Recursive lists are not deep-copied, only the top-level
                     // is, because that's all that needed to avoid cycles when
                     // appending, etc.
-                    first.clone_inner().into_ref()
+                    first.clone_inner().into_ref(first.span())
                 };
                 ret.push_with_meta(first, val.span(), val.ctxobj())?;
                 if !rest.consp() {
@@ -429,7 +429,7 @@ impl TulispObject {
             ret
         };
         ret.with_ctxobj(self.ctxobj());
-        let ret = ret.into_ref().with_span(self.span());
+        let ret = ret.into_ref(self.span());
         Ok(ret)
     }
 }
@@ -523,7 +523,7 @@ macro_rules! tulisp_object_from {
     ($ty: ty) => {
         impl From<$ty> for TulispObject {
             fn from(vv: $ty) -> Self {
-                TulispValue::from(vv).into_ref()
+                TulispValue::from(vv).into_ref(None)
             }
         }
     };
@@ -538,13 +538,13 @@ tulisp_object_from!(Rc<dyn Any>);
 
 impl From<TulispValue> for TulispObject {
     fn from(vv: TulispValue) -> Self {
-        vv.into_ref()
+        vv.into_ref(None)
     }
 }
 
 impl FromIterator<TulispObject> for TulispObject {
     fn from_iter<T: IntoIterator<Item = TulispObject>>(iter: T) -> Self {
-        TulispValue::from_iter(iter).into_ref()
+        TulispValue::from_iter(iter).into_ref(None)
     }
 }
 

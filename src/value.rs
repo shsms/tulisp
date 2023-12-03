@@ -333,7 +333,7 @@ impl std::fmt::Display for TulispValue {
             TulispValue::Float { value, .. } => f.write_fmt(format_args!("{}", value)),
             TulispValue::String { value, .. } => f.write_fmt(format_args!(r#""{}""#, value)),
             vv @ TulispValue::List { .. } => {
-                fmt_list(vv.clone().into_ref(), f).unwrap_or(());
+                fmt_list(vv.clone().into_ref(None), f).unwrap_or(());
                 Ok(())
             }
             TulispValue::Quote { value, .. } => f.write_fmt(format_args!("'{}", value)),
@@ -472,8 +472,8 @@ impl TulispValue {
         }
     }
 
-    pub fn into_ref(self) -> TulispObject {
-        TulispObject::new(self, None)
+    pub fn into_ref(self, span: Option<Span>) -> TulispObject {
+        TulispObject::new(self, span)
     }
 
     pub fn as_list_cons(&self) -> Option<Cons> {
