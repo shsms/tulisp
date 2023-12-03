@@ -77,7 +77,7 @@ impl TulispObject {
     /// Read more about `nil` in Emacs Lisp
     /// [here](https://www.gnu.org/software/emacs/manual/html_node/eintr/nil-explained.html).
     pub fn nil() -> TulispObject {
-        TulispObject::from(TulispValue::Nil)
+        TulispValue::Nil.into_ref(None)
     }
 
     /// Create a new `t` value.
@@ -85,7 +85,7 @@ impl TulispObject {
     /// Any value that is not `nil` is considered `True`.  `t` may be used as a
     /// way to explicitly specify `True`.
     pub fn t() -> TulispObject {
-        TulispObject::from(TulispValue::T)
+        TulispValue::T.into_ref(None)
     }
 
     /// Make a cons cell with the given car and cdr values.
@@ -94,7 +94,7 @@ impl TulispObject {
             cons: Cons::new(car, cdr),
             ctxobj: None,
         }
-        .into()
+        .into_ref(None)
     }
 
     /// Returns true if `self` and `other` have equal values.
@@ -338,7 +338,7 @@ assert_eq!(ts.value, 25);
 // pub(crate) methods on TulispValue
 impl TulispObject {
     pub(crate) fn symbol(name: String, constant: bool) -> TulispObject {
-        TulispValue::symbol(name, constant).into()
+        TulispValue::symbol(name, constant).into_ref(None)
     }
 
     pub(crate) fn new(vv: TulispValue, span: Option<Span>) -> TulispObject {
@@ -544,12 +544,6 @@ tulisp_object_from!(&str);
 tulisp_object_from!(String);
 tulisp_object_from!(bool);
 tulisp_object_from!(Rc<dyn Any>);
-
-impl From<TulispValue> for TulispObject {
-    fn from(vv: TulispValue) -> Self {
-        vv.into_ref(None)
-    }
-}
 
 impl FromIterator<TulispObject> for TulispObject {
     fn from_iter<T: IntoIterator<Item = TulispObject>>(iter: T) -> Self {
