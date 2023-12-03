@@ -1190,3 +1190,12 @@ fn test_hash_table() -> Result<(), Error> {
 
     Ok(())
 }
+
+#[test]
+fn test_predicates() -> Result<(), Error> {
+    tulisp_assert! {
+        program: "(list (keywordp :a) (keywordp ':abcd) (keywordp 'abcd) (keywordp nil))",
+        result: "'(t t nil nil)"
+    }
+    Ok(())
+}

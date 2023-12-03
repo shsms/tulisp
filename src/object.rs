@@ -317,6 +317,7 @@ assert_eq!(ts.value, 25);
         boundp,
         "Returns True if `self` is bound in the current scope."
     );
+    predicate_fn!(pub, keywordp, "Returns True if `self` is a Keyword.");
 
     predicate_fn!(pub, null, "Returns True if `self` is `nil`.");
     predicate_fn!(pub, is_truthy, "Returns True if `self` is not `nil`.");

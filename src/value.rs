@@ -409,6 +409,14 @@ impl TulispValue {
         }
     }
 
+    pub fn keywordp(&self) -> bool {
+        if let TulispValue::Symbol { value, .. } = self {
+            value.is_constant()
+        } else {
+            false
+        }
+    }
+
     pub fn boundp(&self) -> bool {
         if let TulispValue::Symbol { value, .. } = self {
             value.boundp()
