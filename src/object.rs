@@ -219,13 +219,21 @@ impl TulispObject {
             .map_err(|e| e.with_trace(self.clone()))
     }
 
-    // extractors begin
-    extractor_fn_with_err!(
-        TulispObject,
-        get,
-        "Gets the value from `self`.\n\nReturns an Error if `self` is not a `Symbol`."
-    );
+    /// Gets the value from `self`.
+    ///
+    /// Returns an Error if `self` is not a `Symbol`.
+    pub fn get(&self) -> Result<TulispObject, Error> {
+        if self.keywordp() {
+            Ok(self.clone())
+        } else {
+            self.rc
+                .borrow()
+                .get()
+                .map_err(|e| e.with_trace(self.clone()))
+        }
+    }
 
+    // extractors begin
     extractor_fn_with_err!(
         f64,
         try_float,

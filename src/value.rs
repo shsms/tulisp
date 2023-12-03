@@ -398,7 +398,9 @@ impl TulispValue {
     pub fn get(&self) -> Result<TulispObject, Error> {
         if let TulispValue::Symbol { value, .. } = self {
             if value.is_constant() {
-                return Ok(self.clone().into());
+                // Taking this path loses the span, so it should never be used.
+                // This check needs to be done in the object.
+                return Ok(self.clone().into_ref(None));
             }
             value.get()
         } else {
