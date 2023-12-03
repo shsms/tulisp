@@ -473,7 +473,7 @@ impl TulispValue {
     }
 
     pub fn into_ref(self) -> TulispObject {
-        TulispObject::new(self)
+        TulispObject::new(self, None)
     }
 
     pub fn as_list_cons(&self) -> Option<Cons> {

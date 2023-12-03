@@ -332,10 +332,10 @@ impl TulispObject {
         TulispValue::symbol(name, constant).into()
     }
 
-    pub(crate) fn new(vv: TulispValue) -> TulispObject {
+    pub(crate) fn new(vv: TulispValue, span: Option<Span>) -> TulispObject {
         Self {
             rc: Rc::new(RefCell::new(vv)),
-            span: Rc::new(Cell::new(None)),
+            span: Rc::new(Cell::new(span)),
         }
     }
 
