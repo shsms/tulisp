@@ -193,7 +193,7 @@ impl TulispContext {
         self.eval_progn(&vv)
     }
 
-    pub fn get_filename(&self, file_id: usize) -> String {
+    pub(crate) fn get_filename(&self, file_id: usize) -> String {
         self.filenames[file_id].clone()
     }
 }
