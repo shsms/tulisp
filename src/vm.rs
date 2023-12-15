@@ -68,6 +68,11 @@ pub enum Instruction {
     GtEq,
     // control flow
     JumpIfNil(Pos),
+    JumpIfEq(Pos),
+    JumpIfLt(Pos),
+    JumpIfLtEq(Pos),
+    JumpIfGt(Pos),
+    JumpIfGtEq(Pos),
     Jump(Pos),
 }
 
@@ -81,6 +86,11 @@ impl Display for Instruction {
             Instruction::Minus => write!(f, "Minus"),
             Instruction::Print => write!(f, "Print"),
             Instruction::JumpIfNil(pos) => write!(f, "JumpIfNil({:?})", pos),
+            Instruction::JumpIfEq(pos) => write!(f, "JumpIfEq({:?})", pos),
+            Instruction::JumpIfLt(pos) => write!(f, "JumpIfLt({:?})", pos),
+            Instruction::JumpIfLtEq(pos) => write!(f, "JumpIfLtEq({:?})", pos),
+            Instruction::JumpIfGt(pos) => write!(f, "JumpIfGt({:?})", pos),
+            Instruction::JumpIfGtEq(pos) => write!(f, "JumpIfGtEq({:?})", pos),
             Instruction::Eq => write!(f, "Eq"),
             Instruction::Lt => write!(f, "Lt"),
             Instruction::LtEq => write!(f, "LtEq"),
@@ -118,10 +128,10 @@ impl Machine {
         let mut ctr: u32 = 0; // safety counter
         while self.pc < self.program.len() && ctr < 100000 {
             let instr = &self.program[self.pc];
-            ctr += 1;
-            self.pc += 1;
             // self.print_stack();
             // println!("\nPC: {}; Executing: {}", self.pc, instr);
+            ctr += 1;
+            self.pc += 1;
             match instr {
                 Instruction::Push(obj) => self.stack.push(obj.clone()),
                 Instruction::Plus => {
@@ -141,6 +151,56 @@ impl Machine {
                 Instruction::JumpIfNil(pos) => {
                     let a = self.stack.pop().unwrap();
                     if a.null() {
+                        match pos {
+                            Pos::Absolute(p) => self.pc = *p,
+                            Pos::Relative(p) => self.pc = (self.pc as isize + p - 1) as usize,
+                        }
+                    }
+                }
+                Instruction::JumpIfEq(pos) => {
+                    let a = self.stack.pop().unwrap();
+                    let b = self.stack.pop().unwrap();
+                    if a.eq(&b) {
+                        match pos {
+                            Pos::Absolute(p) => self.pc = *p,
+                            Pos::Relative(p) => self.pc = (self.pc as isize + p - 1) as usize,
+                        }
+                    }
+                }
+                Instruction::JumpIfLt(pos) => {
+                    let a = self.stack.pop().unwrap();
+                    let b = self.stack.pop().unwrap();
+                    if compare_ops!(std::cmp::PartialOrd::lt)(&a, &b)? {
+                        match pos {
+                            Pos::Absolute(p) => self.pc = *p,
+                            Pos::Relative(p) => self.pc = (self.pc as isize + p - 1) as usize,
+                        }
+                    }
+                }
+                Instruction::JumpIfLtEq(pos) => {
+                    let a = self.stack.pop().unwrap();
+                    let b = self.stack.pop().unwrap();
+                    if compare_ops!(std::cmp::PartialOrd::le)(&a, &b)? {
+                        match pos {
+                            Pos::Absolute(p) => self.pc = *p,
+                            Pos::Relative(p) => self.pc = (self.pc as isize + p - 1) as usize,
+                        }
+                    }
+                }
+                Instruction::JumpIfGt(pos) => {
+                    let a = self.stack.pop().unwrap();
+                    let b = self.stack.pop().unwrap();
+                    if compare_ops!(std::cmp::PartialOrd::gt)(&a, &b)? {
+                        match pos {
+                            Pos::Absolute(p) => self.pc = *p,
+                            Pos::Relative(p) => self.pc = (self.pc as isize + p - 1) as usize,
+                        }
+                    }
+                }
+                Instruction::JumpIfGtEq(pos) => {
+                    let a = self.stack.pop().unwrap();
+                    let b = self.stack.pop().unwrap();
+                    if compare_ops!(std::cmp::PartialOrd::ge)(&a, &b)? {
                         match pos {
                             Pos::Absolute(p) => self.pc = *p,
                             Pos::Relative(p) => self.pc = (self.pc as isize + p - 1) as usize,
@@ -222,11 +282,10 @@ mod programs {
             Instruction::Load(i.clone()), // 10
             Instruction::Load(n.clone()), // 11
             if from < to {
-                Instruction::Lt
+                Instruction::JumpIfGtEq(Pos::Absolute(4))
             } else {
-                Instruction::Gt
+                Instruction::JumpIfLtEq(Pos::Absolute(4))
             }, // 12
-            Instruction::JumpIfNil(Pos::Absolute(4)), // 13
         ]
     }
 }
