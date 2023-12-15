@@ -116,7 +116,8 @@ impl Machine {
     pub fn new() -> Self {
         Machine {
             stack: Vec::new(),
-            program: programs::print_range(92, 100),
+            // program: programs::print_range(92, 100),
+            program: programs::fib(30),
             pc: 0,
         }
     }
@@ -286,6 +287,7 @@ mod programs {
 
     use super::{Instruction, Pos};
 
+    #[allow(dead_code)]
     pub(super) fn print_range(from: i64, to: i64) -> Vec<Instruction> {
         let i = TulispObject::symbol("i".to_string(), false);
         let n = TulispObject::symbol("n".to_string(), false);
@@ -313,6 +315,43 @@ mod programs {
             } else {
                 Instruction::JumpIfLtEq(Pos::Abs(4))
             }, // 12
+        ]
+    }
+
+    #[allow(dead_code)]
+    pub(super) fn fib(num: i64) -> Vec<Instruction> {
+        let n = TulispObject::symbol("n".to_string(), false);
+        vec![
+            Instruction::Jump(Pos::Abs(16)), // 0
+            // fib:
+            Instruction::Push(2.into()),        // 1
+            Instruction::Load(n.clone()),       // 2
+            Instruction::JumpIfGt(Pos::Abs(6)), // 3
+            Instruction::Push(1.into()),        // 4
+            Instruction::Ret,                   // 5
+            Instruction::Push(1.into()),        // 6
+            Instruction::Load(n.clone()),       // 7
+            Instruction::Minus,                 // 8
+            Instruction::Call {
+                pos: Pos::Abs(1),
+                params: vec![n.clone()],
+            }, // 9
+            Instruction::Push(2.into()),        // 10
+            Instruction::Load(n.clone()),       // 11
+            Instruction::Minus,                 // 12
+            Instruction::Call {
+                pos: Pos::Abs(1),
+                params: vec![n.clone()],
+            }, // 13
+            Instruction::Plus,                  // 14
+            Instruction::Ret,                   // 15
+            // main:
+            Instruction::Push(num.into()), // 16
+            Instruction::Call {
+                pos: Pos::Abs(1),
+                params: vec![n.clone()],
+            }, // 17
+            Instruction::Print,            // 18
         ]
     }
 }
