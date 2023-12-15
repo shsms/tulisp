@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::{Error, TulispObject};
+use crate::{context::Scope, Error, TulispObject};
 
 macro_rules! compare_ops {
     ($oper:expr) => {{
@@ -74,6 +74,9 @@ pub enum Instruction {
     JumpIfGt(Pos),
     JumpIfGtEq(Pos),
     Jump(Pos),
+    // functions
+    Call { pos: Pos, params: Vec<TulispObject> },
+    Ret,
 }
 
 impl Display for Instruction {
@@ -97,6 +100,8 @@ impl Display for Instruction {
             Instruction::Gt => write!(f, "Gt"),
             Instruction::GtEq => write!(f, "GtEq"),
             Instruction::Jump(pos) => write!(f, "Jump({:?})", pos),
+            Instruction::Call { pos, .. } => write!(f, "Call({:?})", pos),
+            Instruction::Ret => write!(f, "Ret"),
         }
     }
 }
@@ -124,12 +129,15 @@ impl Machine {
         }
     }
 
-    pub fn run(&mut self) -> Result<(), Error> {
+    pub fn run(&mut self, recursion_depth: u32) -> Result<(), Error> {
         let mut ctr: u32 = 0; // safety counter
         while self.pc < self.program.len() && ctr < 100000 {
             let instr = &self.program[self.pc];
             // self.print_stack();
-            // println!("\nPC: {}; Executing: {}", self.pc, instr);
+            // println!(
+            //     "\nDepth: {}: PC: {}; Executing: {}",
+            //     recursion_depth, self.pc, instr
+            // );
             ctr += 1;
             self.pc += 1;
             match instr {
@@ -248,6 +256,25 @@ impl Machine {
                     let a = obj.get()?;
                     self.stack.push(a);
                 }
+                Instruction::Call { pos, params } => {
+                    let pc = self.pc;
+                    let mut scope = Scope::default();
+
+                    match pos {
+                        Pos::Abs(p) => self.pc = *p,
+                        Pos::Rel(p) => self.pc = (self.pc as isize + p - 1) as usize,
+                    }
+
+                    for param in params {
+                        let value = self.stack.pop().unwrap();
+                        scope.set(param.clone(), value)?;
+                    }
+                    self.run(recursion_depth + 1)?;
+                    scope.remove_all()?;
+
+                    self.pc = pc;
+                }
+                Instruction::Ret => return Ok(()),
             }
         }
         Ok(())
