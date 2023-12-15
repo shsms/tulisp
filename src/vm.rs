@@ -56,8 +56,8 @@ pub enum Instruction {
     Store(TulispObject),
     Load(TulispObject),
     // arithmetic
-    Plus,
-    Minus,
+    Add,
+    Sub,
     // io
     Print,
     // comparison
@@ -85,8 +85,8 @@ impl Display for Instruction {
             Instruction::Push(obj) => write!(f, "Push({})", obj),
             Instruction::Store(obj) => write!(f, "Store({})", obj),
             Instruction::Load(obj) => write!(f, "Load({})", obj),
-            Instruction::Plus => write!(f, "Plus"),
-            Instruction::Minus => write!(f, "Minus"),
+            Instruction::Add => write!(f, "Plus"),
+            Instruction::Sub => write!(f, "Minus"),
             Instruction::Print => write!(f, "Print"),
             Instruction::JumpIfNil(pos) => write!(f, "JumpIfNil({:?})", pos),
             Instruction::JumpIfEq(pos) => write!(f, "JumpIfEq({:?})", pos),
@@ -143,12 +143,12 @@ impl Machine {
             self.pc += 1;
             match instr {
                 Instruction::Push(obj) => self.stack.push(obj.clone()),
-                Instruction::Plus => {
+                Instruction::Add => {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
                     self.stack.push(binary_ops!(std::ops::Add::add)(&a, &b)?);
                 }
-                Instruction::Minus => {
+                Instruction::Sub => {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
                     self.stack.push(binary_ops!(std::ops::Sub::sub)(&a, &b)?);
@@ -303,9 +303,9 @@ mod programs {
             Instruction::Push(1.into()),  // 6
             Instruction::Load(i.clone()), // 7
             if from < to {
-                Instruction::Plus
+                Instruction::Add
             } else {
-                Instruction::Minus
+                Instruction::Sub
             }, // 8
             Instruction::Store(i.clone()), // 9
             Instruction::Load(i.clone()), // 10
@@ -331,19 +331,19 @@ mod programs {
             Instruction::Ret,                   // 5
             Instruction::Push(1.into()),        // 6
             Instruction::Load(n.clone()),       // 7
-            Instruction::Minus,                 // 8
+            Instruction::Sub,                   // 8
             Instruction::Call {
                 pos: Pos::Abs(1),
                 params: vec![n.clone()],
             }, // 9
             Instruction::Push(2.into()),        // 10
             Instruction::Load(n.clone()),       // 11
-            Instruction::Minus,                 // 12
+            Instruction::Sub,                   // 12
             Instruction::Call {
                 pos: Pos::Abs(1),
                 params: vec![n.clone()],
             }, // 13
-            Instruction::Plus,                  // 14
+            Instruction::Add,                   // 14
             Instruction::Ret,                   // 15
             // main:
             Instruction::Push(num.into()), // 16
