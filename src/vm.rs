@@ -44,8 +44,8 @@ macro_rules! binary_ops {
 
 #[derive(Debug)]
 pub enum Pos {
-    Absolute(usize),
-    Relative(isize),
+    Abs(usize),
+    Rel(isize),
 }
 
 /// A single instruction in the VM.
@@ -152,8 +152,8 @@ impl Machine {
                     let a = self.stack.pop().unwrap();
                     if a.null() {
                         match pos {
-                            Pos::Absolute(p) => self.pc = *p,
-                            Pos::Relative(p) => self.pc = (self.pc as isize + p - 1) as usize,
+                            Pos::Abs(p) => self.pc = *p,
+                            Pos::Rel(p) => self.pc = (self.pc as isize + p - 1) as usize,
                         }
                     }
                 }
@@ -162,8 +162,8 @@ impl Machine {
                     let b = self.stack.pop().unwrap();
                     if a.eq(&b) {
                         match pos {
-                            Pos::Absolute(p) => self.pc = *p,
-                            Pos::Relative(p) => self.pc = (self.pc as isize + p - 1) as usize,
+                            Pos::Abs(p) => self.pc = *p,
+                            Pos::Rel(p) => self.pc = (self.pc as isize + p - 1) as usize,
                         }
                     }
                 }
@@ -172,8 +172,8 @@ impl Machine {
                     let b = self.stack.pop().unwrap();
                     if compare_ops!(std::cmp::PartialOrd::lt)(&a, &b)? {
                         match pos {
-                            Pos::Absolute(p) => self.pc = *p,
-                            Pos::Relative(p) => self.pc = (self.pc as isize + p - 1) as usize,
+                            Pos::Abs(p) => self.pc = *p,
+                            Pos::Rel(p) => self.pc = (self.pc as isize + p - 1) as usize,
                         }
                     }
                 }
@@ -182,8 +182,8 @@ impl Machine {
                     let b = self.stack.pop().unwrap();
                     if compare_ops!(std::cmp::PartialOrd::le)(&a, &b)? {
                         match pos {
-                            Pos::Absolute(p) => self.pc = *p,
-                            Pos::Relative(p) => self.pc = (self.pc as isize + p - 1) as usize,
+                            Pos::Abs(p) => self.pc = *p,
+                            Pos::Rel(p) => self.pc = (self.pc as isize + p - 1) as usize,
                         }
                     }
                 }
@@ -192,8 +192,8 @@ impl Machine {
                     let b = self.stack.pop().unwrap();
                     if compare_ops!(std::cmp::PartialOrd::gt)(&a, &b)? {
                         match pos {
-                            Pos::Absolute(p) => self.pc = *p,
-                            Pos::Relative(p) => self.pc = (self.pc as isize + p - 1) as usize,
+                            Pos::Abs(p) => self.pc = *p,
+                            Pos::Rel(p) => self.pc = (self.pc as isize + p - 1) as usize,
                         }
                     }
                 }
@@ -202,14 +202,14 @@ impl Machine {
                     let b = self.stack.pop().unwrap();
                     if compare_ops!(std::cmp::PartialOrd::ge)(&a, &b)? {
                         match pos {
-                            Pos::Absolute(p) => self.pc = *p,
-                            Pos::Relative(p) => self.pc = (self.pc as isize + p - 1) as usize,
+                            Pos::Abs(p) => self.pc = *p,
+                            Pos::Rel(p) => self.pc = (self.pc as isize + p - 1) as usize,
                         }
                     }
                 }
                 Instruction::Jump(pos) => match pos {
-                    Pos::Absolute(p) => self.pc = *p,
-                    Pos::Relative(p) => self.pc = (self.pc as isize + p - 1) as usize,
+                    Pos::Abs(p) => self.pc = *p,
+                    Pos::Rel(p) => self.pc = (self.pc as isize + p - 1) as usize,
                 },
                 Instruction::Eq => {
                     let a = self.stack.pop().unwrap();
@@ -282,9 +282,9 @@ mod programs {
             Instruction::Load(i.clone()), // 10
             Instruction::Load(n.clone()), // 11
             if from < to {
-                Instruction::JumpIfGtEq(Pos::Absolute(4))
+                Instruction::JumpIfGtEq(Pos::Abs(4))
             } else {
-                Instruction::JumpIfLtEq(Pos::Absolute(4))
+                Instruction::JumpIfLtEq(Pos::Abs(4))
             }, // 12
         ]
     }
