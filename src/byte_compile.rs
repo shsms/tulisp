@@ -68,23 +68,36 @@ fn byte_compile_expr(
     }
 }
 
+macro_rules! function_1_arg {
+    ($name: ident, $args: ident, $($lambda: tt)+) => {{
+        match $args.cdr_and_then(|x| Ok(x.null())) {
+            Err(e) => return Err(e),
+            Ok(false) => {
+                return Err(Error::new(
+                    ErrorKind::ArityMismatch,
+                    format!("{} takes exactly 1 argument", stringify!($name)),
+                ))
+            }
+            Ok(true) => {}
+        }
+        $args.car_and_then($($lambda)+)
+    }};
+}
+
 fn byte_compile_form(
     ctx: &mut TulispContext,
     functions: &mut VMFunctions,
     cons: &crate::cons::Cons,
 ) -> Result<Vec<Instruction>, Error> {
     let mut result = Vec::new();
-    let first = cons.car();
-    let rest = cons.cdr();
-    if first.eq(&functions.print) {
-        if lists::length(rest)? != 1 {
-            return Err(Error::new(
-                ErrorKind::ArityMismatch,
-                "print takes exactly one argument".to_string(),
-            ));
-        }
-        result.append(&mut byte_compile_expr(ctx, functions, &rest.car()?)?);
-        result.push(Instruction::Print);
+    let name = cons.car();
+    let args = cons.cdr();
+    if name.eq(&functions.print) {
+        function_1_arg!(name, args, |arg| {
+            result.append(&mut byte_compile_expr(ctx, functions, &arg)?);
+            result.push(Instruction::Print);
+            Ok(())
+        })?;
     }
     Ok(result)
 }
