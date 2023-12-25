@@ -98,7 +98,7 @@ impl DefunParams {
     }
 }
 
-type TulispFn = dyn Fn(&mut TulispContext, &TulispObject) -> Result<TulispObject, Error>;
+pub(crate) type TulispFn = dyn Fn(&mut TulispContext, &TulispObject) -> Result<TulispObject, Error>;
 
 #[derive(Default, Clone, Debug)]
 pub struct SymbolBindings {

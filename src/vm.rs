@@ -1,6 +1,6 @@
-use std::fmt::Display;
+use std::{fmt::Display, rc::Rc};
 
-use crate::{context::Scope, Error, TulispContext, TulispObject};
+use crate::{context::Scope, value::TulispFn, Error, TulispContext, TulispObject};
 
 macro_rules! compare_ops {
     ($oper:expr) => {{
@@ -49,7 +49,6 @@ pub enum Pos {
 }
 
 /// A single instruction in the VM.
-#[derive(Debug)]
 pub enum Instruction {
     Push(TulispObject),
     // variables
@@ -75,6 +74,7 @@ pub enum Instruction {
     JumpIfGtEq(Pos),
     Jump(Pos),
     // functions
+    RustCall { func: Rc<TulispFn> },
     Call { pos: Pos, params: Vec<TulispObject> },
     Ret,
 }
@@ -102,6 +102,7 @@ impl Display for Instruction {
             Instruction::Jump(pos) => write!(f, "jmp {:?}", pos),
             Instruction::Call { pos, .. } => write!(f, "call {:?}", pos),
             Instruction::Ret => write!(f, "ret"),
+            Instruction::RustCall { .. } => write!(f, "rustcall"),
         }
     }
 }
@@ -113,11 +114,12 @@ pub struct Machine {
 }
 
 impl Machine {
-    pub fn new() -> Self {
+    pub fn new(ctx: &mut TulispContext) -> Self {
         Machine {
             stack: Vec::new(),
             // program: programs::print_range(92, 100),
-            program: programs::fib(30),
+            // program: programs::fib(30),
+            program: programs::rustcall_dotimes(ctx, 10),
             pc: 0,
         }
     }
@@ -276,6 +278,10 @@ impl Machine {
                     self.pc = pc;
                 }
                 Instruction::Ret => return Ok(()),
+                Instruction::RustCall { func } => {
+                    let args = self.stack.pop().unwrap();
+                    self.stack.push(func(ctx, &args)?);
+                }
             }
         }
         Ok(())
@@ -283,9 +289,9 @@ impl Machine {
 }
 
 mod programs {
-    use crate::TulispObject;
+    use super::*;
 
-    use super::{Instruction, Pos};
+    use crate::{list, TulispContext, TulispObject, TulispValue};
 
     #[allow(dead_code)]
     pub(super) fn print_range(from: i64, to: i64) -> Vec<Instruction> {
@@ -352,6 +358,29 @@ mod programs {
                 params: vec![n.clone()],
             }, // 17
             Instruction::Print,            // 18
+        ]
+    }
+
+    #[allow(dead_code)]
+    pub(super) fn rustcall_dotimes(ctx: &mut TulispContext, num: i64) -> Vec<Instruction> {
+        let var = TulispObject::symbol("var".to_string(), false);
+        let args = list!(
+            list!(var.clone(), num.into()).unwrap(),
+            list!(ctx.intern("print"), var).unwrap()
+        )
+        .unwrap();
+        vec![
+            Instruction::Push(args), // 0
+            Instruction::RustCall {
+                func: {
+                    let obj = ctx.intern("dotimes").get().unwrap();
+                    if let TulispValue::Func(ref func) = obj.clone_inner() {
+                        func.clone()
+                    } else {
+                        panic!("Expected function")
+                    }
+                },
+            },
         ]
     }
 }
