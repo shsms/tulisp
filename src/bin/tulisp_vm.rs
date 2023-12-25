@@ -1,10 +1,15 @@
-use tulisp::{vm, TulispContext};
+use std::env;
+
+use tulisp::TulispContext;
 
 fn main() {
     let mut ctx = TulispContext::new();
-    let mut machine = vm::Machine::new(&mut ctx);
-    if let Err(e) = machine.run(&mut ctx, 0) {
-        println!("{}", e.format(&ctx));
-        std::process::exit(-1);
+    let args: Vec<String> = env::args().skip(1).collect();
+
+    for arg in args {
+        if let Err(e) = ctx.vm_eval_file(&arg) {
+            println!("{}", e.format(&ctx));
+            std::process::exit(-1);
+        }
     }
 }

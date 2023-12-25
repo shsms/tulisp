@@ -1,12 +1,12 @@
 use std::{collections::HashMap, fs};
 
 use crate::{
-    builtin,
+    builtin, byte_compile,
     error::Error,
     eval::{eval, eval_and_then, eval_basic, funcall, DummyEval},
     list,
     parse::parse,
-    TulispObject,
+    vm, TulispObject,
 };
 
 #[derive(Debug, Default, Clone)]
@@ -191,6 +191,25 @@ impl TulispContext {
         let string: &str = &contents;
         let vv = parse(self, self.filenames.len() - 1, string)?;
         self.eval_progn(&vv)
+    }
+
+    pub fn vm_eval_file(&mut self, filename: &str) -> Result<(), Error> {
+        let contents = fs::read_to_string(filename).map_err(|e| {
+            Error::new(
+                crate::ErrorKind::Undefined,
+                format!("Unable to read file: {filename}. Error: {e}"),
+            )
+        })?;
+        self.filenames.push(filename.to_owned());
+
+        let string: &str = &contents;
+        let vv = parse(self, self.filenames.len() - 1, string)?;
+        let bytecode = byte_compile::byte_compile(self, &vv)?;
+        for instr in &bytecode {
+            println!("{}", instr);
+        }
+        println!();
+        vm::Machine::new(bytecode).run(self, 0)
     }
 
     pub(crate) fn get_filename(&self, file_id: usize) -> String {

@@ -114,12 +114,12 @@ pub struct Machine {
 }
 
 impl Machine {
-    pub fn new(ctx: &mut TulispContext) -> Self {
+    pub fn new(program: Vec<Instruction>) -> Self {
         Machine {
             stack: Vec::new(),
             // program: programs::print_range(92, 100),
             // program: programs::fib(30),
-            program: programs::rustcall_dotimes(ctx, 10),
+            program,
             pc: 0,
         }
     }
