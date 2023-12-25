@@ -1,7 +1,8 @@
 use std::{collections::HashMap, fs};
 
 use crate::{
-    builtin, byte_compile,
+    builtin,
+    byte_compile::Compiler,
     error::Error,
     eval::{eval, eval_and_then, eval_basic, funcall, DummyEval},
     list,
@@ -204,7 +205,8 @@ impl TulispContext {
 
         let string: &str = &contents;
         let vv = parse(self, self.filenames.len() - 1, string)?;
-        let bytecode = byte_compile::byte_compile(self, &vv)?;
+        let mut compiler = Compiler::new(self);
+        let bytecode = compiler.compile(&vv)?;
         for instr in &bytecode {
             println!("{}", instr);
         }

@@ -30,115 +30,121 @@ impl VMFunctions {
     }
 }
 
-pub fn byte_compile(
-    ctx: &mut TulispContext,
-    value: &TulispObject,
-) -> Result<Vec<Instruction>, Error> {
-    let mut functions = VMFunctions::from(ctx);
-    let mut result = Vec::new();
-    for expr in value.base_iter() {
-        result.append(&mut byte_compile_expr(ctx, &mut functions, &expr)?);
-    }
-    Ok(result)
+#[allow(dead_code)]
+pub(crate) struct Compiler<'a> {
+    ctx: &'a mut TulispContext,
+    functions: VMFunctions,
 }
 
-fn byte_compile_expr(
-    ctx: &mut TulispContext,
-    functions: &mut VMFunctions,
-    expr: &TulispObject,
-) -> Result<Vec<Instruction>, Error> {
-    match &*expr.inner_ref() {
-        TulispValue::Int { .. }
-        | TulispValue::Float { .. }
-        | TulispValue::String { .. }
-        | TulispValue::Lambda { .. }
-        | TulispValue::Func(_)
-        | TulispValue::Macro(_)
-        | TulispValue::Defmacro { .. }
-        | TulispValue::Any(_)
-        | TulispValue::Bounce
-        | TulispValue::Nil
-        | TulispValue::Quote { .. }
-        | TulispValue::Sharpquote { .. }
-        | TulispValue::Backquote { .. }
-        | TulispValue::Unquote { .. }
-        | TulispValue::Splice { .. }
-        | TulispValue::T => Ok(vec![Instruction::Push(expr.clone())]),
-        TulispValue::List { cons, .. } => {
-            byte_compile_form(ctx, functions, cons).map_err(|e| e.with_trace(expr.clone()))
+impl<'a> Compiler<'a> {
+    pub fn new(ctx: &'a mut TulispContext) -> Self {
+        let functions = VMFunctions::from(ctx);
+        Compiler { ctx, functions }
+    }
+
+    pub fn compile(&mut self, value: &TulispObject) -> Result<Vec<Instruction>, Error> {
+        let mut result = vec![];
+        for expr in value.base_iter() {
+            result.append(&mut self.compile_expr(&expr)?);
         }
-        TulispValue::Symbol { .. } => Ok(vec![Instruction::Load(expr.clone())]),
+        Ok(result)
     }
-}
 
-fn byte_compile_1_arg_fn(
-    name: &TulispObject,
-    args: &TulispObject,
-    lambda: impl FnOnce(&TulispObject) -> Result<(), Error>,
-) -> Result<(), Error> {
-    match args.cdr_and_then(|x| Ok(x.null())) {
-        Err(e) => return Err(e),
-        Ok(false) => {
+    fn compile_expr(&mut self, expr: &TulispObject) -> Result<Vec<Instruction>, Error> {
+        match &*expr.inner_ref() {
+            TulispValue::Int { .. }
+            | TulispValue::Float { .. }
+            | TulispValue::String { .. }
+            | TulispValue::Lambda { .. }
+            | TulispValue::Func(_)
+            | TulispValue::Macro(_)
+            | TulispValue::Defmacro { .. }
+            | TulispValue::Any(_)
+            | TulispValue::Bounce
+            | TulispValue::Nil
+            | TulispValue::Quote { .. }
+            | TulispValue::Sharpquote { .. }
+            | TulispValue::Backquote { .. }
+            | TulispValue::Unquote { .. }
+            | TulispValue::Splice { .. }
+            | TulispValue::T => return Ok(vec![Instruction::Push(expr.clone())]),
+            TulispValue::List { cons, .. } => self
+                .compile_form(cons)
+                .map_err(|e| e.with_trace(expr.clone())),
+            TulispValue::Symbol { .. } => Ok(vec![Instruction::Load(expr.clone())]),
+        }
+    }
+
+    fn compile_1_arg_call(
+        &mut self,
+        name: &TulispObject,
+        args: &TulispObject,
+        lambda: fn(&mut Compiler, &TulispObject) -> Result<Vec<Instruction>, Error>,
+    ) -> Result<Vec<Instruction>, Error> {
+        match args.cdr_and_then(|x| Ok(x.null())) {
+            Err(e) => return Err(e),
+            Ok(false) => {
+                return Err(Error::new(
+                    ErrorKind::ArityMismatch,
+                    format!("{} takes 1 argument.", name),
+                ))
+            }
+            Ok(true) => {}
+        }
+        args.car_and_then(|x| lambda(self, x))
+    }
+
+    fn compile_2_arg_call(
+        &mut self,
+        name: &TulispObject,
+        args: &TulispObject,
+        lambda: fn(&mut Compiler, &TulispObject, &TulispObject) -> Result<Vec<Instruction>, Error>,
+    ) -> Result<Vec<Instruction>, Error> {
+        let TulispValue::List { cons: args, .. } = &*args.inner_ref() else {
             return Err(Error::new(
                 ErrorKind::ArityMismatch,
-                format!("{} takes 1 argument.", name),
-            ))
-        }
-        Ok(true) => {}
-    }
-    args.car_and_then(lambda)
-}
-
-fn byte_compile_2_arg_fn(
-    name: &TulispObject,
-    args: &TulispObject,
-    lambda: impl FnOnce(&TulispObject, &TulispObject) -> Result<(), Error>,
-) -> Result<(), Error> {
-    let TulispValue::List { cons: args, .. } = &*args.inner_ref() else {
-        return Err(Error::new(
-            ErrorKind::ArityMismatch,
-            format!("{} takes 2 arguments.", name),
-        ));
-    };
-    if args.cdr().null() {
-        return Err(Error::new(
-            ErrorKind::ArityMismatch,
-            format!("{} takes 2 arguments.", name),
-        ));
-    }
-    args.cdr().cdr_and_then(|x| {
-        if !x.null() {
+                format!("{} takes 2 arguments.", name),
+            ));
+        };
+        if args.cdr().null() {
             return Err(Error::new(
                 ErrorKind::ArityMismatch,
                 format!("{} takes 2 arguments.", name),
             ));
         }
-        Ok(())
-    })?;
-    let arg1 = args.car();
-    args.cdr().car_and_then(|arg2| lambda(arg1, arg2))
-}
-
-fn byte_compile_form(
-    ctx: &mut TulispContext,
-    functions: &mut VMFunctions,
-    cons: &crate::cons::Cons,
-) -> Result<Vec<Instruction>, Error> {
-    let mut result = Vec::new();
-    let name = cons.car();
-    let args = cons.cdr();
-    if name.eq(&functions.print) {
-        byte_compile_1_arg_fn(name, args, |arg| {
-            result.append(&mut byte_compile_expr(ctx, functions, &arg)?);
-            result.push(Instruction::Print);
+        args.cdr().cdr_and_then(|x| {
+            if !x.null() {
+                return Err(Error::new(
+                    ErrorKind::ArityMismatch,
+                    format!("{} takes 2 arguments.", name),
+                ));
+            }
             Ok(())
         })?;
-    } else if name.eq(&functions.setq) {
-        byte_compile_2_arg_fn(name, args, |arg1, arg2| {
-            result.append(&mut byte_compile_expr(ctx, functions, arg2)?);
-            result.push(Instruction::Store(arg1.clone()));
-            Ok(())
-        })?;
+        let arg1 = args.car();
+        args.cdr().car_and_then(|arg2| lambda(self, arg1, arg2))
     }
-    Ok(result)
+
+    fn compile_form(&mut self, cons: &crate::cons::Cons) -> Result<Vec<Instruction>, Error> {
+        let name = cons.car();
+        let args = cons.cdr();
+        if name.eq(&self.functions.print) {
+            self.compile_1_arg_call(name, args, |ctx, arg| {
+                let mut result = ctx.compile_expr(arg)?;
+                result.push(Instruction::Print);
+                Ok(result)
+            })
+        } else if name.eq(&self.functions.setq) {
+            self.compile_2_arg_call(name, args, |ctx, arg1, arg2| {
+                let mut result = ctx.compile_expr(arg2)?;
+                result.push(Instruction::Store(arg1.clone()));
+                Ok(result)
+            })
+        } else {
+            Err(Error::new(
+                ErrorKind::Undefined,
+                format!("undefined function: {}", name),
+            ))
+        }
+    }
 }
