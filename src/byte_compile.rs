@@ -71,20 +71,22 @@ fn byte_compile_expr(
     }
 }
 
-macro_rules! function_1_arg {
-    ($name: ident, $args: ident, $($lambda: tt)+) => {{
-        match $args.cdr_and_then(|x| Ok(x.null())) {
-            Err(e) => return Err(e),
-            Ok(false) => {
-                return Err(Error::new(
-                    ErrorKind::ArityMismatch,
-                    format!("{} takes 1 argument.", stringify!($name)),
-                ))
-            }
-            Ok(true) => {}
+fn byte_compile_1_arg_fn(
+    name: &TulispObject,
+    args: &TulispObject,
+    lambda: impl FnOnce(&TulispObject) -> Result<(), Error>,
+) -> Result<(), Error> {
+    match args.cdr_and_then(|x| Ok(x.null())) {
+        Err(e) => return Err(e),
+        Ok(false) => {
+            return Err(Error::new(
+                ErrorKind::ArityMismatch,
+                format!("{} takes 1 argument.", name),
+            ))
         }
-        $args.car_and_then($($lambda)+)
-    }};
+        Ok(true) => {}
+    }
+    args.car_and_then(lambda)
 }
 
 fn byte_compile_2_arg_fn(
@@ -126,7 +128,7 @@ fn byte_compile_form(
     let name = cons.car();
     let args = cons.cdr();
     if name.eq(&functions.print) {
-        function_1_arg!(name, args, |arg| {
+        byte_compile_1_arg_fn(name, args, |arg| {
             result.append(&mut byte_compile_expr(ctx, functions, &arg)?);
             result.push(Instruction::Print);
             Ok(())
