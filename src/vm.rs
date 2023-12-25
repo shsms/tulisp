@@ -1,4 +1,4 @@
-use std::{fmt::Display, rc::Rc};
+use std::{collections::HashMap, fmt::Display, rc::Rc};
 
 use crate::{context::Scope, value::TulispFn, Error, TulispContext, TulispObject};
 
@@ -46,6 +46,7 @@ macro_rules! binary_ops {
 pub enum Pos {
     Abs(usize),
     Rel(isize),
+    Label(TulispObject),
 }
 
 /// A single instruction in the VM.
@@ -74,6 +75,7 @@ pub enum Instruction {
     JumpIfGtEq(Pos),
     Jump(Pos),
     // functions
+    Label(TulispObject),
     RustCall { func: Rc<TulispFn> },
     Call { pos: Pos, params: Vec<TulispObject> },
     Ret,
@@ -82,27 +84,28 @@ pub enum Instruction {
 impl Display for Instruction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Instruction::Push(obj) => write!(f, "push {}", obj),
-            Instruction::Store(obj) => write!(f, "store {}", obj),
-            Instruction::Load(obj) => write!(f, "load {}", obj),
-            Instruction::Add => write!(f, "add"),
-            Instruction::Sub => write!(f, "sub"),
-            Instruction::Print => write!(f, "print"),
-            Instruction::JumpIfNil(pos) => write!(f, "jnil {:?}", pos),
-            Instruction::JumpIfEq(pos) => write!(f, "jeq {:?}", pos),
-            Instruction::JumpIfLt(pos) => write!(f, "jlt {:?}", pos),
-            Instruction::JumpIfLtEq(pos) => write!(f, "jle {:?}", pos),
-            Instruction::JumpIfGt(pos) => write!(f, "jgt {:?}", pos),
-            Instruction::JumpIfGtEq(pos) => write!(f, "jge {:?}", pos),
-            Instruction::Eq => write!(f, "ceq"),
-            Instruction::Lt => write!(f, "clt"),
-            Instruction::LtEq => write!(f, "cle"),
-            Instruction::Gt => write!(f, "cgt"),
-            Instruction::GtEq => write!(f, "cge"),
-            Instruction::Jump(pos) => write!(f, "jmp {:?}", pos),
-            Instruction::Call { pos, .. } => write!(f, "call {:?}", pos),
-            Instruction::Ret => write!(f, "ret"),
-            Instruction::RustCall { .. } => write!(f, "rustcall"),
+            Instruction::Push(obj) => write!(f, "    push {}", obj),
+            Instruction::Store(obj) => write!(f, "    store {}", obj),
+            Instruction::Load(obj) => write!(f, "    load {}", obj),
+            Instruction::Add => write!(f, "    add"),
+            Instruction::Sub => write!(f, "    sub"),
+            Instruction::Print => write!(f, "    print"),
+            Instruction::JumpIfNil(pos) => write!(f, "    jnil {:?}", pos),
+            Instruction::JumpIfEq(pos) => write!(f, "    jeq {:?}", pos),
+            Instruction::JumpIfLt(pos) => write!(f, "    jlt {:?}", pos),
+            Instruction::JumpIfLtEq(pos) => write!(f, "    jle {:?}", pos),
+            Instruction::JumpIfGt(pos) => write!(f, "    jgt {:?}", pos),
+            Instruction::JumpIfGtEq(pos) => write!(f, "    jge {:?}", pos),
+            Instruction::Eq => write!(f, "    ceq"),
+            Instruction::Lt => write!(f, "    clt"),
+            Instruction::LtEq => write!(f, "    cle"),
+            Instruction::Gt => write!(f, "    cgt"),
+            Instruction::GtEq => write!(f, "    cge"),
+            Instruction::Jump(pos) => write!(f, "    jmp {:?}", pos),
+            Instruction::Call { pos, .. } => write!(f, "    call {:?}", pos),
+            Instruction::Ret => write!(f, "    ret"),
+            Instruction::RustCall { .. } => write!(f, "    rustcall"),
+            Instruction::Label(name) => write!(f, "{}:", name),
         }
     }
 }
@@ -110,6 +113,7 @@ impl Display for Instruction {
 pub struct Machine {
     stack: Vec<TulispObject>,
     program: Vec<Instruction>,
+    labels: HashMap<usize, usize>, // TulispObject.addr -> instruction index
     pc: usize,
 }
 
@@ -117,10 +121,29 @@ impl Machine {
     pub fn new(program: Vec<Instruction>) -> Self {
         Machine {
             stack: Vec::new(),
+            labels: Self::locate_labels(&program),
             // program: programs::print_range(92, 100),
             // program: programs::fib(30),
             program,
             pc: 0,
+        }
+    }
+
+    fn locate_labels(program: &Vec<Instruction>) -> HashMap<usize, usize> {
+        let mut labels = HashMap::new();
+        for (i, instr) in program.iter().enumerate() {
+            if let Instruction::Label(name) = instr {
+                labels.insert(name.addr_as_usize(), i);
+            }
+        }
+        labels
+    }
+
+    fn goto_pos(&self, pos: &Pos) -> usize {
+        match pos {
+            Pos::Abs(p) => *p,
+            Pos::Rel(p) => (self.pc as isize + p - 1) as usize,
+            Pos::Label(p) => *self.labels.get(&p.addr_as_usize()).unwrap(),
         }
     }
 
@@ -162,66 +185,45 @@ impl Machine {
                 Instruction::JumpIfNil(pos) => {
                     let a = self.stack.pop().unwrap();
                     if a.null() {
-                        match pos {
-                            Pos::Abs(p) => self.pc = *p,
-                            Pos::Rel(p) => self.pc = (self.pc as isize + p - 1) as usize,
-                        }
+                        self.pc = self.goto_pos(pos);
                     }
                 }
                 Instruction::JumpIfEq(pos) => {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
                     if a.eq(&b) {
-                        match pos {
-                            Pos::Abs(p) => self.pc = *p,
-                            Pos::Rel(p) => self.pc = (self.pc as isize + p - 1) as usize,
-                        }
+                        self.pc = self.goto_pos(pos);
                     }
                 }
                 Instruction::JumpIfLt(pos) => {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
                     if compare_ops!(std::cmp::PartialOrd::lt)(&a, &b)? {
-                        match pos {
-                            Pos::Abs(p) => self.pc = *p,
-                            Pos::Rel(p) => self.pc = (self.pc as isize + p - 1) as usize,
-                        }
+                        self.pc = self.goto_pos(pos);
                     }
                 }
                 Instruction::JumpIfLtEq(pos) => {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
                     if compare_ops!(std::cmp::PartialOrd::le)(&a, &b)? {
-                        match pos {
-                            Pos::Abs(p) => self.pc = *p,
-                            Pos::Rel(p) => self.pc = (self.pc as isize + p - 1) as usize,
-                        }
+                        self.pc = self.goto_pos(pos);
                     }
                 }
                 Instruction::JumpIfGt(pos) => {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
                     if compare_ops!(std::cmp::PartialOrd::gt)(&a, &b)? {
-                        match pos {
-                            Pos::Abs(p) => self.pc = *p,
-                            Pos::Rel(p) => self.pc = (self.pc as isize + p - 1) as usize,
-                        }
+                        self.pc = self.goto_pos(pos);
                     }
                 }
                 Instruction::JumpIfGtEq(pos) => {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
                     if compare_ops!(std::cmp::PartialOrd::ge)(&a, &b)? {
-                        match pos {
-                            Pos::Abs(p) => self.pc = *p,
-                            Pos::Rel(p) => self.pc = (self.pc as isize + p - 1) as usize,
-                        }
+                        self.pc = self.goto_pos(pos);
                     }
                 }
-                Instruction::Jump(pos) => match pos {
-                    Pos::Abs(p) => self.pc = *p,
-                    Pos::Rel(p) => self.pc = (self.pc as isize + p - 1) as usize,
-                },
+                Instruction::Jump(pos) => self.pc = self.goto_pos(pos),
                 Instruction::Eq => {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
@@ -261,13 +263,9 @@ impl Machine {
                 }
                 Instruction::Call { pos, params } => {
                     let pc = self.pc;
+                    self.pc = self.goto_pos(pos);
+
                     let mut scope = Scope::default();
-
-                    match pos {
-                        Pos::Abs(p) => self.pc = *p,
-                        Pos::Rel(p) => self.pc = (self.pc as isize + p - 1) as usize,
-                    }
-
                     for param in params {
                         let value = self.stack.pop().unwrap();
                         scope.set(param.clone(), value)?;
@@ -282,6 +280,7 @@ impl Machine {
                     let args = self.stack.pop().unwrap();
                     self.stack.push(func(ctx, &args)?);
                 }
+                Instruction::Label(_) => {}
             }
         }
         Ok(())
