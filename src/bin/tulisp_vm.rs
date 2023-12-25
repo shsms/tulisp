@@ -1,6 +1,7 @@
-use tulisp::vm;
+use tulisp::{vm, TulispContext};
 
 fn main() {
     let mut machine = vm::Machine::new();
-    machine.run(0).unwrap();
+    let mut ctx = TulispContext::new();
+    machine.run(&mut ctx, 0).unwrap();
 }

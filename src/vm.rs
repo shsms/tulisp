@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::{context::Scope, Error, TulispObject};
+use crate::{context::Scope, Error, TulispContext, TulispObject};
 
 macro_rules! compare_ops {
     ($oper:expr) => {{
@@ -130,7 +130,7 @@ impl Machine {
         }
     }
 
-    pub fn run(&mut self, recursion_depth: u32) -> Result<(), Error> {
+    pub fn run(&mut self, ctx: &mut TulispContext, recursion_depth: u32) -> Result<(), Error> {
         let mut ctr: u32 = 0; // safety counter
         while self.pc < self.program.len() && ctr < 100000 {
             let instr = &self.program[self.pc];
@@ -270,7 +270,7 @@ impl Machine {
                         let value = self.stack.pop().unwrap();
                         scope.set(param.clone(), value)?;
                     }
-                    self.run(recursion_depth + 1)?;
+                    self.run(ctx, recursion_depth + 1)?;
                     scope.remove_all()?;
 
                     self.pc = pc;
