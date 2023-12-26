@@ -8,6 +8,7 @@ use crate::{
 #[allow(dead_code)]
 struct VMFunctions {
     defun: TulispObject,
+    progn: TulispObject,
     le: TulispObject,
     plus: TulispObject,
     if_: TulispObject,
@@ -20,6 +21,7 @@ impl VMFunctions {
     fn from(value: &mut TulispContext) -> Self {
         VMFunctions {
             defun: value.intern("defun"),
+            progn: value.intern("progn"),
             le: value.intern("<="),
             plus: value.intern("+"),
             if_: value.intern("if"),
@@ -98,7 +100,13 @@ impl<'a> Compiler<'a> {
         &mut self,
         name: &TulispObject,
         args: &TulispObject,
-        lambda: fn(&mut Compiler, &TulispObject, &TulispObject) -> Result<Vec<Instruction>, Error>,
+        has_rest: bool,
+        lambda: fn(
+            &mut Compiler,
+            &TulispObject,
+            &TulispObject,
+            &TulispObject,
+        ) -> Result<Vec<Instruction>, Error>,
     ) -> Result<Vec<Instruction>, Error> {
         let TulispValue::List { cons: args, .. } = &*args.inner_ref() else {
             return Err(Error::new(
@@ -112,17 +120,18 @@ impl<'a> Compiler<'a> {
                 format!("{} takes 2 arguments.", name),
             ));
         }
-        args.cdr().cdr_and_then(|x| {
-            if !x.null() {
-                return Err(Error::new(
-                    ErrorKind::ArityMismatch,
-                    format!("{} takes 2 arguments.", name),
-                ));
-            }
-            Ok(())
-        })?;
         let arg1 = args.car();
-        args.cdr().car_and_then(|arg2| lambda(self, arg1, arg2))
+        args.cdr().car_and_then(|arg2| {
+            args.cdr().cdr_and_then(|rest| {
+                if !has_rest && !rest.null() {
+                    return Err(Error::new(
+                        ErrorKind::ArityMismatch,
+                        format!("{} takes 2 arguments.", name),
+                    ));
+                }
+                lambda(self, arg1, arg2, rest)
+            })
+        })
     }
 
     fn compile_form(&mut self, cons: &crate::cons::Cons) -> Result<Vec<Instruction>, Error> {
@@ -135,11 +144,38 @@ impl<'a> Compiler<'a> {
                 Ok(result)
             })
         } else if name.eq(&self.functions.setq) {
-            self.compile_2_arg_call(name, args, |ctx, arg1, arg2| {
+            self.compile_2_arg_call(name, args, false, |ctx, arg1, arg2, _| {
                 let mut result = ctx.compile_expr(arg2)?;
                 result.push(Instruction::Store(arg1.clone()));
                 Ok(result)
             })
+        } else if name.eq(&self.functions.le) {
+            self.compile_2_arg_call(name, args, false, |ctx, arg1, arg2, _| {
+                let mut result = ctx.compile_expr(arg2)?;
+                result.append(&mut ctx.compile_expr(arg1)?);
+                result.push(Instruction::LtEq);
+                Ok(result)
+            })
+        } else if name.eq(&self.functions.plus) {
+            self.compile_2_arg_call(name, args, false, |ctx, arg1, arg2, _| {
+                let mut result = ctx.compile_expr(arg2)?;
+                result.append(&mut ctx.compile_expr(arg1)?);
+                result.push(Instruction::Add);
+                Ok(result)
+            })
+        } else if name.eq(&self.functions.if_) {
+            self.compile_2_arg_call(name, args, true, |ctx, cond, then, else_| {
+                let mut result = ctx.compile_expr(cond)?;
+                let mut then = ctx.compile_expr(then)?;
+                let mut else_ = ctx.compile(else_)?;
+                result.push(Instruction::JumpIfNil(Pos::Rel(then.len() as isize + 2)));
+                result.append(&mut then);
+                result.push(Instruction::Jump(Pos::Rel(else_.len() as isize + 1)));
+                result.append(&mut else_);
+                Ok(result)
+            })
+        } else if name.eq(&self.functions.progn) {
+            Ok(self.compile(args)?)
         } else {
             Err(Error::new(
                 ErrorKind::Undefined,
