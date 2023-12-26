@@ -53,12 +53,14 @@ pub enum Pos {
 pub enum Instruction {
     Push(TulispObject),
     // variables
+    StorePop(TulispObject),
     Store(TulispObject),
     Load(TulispObject),
     // arithmetic
     Add,
     Sub,
     // io
+    PrintPop,
     Print,
     // comparison
     Eq,
@@ -85,10 +87,12 @@ impl Display for Instruction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Instruction::Push(obj) => write!(f, "    push {}", obj),
+            Instruction::StorePop(obj) => write!(f, "    store_pop {}", obj),
             Instruction::Store(obj) => write!(f, "    store {}", obj),
             Instruction::Load(obj) => write!(f, "    load {}", obj),
             Instruction::Add => write!(f, "    add"),
             Instruction::Sub => write!(f, "    sub"),
+            Instruction::PrintPop => write!(f, "    print_pop"),
             Instruction::Print => write!(f, "    print"),
             Instruction::JumpIfNil(pos) => write!(f, "    jnil {:?}", pos),
             Instruction::JumpIfEq(pos) => write!(f, "    jeq {:?}", pos),
@@ -178,8 +182,12 @@ impl Machine {
                     let b = self.stack.pop().unwrap();
                     self.stack.push(binary_ops!(std::ops::Sub::sub)(&a, &b)?);
                 }
-                Instruction::Print => {
+                Instruction::PrintPop => {
                     let a = self.stack.pop().unwrap();
+                    println!("{}", a);
+                }
+                Instruction::Print => {
+                    let a = self.stack.last().unwrap();
                     println!("{}", a);
                 }
                 Instruction::JumpIfNil(pos) => {
@@ -253,9 +261,13 @@ impl Machine {
                     self.stack
                         .push(compare_ops!(std::cmp::PartialOrd::ge)(&a, &b)?.into());
                 }
-                Instruction::Store(obj) => {
+                Instruction::StorePop(obj) => {
                     let a = self.stack.pop().unwrap();
                     obj.set(a)?;
+                }
+                Instruction::Store(obj) => {
+                    let a = self.stack.last().unwrap();
+                    obj.set(a.clone())?;
                 }
                 Instruction::Load(obj) => {
                     let a = obj.get()?;
@@ -298,13 +310,13 @@ mod programs {
         let n = TulispObject::symbol("n".to_string(), false);
         vec![
             // print numbers 1 to 10
-            Instruction::Push(from.into()), // 0
-            Instruction::Store(i.clone()),  // 1
-            Instruction::Push(to.into()),   // 2
-            Instruction::Store(n.clone()),  // 3
+            Instruction::Push(from.into()),   // 0
+            Instruction::StorePop(i.clone()), // 1
+            Instruction::Push(to.into()),     // 2
+            Instruction::StorePop(n.clone()), // 3
             // loop:
             Instruction::Load(i.clone()), // 4
-            Instruction::Print,           // 5
+            Instruction::PrintPop,        // 5
             Instruction::Push(1.into()),  // 6
             Instruction::Load(i.clone()), // 7
             if from < to {
@@ -312,7 +324,7 @@ mod programs {
             } else {
                 Instruction::Sub
             }, // 8
-            Instruction::Store(i.clone()), // 9
+            Instruction::StorePop(i.clone()), // 9
             Instruction::Load(i.clone()), // 10
             Instruction::Load(n.clone()), // 11
             if from < to {
@@ -356,7 +368,7 @@ mod programs {
                 pos: Pos::Abs(1),
                 params: vec![n.clone()],
             }, // 17
-            Instruction::Print,            // 18
+            Instruction::PrintPop,         // 18
         ]
     }
 

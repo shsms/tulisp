@@ -14,7 +14,7 @@ struct VMFunctions {
     if_: TulispObject,
     print: TulispObject,
     setq: TulispObject,
-    other: HashMap<TulispObject, Pos>,
+    other: HashMap<usize, Pos>, // TulispObject.addr() -> Pos
 }
 
 impl VMFunctions {
@@ -36,18 +36,33 @@ impl VMFunctions {
 pub(crate) struct Compiler<'a> {
     ctx: &'a mut TulispContext,
     functions: VMFunctions,
+    keep_result: bool,
 }
 
 impl<'a> Compiler<'a> {
     pub fn new(ctx: &'a mut TulispContext) -> Self {
         let functions = VMFunctions::from(ctx);
-        Compiler { ctx, functions }
+        Compiler {
+            ctx,
+            functions,
+            keep_result: true,
+        }
     }
 
     pub fn compile(&mut self, value: &TulispObject) -> Result<Vec<Instruction>, Error> {
         let mut result = vec![];
+        let mut prev = None;
+        let keep_result = self.keep_result;
         for expr in value.base_iter() {
-            result.append(&mut self.compile_expr(&expr)?);
+            if let Some(prev) = prev {
+                self.keep_result = false;
+                result.append(&mut self.compile_expr(&prev)?);
+            }
+            prev = Some(expr);
+        }
+        self.keep_result = keep_result;
+        if let Some(prev) = prev {
+            result.append(&mut self.compile_expr(&prev)?);
         }
         Ok(result)
     }
@@ -69,12 +84,26 @@ impl<'a> Compiler<'a> {
             | TulispValue::Backquote { .. }
             | TulispValue::Unquote { .. }
             | TulispValue::Splice { .. }
-            | TulispValue::T => return Ok(vec![Instruction::Push(expr.clone())]),
+            | TulispValue::T => {
+                if self.keep_result {
+                    return Ok(vec![Instruction::Push(expr.clone())]);
+                } else {
+                    return Ok(vec![]);
+                }
+            }
             TulispValue::List { cons, .. } => self
                 .compile_form(cons)
                 .map_err(|e| e.with_trace(expr.clone())),
             TulispValue::Symbol { .. } => Ok(vec![Instruction::Load(expr.clone())]),
         }
+    }
+
+    fn compile_expr_keep_result(&mut self, expr: &TulispObject) -> Result<Vec<Instruction>, Error> {
+        let keep_result = self.keep_result;
+        self.keep_result = true;
+        let ret = self.compile_expr(expr);
+        self.keep_result = keep_result;
+        ret
     }
 
     fn compile_1_arg_call(
@@ -138,34 +167,50 @@ impl<'a> Compiler<'a> {
         let name = cons.car();
         let args = cons.cdr();
         if name.eq(&self.functions.print) {
-            self.compile_1_arg_call(name, args, |ctx, arg| {
-                let mut result = ctx.compile_expr(arg)?;
-                result.push(Instruction::Print);
+            self.compile_1_arg_call(name, args, |compiler, arg| {
+                let mut result = compiler.compile_expr_keep_result(arg)?;
+                if compiler.keep_result {
+                    result.push(Instruction::Print);
+                } else {
+                    result.push(Instruction::PrintPop);
+                }
                 Ok(result)
             })
         } else if name.eq(&self.functions.setq) {
-            self.compile_2_arg_call(name, args, false, |ctx, arg1, arg2, _| {
-                let mut result = ctx.compile_expr(arg2)?;
-                result.push(Instruction::Store(arg1.clone()));
+            self.compile_2_arg_call(name, args, false, |compiler, arg1, arg2, _| {
+                let mut result = compiler.compile_expr_keep_result(arg2)?;
+                if compiler.keep_result {
+                    result.push(Instruction::Store(arg1.clone()));
+                } else {
+                    result.push(Instruction::StorePop(arg1.clone()));
+                }
                 Ok(result)
             })
         } else if name.eq(&self.functions.le) {
-            self.compile_2_arg_call(name, args, false, |ctx, arg1, arg2, _| {
-                let mut result = ctx.compile_expr(arg2)?;
-                result.append(&mut ctx.compile_expr(arg1)?);
-                result.push(Instruction::LtEq);
-                Ok(result)
+            self.compile_2_arg_call(name, args, false, |compiler, arg1, arg2, _| {
+                if !compiler.keep_result {
+                    Ok(vec![])
+                } else {
+                    let mut result = compiler.compile_expr(arg2)?;
+                    result.append(&mut compiler.compile_expr(arg1)?);
+                    result.push(Instruction::LtEq);
+                    Ok(result)
+                }
             })
         } else if name.eq(&self.functions.plus) {
-            self.compile_2_arg_call(name, args, false, |ctx, arg1, arg2, _| {
-                let mut result = ctx.compile_expr(arg2)?;
-                result.append(&mut ctx.compile_expr(arg1)?);
-                result.push(Instruction::Add);
-                Ok(result)
+            self.compile_2_arg_call(name, args, false, |compiler, arg1, arg2, _| {
+                if !compiler.keep_result {
+                    Ok(vec![])
+                } else {
+                    let mut result = compiler.compile_expr(arg2)?;
+                    result.append(&mut compiler.compile_expr(arg1)?);
+                    result.push(Instruction::Add);
+                    Ok(result)
+                }
             })
         } else if name.eq(&self.functions.if_) {
             self.compile_2_arg_call(name, args, true, |ctx, cond, then, else_| {
-                let mut result = ctx.compile_expr(cond)?;
+                let mut result = ctx.compile_expr_keep_result(cond)?;
                 let mut then = ctx.compile_expr(then)?;
                 let mut else_ = ctx.compile(else_)?;
                 result.push(Instruction::JumpIfNil(Pos::Rel(then.len() as isize + 2)));
