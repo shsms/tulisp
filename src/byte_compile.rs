@@ -186,65 +186,116 @@ impl<'a> Compiler<'a> {
         let name = cons.car();
         let args = cons.cdr();
         if name.eq(&self.functions.print) {
-            self.compile_1_arg_call(name, args, false, |compiler, arg, _| {
-                let mut result = compiler.compile_expr_keep_result(arg)?;
-                if compiler.keep_result {
-                    result.push(Instruction::Print);
-                } else {
-                    result.push(Instruction::PrintPop);
-                }
-                Ok(result)
-            })
+            self.compile_fn_print(name, args)
         } else if name.eq(&self.functions.setq) {
-            self.compile_2_arg_call(name, args, false, |compiler, arg1, arg2, _| {
-                let mut result = compiler.compile_expr_keep_result(arg2)?;
-                if compiler.keep_result {
-                    result.push(Instruction::Store(arg1.clone()));
-                } else {
-                    result.push(Instruction::StorePop(arg1.clone()));
-                }
-                Ok(result)
-            })
+            self.compile_fn_setq(name, args)
         } else if name.eq(&self.functions.le) {
-            self.compile_2_arg_call(name, args, false, |compiler, arg1, arg2, _| {
-                if !compiler.keep_result {
-                    Ok(vec![])
-                } else {
-                    let mut result = compiler.compile_expr(arg2)?;
-                    result.append(&mut compiler.compile_expr(arg1)?);
-                    result.push(Instruction::LtEq);
-                    Ok(result)
-                }
-            })
+            self.compile_fn_le(name, args)
         } else if name.eq(&self.functions.plus) {
-            self.compile_2_arg_call(name, args, false, |compiler, arg1, arg2, _| {
-                if !compiler.keep_result {
-                    Ok(vec![])
-                } else {
-                    let mut result = compiler.compile_expr(arg2)?;
-                    result.append(&mut compiler.compile_expr(arg1)?);
-                    result.push(Instruction::Add);
-                    Ok(result)
-                }
-            })
+            self.compile_fn_plus(name, args)
         } else if name.eq(&self.functions.if_) {
-            self.compile_2_arg_call(name, args, true, |ctx, cond, then, else_| {
-                let mut result = ctx.compile_expr_keep_result(cond)?;
-                let mut then = ctx.compile_expr(then)?;
-                let mut else_ = ctx.compile(else_)?;
-                result.push(Instruction::JumpIfNil(Pos::Rel(then.len() as isize + 2)));
-                result.append(&mut then);
-                result.push(Instruction::Jump(Pos::Rel(else_.len() as isize + 1)));
-                result.append(&mut else_);
-                Ok(result)
-            })
+            self.compile_fn_if(name, args)
         } else if name.eq(&self.functions.progn) {
-            Ok(self.compile(args)?)
+            self.compile_fn_progn(name, args)
         } else {
             Err(Error::new(
                 ErrorKind::Undefined,
                 format!("undefined function: {}", name),
             ))
         }
+    }
+}
+
+/// Compilers for specific lisp functions.
+impl Compiler<'_> {
+    fn compile_fn_print(
+        &mut self,
+        name: &TulispObject,
+        args: &TulispObject,
+    ) -> Result<Vec<Instruction>, Error> {
+        self.compile_1_arg_call(name, args, false, |compiler, arg, _| {
+            let mut result = compiler.compile_expr_keep_result(arg)?;
+            if compiler.keep_result {
+                result.push(Instruction::Print);
+            } else {
+                result.push(Instruction::PrintPop);
+            }
+            Ok(result)
+        })
+    }
+
+    fn compile_fn_setq(
+        &mut self,
+        name: &TulispObject,
+        args: &TulispObject,
+    ) -> Result<Vec<Instruction>, Error> {
+        self.compile_2_arg_call(name, args, false, |compiler, arg1, arg2, _| {
+            let mut result = compiler.compile_expr_keep_result(arg2)?;
+            if compiler.keep_result {
+                result.push(Instruction::Store(arg1.clone()));
+            } else {
+                result.push(Instruction::StorePop(arg1.clone()));
+            }
+            Ok(result)
+        })
+    }
+
+    fn compile_fn_le(
+        &mut self,
+        name: &TulispObject,
+        args: &TulispObject,
+    ) -> Result<Vec<Instruction>, Error> {
+        self.compile_2_arg_call(name, args, false, |compiler, arg1, arg2, _| {
+            if !compiler.keep_result {
+                Ok(vec![])
+            } else {
+                let mut result = compiler.compile_expr(arg2)?;
+                result.append(&mut compiler.compile_expr(arg1)?);
+                result.push(Instruction::LtEq);
+                Ok(result)
+            }
+        })
+    }
+
+    fn compile_fn_plus(
+        &mut self,
+        name: &TulispObject,
+        args: &TulispObject,
+    ) -> Result<Vec<Instruction>, Error> {
+        self.compile_2_arg_call(name, args, false, |compiler, arg1, arg2, _| {
+            if !compiler.keep_result {
+                Ok(vec![])
+            } else {
+                let mut result = compiler.compile_expr(arg2)?;
+                result.append(&mut compiler.compile_expr(arg1)?);
+                result.push(Instruction::Add);
+                Ok(result)
+            }
+        })
+    }
+
+    fn compile_fn_if(
+        &mut self,
+        name: &TulispObject,
+        args: &TulispObject,
+    ) -> Result<Vec<Instruction>, Error> {
+        self.compile_2_arg_call(name, args, true, |ctx, cond, then, else_| {
+            let mut result = ctx.compile_expr_keep_result(cond)?;
+            let mut then = ctx.compile_expr(then)?;
+            let mut else_ = ctx.compile(else_)?;
+            result.push(Instruction::JumpIfNil(Pos::Rel(then.len() as isize + 2)));
+            result.append(&mut then);
+            result.push(Instruction::Jump(Pos::Rel(else_.len() as isize + 1)));
+            result.append(&mut else_);
+            Ok(result)
+        })
+    }
+
+    fn compile_fn_progn(
+        &mut self,
+        _name: &TulispObject,
+        args: &TulispObject,
+    ) -> Result<Vec<Instruction>, Error> {
+        Ok(self.compile(args)?)
     }
 }
