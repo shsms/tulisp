@@ -110,19 +110,30 @@ impl<'a> Compiler<'a> {
         &mut self,
         name: &TulispObject,
         args: &TulispObject,
-        lambda: fn(&mut Compiler, &TulispObject) -> Result<Vec<Instruction>, Error>,
+        has_rest: bool,
+        lambda: fn(&mut Compiler, &TulispObject, &TulispObject) -> Result<Vec<Instruction>, Error>,
     ) -> Result<Vec<Instruction>, Error> {
-        match args.cdr_and_then(|x| Ok(x.null())) {
-            Err(e) => return Err(e),
-            Ok(false) => {
-                return Err(Error::new(
-                    ErrorKind::ArityMismatch,
-                    format!("{} takes 1 argument.", name),
-                ))
-            }
-            Ok(true) => {}
+        if args.null() {
+            return Err(Error::new(
+                ErrorKind::ArityMismatch,
+                if has_rest {
+                    format!("{} requires at least 1 argument.", name)
+                } else {
+                    format!("{} requires 1 argument.", name)
+                },
+            ));
         }
-        args.car_and_then(|x| lambda(self, x))
+        args.car_and_then(|arg1| {
+            args.cdr_and_then(|rest| {
+                if !has_rest && !rest.null() {
+                    return Err(Error::new(
+                        ErrorKind::ArityMismatch,
+                        format!("{} accepts only 1 argument.", name),
+                    ));
+                }
+                lambda(self, arg1, rest)
+            })
+        })
     }
 
     fn compile_2_arg_call(
@@ -140,13 +151,21 @@ impl<'a> Compiler<'a> {
         let TulispValue::List { cons: args, .. } = &*args.inner_ref() else {
             return Err(Error::new(
                 ErrorKind::ArityMismatch,
-                format!("{} takes 2 arguments.", name),
+                if has_rest {
+                    format!("{} requires at least 2 arguments.", name)
+                } else {
+                    format!("{} requires 2 arguments.", name)
+                },
             ));
         };
         if args.cdr().null() {
             return Err(Error::new(
                 ErrorKind::ArityMismatch,
-                format!("{} takes 2 arguments.", name),
+                if has_rest {
+                    format!("{} requires at least 2 arguments.", name)
+                } else {
+                    format!("{} requires 2 arguments.", name)
+                },
             ));
         }
         let arg1 = args.car();
@@ -155,7 +174,7 @@ impl<'a> Compiler<'a> {
                 if !has_rest && !rest.null() {
                     return Err(Error::new(
                         ErrorKind::ArityMismatch,
-                        format!("{} takes 2 arguments.", name),
+                        format!("{} accepts only 2 arguments.", name),
                     ));
                 }
                 lambda(self, arg1, arg2, rest)
@@ -167,7 +186,7 @@ impl<'a> Compiler<'a> {
         let name = cons.car();
         let args = cons.cdr();
         if name.eq(&self.functions.print) {
-            self.compile_1_arg_call(name, args, |compiler, arg| {
+            self.compile_1_arg_call(name, args, false, |compiler, arg, _| {
                 let mut result = compiler.compile_expr_keep_result(arg)?;
                 if compiler.keep_result {
                     result.push(Instruction::Print);
