@@ -173,7 +173,7 @@ impl Machine {
         let mut labels = HashMap::new();
         for (i, instr) in program.iter().enumerate() {
             if let Instruction::Label(name) = instr {
-                labels.insert(name.addr_as_usize(), i);
+                labels.insert(name.addr_as_usize(), i + 1);
             }
         }
         labels
