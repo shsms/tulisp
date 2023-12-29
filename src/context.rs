@@ -211,7 +211,7 @@ impl TulispContext {
             println!("{}", instr);
         }
         println!();
-        vm::Machine::new(bytecode).run(self, 0)
+        vm::Machine::new(bytecode).run(self)
     }
 
     pub(crate) fn get_filename(&self, file_id: usize) -> String {

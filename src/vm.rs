@@ -191,7 +191,11 @@ impl Machine {
         );
     }
 
-    pub fn run(&mut self, ctx: &mut TulispContext, recursion_depth: u32) -> Result<(), Error> {
+    pub fn run(&mut self, ctx: &mut TulispContext) -> Result<(), Error> {
+        self.run_impl(ctx, 0)
+    }
+
+    fn run_impl(&mut self, ctx: &mut TulispContext, recursion_depth: u32) -> Result<(), Error> {
         let mut ctr: u32 = 0; // safety counter
         while self.pc < self.program.len() && ctr < 100000 {
             // self.print_stack(recursion_depth);
@@ -309,7 +313,7 @@ impl Machine {
                         let value = self.stack.pop().unwrap();
                         scope.set(param.clone(), value)?;
                     }
-                    self.run(ctx, recursion_depth + 1)?;
+                    self.run_impl(ctx, recursion_depth + 1)?;
                     scope.remove_all()?;
 
                     self.pc = pc;
