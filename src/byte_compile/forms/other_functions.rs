@@ -45,9 +45,9 @@ pub(super) fn compile_fn_if(
         let mut result = ctx.compile_expr_keep_result(cond)?;
         let mut then = ctx.compile_expr(then)?;
         let mut else_ = ctx.compile(else_)?;
-        result.push(Instruction::JumpIfNil(Pos::Rel(then.len() as isize + 2)));
+        result.push(Instruction::JumpIfNil(Pos::Rel(then.len() as isize + 1)));
         result.append(&mut then);
-        result.push(Instruction::Jump(Pos::Rel(else_.len() as isize + 1)));
+        result.push(Instruction::Jump(Pos::Rel(else_.len() as isize)));
         result.append(&mut else_);
         Ok(result)
     })

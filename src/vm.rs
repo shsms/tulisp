@@ -146,7 +146,7 @@ impl Machine {
     fn goto_pos(&self, pos: &Pos) -> usize {
         match pos {
             Pos::Abs(p) => *p,
-            Pos::Rel(p) => (self.pc as isize + p - 1) as usize,
+            Pos::Rel(p) => (self.pc as isize + p) as usize,
             Pos::Label(p) => *self.labels.get(&p.addr_as_usize()).unwrap(),
         }
     }
@@ -169,7 +169,6 @@ impl Machine {
             //     recursion_depth, self.pc, instr
             // );
             ctr += 1;
-            self.pc += 1;
             match instr {
                 Instruction::Push(obj) => self.stack.push(obj.clone()),
                 Instruction::Add => {
@@ -294,6 +293,7 @@ impl Machine {
                 }
                 Instruction::Label(_) => {}
             }
+            self.pc += 1;
         }
         Ok(())
     }
