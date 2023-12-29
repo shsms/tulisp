@@ -193,8 +193,9 @@ impl Machine {
         );
     }
 
-    pub fn run(&mut self, ctx: &mut TulispContext) -> Result<(), Error> {
-        self.run_impl(ctx, 0)
+    pub fn run(&mut self, ctx: &mut TulispContext) -> Result<TulispObject, Error> {
+        self.run_impl(ctx, 0)?;
+        Ok(self.stack.pop().unwrap())
     }
 
     fn run_impl(&mut self, ctx: &mut TulispContext, recursion_depth: u32) -> Result<(), Error> {

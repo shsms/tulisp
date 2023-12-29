@@ -194,7 +194,14 @@ impl TulispContext {
         self.eval_progn(&vv)
     }
 
-    pub fn vm_eval_file(&mut self, filename: &str) -> Result<(), Error> {
+    pub fn vm_eval_string(&mut self, string: &str) -> Result<TulispObject, Error> {
+        let vv = parse(self, 0, string)?;
+        let mut compiler = Compiler::new(self);
+        let bytecode = compiler.compile(&vv)?;
+        vm::Machine::new(bytecode).run(self)
+    }
+
+    pub fn vm_eval_file(&mut self, filename: &str) -> Result<TulispObject, Error> {
         let contents = fs::read_to_string(filename).map_err(|e| {
             Error::new(
                 crate::ErrorKind::Undefined,
