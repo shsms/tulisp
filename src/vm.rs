@@ -121,6 +121,26 @@ pub struct Machine {
     pc: usize,
 }
 
+macro_rules! jump_to_pos {
+    ($self:ident, $pos:ident) => {
+        $self.pc = {
+            match $pos {
+                Pos::Abs(p) => *p,
+                Pos::Rel(p) => {
+                    let abs_pos = ($self.pc as isize + *p) as usize;
+                    *$pos = Pos::Abs(abs_pos);
+                    abs_pos
+                }
+                Pos::Label(p) => {
+                    let abs_pos = *$self.labels.get(&p.addr_as_usize()).unwrap();
+                    *$pos = Pos::Abs(abs_pos);
+                    abs_pos
+                }
+            }
+        }
+    };
+}
+
 impl Machine {
     pub fn new(program: Vec<Instruction>) -> Self {
         Machine {
@@ -143,14 +163,6 @@ impl Machine {
         labels
     }
 
-    fn goto_pos(&self, pos: &Pos) -> usize {
-        match pos {
-            Pos::Abs(p) => *p,
-            Pos::Rel(p) => (self.pc as isize + p) as usize,
-            Pos::Label(p) => *self.labels.get(&p.addr_as_usize()).unwrap(),
-        }
-    }
-
     #[allow(dead_code)]
     fn print_stack(&self) {
         println!("Stack:");
@@ -162,7 +174,7 @@ impl Machine {
     pub fn run(&mut self, ctx: &mut TulispContext, recursion_depth: u32) -> Result<(), Error> {
         let mut ctr: u32 = 0; // safety counter
         while self.pc < self.program.len() && ctr < 100000 {
-            let instr = &self.program[self.pc];
+            let instr = &mut self.program[self.pc];
             // self.print_stack();
             // println!(
             //     "\nDepth: {}: PC: {}; Executing: {}",
@@ -192,45 +204,45 @@ impl Machine {
                 Instruction::JumpIfNil(pos) => {
                     let a = self.stack.pop().unwrap();
                     if a.null() {
-                        self.pc = self.goto_pos(pos);
+                        jump_to_pos!(self, pos);
                     }
                 }
                 Instruction::JumpIfEq(pos) => {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
                     if a.eq(&b) {
-                        self.pc = self.goto_pos(pos);
+                        jump_to_pos!(self, pos);
                     }
                 }
                 Instruction::JumpIfLt(pos) => {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
                     if compare_ops!(std::cmp::PartialOrd::lt)(&a, &b)? {
-                        self.pc = self.goto_pos(pos);
+                        jump_to_pos!(self, pos);
                     }
                 }
                 Instruction::JumpIfLtEq(pos) => {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
                     if compare_ops!(std::cmp::PartialOrd::le)(&a, &b)? {
-                        self.pc = self.goto_pos(pos);
+                        jump_to_pos!(self, pos);
                     }
                 }
                 Instruction::JumpIfGt(pos) => {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
                     if compare_ops!(std::cmp::PartialOrd::gt)(&a, &b)? {
-                        self.pc = self.goto_pos(pos);
+                        jump_to_pos!(self, pos);
                     }
                 }
                 Instruction::JumpIfGtEq(pos) => {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
                     if compare_ops!(std::cmp::PartialOrd::ge)(&a, &b)? {
-                        self.pc = self.goto_pos(pos);
+                        jump_to_pos!(self, pos);
                     }
                 }
-                Instruction::Jump(pos) => self.pc = self.goto_pos(pos),
+                Instruction::Jump(pos) => jump_to_pos!(self, pos),
                 Instruction::Eq => {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
@@ -274,7 +286,7 @@ impl Machine {
                 }
                 Instruction::Call { pos, params } => {
                     let pc = self.pc;
-                    self.pc = self.goto_pos(pos);
+                    jump_to_pos!(self, pos);
 
                     let mut scope = Scope::default();
                     for param in params {
