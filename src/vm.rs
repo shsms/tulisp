@@ -338,37 +338,39 @@ mod programs {
     #[allow(dead_code)]
     pub(super) fn fib(num: i64) -> Vec<Instruction> {
         let n = TulispObject::symbol("n".to_string(), false);
+        let fib = TulispObject::symbol("fib".to_string(), false);
+        let main = TulispObject::symbol("main".to_string(), false);
         vec![
-            Instruction::Jump(Pos::Abs(16)), // 0
-            // fib:
-            Instruction::Push(2.into()),        // 1
-            Instruction::Load(n.clone()),       // 2
-            Instruction::JumpIfGt(Pos::Abs(6)), // 3
-            Instruction::Push(1.into()),        // 4
-            Instruction::Ret,                   // 5
-            Instruction::Push(1.into()),        // 6
-            Instruction::Load(n.clone()),       // 7
-            Instruction::Sub,                   // 8
+            Instruction::Jump(Pos::Label(main.clone())), // 0
+            Instruction::Label(fib.clone()),             // 1
+            Instruction::Push(2.into()),                 // 2
+            Instruction::Load(n.clone()),                // 3
+            Instruction::JumpIfGt(Pos::Rel(2)),          // 4
+            Instruction::Push(1.into()),                 // 5
+            Instruction::Ret,                            // 6
+            Instruction::Push(1.into()),                 // 7
+            Instruction::Load(n.clone()),                // 8
+            Instruction::Sub,                            // 9
             Instruction::Call {
-                pos: Pos::Abs(1),
+                pos: Pos::Label(fib.clone()),
                 params: vec![n.clone()],
-            }, // 9
-            Instruction::Push(2.into()),        // 10
-            Instruction::Load(n.clone()),       // 11
-            Instruction::Sub,                   // 12
+            }, // 10
+            Instruction::Push(2.into()),                 // 11
+            Instruction::Load(n.clone()),                // 12
+            Instruction::Sub,                            // 13
             Instruction::Call {
-                pos: Pos::Abs(1),
+                pos: Pos::Label(fib.clone()),
                 params: vec![n.clone()],
-            }, // 13
-            Instruction::Add,                   // 14
-            Instruction::Ret,                   // 15
-            // main:
-            Instruction::Push(num.into()), // 16
+            }, // 14
+            Instruction::Add,                            // 15
+            Instruction::Ret,                            // 16
+            Instruction::Label(main.clone()),            // 17
+            Instruction::Push(num.into()),               // 18
             Instruction::Call {
-                pos: Pos::Abs(1),
+                pos: Pos::Label(fib.clone()),
                 params: vec![n.clone()],
-            }, // 17
-            Instruction::PrintPop,         // 18
+            }, // 19
+            Instruction::PrintPop,                       // 20
         ]
     }
 
