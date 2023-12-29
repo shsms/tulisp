@@ -69,7 +69,7 @@ pub(super) fn compile_fn_if(
                 result.push(Instruction::JumpIfEq(tgt_pos));
             }
             _ => {
-                result.push(Instruction::JumpIfNil(tgt_pos));
+                result.push(Instruction::JumpIf(tgt_pos));
             }
         }
         result.append(&mut else_);

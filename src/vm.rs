@@ -79,6 +79,7 @@ pub enum Instruction {
     Gt,
     GtEq,
     // control flow
+    JumpIf(Pos),
     JumpIfNil(Pos),
     JumpIfEq(Pos),
     JumpIfLt(Pos),
@@ -104,6 +105,7 @@ impl Display for Instruction {
             Instruction::Sub => write!(f, "    sub"),
             Instruction::PrintPop => write!(f, "    print_pop"),
             Instruction::Print => write!(f, "    print"),
+            Instruction::JumpIf(pos) => write!(f, "    jif {}", pos),
             Instruction::JumpIfNil(pos) => write!(f, "    jnil {}", pos),
             Instruction::JumpIfEq(pos) => write!(f, "    jeq {}", pos),
             Instruction::JumpIfLt(pos) => write!(f, "    jlt {}", pos),
@@ -220,6 +222,12 @@ impl Machine {
                 Instruction::Print => {
                     let a = self.stack.last().unwrap();
                     println!("{}", a);
+                }
+                Instruction::JumpIf(pos) => {
+                    let a = self.stack.pop().unwrap();
+                    if a.is_truthy() {
+                        jump_to_pos!(self, pos);
+                    }
                 }
                 Instruction::JumpIfNil(pos) => {
                     let a = self.stack.pop().unwrap();
