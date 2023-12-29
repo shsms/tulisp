@@ -49,6 +49,16 @@ pub enum Pos {
     Label(TulispObject),
 }
 
+impl Display for Pos {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Pos::Abs(p) => write!(f, "{}", p),
+            Pos::Rel(p) => write!(f, ". {}", p),
+            Pos::Label(p) => write!(f, "{}", p),
+        }
+    }
+}
+
 /// A single instruction in the VM.
 pub enum Instruction {
     Push(TulispObject),
@@ -94,19 +104,25 @@ impl Display for Instruction {
             Instruction::Sub => write!(f, "    sub"),
             Instruction::PrintPop => write!(f, "    print_pop"),
             Instruction::Print => write!(f, "    print"),
-            Instruction::JumpIfNil(pos) => write!(f, "    jnil {:?}", pos),
-            Instruction::JumpIfEq(pos) => write!(f, "    jeq {:?}", pos),
-            Instruction::JumpIfLt(pos) => write!(f, "    jlt {:?}", pos),
-            Instruction::JumpIfLtEq(pos) => write!(f, "    jle {:?}", pos),
-            Instruction::JumpIfGt(pos) => write!(f, "    jgt {:?}", pos),
-            Instruction::JumpIfGtEq(pos) => write!(f, "    jge {:?}", pos),
+            Instruction::JumpIfNil(pos) => write!(f, "    jnil {}", pos),
+            Instruction::JumpIfEq(pos) => write!(f, "    jeq {}", pos),
+            Instruction::JumpIfLt(pos) => write!(f, "    jlt {}", pos),
+            Instruction::JumpIfLtEq(pos) => write!(f, "    jle {}", pos),
+            Instruction::JumpIfGt(pos) => write!(f, "    jgt {}", pos),
+            Instruction::JumpIfGtEq(pos) => write!(f, "    jge {}", pos),
             Instruction::Eq => write!(f, "    ceq"),
             Instruction::Lt => write!(f, "    clt"),
             Instruction::LtEq => write!(f, "    cle"),
             Instruction::Gt => write!(f, "    cgt"),
             Instruction::GtEq => write!(f, "    cge"),
-            Instruction::Jump(pos) => write!(f, "    jmp {:?}", pos),
-            Instruction::Call { pos, .. } => write!(f, "    call {:?}", pos),
+            Instruction::Jump(pos) => write!(f, "    jmp {}", pos),
+            Instruction::Call { pos, params } => {
+                write!(f, "    call {}", pos)?;
+                for param in params.iter().rev() {
+                    write!(f, " {}", param)?;
+                }
+                Ok(())
+            }
             Instruction::Ret => write!(f, "    ret"),
             Instruction::RustCall { .. } => write!(f, "    rustcall"),
             Instruction::Label(name) => write!(f, "{}:", name),
@@ -164,22 +180,22 @@ impl Machine {
     }
 
     #[allow(dead_code)]
-    fn print_stack(&self) {
+    fn print_stack(&self, recursion_depth: u32) {
         println!("Stack:");
         for obj in self.stack.iter() {
             println!("  {}", obj);
         }
+        println!(
+            "\nDepth: {}: PC: {}; Executing: {}",
+            recursion_depth, self.pc, self.program[self.pc]
+        );
     }
 
     pub fn run(&mut self, ctx: &mut TulispContext, recursion_depth: u32) -> Result<(), Error> {
         let mut ctr: u32 = 0; // safety counter
         while self.pc < self.program.len() && ctr < 100000 {
+            // self.print_stack(recursion_depth);
             let instr = &mut self.program[self.pc];
-            // self.print_stack();
-            // println!(
-            //     "\nDepth: {}: PC: {}; Executing: {}",
-            //     recursion_depth, self.pc, instr
-            // );
             ctr += 1;
             match instr {
                 Instruction::Push(obj) => self.stack.push(obj.clone()),
