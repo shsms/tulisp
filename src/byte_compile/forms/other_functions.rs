@@ -53,6 +53,50 @@ pub(super) fn compile_fn_if(
     })
 }
 
+pub(super) fn compile_fn_defun_call(
+    compiler: &mut Compiler<'_>,
+    name: &TulispObject,
+    args: &TulispObject,
+) -> Result<Vec<Instruction>, Error> {
+    let mut result = vec![];
+    for arg in args.base_iter() {
+        result.append(&mut compiler.compile_expr_keep_result(&arg)?);
+    }
+    result.push(Instruction::Call {
+        pos: Pos::Label(name.clone()),
+        params: compiler.defun_args[&name.addr_as_usize()].clone(),
+    });
+    Ok(result)
+}
+
+pub(super) fn compile_fn_defun(
+    compiler: &mut Compiler<'_>,
+    name: &TulispObject,
+    args: &TulispObject,
+) -> Result<Vec<Instruction>, Error> {
+    compiler.compile_2_arg_call(name, args, true, |ctx, name, args, body| {
+        ctx.functions
+            .functions
+            .insert(name.addr_as_usize(), compile_fn_defun_call);
+        ctx.defun_args.insert(
+            name.addr_as_usize(),
+            args.base_iter()
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect(),
+        );
+        let mut body = ctx.compile(body)?;
+        let mut result = vec![
+            Instruction::Jump(Pos::Rel(body.len() as isize + 2)),
+            Instruction::Label(name.clone()),
+        ];
+        result.append(&mut body);
+        result.push(Instruction::Ret);
+        Ok(result)
+    })
+}
+
 pub(super) fn compile_fn_progn(
     compiler: &mut Compiler<'_>,
     _name: &TulispObject,

@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::{vm::Instruction, Error, TulispContext, TulispObject, TulispValue};
 
 use super::forms::VMFunctions;
@@ -8,6 +10,7 @@ pub(crate) type CompileResult = Result<Vec<Instruction>, Error>;
 pub(crate) struct Compiler<'a> {
     pub ctx: &'a mut TulispContext,
     pub functions: VMFunctions,
+    pub defun_args: HashMap<usize, Vec<TulispObject>>, // fn_name.addr_as_usize() -> args
     pub keep_result: bool,
 }
 
@@ -17,6 +20,7 @@ impl<'a> Compiler<'a> {
         Compiler {
             ctx,
             functions,
+            defun_args: HashMap::new(),
             keep_result: true,
         }
     }
@@ -32,10 +36,11 @@ impl<'a> Compiler<'a> {
             }
             prev = Some(expr);
         }
-        self.keep_result = keep_result;
         if let Some(prev) = prev {
+            self.keep_result = true;
             result.append(&mut self.compile_expr(&prev)?);
         }
+        self.keep_result = keep_result;
         Ok(result)
     }
 
@@ -81,6 +86,3 @@ impl<'a> Compiler<'a> {
         ret
     }
 }
-
-/// Compilers for specific lisp functions.
-impl<'a> Compiler<'a> {}

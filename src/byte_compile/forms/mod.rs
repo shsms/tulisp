@@ -42,6 +42,7 @@ impl VMFunctions {
             ("print", other_functions::compile_fn_print),
             ("setq", other_functions::compile_fn_setq),
             ("if", other_functions::compile_fn_if),
+            ("defun", other_functions::compile_fn_defun),
             ("progn", other_functions::compile_fn_progn),
         }
         VMFunctions { functions }
