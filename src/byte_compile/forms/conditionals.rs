@@ -49,3 +49,19 @@ pub(super) fn compile_fn_if(
         Ok(result)
     })
 }
+
+pub(super) fn compile_fn_while(
+    compiler: &mut Compiler<'_>,
+    name: &TulispObject,
+    args: &TulispObject,
+) -> Result<Vec<Instruction>, Error> {
+    compiler.compile_1_arg_call(name, args, true, |ctx, cond, body| {
+        let mut result = ctx.compile_expr_keep_result(cond)?;
+        let mut body = ctx.compile_progn(body)?;
+
+        optimize_jump_if_nil(&mut result, Pos::Rel(body.len() as isize + 1));
+        result.append(&mut body);
+        result.push(Instruction::Jump(Pos::Rel(-(result.len() as isize + 1))));
+        Ok(result)
+    })
+}

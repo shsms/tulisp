@@ -43,10 +43,12 @@ impl VMFunctions {
             ("-", arithmetic_operations::compile_fn_minus),
             ("print", other_functions::compile_fn_print),
             ("setq", other_functions::compile_fn_setq),
-            ("if", conditionals::compile_fn_if),
             ("defun", other_functions::compile_fn_defun),
             ("progn", other_functions::compile_fn_progn),
             ("cons", other_functions::compile_fn_cons),
+            // conditionals
+            ("if", conditionals::compile_fn_if),
+            ("while", conditionals::compile_fn_while),
         }
         VMFunctions { functions }
     }
