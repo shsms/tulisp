@@ -98,7 +98,7 @@ fn eval_lambda<E: Evaluator>(
     args: &TulispObject,
 ) -> Result<TulispObject, Error> {
     let mut result = eval_function::<E>(ctx, params, body, args)?;
-    while result.is_bounced() {
+    while result.is_bounced().is_some() {
         result = eval_function::<DummyEval>(ctx, params, body, &result.cdr()?)?;
     }
     Ok(result)
@@ -257,7 +257,7 @@ pub(crate) fn eval_basic<'a>(
         | TulispValue::Macro(_)
         | TulispValue::Defmacro { .. }
         | TulispValue::Any(_)
-        | TulispValue::Bounce
+        | TulispValue::Bounce { .. }
         | TulispValue::Nil
         | TulispValue::T => {}
         TulispValue::Quote { value, .. } => {

@@ -80,7 +80,7 @@ impl<'a> Compiler<'a> {
             | TulispValue::Macro(_)
             | TulispValue::Defmacro { .. }
             | TulispValue::Any(_)
-            | TulispValue::Bounce
+            | TulispValue::Bounce { .. }
             | TulispValue::Nil
             | TulispValue::Sharpquote { .. }
             | TulispValue::Backquote { .. }

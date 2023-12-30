@@ -212,7 +212,9 @@ pub enum TulispValue {
         params: DefunParams,
         body: TulispObject,
     },
-    Bounce,
+    Bounce {
+        value: TulispObject,
+    },
 }
 
 impl std::fmt::Debug for TulispValue {
@@ -253,7 +255,7 @@ impl std::fmt::Debug for TulispValue {
                 .field("params", params)
                 .field("body", body)
                 .finish(),
-            Self::Bounce => write!(f, "Bounce"),
+            Self::Bounce { value } => f.debug_struct("Bounce").field("value", value).finish(),
         }
     }
 }
@@ -326,7 +328,7 @@ fn fmt_list(mut vv: TulispObject, f: &mut std::fmt::Formatter<'_>) -> Result<(),
 impl std::fmt::Display for TulispValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TulispValue::Bounce => f.write_str("Bounce"),
+            TulispValue::Bounce { value } => f.write_fmt(format_args!("{}::bounce", value)),
             TulispValue::Nil { .. } => f.write_str("nil"),
             TulispValue::Symbol { value } => f.write_str(&value.name),
             TulispValue::Int { value, .. } => f.write_fmt(format_args!("{}", value)),
@@ -553,15 +555,18 @@ impl TulispValue {
         matches!(self, TulispValue::Nil)
     }
 
-    pub fn is_bounced(&self) -> bool {
+    pub fn is_bounced(&self) -> Option<TulispObject> {
         match self {
             TulispValue::List { cons, .. } => cons.car().is_bounce(),
-            _ => false,
+            _ => None,
         }
     }
 
-    pub fn is_bounce(&self) -> bool {
-        matches!(self, TulispValue::Bounce)
+    pub fn is_bounce(&self) -> Option<TulispObject> {
+        match self {
+            TulispValue::Bounce { value } => Some(value.clone()),
+            _ => None,
+        }
     }
 
     pub fn consp(&self) -> bool {

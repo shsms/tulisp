@@ -329,9 +329,6 @@ assert_eq!(ts.value, 25);
 
     predicate_fn!(pub, null, "Returns True if `self` is `nil`.");
     predicate_fn!(pub, is_truthy, "Returns True if `self` is not `nil`.");
-
-    predicate_fn!(pub(crate), is_bounce, "Returns True if `self` is a tail-call trampoline bounce object.");
-    predicate_fn!(pub(crate), is_bounced, "Returns True if `self` is a tail-call trampoline bounced function call.");
     // predicates end
 }
 
@@ -399,8 +396,17 @@ impl TulispObject {
         self.span.set(in_span);
         self.clone()
     }
+
     pub(crate) fn take(&self) -> TulispValue {
         self.rc.borrow_mut().take()
+    }
+
+    pub(crate) fn is_bounce(&self) -> Option<TulispObject> {
+        self.rc.borrow().is_bounce()
+    }
+
+    pub(crate) fn is_bounced(&self) -> Option<TulispObject> {
+        self.rc.borrow().is_bounced()
     }
 
     #[doc(hidden)]

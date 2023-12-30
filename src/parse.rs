@@ -561,7 +561,7 @@ pub(crate) fn mark_tail_calls(
     let new_tail = if tail_ident.eq(&name) {
         let ret_tail = TulispObject::nil().append(tail.cdr()?)?.to_owned();
         list!(,ctx.intern("list")
-              ,TulispValue::Bounce.into_ref(None)
+              ,TulispValue::Bounce{ value: name }.into_ref(None)
               ,@ret_tail)?
     } else if tail_name_str == "progn" || tail_name_str == "let" || tail_name_str == "let*" {
         list!(,tail_ident ,@mark_tail_calls(ctx, name, tail.cdr()?)?)?
