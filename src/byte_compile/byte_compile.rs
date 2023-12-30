@@ -63,11 +63,10 @@ impl<'a> Compiler<'a> {
             }
             prev = Some(expr);
         }
+        self.keep_result = keep_result;
         if let Some(prev) = prev {
-            self.keep_result = true;
             result.append(&mut self.compile_expr(&prev)?);
         }
-        self.keep_result = keep_result;
         Ok(result)
     }
 
@@ -115,6 +114,17 @@ impl<'a> Compiler<'a> {
         let keep_result = self.keep_result;
         self.keep_result = true;
         let ret = self.compile_expr(expr);
+        self.keep_result = keep_result;
+        ret
+    }
+
+    pub(crate) fn compile_progn_keep_result(
+        &mut self,
+        expr: &TulispObject,
+    ) -> Result<Vec<Instruction>, Error> {
+        let keep_result = self.keep_result;
+        self.keep_result = true;
+        let ret = self.compile_progn(expr);
         self.keep_result = keep_result;
         ret
     }

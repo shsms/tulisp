@@ -83,7 +83,7 @@ pub(super) fn compile_fn_defun(
         }
 
         ctx.defun_args.insert(name.addr_as_usize(), params);
-        let mut body = ctx.compile_progn(body)?;
+        let mut body = ctx.compile_progn_keep_result(body)?;
         let mut result = vec![
             Instruction::Jump(Pos::Rel(body.len() as isize + 2)),
             Instruction::Label(name.clone()),
