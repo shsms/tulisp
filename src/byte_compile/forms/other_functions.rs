@@ -52,6 +52,24 @@ pub(super) fn compile_fn_cons(
     })
 }
 
+pub(super) fn compile_fn_list(
+    compiler: &mut Compiler<'_>,
+    _name: &TulispObject,
+    args: &TulispObject,
+) -> Result<Vec<Instruction>, Error> {
+    if !compiler.keep_result {
+        return Ok(vec![]);
+    }
+    let mut result = vec![];
+    let mut len = 0;
+    for arg in args.base_iter() {
+        result.append(&mut compiler.compile_expr(&arg)?);
+        len += 1;
+    }
+    result.push(Instruction::List(len));
+    Ok(result)
+}
+
 pub(super) fn compile_fn_defun_call(
     compiler: &mut Compiler<'_>,
     name: &TulispObject,

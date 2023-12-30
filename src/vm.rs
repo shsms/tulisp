@@ -94,6 +94,7 @@ pub enum Instruction {
     Ret,
     // lists
     Cons,
+    List(usize),
 }
 
 impl Display for Instruction {
@@ -131,6 +132,7 @@ impl Display for Instruction {
             Instruction::RustCall { .. } => write!(f, "    rustcall"),
             Instruction::Label(name) => write!(f, "{}:", name),
             Instruction::Cons => write!(f, "    cons"),
+            Instruction::List(len) => write!(f, "    list {}", len),
         }
     }
 }
@@ -418,6 +420,14 @@ impl Machine {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
                     self.stack.push(TulispObject::cons(a, b));
+                }
+                Instruction::List(len) => {
+                    let mut list = TulispObject::nil();
+                    for _ in 0..*len {
+                        let a = self.stack.pop().unwrap();
+                        list = TulispObject::cons(a, list);
+                    }
+                    self.stack.push(list);
                 }
             }
             self.pc += 1;
