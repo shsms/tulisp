@@ -44,7 +44,7 @@ pub(super) fn compile_fn_if(
     compiler.compile_2_arg_call(name, args, true, |ctx, cond, then, else_| {
         let mut result = ctx.compile_expr_keep_result(cond)?;
         let mut then = ctx.compile_expr_keep_result(then)?;
-        let mut else_ = ctx.compile(else_)?;
+        let mut else_ = ctx.compile_progn(else_)?;
 
         let tgt_pos = Pos::Rel(else_.len() as isize + 1);
         match result.last() {
@@ -112,7 +112,7 @@ pub(super) fn compile_fn_defun(
                 .rev()
                 .collect(),
         );
-        let mut body = ctx.compile(body)?;
+        let mut body = ctx.compile_progn(body)?;
         let mut result = vec![
             Instruction::Jump(Pos::Rel(body.len() as isize + 2)),
             Instruction::Label(name.clone()),
@@ -128,5 +128,5 @@ pub(super) fn compile_fn_progn(
     _name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    Ok(compiler.compile(args)?)
+    Ok(compiler.compile_progn(args)?)
 }

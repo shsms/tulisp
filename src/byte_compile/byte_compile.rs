@@ -26,6 +26,10 @@ impl<'a> Compiler<'a> {
     }
 
     pub fn compile(&mut self, value: &TulispObject) -> Result<Vec<Instruction>, Error> {
+        self.compile_progn(value)
+    }
+
+    pub fn compile_progn(&mut self, value: &TulispObject) -> Result<Vec<Instruction>, Error> {
         let mut result = vec![];
         let mut prev = None;
         let keep_result = self.keep_result;
