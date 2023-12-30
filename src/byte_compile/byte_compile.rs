@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    vm::{Instruction, VMBindings},
+    vm::{Bytecode, Instruction, VMBindings},
     Error, TulispContext, TulispObject, TulispValue,
 };
 
@@ -15,7 +15,7 @@ pub(crate) struct Compiler<'a> {
     pub functions: VMFunctions,
     pub defun_args: HashMap<usize, Vec<usize>>, // fn_name.addr_as_usize() -> arg symbol idx
     pub bindings: Vec<VMBindings>,
-    pub symbol_to_var_idx: HashMap<usize, usize>,
+    pub symbol_to_binding_idx: HashMap<usize, usize>,
     pub keep_result: bool,
 }
 
@@ -27,28 +27,29 @@ impl<'a> Compiler<'a> {
             functions,
             defun_args: HashMap::new(),
             bindings: Vec::new(),
-            symbol_to_var_idx: HashMap::new(),
+            symbol_to_binding_idx: HashMap::new(),
             keep_result: true,
         }
     }
 
     pub fn get_symbol_idx(&mut self, symbol: &TulispObject) -> usize {
         let addr = &symbol.addr_as_usize();
-        if let Some(idx) = self.symbol_to_var_idx.get(addr) {
+        if let Some(idx) = self.symbol_to_binding_idx.get(addr) {
             *idx
         } else {
             self.bindings.push(VMBindings::new(symbol.to_string()));
             let idx = self.bindings.len() - 1;
-            self.symbol_to_var_idx.insert(*addr, idx);
+            self.symbol_to_binding_idx.insert(*addr, idx);
             idx
         }
     }
 
-    pub fn compile(
-        &mut self,
-        value: &TulispObject,
-    ) -> Result<(Vec<Instruction>, Vec<VMBindings>), Error> {
-        Ok((self.compile_progn(value)?, self.bindings.clone()))
+    pub fn compile(mut self, value: &TulispObject) -> Result<Bytecode, Error> {
+        Ok(Bytecode::new(
+            self.compile_progn(value)?,
+            self.bindings,
+            self.symbol_to_binding_idx,
+        ))
     }
 
     pub fn compile_progn(&mut self, value: &TulispObject) -> Result<Vec<Instruction>, Error> {

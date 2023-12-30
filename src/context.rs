@@ -196,9 +196,8 @@ impl TulispContext {
 
     pub fn vm_eval_string(&mut self, string: &str) -> Result<TulispObject, Error> {
         let vv = parse(self, 0, string)?;
-        let mut compiler = Compiler::new(self);
-        let (bytecode, bindings) = compiler.compile(&vv)?;
-        vm::Machine::new(bytecode, bindings).run(self)
+        let bytecode = Compiler::new(self).compile(&vv)?;
+        vm::Machine::new(bytecode).run(self)
     }
 
     pub fn vm_eval_file(&mut self, filename: &str) -> Result<TulispObject, Error> {
@@ -212,13 +211,9 @@ impl TulispContext {
 
         let string: &str = &contents;
         let vv = parse(self, self.filenames.len() - 1, string)?;
-        let mut compiler = Compiler::new(self);
-        let (bytecode, bindings) = compiler.compile(&vv)?;
-        for instr in &bytecode {
-            println!("{}", instr);
-        }
-        println!("Number of variables: {}", bindings.len());
-        vm::Machine::new(bytecode, bindings).run(self)
+        let bytecode = Compiler::new(self).compile(&vv)?;
+        bytecode.print();
+        vm::Machine::new(bytecode).run(self)
     }
 
     pub(crate) fn get_filename(&self, file_id: usize) -> String {

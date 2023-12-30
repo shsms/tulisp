@@ -178,11 +178,39 @@ impl VMBindings {
     }
 }
 
+pub(crate) struct Bytecode {
+    instructions: Vec<Instruction>,
+    bindings: Vec<VMBindings>,
+    #[allow(dead_code)]
+    symbol_to_binding_idx: HashMap<usize, usize>,
+}
+
+impl Bytecode {
+    pub(crate) fn new(
+        instructions: Vec<Instruction>,
+        bindings: Vec<VMBindings>,
+        symbol_to_binding_idx: HashMap<usize, usize>,
+    ) -> Self {
+        Self {
+            instructions,
+            bindings,
+            symbol_to_binding_idx,
+        }
+    }
+
+    pub(crate) fn print(&self) {
+        println!("start:");
+        for (i, instr) in self.instructions.iter().enumerate() {
+            println!("{:<40}   # {}", instr.to_string(), i);
+        }
+        println!("Number of bindings: {}", self.bindings.len());
+    }
+}
+
 pub struct Machine {
     stack: Vec<TulispObject>,
-    program: Vec<Instruction>,
+    bytecode: Bytecode,
     labels: HashMap<usize, usize>, // TulispObject.addr -> instruction index
-    bindings: Vec<VMBindings>,
     pc: usize,
 }
 
@@ -207,14 +235,13 @@ macro_rules! jump_to_pos {
 }
 
 impl Machine {
-    pub(crate) fn new(program: Vec<Instruction>, variables: Vec<VMBindings>) -> Self {
+    pub(crate) fn new(bytecode: Bytecode) -> Self {
         Machine {
             stack: Vec::new(),
-            labels: Self::locate_labels(&program),
+            labels: Self::locate_labels(&bytecode.instructions),
+            bytecode,
             // program: programs::print_range(92, 100),
             // program: programs::fib(30),
-            program,
-            bindings: variables,
             pc: 0,
         }
     }
@@ -237,7 +264,7 @@ impl Machine {
         }
         println!(
             "\nDepth: {}: PC: {}; Executing: {}",
-            recursion_depth, self.pc, self.program[self.pc]
+            recursion_depth, self.pc, self.bytecode.instructions[self.pc]
         );
     }
 
@@ -248,9 +275,9 @@ impl Machine {
 
     fn run_impl(&mut self, ctx: &mut TulispContext, recursion_depth: u32) -> Result<(), Error> {
         let mut ctr: u32 = 0; // safety counter
-        while self.pc < self.program.len() && ctr < 100000 {
+        while self.pc < self.bytecode.instructions.len() && ctr < 100000 {
             // self.print_stack(recursion_depth);
-            let instr = &mut self.program[self.pc];
+            let instr = &mut self.bytecode.instructions[self.pc];
             ctr += 1;
             match instr {
                 Instruction::Push(obj) => self.stack.push(obj.clone()),
@@ -351,14 +378,14 @@ impl Machine {
                 }
                 Instruction::StorePop(obj) => {
                     let a = self.stack.pop().unwrap();
-                    let _ = self.bindings[*obj].set(a);
+                    let _ = self.bytecode.bindings[*obj].set(a);
                 }
                 Instruction::Store(obj) => {
                     let a = self.stack.last().unwrap();
-                    let _ = self.bindings[*obj].set(a.clone());
+                    let _ = self.bytecode.bindings[*obj].set(a.clone());
                 }
                 Instruction::Load(obj) => {
-                    let a = self.bindings[*obj].get().unwrap();
+                    let a = self.bytecode.bindings[*obj].get().unwrap();
                     self.stack.push(a);
                 }
                 Instruction::Call { pos, params } => {
@@ -368,12 +395,12 @@ impl Machine {
                     let mut scope: Vec<usize> = vec![];
                     for param in params {
                         let value = self.stack.pop().unwrap();
-                        let _ = self.bindings[*param].set_scope(value);
+                        let _ = self.bytecode.bindings[*param].set_scope(value);
                         scope.push(*param);
                     }
                     self.run_impl(ctx, recursion_depth + 1)?;
                     for param in scope {
-                        let _ = self.bindings[param].unset();
+                        let _ = self.bytecode.bindings[param].unset();
                     }
 
                     self.pc = pc;
