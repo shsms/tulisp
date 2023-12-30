@@ -83,7 +83,6 @@ impl<'a> Compiler<'a> {
             | TulispValue::Any(_)
             | TulispValue::Bounce
             | TulispValue::Nil
-            | TulispValue::Quote { .. }
             | TulispValue::Sharpquote { .. }
             | TulispValue::Backquote { .. }
             | TulispValue::Unquote { .. }
@@ -91,6 +90,13 @@ impl<'a> Compiler<'a> {
             | TulispValue::T => {
                 if self.keep_result {
                     return Ok(vec![Instruction::Push(expr.clone())]);
+                } else {
+                    return Ok(vec![]);
+                }
+            }
+            TulispValue::Quote { value } => {
+                if self.keep_result {
+                    return Ok(vec![Instruction::Push(value.clone())]);
                 } else {
                     return Ok(vec![]);
                 }
