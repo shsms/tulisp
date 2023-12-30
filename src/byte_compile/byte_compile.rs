@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
-use crate::{vm::Instruction, Error, TulispContext, TulispObject, TulispValue};
+use crate::{
+    vm::{Instruction, VMBindings},
+    Error, TulispContext, TulispObject, TulispValue,
+};
 
 use super::forms::VMFunctions;
 
@@ -10,7 +13,9 @@ pub(crate) type CompileResult = Result<Vec<Instruction>, Error>;
 pub(crate) struct Compiler<'a> {
     pub ctx: &'a mut TulispContext,
     pub functions: VMFunctions,
-    pub defun_args: HashMap<usize, Vec<TulispObject>>, // fn_name.addr_as_usize() -> args
+    pub defun_args: HashMap<usize, Vec<usize>>, // fn_name.addr_as_usize() -> arg symbol idx
+    pub bindings: Vec<VMBindings>,
+    pub symbol_to_var_idx: HashMap<usize, usize>,
     pub keep_result: bool,
 }
 
@@ -21,12 +26,29 @@ impl<'a> Compiler<'a> {
             ctx,
             functions,
             defun_args: HashMap::new(),
+            bindings: Vec::new(),
+            symbol_to_var_idx: HashMap::new(),
             keep_result: true,
         }
     }
 
-    pub fn compile(&mut self, value: &TulispObject) -> Result<Vec<Instruction>, Error> {
-        self.compile_progn(value)
+    pub fn get_symbol_idx(&mut self, symbol: &TulispObject) -> usize {
+        let addr = &symbol.addr_as_usize();
+        if let Some(idx) = self.symbol_to_var_idx.get(addr) {
+            *idx
+        } else {
+            self.bindings.push(VMBindings::new(symbol.to_string()));
+            let idx = self.bindings.len() - 1;
+            self.symbol_to_var_idx.insert(*addr, idx);
+            idx
+        }
+    }
+
+    pub fn compile(
+        &mut self,
+        value: &TulispObject,
+    ) -> Result<(Vec<Instruction>, Vec<VMBindings>), Error> {
+        Ok((self.compile_progn(value)?, self.bindings.clone()))
     }
 
     pub fn compile_progn(&mut self, value: &TulispObject) -> Result<Vec<Instruction>, Error> {
@@ -75,7 +97,7 @@ impl<'a> Compiler<'a> {
             TulispValue::List { cons, .. } => self
                 .compile_form(cons)
                 .map_err(|e| e.with_trace(expr.clone())),
-            TulispValue::Symbol { .. } => Ok(vec![Instruction::Load(expr.clone())]),
+            TulispValue::Symbol { .. } => Ok(vec![Instruction::Load(self.get_symbol_idx(expr))]),
         }
     }
 

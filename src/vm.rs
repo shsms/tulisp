@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fmt::Display, rc::Rc};
 
-use crate::{context::Scope, value::TulispFn, Error, TulispContext, TulispObject};
+use crate::{value::TulispFn, Error, ErrorKind, TulispContext, TulispObject};
 
 macro_rules! compare_ops {
     ($oper:expr) => {{
@@ -63,9 +63,9 @@ impl Display for Pos {
 pub enum Instruction {
     Push(TulispObject),
     // variables
-    StorePop(TulispObject),
-    Store(TulispObject),
-    Load(TulispObject),
+    StorePop(usize),
+    Store(usize),
+    Load(usize),
     // arithmetic
     Add,
     Sub,
@@ -90,7 +90,7 @@ pub enum Instruction {
     // functions
     Label(TulispObject),
     RustCall { func: Rc<TulispFn> },
-    Call { pos: Pos, params: Vec<TulispObject> },
+    Call { pos: Pos, params: Vec<usize> },
     Ret,
 }
 
@@ -132,10 +132,57 @@ impl Display for Instruction {
     }
 }
 
+#[derive(Default, Clone, Debug)]
+pub(crate) struct VMBindings {
+    name: String,
+    items: Vec<TulispObject>,
+}
+
+impl VMBindings {
+    pub(crate) fn new(name: String) -> Self {
+        Self {
+            name,
+            items: Vec::new(),
+        }
+    }
+
+    pub fn set(&mut self, to_set: TulispObject) {
+        if self.items.is_empty() {
+            self.items.push(to_set);
+        } else {
+            *self.items.last_mut().unwrap() = to_set;
+        }
+    }
+
+    pub fn set_scope(&mut self, to_set: TulispObject) {
+        self.items.push(to_set);
+    }
+
+    pub fn unset(&mut self) {
+        self.items.pop();
+    }
+
+    #[allow(dead_code)]
+    pub fn boundp(&self) -> bool {
+        !self.items.is_empty()
+    }
+
+    pub fn get(&self) -> Result<TulispObject, Error> {
+        if self.items.is_empty() {
+            return Err(Error::new(
+                ErrorKind::TypeMismatch,
+                format!("Variable definition is void: {}", self.name),
+            ));
+        }
+        return Ok(self.items.last().unwrap().clone());
+    }
+}
+
 pub struct Machine {
     stack: Vec<TulispObject>,
     program: Vec<Instruction>,
     labels: HashMap<usize, usize>, // TulispObject.addr -> instruction index
+    bindings: Vec<VMBindings>,
     pc: usize,
 }
 
@@ -160,13 +207,14 @@ macro_rules! jump_to_pos {
 }
 
 impl Machine {
-    pub fn new(program: Vec<Instruction>) -> Self {
+    pub(crate) fn new(program: Vec<Instruction>, variables: Vec<VMBindings>) -> Self {
         Machine {
             stack: Vec::new(),
             labels: Self::locate_labels(&program),
             // program: programs::print_range(92, 100),
             // program: programs::fib(30),
             program,
+            bindings: variables,
             pc: 0,
         }
     }
@@ -303,27 +351,30 @@ impl Machine {
                 }
                 Instruction::StorePop(obj) => {
                     let a = self.stack.pop().unwrap();
-                    obj.set(a)?;
+                    let _ = self.bindings[*obj].set(a);
                 }
                 Instruction::Store(obj) => {
                     let a = self.stack.last().unwrap();
-                    obj.set(a.clone())?;
+                    let _ = self.bindings[*obj].set(a.clone());
                 }
                 Instruction::Load(obj) => {
-                    let a = obj.get()?;
+                    let a = self.bindings[*obj].get().unwrap();
                     self.stack.push(a);
                 }
                 Instruction::Call { pos, params } => {
                     let pc = self.pc;
                     jump_to_pos!(self, pos);
 
-                    let mut scope = Scope::default();
+                    let mut scope: Vec<usize> = vec![];
                     for param in params {
                         let value = self.stack.pop().unwrap();
-                        scope.set(param.clone(), value)?;
+                        let _ = self.bindings[*param].set_scope(value);
+                        scope.push(*param);
                     }
                     self.run_impl(ctx, recursion_depth + 1)?;
-                    scope.remove_all()?;
+                    for param in scope {
+                        let _ = self.bindings[param].unset();
+                    }
 
                     self.pc = pc;
                 }
@@ -341,100 +392,100 @@ impl Machine {
 }
 
 mod programs {
-    use super::*;
+    // use super::*;
 
-    use crate::{list, TulispContext, TulispObject, TulispValue};
+    // use crate::{list, TulispContext, TulispObject, TulispValue};
 
-    #[allow(dead_code)]
-    pub(super) fn print_range(from: i64, to: i64) -> Vec<Instruction> {
-        let i = TulispObject::symbol("i".to_string(), false);
-        let n = TulispObject::symbol("n".to_string(), false);
-        vec![
-            // print numbers 1 to 10
-            Instruction::Push(from.into()),   // 0
-            Instruction::StorePop(i.clone()), // 1
-            Instruction::Push(to.into()),     // 2
-            Instruction::StorePop(n.clone()), // 3
-            // loop:
-            Instruction::Load(i.clone()), // 4
-            Instruction::PrintPop,        // 5
-            Instruction::Push(1.into()),  // 6
-            Instruction::Load(i.clone()), // 7
-            if from < to {
-                Instruction::Add
-            } else {
-                Instruction::Sub
-            }, // 8
-            Instruction::StorePop(i.clone()), // 9
-            Instruction::Load(i.clone()), // 10
-            Instruction::Load(n.clone()), // 11
-            if from < to {
-                Instruction::JumpIfGtEq(Pos::Abs(4))
-            } else {
-                Instruction::JumpIfLtEq(Pos::Abs(4))
-            }, // 12
-        ]
-    }
+    // #[allow(dead_code)]
+    // pub(super) fn print_range(from: i64, to: i64) -> Vec<Instruction> {
+    //     let i = TulispObject::symbol("i".to_string(), false);
+    //     let n = TulispObject::symbol("n".to_string(), false);
+    //     vec![
+    //         // print numbers 1 to 10
+    //         Instruction::Push(from.into()),   // 0
+    //         Instruction::StorePop(i.clone()), // 1
+    //         Instruction::Push(to.into()),     // 2
+    //         Instruction::StorePop(n.clone()), // 3
+    //         // loop:
+    //         Instruction::Load(i.clone()), // 4
+    //         Instruction::PrintPop,        // 5
+    //         Instruction::Push(1.into()),  // 6
+    //         Instruction::Load(i.clone()), // 7
+    //         if from < to {
+    //             Instruction::Add
+    //         } else {
+    //             Instruction::Sub
+    //         }, // 8
+    //         Instruction::StorePop(i.clone()), // 9
+    //         Instruction::Load(i.clone()), // 10
+    //         Instruction::Load(n.clone()), // 11
+    //         if from < to {
+    //             Instruction::JumpIfGtEq(Pos::Abs(4))
+    //         } else {
+    //             Instruction::JumpIfLtEq(Pos::Abs(4))
+    //         }, // 12
+    //     ]
+    // }
 
-    #[allow(dead_code)]
-    pub(super) fn fib(num: i64) -> Vec<Instruction> {
-        let n = TulispObject::symbol("n".to_string(), false);
-        let fib = TulispObject::symbol("fib".to_string(), false);
-        let main = TulispObject::symbol("main".to_string(), false);
-        vec![
-            Instruction::Jump(Pos::Label(main.clone())), // 0
-            Instruction::Label(fib.clone()),             // 1
-            Instruction::Push(2.into()),                 // 2
-            Instruction::Load(n.clone()),                // 3
-            Instruction::JumpIfGt(Pos::Rel(2)),          // 4
-            Instruction::Push(1.into()),                 // 5
-            Instruction::Ret,                            // 6
-            Instruction::Push(1.into()),                 // 7
-            Instruction::Load(n.clone()),                // 8
-            Instruction::Sub,                            // 9
-            Instruction::Call {
-                pos: Pos::Label(fib.clone()),
-                params: vec![n.clone()],
-            }, // 10
-            Instruction::Push(2.into()),                 // 11
-            Instruction::Load(n.clone()),                // 12
-            Instruction::Sub,                            // 13
-            Instruction::Call {
-                pos: Pos::Label(fib.clone()),
-                params: vec![n.clone()],
-            }, // 14
-            Instruction::Add,                            // 15
-            Instruction::Ret,                            // 16
-            Instruction::Label(main.clone()),            // 17
-            Instruction::Push(num.into()),               // 18
-            Instruction::Call {
-                pos: Pos::Label(fib.clone()),
-                params: vec![n.clone()],
-            }, // 19
-            Instruction::PrintPop,                       // 20
-        ]
-    }
+    // #[allow(dead_code)]
+    // pub(super) fn fib(num: i64) -> Vec<Instruction> {
+    //     let n = TulispObject::symbol("n".to_string(), false);
+    //     let fib = TulispObject::symbol("fib".to_string(), false);
+    //     let main = TulispObject::symbol("main".to_string(), false);
+    //     vec![
+    //         Instruction::Jump(Pos::Label(main.clone())), // 0
+    //         Instruction::Label(fib.clone()),             // 1
+    //         Instruction::Push(2.into()),                 // 2
+    //         Instruction::Load(n.clone()),                // 3
+    //         Instruction::JumpIfGt(Pos::Rel(2)),          // 4
+    //         Instruction::Push(1.into()),                 // 5
+    //         Instruction::Ret,                            // 6
+    //         Instruction::Push(1.into()),                 // 7
+    //         Instruction::Load(n.clone()),                // 8
+    //         Instruction::Sub,                            // 9
+    //         Instruction::Call {
+    //             pos: Pos::Label(fib.clone()),
+    //             params: vec![n.clone()],
+    //         }, // 10
+    //         Instruction::Push(2.into()),                 // 11
+    //         Instruction::Load(n.clone()),                // 12
+    //         Instruction::Sub,                            // 13
+    //         Instruction::Call {
+    //             pos: Pos::Label(fib.clone()),
+    //             params: vec![n.clone()],
+    //         }, // 14
+    //         Instruction::Add,                            // 15
+    //         Instruction::Ret,                            // 16
+    //         Instruction::Label(main.clone()),            // 17
+    //         Instruction::Push(num.into()),               // 18
+    //         Instruction::Call {
+    //             pos: Pos::Label(fib.clone()),
+    //             params: vec![n.clone()],
+    //         }, // 19
+    //         Instruction::PrintPop,                       // 20
+    //     ]
+    // }
 
-    #[allow(dead_code)]
-    pub(super) fn rustcall_dotimes(ctx: &mut TulispContext, num: i64) -> Vec<Instruction> {
-        let var = TulispObject::symbol("var".to_string(), false);
-        let args = list!(
-            list!(var.clone(), num.into()).unwrap(),
-            list!(ctx.intern("print"), var).unwrap()
-        )
-        .unwrap();
-        vec![
-            Instruction::Push(args), // 0
-            Instruction::RustCall {
-                func: {
-                    let obj = ctx.intern("dotimes").get().unwrap();
-                    if let TulispValue::Func(ref func) = obj.clone_inner() {
-                        func.clone()
-                    } else {
-                        panic!("Expected function")
-                    }
-                },
-            },
-        ]
-    }
+    // #[allow(dead_code)]
+    // pub(super) fn rustcall_dotimes(ctx: &mut TulispContext, num: i64) -> Vec<Instruction> {
+    //     let var = TulispObject::symbol("var".to_string(), false);
+    //     let args = list!(
+    //         list!(var.clone(), num.into()).unwrap(),
+    //         list!(ctx.intern("print"), var).unwrap()
+    //     )
+    //     .unwrap();
+    //     vec![
+    //         Instruction::Push(args), // 0
+    //         Instruction::RustCall {
+    //             func: {
+    //                 let obj = ctx.intern("dotimes").get().unwrap();
+    //                 if let TulispValue::Func(ref func) = obj.clone_inner() {
+    //                     func.clone()
+    //                 } else {
+    //                     panic!("Expected function")
+    //                 }
+    //             },
+    //         },
+    //     ]
+    // }
 }

@@ -28,9 +28,9 @@ pub(super) fn compile_fn_setq(
     compiler.compile_2_arg_call(name, args, false, |compiler, arg1, arg2, _| {
         let mut result = compiler.compile_expr_keep_result(arg2)?;
         if compiler.keep_result {
-            result.push(Instruction::Store(arg1.clone()));
+            result.push(Instruction::Store(compiler.get_symbol_idx(arg1)));
         } else {
-            result.push(Instruction::StorePop(arg1.clone()));
+            result.push(Instruction::StorePop(compiler.get_symbol_idx(arg1)));
         }
         Ok(result)
     })
@@ -104,14 +104,12 @@ pub(super) fn compile_fn_defun(
         ctx.functions
             .functions
             .insert(name.addr_as_usize(), compile_fn_defun_call);
-        ctx.defun_args.insert(
-            name.addr_as_usize(),
-            args.base_iter()
-                .collect::<Vec<_>>()
-                .into_iter()
-                .rev()
-                .collect(),
-        );
+        let mut params = vec![];
+        for arg in args.base_iter().collect::<Vec<_>>().into_iter().rev() {
+            params.push(ctx.get_symbol_idx(&arg));
+        }
+
+        ctx.defun_args.insert(name.addr_as_usize(), params);
         let mut body = ctx.compile_progn(body)?;
         let mut result = vec![
             Instruction::Jump(Pos::Rel(body.len() as isize + 2)),
