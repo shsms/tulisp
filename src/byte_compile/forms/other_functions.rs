@@ -36,6 +36,22 @@ pub(super) fn compile_fn_setq(
     })
 }
 
+pub(super) fn compile_fn_cons(
+    compiler: &mut Compiler<'_>,
+    name: &TulispObject,
+    args: &TulispObject,
+) -> Result<Vec<Instruction>, Error> {
+    compiler.compile_2_arg_call(name, args, true, |compiler, arg1, arg2, _| {
+        if !compiler.keep_result {
+            return Ok(vec![]);
+        }
+        let mut result = compiler.compile_expr(arg2)?;
+        result.append(&mut compiler.compile_expr(arg1)?);
+        result.push(Instruction::Cons);
+        Ok(result)
+    })
+}
+
 pub(super) fn compile_fn_if(
     compiler: &mut Compiler<'_>,
     name: &TulispObject,

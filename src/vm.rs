@@ -93,6 +93,8 @@ pub enum Instruction {
     RustCall { func: Rc<TulispFn> },
     Call { pos: Pos, params: Vec<usize> },
     Ret,
+    // lists
+    Cons,
 }
 
 impl Display for Instruction {
@@ -130,6 +132,7 @@ impl Display for Instruction {
             Instruction::Ret => write!(f, "    ret"),
             Instruction::RustCall { .. } => write!(f, "    rustcall"),
             Instruction::Label(name) => write!(f, "{}:", name),
+            Instruction::Cons => write!(f, "    cons"),
         }
     }
 }
@@ -418,6 +421,11 @@ impl Machine {
                     self.stack.push(func(ctx, &args)?);
                 }
                 Instruction::Label(_) => {}
+                Instruction::Cons => {
+                    let a = self.stack.pop().unwrap();
+                    let b = self.stack.pop().unwrap();
+                    self.stack.push(TulispObject::cons(a, b));
+                }
             }
             self.pc += 1;
         }

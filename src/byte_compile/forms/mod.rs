@@ -45,6 +45,7 @@ impl VMFunctions {
             ("if", other_functions::compile_fn_if),
             ("defun", other_functions::compile_fn_defun),
             ("progn", other_functions::compile_fn_progn),
+            ("cons", other_functions::compile_fn_cons),
         }
         VMFunctions { functions }
     }
