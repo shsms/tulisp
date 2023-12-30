@@ -61,7 +61,9 @@ impl Display for Pos {
 
 /// A single instruction in the VM.
 pub enum Instruction {
+    // stack
     Push(TulispObject),
+    Pop,
     // variables
     StorePop(usize),
     Store(usize),
@@ -101,6 +103,7 @@ impl Display for Instruction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Instruction::Push(obj) => write!(f, "    push {}", obj),
+            Instruction::Pop => write!(f, "    pop"),
             Instruction::StorePop(obj) => write!(f, "    store_pop {}", obj),
             Instruction::Store(obj) => write!(f, "    store {}", obj),
             Instruction::Load(obj) => write!(f, "    load {}", obj),
@@ -287,6 +290,9 @@ impl Machine {
             ctr += 1;
             match instr {
                 Instruction::Push(obj) => self.stack.push(obj.clone()),
+                Instruction::Pop => {
+                    self.stack.pop().unwrap();
+                }
                 Instruction::Add => {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();

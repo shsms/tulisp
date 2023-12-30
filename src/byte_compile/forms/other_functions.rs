@@ -83,6 +83,9 @@ pub(super) fn compile_fn_defun_call(
         pos: Pos::Label(name.clone()),
         params: compiler.defun_args[&name.addr_as_usize()].clone(),
     });
+    if !compiler.keep_result {
+        result.push(Instruction::Pop);
+    }
     Ok(result)
 }
 
