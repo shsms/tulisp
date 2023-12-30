@@ -80,9 +80,8 @@ pub enum Instruction {
     Gt,
     GtEq,
     // control flow
-    JumpIf(Pos),
     JumpIfNil(Pos),
-    JumpIfEq(Pos),
+    JumpIfNeq(Pos),
     JumpIfLt(Pos),
     JumpIfLtEq(Pos),
     JumpIfGt(Pos),
@@ -108,9 +107,8 @@ impl Display for Instruction {
             Instruction::Sub => write!(f, "    sub"),
             Instruction::PrintPop => write!(f, "    print_pop"),
             Instruction::Print => write!(f, "    print"),
-            Instruction::JumpIf(pos) => write!(f, "    jif {}", pos),
             Instruction::JumpIfNil(pos) => write!(f, "    jnil {}", pos),
-            Instruction::JumpIfEq(pos) => write!(f, "    jeq {}", pos),
+            Instruction::JumpIfNeq(pos) => write!(f, "    jne {}", pos),
             Instruction::JumpIfLt(pos) => write!(f, "    jlt {}", pos),
             Instruction::JumpIfLtEq(pos) => write!(f, "    jle {}", pos),
             Instruction::JumpIfGt(pos) => write!(f, "    jgt {}", pos),
@@ -304,22 +302,16 @@ impl Machine {
                     let a = self.stack.last().unwrap();
                     println!("{}", a);
                 }
-                Instruction::JumpIf(pos) => {
-                    let a = self.stack.pop().unwrap();
-                    if a.is_truthy() {
-                        jump_to_pos!(self, pos);
-                    }
-                }
                 Instruction::JumpIfNil(pos) => {
                     let a = self.stack.pop().unwrap();
                     if a.null() {
                         jump_to_pos!(self, pos);
                     }
                 }
-                Instruction::JumpIfEq(pos) => {
+                Instruction::JumpIfNeq(pos) => {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
-                    if a.eq(&b) {
+                    if !a.eq(&b) {
                         jump_to_pos!(self, pos);
                     }
                 }
