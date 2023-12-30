@@ -7,6 +7,7 @@ use super::{byte_compile::CompileResult, Compiler};
 mod arithmetic_operations;
 mod common;
 mod comparison_of_numbers;
+mod conditionals;
 mod other_functions;
 
 type FnCallCompiler = fn(&mut Compiler, &TulispObject, &TulispObject) -> CompileResult;
@@ -42,7 +43,7 @@ impl VMFunctions {
             ("-", arithmetic_operations::compile_fn_minus),
             ("print", other_functions::compile_fn_print),
             ("setq", other_functions::compile_fn_setq),
-            ("if", other_functions::compile_fn_if),
+            ("if", conditionals::compile_fn_if),
             ("defun", other_functions::compile_fn_defun),
             ("progn", other_functions::compile_fn_progn),
             ("cons", other_functions::compile_fn_cons),
