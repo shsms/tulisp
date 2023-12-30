@@ -201,6 +201,7 @@ impl Bytecode {
         }
     }
 
+    #[allow(dead_code)]
     pub(crate) fn print(&self) {
         println!("start:");
         for (i, instr) in self.instructions.iter().enumerate() {
