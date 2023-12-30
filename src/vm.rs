@@ -73,6 +73,7 @@ pub enum Instruction {
     PrintPop,
     Print,
     // comparison
+    Equal,
     Eq,
     Lt,
     LtEq,
@@ -112,6 +113,7 @@ impl Display for Instruction {
             Instruction::JumpIfLtEq(pos) => write!(f, "    jle {}", pos),
             Instruction::JumpIfGt(pos) => write!(f, "    jgt {}", pos),
             Instruction::JumpIfGtEq(pos) => write!(f, "    jge {}", pos),
+            Instruction::Equal => write!(f, "    equal"),
             Instruction::Eq => write!(f, "    ceq"),
             Instruction::Lt => write!(f, "    clt"),
             Instruction::LtEq => write!(f, "    cle"),
@@ -347,6 +349,11 @@ impl Machine {
                     }
                 }
                 Instruction::Jump(pos) => jump_to_pos!(self, pos),
+                Instruction::Equal => {
+                    let a = self.stack.pop().unwrap();
+                    let b = self.stack.pop().unwrap();
+                    self.stack.push(a.equal(&b).into());
+                }
                 Instruction::Eq => {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
