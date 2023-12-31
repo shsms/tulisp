@@ -68,6 +68,8 @@ pub enum Instruction {
     StorePop(usize),
     Store(usize),
     Load(usize),
+    BeginScope(usize),
+    EndScope(usize),
     // arithmetic
     Add,
     Sub,
@@ -92,7 +94,7 @@ pub enum Instruction {
     // functions
     Label(TulispObject),
     RustCall { func: Rc<TulispFn> },
-    Call { pos: Pos, params: Vec<usize> },
+    Call(Pos),
     Ret,
     // lists
     Cons,
@@ -107,6 +109,8 @@ impl Display for Instruction {
             Instruction::StorePop(obj) => write!(f, "    store_pop {}", obj),
             Instruction::Store(obj) => write!(f, "    store {}", obj),
             Instruction::Load(obj) => write!(f, "    load {}", obj),
+            Instruction::BeginScope(obj) => write!(f, "    begin_scope {}", obj),
+            Instruction::EndScope(obj) => write!(f, "    end_scope {}", obj),
             Instruction::Add => write!(f, "    add"),
             Instruction::Sub => write!(f, "    sub"),
             Instruction::PrintPop => write!(f, "    print_pop"),
@@ -124,13 +128,7 @@ impl Display for Instruction {
             Instruction::Gt => write!(f, "    cgt"),
             Instruction::GtEq => write!(f, "    cge"),
             Instruction::Jump(pos) => write!(f, "    jmp {}", pos),
-            Instruction::Call { pos, params } => {
-                write!(f, "    call {}", pos)?;
-                for param in params.iter().rev() {
-                    write!(f, " {}", param)?;
-                }
-                Ok(())
-            }
+            Instruction::Call(pos) => write!(f, "    call {}", pos),
             Instruction::Ret => write!(f, "    ret"),
             Instruction::RustCall { .. } => write!(f, "    rustcall"),
             Instruction::Label(name) => write!(f, "{}:", name),
@@ -399,21 +397,17 @@ impl Machine {
                     let a = self.bytecode.bindings[*obj].get().unwrap();
                     self.stack.push(a);
                 }
-                Instruction::Call { pos, params } => {
+                Instruction::BeginScope(obj) => {
+                    let a = self.stack.pop().unwrap();
+                    let _ = self.bytecode.bindings[*obj].set_scope(a);
+                }
+                Instruction::EndScope(obj) => {
+                    let _ = self.bytecode.bindings[*obj].unset();
+                }
+                Instruction::Call(pos) => {
                     let pc = self.pc;
                     jump_to_pos!(self, pos);
-
-                    let mut scope: Vec<usize> = vec![];
-                    for param in params {
-                        let value = self.stack.pop().unwrap();
-                        let _ = self.bytecode.bindings[*param].set_scope(value);
-                        scope.push(*param);
-                    }
                     self.run_impl(ctx, recursion_depth + 1)?;
-                    for param in scope {
-                        let _ = self.bytecode.bindings[param].unset();
-                    }
-
                     self.pc = pc;
                 }
                 Instruction::Ret => return Ok(()),

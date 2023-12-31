@@ -79,10 +79,14 @@ pub(super) fn compile_fn_defun_call(
     for arg in args.base_iter() {
         result.append(&mut compiler.compile_expr_keep_result(&arg)?);
     }
-    result.push(Instruction::Call {
-        pos: Pos::Label(name.clone()),
-        params: compiler.defun_args[&name.addr_as_usize()].clone(),
-    });
+    let params = &compiler.defun_args[&name.addr_as_usize()];
+    for param in params {
+        result.push(Instruction::BeginScope(*param))
+    }
+    result.push(Instruction::Call(Pos::Label(name.clone())));
+    for param in params {
+        result.push(Instruction::EndScope(*param));
+    }
     if !compiler.keep_result {
         result.push(Instruction::Pop);
     }
