@@ -44,6 +44,9 @@ pub(super) fn compile_fn_if(
 
         optimize_jump_if_nil(&mut result, Pos::Rel(then.len() as isize + 1));
         result.append(&mut then);
+        if else_.is_empty() && ctx.keep_result {
+            else_.push(Instruction::Push(TulispObject::nil()));
+        }
         result.push(Instruction::Jump(Pos::Rel(else_.len() as isize)));
         result.append(&mut else_);
         Ok(result)
