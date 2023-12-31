@@ -281,11 +281,9 @@ impl Machine {
     }
 
     fn run_impl(&mut self, ctx: &mut TulispContext, recursion_depth: u32) -> Result<(), Error> {
-        let mut ctr: u32 = 0; // safety counter
-        while self.pc < self.bytecode.instructions.len() && ctr < 100000 {
+        while self.pc < self.bytecode.instructions.len() {
             // self.print_stack(recursion_depth);
             let instr = &mut self.bytecode.instructions[self.pc];
-            ctr += 1;
             match instr {
                 Instruction::Push(obj) => self.stack.push(obj.clone()),
                 Instruction::Pop => {
