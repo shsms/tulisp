@@ -1,5 +1,6 @@
 use crate::{
     byte_compile::Compiler,
+    parse::mark_tail_calls,
     vm::{Instruction, Pos},
     Error, TulispObject,
 };
@@ -57,6 +58,10 @@ pub(super) fn compile_fn_list(
     _name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
+    if let Some(name) = args.is_bounced() {
+        return compile_fn_defun_bounce_call(compiler, &name, args);
+    }
+
     if !compiler.keep_result {
         return Ok(vec![]);
     }
@@ -68,6 +73,23 @@ pub(super) fn compile_fn_list(
     }
     result.push(Instruction::List(len));
     Ok(result)
+}
+
+fn compile_fn_defun_bounce_call(
+    compiler: &mut Compiler<'_>,
+    name: &TulispObject,
+    args: &TulispObject,
+) -> Result<Vec<Instruction>, Error> {
+    let mut result = vec![];
+    for arg in args.cdr()?.base_iter() {
+        result.append(&mut compiler.compile_expr_keep_result(&arg)?);
+    }
+    let params = &compiler.defun_args[&name.addr_as_usize()];
+    for param in params {
+        result.push(Instruction::StorePop(*param))
+    }
+    result.push(Instruction::Jump(Pos::Label(name.clone())));
+    return Ok(result);
 }
 
 pub(super) fn compile_fn_defun_call(
@@ -108,7 +130,17 @@ pub(super) fn compile_fn_defun(
         }
 
         ctx.defun_args.insert(name.addr_as_usize(), params);
-        let mut body = ctx.compile_progn_keep_result(body)?;
+        // TODO: replace with `is_string`
+        let body = if body.car()?.as_string().is_ok() {
+            body.cdr()?
+        } else {
+            body.clone()
+        };
+        let body = mark_tail_calls(ctx.ctx, name.clone(), body).map_err(|e| {
+            println!("mark_tail_calls error: {:?}", e);
+            e
+        })?;
+        let mut body = ctx.compile_progn_keep_result(&body)?;
         let mut result = vec![
             Instruction::Jump(Pos::Rel(body.len() as isize + 2)),
             Instruction::Label(name.clone()),
