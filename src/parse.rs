@@ -580,10 +580,14 @@ pub(crate) fn mark_tail_calls(
         destruct_bind!((_cond &rest conds) = tail);
         let mut ret = list!(,tail_ident)?;
         for cond in conds.base_iter() {
-            destruct_bind!((condition &rest body) = cond);
-            ret = list!(,@ret
+            if cond.consp() {
+                destruct_bind!((condition &rest body) = cond);
+                ret = list!(,@ret
                         ,list!(,condition.clone()
                                ,@mark_tail_calls(ctx, name.clone(), body)?)?)?;
+            } else {
+                ret = list!(,@ret ,cond)?;
+            }
         }
         ret
     } else {
