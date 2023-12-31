@@ -73,6 +73,8 @@ pub enum Instruction {
     // arithmetic
     Add,
     Sub,
+    Mul,
+    Div,
     // io
     PrintPop,
     Print,
@@ -113,6 +115,8 @@ impl Display for Instruction {
             Instruction::EndScope(obj) => write!(f, "    end_scope {}", obj),
             Instruction::Add => write!(f, "    add"),
             Instruction::Sub => write!(f, "    sub"),
+            Instruction::Mul => write!(f, "    mul"),
+            Instruction::Div => write!(f, "    div"),
             Instruction::PrintPop => write!(f, "    print_pop"),
             Instruction::Print => write!(f, "    print"),
             Instruction::JumpIfNil(pos) => write!(f, "    jnil {}", pos),
@@ -291,6 +295,16 @@ impl Machine {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
                     self.stack.push(binary_ops!(std::ops::Sub::sub)(&a, &b)?);
+                }
+                Instruction::Mul => {
+                    let a = self.stack.pop().unwrap();
+                    let b = self.stack.pop().unwrap();
+                    self.stack.push(binary_ops!(std::ops::Mul::mul)(&a, &b)?);
+                }
+                Instruction::Div => {
+                    let a = self.stack.pop().unwrap();
+                    let b = self.stack.pop().unwrap();
+                    self.stack.push(binary_ops!(std::ops::Div::div)(&a, &b)?);
                 }
                 Instruction::PrintPop => {
                     let a = self.stack.pop().unwrap();

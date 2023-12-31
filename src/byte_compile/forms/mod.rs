@@ -39,8 +39,12 @@ impl VMFunctions {
             (">", comparison_of_numbers::compile_fn_gt),
             ("eq", comparison_of_numbers::compile_fn_eq),
             ("equal", comparison_of_numbers::compile_fn_equal),
+            // arithmetic
             ("+", arithmetic_operations::compile_fn_plus),
             ("-", arithmetic_operations::compile_fn_minus),
+            ("*", arithmetic_operations::compile_fn_mul),
+            ("/", arithmetic_operations::compile_fn_div),
+            // other functions
             ("print", other_functions::compile_fn_print),
             ("setq", other_functions::compile_fn_setq),
             ("defun", other_functions::compile_fn_defun),

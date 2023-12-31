@@ -1,35 +1,111 @@
-use crate::{byte_compile::Compiler, vm::Instruction, Error, TulispObject};
+use crate::{byte_compile::Compiler, vm::Instruction, Error, ErrorKind, TulispObject};
 
 pub(super) fn compile_fn_plus(
     compiler: &mut Compiler<'_>,
-    name: &TulispObject,
+    _name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    compiler.compile_2_arg_call(name, args, false, |compiler, arg1, arg2, _| {
-        if !compiler.keep_result {
-            Ok(vec![])
-        } else {
-            let mut result = compiler.compile_expr(arg2)?;
-            result.append(&mut compiler.compile_expr(arg1)?);
-            result.push(Instruction::Add);
-            Ok(result)
-        }
-    })
+    if !compiler.keep_result {
+        return Ok(vec![]);
+    }
+    let mut result = vec![];
+    let args = args.base_iter().collect::<Vec<_>>();
+    if args.is_empty() {
+        return Err(Error::new(
+            ErrorKind::ArityMismatch,
+            "+ requires at least 1 argument.".to_string(),
+        ));
+    }
+    for arg in args.iter().rev() {
+        result.append(&mut compiler.compile_expr(arg)?);
+    }
+    for _ in 0..args.len() - 1 {
+        result.push(Instruction::Add);
+    }
+    Ok(result)
 }
 
 pub(super) fn compile_fn_minus(
     compiler: &mut Compiler<'_>,
-    name: &TulispObject,
+    _name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    compiler.compile_2_arg_call(name, args, false, |compiler, arg1, arg2, _| {
-        if !compiler.keep_result {
-            Ok(vec![])
-        } else {
-            let mut result = compiler.compile_expr(arg2)?;
-            result.append(&mut compiler.compile_expr(arg1)?);
-            result.push(Instruction::Sub);
-            Ok(result)
-        }
-    })
+    if !compiler.keep_result {
+        return Ok(vec![]);
+    }
+    let mut result = vec![];
+    let args = args.base_iter().collect::<Vec<_>>();
+    if args.is_empty() {
+        return Err(Error::new(
+            ErrorKind::ArityMismatch,
+            "- requires at least 1 argument.".to_string(),
+        ));
+    }
+    for arg in args.iter().rev() {
+        result.append(&mut compiler.compile_expr(arg)?);
+    }
+    if args.len() == 1 {
+        result.push(Instruction::Push((-1).into()));
+        result.push(Instruction::Mul);
+        return Ok(result);
+    }
+    for _ in 0..args.len() - 1 {
+        result.push(Instruction::Sub);
+    }
+    Ok(result)
+}
+
+pub(super) fn compile_fn_mul(
+    compiler: &mut Compiler<'_>,
+    _name: &TulispObject,
+    args: &TulispObject,
+) -> Result<Vec<Instruction>, Error> {
+    if !compiler.keep_result {
+        return Ok(vec![]);
+    }
+    let mut result = vec![];
+    let args = args.base_iter().collect::<Vec<_>>();
+    if args.is_empty() {
+        return Err(Error::new(
+            ErrorKind::ArityMismatch,
+            "* requires at least 1 argument.".to_string(),
+        ));
+    }
+    for arg in args.iter().rev() {
+        result.append(&mut compiler.compile_expr(arg)?);
+    }
+    for _ in 0..args.len() - 1 {
+        result.push(Instruction::Mul);
+    }
+    Ok(result)
+}
+
+pub(super) fn compile_fn_div(
+    compiler: &mut Compiler<'_>,
+    _name: &TulispObject,
+    args: &TulispObject,
+) -> Result<Vec<Instruction>, Error> {
+    if !compiler.keep_result {
+        return Ok(vec![]);
+    }
+    let mut result = vec![];
+    let args = args.base_iter().collect::<Vec<_>>();
+    if args.is_empty() {
+        return Err(Error::new(
+            ErrorKind::ArityMismatch,
+            "/ requires at least 1 argument.".to_string(),
+        ));
+    }
+    for arg in args.iter().rev() {
+        result.append(&mut compiler.compile_expr(arg)?);
+    }
+    if args.len() == 1 {
+        result.push(Instruction::Push(1.into()));
+        result.push(Instruction::Div);
+        return Ok(result);
+    }
+    for _ in 0..args.len() - 1 {
+        result.push(Instruction::Div);
+    }
+    Ok(result)
 }
