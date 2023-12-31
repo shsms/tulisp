@@ -227,7 +227,7 @@ macro_rules! jump_to_pos {
             match $pos {
                 Pos::Abs(p) => *p,
                 Pos::Rel(p) => {
-                    let abs_pos = ($self.pc as isize + *p) as usize;
+                    let abs_pos = ($self.pc as isize + *p + 1) as usize;
                     *$pos = Pos::Abs(abs_pos);
                     abs_pos
                 }
@@ -313,6 +313,7 @@ impl Machine {
                     let a = self.stack.pop().unwrap();
                     if a.null() {
                         jump_to_pos!(self, pos);
+                        continue;
                     }
                 }
                 Instruction::JumpIfNeq(pos) => {
@@ -320,6 +321,7 @@ impl Machine {
                     let b = self.stack.pop().unwrap();
                     if !a.eq(&b) {
                         jump_to_pos!(self, pos);
+                        continue;
                     }
                 }
                 Instruction::JumpIfLt(pos) => {
@@ -327,6 +329,7 @@ impl Machine {
                     let b = self.stack.pop().unwrap();
                     if compare_ops!(std::cmp::PartialOrd::lt)(&a, &b)? {
                         jump_to_pos!(self, pos);
+                        continue;
                     }
                 }
                 Instruction::JumpIfLtEq(pos) => {
@@ -334,6 +337,7 @@ impl Machine {
                     let b = self.stack.pop().unwrap();
                     if compare_ops!(std::cmp::PartialOrd::le)(&a, &b)? {
                         jump_to_pos!(self, pos);
+                        continue;
                     }
                 }
                 Instruction::JumpIfGt(pos) => {
@@ -341,6 +345,7 @@ impl Machine {
                     let b = self.stack.pop().unwrap();
                     if compare_ops!(std::cmp::PartialOrd::gt)(&a, &b)? {
                         jump_to_pos!(self, pos);
+                        continue;
                     }
                 }
                 Instruction::JumpIfGtEq(pos) => {
@@ -348,9 +353,13 @@ impl Machine {
                     let b = self.stack.pop().unwrap();
                     if compare_ops!(std::cmp::PartialOrd::ge)(&a, &b)? {
                         jump_to_pos!(self, pos);
+                        continue;
                     }
                 }
-                Instruction::Jump(pos) => jump_to_pos!(self, pos),
+                Instruction::Jump(pos) => {
+                    jump_to_pos!(self, pos);
+                    continue;
+                }
                 Instruction::Equal => {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
