@@ -4,31 +4,36 @@ use crate::{
     Error, TulispObject,
 };
 
-fn optimize_jump_if_nil(result: &mut Vec<Instruction>, tgt_pos: Pos) {
+fn optimize_jump_if_nil(result: &mut Vec<Instruction>, tgt_pos: Pos) -> Instruction {
     match result.last() {
         Some(Instruction::Gt) => {
             result.pop();
-            result.push(Instruction::JumpIfLtEq(tgt_pos));
+            Instruction::JumpIfLtEq(tgt_pos)
         }
         Some(Instruction::Lt) => {
             result.pop();
-            result.push(Instruction::JumpIfGtEq(tgt_pos));
+            Instruction::JumpIfGtEq(tgt_pos)
         }
         Some(Instruction::GtEq) => {
             result.pop();
-            result.push(Instruction::JumpIfLt(tgt_pos));
+            Instruction::JumpIfLt(tgt_pos)
         }
         Some(Instruction::LtEq) => {
             result.pop();
-            result.push(Instruction::JumpIfGt(tgt_pos));
+            Instruction::JumpIfGt(tgt_pos)
         }
         Some(Instruction::Eq) => {
             result.pop();
-            result.push(Instruction::JumpIfNeq(tgt_pos));
+            Instruction::JumpIfNeq(tgt_pos)
         }
-        _ => {
-            result.push(Instruction::JumpIfNil(tgt_pos));
+        Some(Instruction::Label(_)) => {
+            let label = result.pop().unwrap();
+            let ret = optimize_jump_if_nil(result, tgt_pos);
+            result.push(label);
+
+            ret
         }
+        _ => Instruction::JumpIfNil(tgt_pos),
     }
 }
 
@@ -42,7 +47,8 @@ pub(super) fn compile_fn_if(
         let mut then = ctx.compile_expr(then)?;
         let mut else_ = ctx.compile_progn(else_)?;
 
-        optimize_jump_if_nil(&mut result, Pos::Rel(then.len() as isize + 1));
+        let res = optimize_jump_if_nil(&mut result, Pos::Rel(then.len() as isize + 1));
+        result.push(res);
         result.append(&mut then);
         if else_.is_empty() && ctx.keep_result {
             else_.push(Instruction::Push(TulispObject::nil()));
@@ -68,7 +74,8 @@ pub(super) fn compile_fn_cond(
                     let mut result = ctx.compile_expr_keep_result(cond)?;
                     let mut body = ctx.compile_progn(body)?;
 
-                    optimize_jump_if_nil(&mut result, Pos::Rel(body.len() as isize + 1));
+                    let res = optimize_jump_if_nil(&mut result, Pos::Rel(body.len() as isize + 1));
+                    result.push(res);
                     result.append(&mut body);
                     Ok(result)
                 })
@@ -92,7 +99,8 @@ pub(super) fn compile_fn_while(
         let mut result = ctx.compile_expr_keep_result(cond)?;
         let mut body = ctx.compile_progn(body)?;
 
-        optimize_jump_if_nil(&mut result, Pos::Rel(body.len() as isize + 1));
+        let res = optimize_jump_if_nil(&mut result, Pos::Rel(body.len() as isize + 1));
+        result.push(res);
         result.append(&mut body);
         result.push(Instruction::Jump(Pos::Rel(-(result.len() as isize + 1))));
         Ok(result)
