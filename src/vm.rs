@@ -42,7 +42,7 @@ macro_rules! binary_ops {
     }};
 }
 
-#[derive(Debug)]
+#[derive(Clone)]
 pub enum Pos {
     Abs(usize),
     Rel(isize),
@@ -60,6 +60,7 @@ impl Display for Pos {
 }
 
 /// A single instruction in the VM.
+#[derive(Clone)]
 pub enum Instruction {
     // stack
     Push(TulispObject),
@@ -87,6 +88,7 @@ pub enum Instruction {
     GtEq,
     // control flow
     JumpIfNil(Pos),
+    JumpIfNilElsePop(Pos),
     JumpIfNeq(Pos),
     JumpIfLt(Pos),
     JumpIfLtEq(Pos),
@@ -120,6 +122,7 @@ impl Display for Instruction {
             Instruction::PrintPop => write!(f, "    print_pop"),
             Instruction::Print => write!(f, "    print"),
             Instruction::JumpIfNil(pos) => write!(f, "    jnil {}", pos),
+            Instruction::JumpIfNilElsePop(pos) => write!(f, "    jnil_else_pop {}", pos),
             Instruction::JumpIfNeq(pos) => write!(f, "    jne {}", pos),
             Instruction::JumpIfLt(pos) => write!(f, "    jlt {}", pos),
             Instruction::JumpIfLtEq(pos) => write!(f, "    jle {}", pos),
@@ -319,6 +322,15 @@ impl Machine {
                     if a.null() {
                         jump_to_pos!(self, pos);
                         continue;
+                    }
+                }
+                Instruction::JumpIfNilElsePop(pos) => {
+                    let a = self.stack.last().unwrap();
+                    if a.null() {
+                        jump_to_pos!(self, pos);
+                        continue;
+                    } else {
+                        self.stack.pop().unwrap();
                     }
                 }
                 Instruction::JumpIfNeq(pos) => {
