@@ -125,8 +125,9 @@ pub(super) fn compile_fn_defun(
             .functions
             .insert(name.addr_as_usize(), compile_fn_defun_call);
         let mut params = vec![];
-        for arg in args.base_iter().collect::<Vec<_>>().into_iter().rev() {
-            params.push(ctx.get_symbol_idx(&arg));
+        let args = args.base_iter().collect::<Vec<_>>();
+        for arg in args.iter().rev() {
+            params.push(ctx.begin_scope(&arg));
         }
 
         ctx.defun_args.insert(name.addr_as_usize(), params);
@@ -141,6 +142,10 @@ pub(super) fn compile_fn_defun(
             e
         })?;
         let mut body = ctx.compile_progn_keep_result(&body)?;
+        for arg in args.iter().rev() {
+            ctx.end_scope(&arg);
+        }
+
         let mut result = vec![
             Instruction::Jump(Pos::Rel(body.len() as isize + 2)),
             Instruction::Label(name.clone()),

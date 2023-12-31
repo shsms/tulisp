@@ -187,20 +187,13 @@ impl VMBindings {
 pub(crate) struct Bytecode {
     instructions: Vec<Instruction>,
     bindings: Vec<VMBindings>,
-    #[allow(dead_code)]
-    symbol_to_binding_idx: HashMap<usize, usize>,
 }
 
 impl Bytecode {
-    pub(crate) fn new(
-        instructions: Vec<Instruction>,
-        bindings: Vec<VMBindings>,
-        symbol_to_binding_idx: HashMap<usize, usize>,
-    ) -> Self {
+    pub(crate) fn new(instructions: Vec<Instruction>, bindings: Vec<VMBindings>) -> Self {
         Self {
             instructions,
             bindings,
-            symbol_to_binding_idx,
         }
     }
 
@@ -409,7 +402,9 @@ impl Machine {
                     let _ = self.bytecode.bindings[*obj].set_scope(a);
                 }
                 Instruction::EndScope(obj) => {
-                    let _ = self.bytecode.bindings[*obj].unset();
+                    if self.bytecode.bindings[*obj].items.len() > 1 {
+                        let _ = self.bytecode.bindings[*obj].unset();
+                    }
                 }
                 Instruction::Call(pos) => {
                     let pc = self.pc;

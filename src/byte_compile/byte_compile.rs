@@ -15,7 +15,7 @@ pub(crate) struct Compiler<'a> {
     pub functions: VMFunctions,
     pub defun_args: HashMap<usize, Vec<usize>>, // fn_name.addr_as_usize() -> arg symbol idx
     pub bindings: Vec<VMBindings>,
-    pub symbol_to_binding_idx: HashMap<usize, usize>,
+    pub symbol_to_binding_idx: HashMap<usize, Vec<usize>>,
     pub keep_result: bool,
 }
 
@@ -34,22 +34,38 @@ impl<'a> Compiler<'a> {
 
     pub fn get_symbol_idx(&mut self, symbol: &TulispObject) -> usize {
         let addr = &symbol.addr_as_usize();
-        if let Some(idx) = self.symbol_to_binding_idx.get(addr) {
-            *idx
+        if let Some(scopes) = self.symbol_to_binding_idx.get(addr) {
+            *scopes.last().unwrap()
         } else {
             self.bindings.push(VMBindings::new(symbol.to_string()));
             let idx = self.bindings.len() - 1;
-            self.symbol_to_binding_idx.insert(*addr, idx);
+            self.symbol_to_binding_idx.insert(*addr, vec![idx]);
             idx
         }
     }
 
+    pub fn begin_scope(&mut self, symbol: &TulispObject) -> usize {
+        let addr = &symbol.addr_as_usize();
+        self.bindings.push(VMBindings::new(symbol.to_string()));
+        let idx = self.bindings.len() - 1;
+        if let Some(scopes) = self.symbol_to_binding_idx.get_mut(addr) {
+            scopes.push(idx);
+        } else {
+            self.symbol_to_binding_idx
+                .insert(*addr, vec![self.bindings.len() - 1]);
+        }
+        idx
+    }
+
+    pub fn end_scope(&mut self, symbol: &TulispObject) {
+        let addr = &symbol.addr_as_usize();
+        if let Some(scopes) = self.symbol_to_binding_idx.get_mut(addr) {
+            scopes.pop();
+        }
+    }
+
     pub fn compile(mut self, value: &TulispObject) -> Result<Bytecode, Error> {
-        Ok(Bytecode::new(
-            self.compile_progn(value)?,
-            self.bindings,
-            self.symbol_to_binding_idx,
-        ))
+        Ok(Bytecode::new(self.compile_progn(value)?, self.bindings))
     }
 
     pub fn compile_progn(&mut self, value: &TulispObject) -> Result<Vec<Instruction>, Error> {
