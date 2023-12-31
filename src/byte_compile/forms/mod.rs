@@ -50,6 +50,7 @@ impl VMFunctions {
             ("list", other_functions::compile_fn_list),
             // conditionals
             ("if", conditionals::compile_fn_if),
+            ("cond", conditionals::compile_fn_cond),
             ("while", conditionals::compile_fn_while),
         }
         VMFunctions { functions }
