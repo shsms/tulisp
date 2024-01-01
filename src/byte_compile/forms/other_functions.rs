@@ -1,8 +1,9 @@
 use crate::{
     byte_compile::Compiler,
+    destruct_bind,
     parse::mark_tail_calls,
     vm::{Instruction, Pos},
-    Error, TulispObject,
+    Error, ErrorKind, TulispObject,
 };
 
 pub(super) fn compile_fn_print(
@@ -152,6 +153,69 @@ pub(super) fn compile_fn_defun(
         ];
         result.append(&mut body);
         result.push(Instruction::Ret);
+        Ok(result)
+    })
+}
+
+pub(super) fn compile_fn_let_star(
+    compiler: &mut Compiler<'_>,
+    name: &TulispObject,
+    args: &TulispObject,
+) -> Result<Vec<Instruction>, Error> {
+    compiler.compile_1_arg_call(name, args, true, |ctx, varlist, body| {
+        let mut result = vec![];
+        let mut params = vec![];
+        let mut symbols = vec![];
+        for varitem in varlist.base_iter() {
+            if varitem.symbolp() {
+                let param = ctx.begin_scope(&varitem);
+                params.push(param);
+                result.append(&mut vec![
+                    Instruction::Push(TulispObject::nil()),
+                    Instruction::BeginScope(param),
+                ]);
+
+                symbols.push(varitem);
+            } else if varitem.consp() {
+                let varitem_clone = varitem.clone();
+                destruct_bind!((&optional name value &rest rest) = varitem_clone);
+                if name.null() {
+                    return Err(Error::new(
+                        ErrorKind::Undefined,
+                        "let varitem requires name".to_string(),
+                    )
+                    .with_trace(varitem));
+                }
+                if !rest.null() {
+                    return Err(Error::new(
+                        ErrorKind::Undefined,
+                        "let varitem has too many values".to_string(),
+                    )
+                    .with_trace(varitem));
+                }
+                let param = ctx.begin_scope(&name);
+                params.push(param);
+                result.append(
+                    &mut ctx
+                        .compile_expr_keep_result(&value)
+                        .map_err(|e| e.with_trace(value))?,
+                );
+                result.push(Instruction::BeginScope(param));
+            } else {
+                return Err(Error::new(
+                    ErrorKind::SyntaxError,
+                    format!(
+                        "varitems inside a let-varlist should be a var or a binding: {}",
+                        varitem
+                    ),
+                )
+                .with_trace(varitem));
+            }
+        }
+        result.append(&mut ctx.compile_progn(body)?);
+        for param in params {
+            result.push(Instruction::EndScope(param));
+        }
         Ok(result)
     })
 }

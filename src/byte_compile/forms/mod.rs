@@ -49,6 +49,8 @@ impl VMFunctions {
             ("setq", other_functions::compile_fn_setq),
             ("defun", other_functions::compile_fn_defun),
             ("progn", other_functions::compile_fn_progn),
+            ("let", other_functions::compile_fn_let_star),
+            ("let*", other_functions::compile_fn_let_star),
             // lists
             ("cons", other_functions::compile_fn_cons),
             ("list", other_functions::compile_fn_list),
