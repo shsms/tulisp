@@ -26,13 +26,6 @@ fn optimize_jump_if_nil(result: &mut Vec<Instruction>, tgt_pos: Pos) -> Instruct
             result.pop();
             Instruction::JumpIfNeq(tgt_pos)
         }
-        Some(Instruction::Label(_)) => {
-            let label = result.pop().unwrap();
-            let ret = optimize_jump_if_nil(result, tgt_pos);
-            result.push(label);
-
-            ret
-        }
         _ => Instruction::JumpIfNil(tgt_pos),
     }
 }
