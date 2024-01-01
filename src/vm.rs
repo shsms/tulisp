@@ -291,7 +291,12 @@ impl VMStackValue {
 
     pub fn equal(&self, other: &VMStackValue) -> bool {
         match self {
-            VMStackValue::TulispObject(obj) => obj.equal(other),
+            VMStackValue::TulispObject(obj1) => match other {
+                VMStackValue::TulispObject(obj2) => obj1.equal(obj2),
+                VMStackValue::Bool(b2) => obj1.equal(&(*b2).into()),
+                VMStackValue::Float(fl2) => obj1.equal(&(*fl2).into()),
+                VMStackValue::Int(i2) => obj1.equal(&(*i2).into()),
+            },
             VMStackValue::Bool(b) => match other {
                 VMStackValue::Bool(b2) => b == b2,
                 _ => false,
@@ -309,7 +314,10 @@ impl VMStackValue {
 
     pub fn eq(&self, other: &VMStackValue) -> bool {
         match self {
-            VMStackValue::TulispObject(obj) => obj.eq(other),
+            VMStackValue::TulispObject(obj1) => match other {
+                VMStackValue::TulispObject(obj2) => obj1.eq(obj2),
+                _ => false,
+            },
             VMStackValue::Bool(b) => match other {
                 VMStackValue::Bool(b2) => b == b2,
                 _ => false,
@@ -322,19 +330,6 @@ impl VMStackValue {
                 VMStackValue::Int(i2) => i == i2,
                 _ => false,
             },
-        }
-    }
-}
-
-impl std::ops::Deref for VMStackValue {
-    type Target = TulispObject;
-
-    fn deref(&self) -> &Self::Target {
-        match self {
-            VMStackValue::TulispObject(obj) => obj,
-            VMStackValue::Bool(_) => panic!("Expected TulispObject"),
-            VMStackValue::Float(_) => panic!("Expected TulispObject"),
-            VMStackValue::Int(_) => panic!("Expected TulispObject"),
         }
     }
 }
@@ -572,7 +567,10 @@ impl Machine {
                 }
                 Instruction::Ret => return Ok(()),
                 Instruction::RustCall { func } => {
-                    let args = self.stack.pop().unwrap();
+                    let args = match self.stack.pop().unwrap() {
+                        VMStackValue::TulispObject(obj) => obj,
+                        e => panic!("Expected TulispObject as arg to rustcall. got {}", e),
+                    };
                     self.stack.push(func(ctx, &args)?.into());
                 }
                 Instruction::Label(_) => {}
