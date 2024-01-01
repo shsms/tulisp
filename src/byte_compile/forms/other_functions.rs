@@ -171,7 +171,7 @@ pub(super) fn compile_fn_let_star(
                 let param = ctx.begin_scope(&varitem);
                 params.push(param);
                 result.append(&mut vec![
-                    Instruction::Push(TulispObject::nil()),
+                    Instruction::Push(false.into()),
                     Instruction::BeginScope(param),
                 ]);
 

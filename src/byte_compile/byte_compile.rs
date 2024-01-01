@@ -88,30 +88,54 @@ impl<'a> Compiler<'a> {
 
     pub(crate) fn compile_expr(&mut self, expr: &TulispObject) -> Result<Vec<Instruction>, Error> {
         match &*expr.inner_ref() {
-            TulispValue::Int { .. }
-            | TulispValue::Float { .. }
-            | TulispValue::String { .. }
+            TulispValue::Int { value } => {
+                if self.keep_result {
+                    return Ok(vec![Instruction::Push(value.clone().into())]);
+                } else {
+                    return Ok(vec![]);
+                }
+            }
+            TulispValue::Float { value } => {
+                if self.keep_result {
+                    return Ok(vec![Instruction::Push(value.clone().into())]);
+                } else {
+                    return Ok(vec![]);
+                }
+            }
+            TulispValue::Nil => {
+                if self.keep_result {
+                    return Ok(vec![Instruction::Push(false.into())]);
+                } else {
+                    return Ok(vec![]);
+                }
+            }
+            TulispValue::T => {
+                if self.keep_result {
+                    return Ok(vec![Instruction::Push(true.into())]);
+                } else {
+                    return Ok(vec![]);
+                }
+            }
+            TulispValue::String { .. }
             | TulispValue::Lambda { .. }
             | TulispValue::Func(_)
             | TulispValue::Macro(_)
             | TulispValue::Defmacro { .. }
             | TulispValue::Any(_)
             | TulispValue::Bounce { .. }
-            | TulispValue::Nil
             | TulispValue::Sharpquote { .. }
             | TulispValue::Backquote { .. }
             | TulispValue::Unquote { .. }
-            | TulispValue::Splice { .. }
-            | TulispValue::T => {
+            | TulispValue::Splice { .. } => {
                 if self.keep_result {
-                    return Ok(vec![Instruction::Push(expr.clone())]);
+                    return Ok(vec![Instruction::Push(expr.clone().into())]);
                 } else {
                     return Ok(vec![]);
                 }
             }
             TulispValue::Quote { value } => {
                 if self.keep_result {
-                    return Ok(vec![Instruction::Push(value.clone())]);
+                    return Ok(vec![Instruction::Push(value.clone().into())]);
                 } else {
                     return Ok(vec![]);
                 }

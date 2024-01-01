@@ -3,44 +3,72 @@ use std::{collections::HashMap, fmt::Display, rc::Rc};
 use crate::{value::TulispFn, Error, ErrorKind, TulispContext, TulispObject};
 
 macro_rules! compare_ops {
-    ($oper:expr) => {{
-        |selfobj: &TulispObject, other: &TulispObject| -> Result<bool, Error> {
-            if selfobj.floatp() {
-                let s: f64 = selfobj.as_float().unwrap();
-                let o: f64 = other.try_into()?;
-                Ok($oper(&s, &o))
-            } else if other.floatp() {
-                let o: f64 = other.as_float().unwrap();
-                let s: f64 = selfobj.try_into()?;
-                Ok($oper(&s, &o))
-            } else {
-                let s: i64 = selfobj.try_into()?;
-                let o: i64 = other.try_into()?;
-                Ok($oper(&s, &o))
+    ($name:ident, $oper:expr) => {
+        fn $name(selfobj: &VMStackValue, other: &VMStackValue) -> Result<bool, Error> {
+            match selfobj {
+                VMStackValue::Float(f1) => match other {
+                    VMStackValue::Float(f2) => Ok($oper(f1, f2)),
+                    VMStackValue::Int(i2) => Ok($oper(f1, &(*i2 as f64))),
+                    _ => Err(Error::new(
+                        ErrorKind::TypeMismatch,
+                        format!("Expected number, found: {}", other),
+                    )),
+                },
+                VMStackValue::Int(i1) => match other {
+                    VMStackValue::Float(f2) => Ok($oper(&(*i1 as f64), f2)),
+                    VMStackValue::Int(i2) => Ok($oper(i1, i2)),
+                    _ => Err(Error::new(
+                        ErrorKind::TypeMismatch,
+                        format!("Expected number, found: {}", other),
+                    )),
+                },
+                _ => Err(Error::new(
+                    ErrorKind::TypeMismatch,
+                    format!("Expected number, found: {}", selfobj),
+                )),
             }
         }
-    }};
+    };
 }
 
+compare_ops!(cmp_lt, std::cmp::PartialOrd::lt);
+compare_ops!(cmp_le, std::cmp::PartialOrd::le);
+compare_ops!(cmp_gt, std::cmp::PartialOrd::gt);
+compare_ops!(cmp_ge, std::cmp::PartialOrd::ge);
+
 macro_rules! binary_ops {
-    ($oper:expr) => {{
-        |selfobj: &TulispObject, other: &TulispObject| -> Result<TulispObject, Error> {
-            if selfobj.floatp() {
-                let s: f64 = selfobj.as_float().unwrap();
-                let o: f64 = other.try_into()?;
-                Ok($oper(&s, &o).into())
-            } else if other.floatp() {
-                let o: f64 = other.as_float().unwrap();
-                let s: f64 = selfobj.try_into()?;
-                Ok($oper(&s, &o).into())
-            } else {
-                let s: i64 = selfobj.try_into()?;
-                let o: i64 = other.try_into()?;
-                Ok($oper(&s, &o).into())
+    ($name:ident, $oper:expr) => {
+        fn $name(selfobj: &VMStackValue, other: &VMStackValue) -> Result<VMStackValue, Error> {
+            match selfobj {
+                VMStackValue::Float(f1) => match other {
+                    VMStackValue::Float(f2) => Ok(VMStackValue::Float($oper(f1, f2))),
+                    VMStackValue::Int(i2) => Ok(VMStackValue::Float($oper(f1, &(*i2 as f64)))),
+                    _ => Err(Error::new(
+                        ErrorKind::TypeMismatch,
+                        format!("Expected number, found: {}", other),
+                    )),
+                },
+                VMStackValue::Int(i1) => match other {
+                    VMStackValue::Float(f2) => Ok(VMStackValue::Float($oper(&(*i1 as f64), f2))),
+                    VMStackValue::Int(i2) => Ok(VMStackValue::Int($oper(i1, i2))),
+                    _ => Err(Error::new(
+                        ErrorKind::TypeMismatch,
+                        format!("Expected number, found: {}", other),
+                    )),
+                },
+                _ => Err(Error::new(
+                    ErrorKind::TypeMismatch,
+                    format!("Expected number, found: {}", selfobj),
+                )),
             }
         }
-    }};
+    };
 }
+
+binary_ops!(arith_add, std::ops::Add::add);
+binary_ops!(arith_sub, std::ops::Sub::sub);
+binary_ops!(arith_mul, std::ops::Mul::mul);
+binary_ops!(arith_div, std::ops::Div::div);
 
 #[derive(Clone)]
 pub enum Pos {
@@ -61,9 +89,9 @@ impl Display for Pos {
 
 /// A single instruction in the VM.
 #[derive(Clone)]
-pub enum Instruction {
+pub(crate) enum Instruction {
     // stack
-    Push(TulispObject),
+    Push(VMStackValue),
     Pop,
     // variables
     StorePop(usize),
@@ -97,7 +125,10 @@ pub enum Instruction {
     Jump(Pos),
     // functions
     Label(TulispObject),
-    RustCall { func: Rc<TulispFn> },
+    #[allow(dead_code)]
+    RustCall {
+        func: Rc<TulispFn>,
+    },
     Call(Pos),
     Ret,
     // lists
@@ -145,10 +176,11 @@ impl Display for Instruction {
     }
 }
 
-#[derive(Default, Clone, Debug)]
+#[derive(Default, Clone)]
 pub(crate) struct VMBindings {
+    #[allow(dead_code)]
     name: String,
-    items: Vec<TulispObject>,
+    items: Vec<VMStackValue>,
 }
 
 impl VMBindings {
@@ -159,7 +191,7 @@ impl VMBindings {
         }
     }
 
-    pub fn set(&mut self, to_set: TulispObject) {
+    pub fn set(&mut self, to_set: VMStackValue) {
         if self.items.is_empty() {
             self.items.push(to_set);
         } else {
@@ -167,7 +199,7 @@ impl VMBindings {
         }
     }
 
-    pub fn set_scope(&mut self, to_set: TulispObject) {
+    pub fn set_scope(&mut self, to_set: VMStackValue) {
         self.items.push(to_set);
     }
 
@@ -180,7 +212,7 @@ impl VMBindings {
         !self.items.is_empty()
     }
 
-    pub fn get(&self) -> Result<TulispObject, Error> {
+    pub fn get(&self) -> Result<VMStackValue, Error> {
         if self.items.is_empty() {
             return Err(Error::new(
                 ErrorKind::TypeMismatch,
@@ -214,8 +246,112 @@ impl Bytecode {
     }
 }
 
+#[derive(Clone)]
+pub(crate) enum VMStackValue {
+    TulispObject(TulispObject),
+    Bool(bool),
+    Float(f64),
+    Int(i64),
+}
+
+macro_rules! impl_from_for_stack_value {
+    ($name:ident, $type:ty) => {
+        impl From<$type> for VMStackValue {
+            fn from(val: $type) -> Self {
+                VMStackValue::$name(val)
+            }
+        }
+    };
+}
+
+impl_from_for_stack_value!(Float, f64);
+impl_from_for_stack_value!(Int, i64);
+impl_from_for_stack_value!(Bool, bool);
+impl_from_for_stack_value!(TulispObject, TulispObject);
+
+impl Into<TulispObject> for VMStackValue {
+    fn into(self) -> TulispObject {
+        match self {
+            VMStackValue::TulispObject(obj) => obj,
+            VMStackValue::Bool(b) => b.into(),
+            VMStackValue::Float(fl) => fl.into(),
+            VMStackValue::Int(i) => i.into(),
+        }
+    }
+}
+
+impl VMStackValue {
+    pub fn null(&self) -> bool {
+        match self {
+            VMStackValue::TulispObject(obj) => obj.null(),
+            VMStackValue::Bool(b) => !b,
+            VMStackValue::Float(_) | VMStackValue::Int(_) => false,
+        }
+    }
+
+    pub fn equal(&self, other: &VMStackValue) -> bool {
+        match self {
+            VMStackValue::TulispObject(obj) => obj.equal(other),
+            VMStackValue::Bool(b) => match other {
+                VMStackValue::Bool(b2) => b == b2,
+                _ => false,
+            },
+            VMStackValue::Float(fl) => match other {
+                VMStackValue::Float(fl2) => fl == fl2,
+                _ => false,
+            },
+            VMStackValue::Int(i) => match other {
+                VMStackValue::Int(i2) => i == i2,
+                _ => false,
+            },
+        }
+    }
+
+    pub fn eq(&self, other: &VMStackValue) -> bool {
+        match self {
+            VMStackValue::TulispObject(obj) => obj.eq(other),
+            VMStackValue::Bool(b) => match other {
+                VMStackValue::Bool(b2) => b == b2,
+                _ => false,
+            },
+            VMStackValue::Float(fl) => match other {
+                VMStackValue::Float(fl2) => fl == fl2,
+                _ => false,
+            },
+            VMStackValue::Int(i) => match other {
+                VMStackValue::Int(i2) => i == i2,
+                _ => false,
+            },
+        }
+    }
+}
+
+impl std::ops::Deref for VMStackValue {
+    type Target = TulispObject;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            VMStackValue::TulispObject(obj) => obj,
+            VMStackValue::Bool(_) => panic!("Expected TulispObject"),
+            VMStackValue::Float(_) => panic!("Expected TulispObject"),
+            VMStackValue::Int(_) => panic!("Expected TulispObject"),
+        }
+    }
+}
+
+impl Display for VMStackValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VMStackValue::TulispObject(obj) => write!(f, "{}", obj),
+            VMStackValue::Bool(b) => write!(f, "{}", b),
+            VMStackValue::Float(fl) => write!(f, "{}", fl),
+            VMStackValue::Int(i) => write!(f, "{}", i),
+        }
+    }
+}
+
 pub struct Machine {
-    stack: Vec<TulispObject>,
+    stack: Vec<VMStackValue>,
     bytecode: Bytecode,
     labels: HashMap<usize, usize>, // TulispObject.addr -> instruction index
     pc: usize,
@@ -277,7 +413,7 @@ impl Machine {
 
     pub fn run(&mut self, ctx: &mut TulispContext) -> Result<TulispObject, Error> {
         self.run_impl(ctx, 0)?;
-        Ok(self.stack.pop().unwrap())
+        Ok(self.stack.pop().unwrap().into())
     }
 
     fn run_impl(&mut self, ctx: &mut TulispContext, recursion_depth: u32) -> Result<(), Error> {
@@ -292,22 +428,22 @@ impl Machine {
                 Instruction::Add => {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
-                    self.stack.push(binary_ops!(std::ops::Add::add)(&a, &b)?);
+                    self.stack.push(arith_add(&a, &b)?);
                 }
                 Instruction::Sub => {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
-                    self.stack.push(binary_ops!(std::ops::Sub::sub)(&a, &b)?);
+                    self.stack.push(arith_sub(&a, &b)?);
                 }
                 Instruction::Mul => {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
-                    self.stack.push(binary_ops!(std::ops::Mul::mul)(&a, &b)?);
+                    self.stack.push(arith_mul(&a, &b)?);
                 }
                 Instruction::Div => {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
-                    self.stack.push(binary_ops!(std::ops::Div::div)(&a, &b)?);
+                    self.stack.push(arith_div(&a, &b)?);
                 }
                 Instruction::PrintPop => {
                     let a = self.stack.pop().unwrap();
@@ -344,7 +480,7 @@ impl Machine {
                 Instruction::JumpIfLt(pos) => {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
-                    if compare_ops!(std::cmp::PartialOrd::lt)(&a, &b)? {
+                    if cmp_lt(&a, &b)? {
                         jump_to_pos!(self, pos);
                         continue;
                     }
@@ -352,7 +488,7 @@ impl Machine {
                 Instruction::JumpIfLtEq(pos) => {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
-                    if compare_ops!(std::cmp::PartialOrd::le)(&a, &b)? {
+                    if cmp_le(&a, &b)? {
                         jump_to_pos!(self, pos);
                         continue;
                     }
@@ -360,7 +496,7 @@ impl Machine {
                 Instruction::JumpIfGt(pos) => {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
-                    if compare_ops!(std::cmp::PartialOrd::gt)(&a, &b)? {
+                    if cmp_gt(&a, &b)? {
                         jump_to_pos!(self, pos);
                         continue;
                     }
@@ -368,7 +504,7 @@ impl Machine {
                 Instruction::JumpIfGtEq(pos) => {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
-                    if compare_ops!(std::cmp::PartialOrd::ge)(&a, &b)? {
+                    if cmp_ge(&a, &b)? {
                         jump_to_pos!(self, pos);
                         continue;
                     }
@@ -390,26 +526,22 @@ impl Machine {
                 Instruction::Lt => {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
-                    self.stack
-                        .push(compare_ops!(std::cmp::PartialOrd::lt)(&a, &b)?.into());
+                    self.stack.push(cmp_lt(&a, &b)?.into());
                 }
                 Instruction::LtEq => {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
-                    self.stack
-                        .push(compare_ops!(std::cmp::PartialOrd::le)(&a, &b)?.into());
+                    self.stack.push(cmp_le(&a, &b)?.into());
                 }
                 Instruction::Gt => {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
-                    self.stack
-                        .push(compare_ops!(std::cmp::PartialOrd::gt)(&a, &b)?.into());
+                    self.stack.push(cmp_gt(&a, &b)?.into());
                 }
                 Instruction::GtEq => {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
-                    self.stack
-                        .push(compare_ops!(std::cmp::PartialOrd::ge)(&a, &b)?.into());
+                    self.stack.push(cmp_ge(&a, &b)?.into());
                 }
                 Instruction::StorePop(obj) => {
                     let a = self.stack.pop().unwrap();
@@ -421,7 +553,7 @@ impl Machine {
                 }
                 Instruction::Load(obj) => {
                     let a = self.bytecode.bindings[*obj].get().unwrap();
-                    self.stack.push(a);
+                    self.stack.push(a.into());
                 }
                 Instruction::BeginScope(obj) => {
                     let a = self.stack.pop().unwrap();
@@ -441,21 +573,22 @@ impl Machine {
                 Instruction::Ret => return Ok(()),
                 Instruction::RustCall { func } => {
                     let args = self.stack.pop().unwrap();
-                    self.stack.push(func(ctx, &args)?);
+                    self.stack.push(func(ctx, &args)?.into());
                 }
                 Instruction::Label(_) => {}
                 Instruction::Cons => {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
-                    self.stack.push(TulispObject::cons(a, b));
+                    self.stack
+                        .push(TulispObject::cons(a.into(), b.into()).into());
                 }
                 Instruction::List(len) => {
                     let mut list = TulispObject::nil();
                     for _ in 0..*len {
                         let a = self.stack.pop().unwrap();
-                        list = TulispObject::cons(a, list);
+                        list = TulispObject::cons(a.into(), list);
                     }
-                    self.stack.push(list);
+                    self.stack.push(list.into());
                 }
             }
             self.pc += 1;

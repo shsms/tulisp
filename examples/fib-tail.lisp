@@ -6,4 +6,4 @@
   "Tail recursive Fib"
   (fib-impl n 0 1))
 
-(princ (fib 30))
+(print (fib 30))

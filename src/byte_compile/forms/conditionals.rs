@@ -44,7 +44,7 @@ pub(super) fn compile_fn_if(
         result.push(res);
         result.append(&mut then);
         if else_.is_empty() && ctx.keep_result {
-            else_.push(Instruction::Push(TulispObject::nil()));
+            else_.push(Instruction::Push(false.into()));
         }
         result.push(Instruction::Jump(Pos::Rel(else_.len() as isize)));
         result.append(&mut else_);
@@ -77,7 +77,7 @@ pub(super) fn compile_fn_cond(
         result.push(Instruction::Jump(Pos::Label(cond_end.clone())));
     }
     if compiler.keep_result {
-        result.push(Instruction::Push(TulispObject::nil()));
+        result.push(Instruction::Push(false.into()));
     }
     result.push(Instruction::Label(cond_end));
     Ok(result)
