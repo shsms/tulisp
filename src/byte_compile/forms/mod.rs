@@ -58,6 +58,9 @@ impl VMFunctions {
             ("if", conditionals::compile_fn_if),
             ("cond", conditionals::compile_fn_cond),
             ("while", conditionals::compile_fn_while),
+            // noop
+            ("defmacro", other_functions::compile_fn_noop),
+            ("macroexpand", other_functions::compile_fn_noop),
         }
         VMFunctions { functions }
     }
