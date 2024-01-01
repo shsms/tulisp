@@ -29,9 +29,9 @@ pub(super) fn compile_fn_setq(
     compiler.compile_2_arg_call(name, args, false, |compiler, arg1, arg2, _| {
         let mut result = compiler.compile_expr_keep_result(arg2)?;
         if compiler.keep_result {
-            result.push(Instruction::Store(compiler.get_symbol_idx(arg1)));
+            result.push(Instruction::Store(compiler.get_symbol_idx(arg1).0));
         } else {
-            result.push(Instruction::StorePop(compiler.get_symbol_idx(arg1)));
+            result.push(Instruction::StorePop(compiler.get_symbol_idx(arg1).0));
         }
         Ok(result)
     })

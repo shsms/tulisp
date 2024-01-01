@@ -32,15 +32,15 @@ impl<'a> Compiler<'a> {
         }
     }
 
-    pub fn get_symbol_idx(&mut self, symbol: &TulispObject) -> usize {
+    pub fn get_symbol_idx(&mut self, symbol: &TulispObject) -> (usize, bool) {
         let addr = &symbol.addr_as_usize();
         if let Some(scopes) = self.symbol_to_binding_idx.get(addr) {
-            *scopes.last().unwrap()
+            (*scopes.last().unwrap(), false)
         } else {
             self.bindings.push(VMBindings::new(symbol.to_string()));
             let idx = self.bindings.len() - 1;
             self.symbol_to_binding_idx.insert(*addr, vec![idx]);
-            idx
+            (idx, true)
         }
     }
 
@@ -119,7 +119,18 @@ impl<'a> Compiler<'a> {
             TulispValue::List { cons, .. } => self
                 .compile_form(cons)
                 .map_err(|e| e.with_trace(expr.clone())),
-            TulispValue::Symbol { .. } => Ok(vec![Instruction::Load(self.get_symbol_idx(expr))]),
+            TulispValue::Symbol { .. } => Ok(vec![Instruction::Load({
+                match self.get_symbol_idx(expr) {
+                    (_, true) => {
+                        return Err(Error::new(
+                            crate::ErrorKind::SyntaxError,
+                            format!("Unbound symbol: {}", expr),
+                        )
+                        .with_trace(expr.clone()))
+                    }
+                    (idx, false) => idx,
+                }
+            })]),
         }
     }
 
