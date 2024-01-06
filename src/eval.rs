@@ -155,44 +155,47 @@ fn eval_back_quote(
     // TODO: with_span should stop cloning.
     ret.with_span(vv.span());
     loop {
-        let (first, rest) = (vv.car()?, vv.cdr()?);
-        let first_inner = first.clone_inner();
-        let rest_inner = rest.clone_inner();
-        if let TulispValue::Unquote { value } = first_inner {
-            ret.push(
-                eval(ctx, &value)
-                    .map_err(|e| e.with_trace(first.clone()))?
-                    .with_span(value.span()),
-            )
-            .map_err(|e| e.with_trace(first))?;
-        } else if let TulispValue::Splice { value } = first_inner {
-            ret.append(
-                eval(ctx, &value)
-                    .map_err(|e| e.with_trace(first.clone()))?
-                    .deep_copy()
-                    .map_err(|e| e.with_trace(first.clone()))?
-                    .with_span(value.span()),
-            )
-            .map_err(|e| e.with_trace(first))?;
-        } else {
-            ret.push(eval(
-                ctx,
-                &TulispValue::Backquote {
-                    value: first.clone(),
-                }
-                .into_ref(first.span()),
-            )?)?;
-        }
+        vv.car_and_then(|first| {
+            let first_inner = &*first.inner_ref();
+            if let TulispValue::Unquote { value } = first_inner {
+                ret.push(
+                    eval(ctx, &value)
+                        .map_err(|e| e.with_trace(first.clone()))?
+                        .with_span(value.span()),
+                )
+                .map_err(|e| e.with_trace(first.clone()))?;
+            } else if let TulispValue::Splice { value } = first_inner {
+                ret.append(
+                    eval(ctx, &value)
+                        .map_err(|e| e.with_trace(first.clone()))?
+                        .deep_copy()
+                        .map_err(|e| e.with_trace(first.clone()))?
+                        .with_span(value.span()),
+                )
+                .map_err(|e| e.with_trace(first.clone()))?;
+            } else {
+                ret.push(eval(
+                    ctx,
+                    &TulispValue::Backquote {
+                        value: first.clone(),
+                    }
+                    .into_ref(first.span()),
+                )?)?;
+            }
+            Ok(())
+        })?;
         // TODO: is Nil check necessary
-        if let TulispValue::Unquote { value } = rest_inner {
+        let rest = vv.cdr()?;
+        if let TulispValue::Unquote { value } = &*rest.inner_ref() {
             ret.append(
                 eval(ctx, &value)
                     .map_err(|e| e.with_trace(rest.clone()))?
                     .with_span(value.span()),
             )
-            .map_err(|e| e.with_trace(rest))?;
+            .map_err(|e| e.with_trace(rest.clone()))?;
             return Ok(());
-        } else if !rest.consp() {
+        }
+        if !rest.consp() {
             ret.append(rest)?;
             return Ok(());
         }
