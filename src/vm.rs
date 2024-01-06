@@ -540,11 +540,11 @@ impl Machine {
                 }
                 Instruction::StorePop(obj) => {
                     let a = self.stack.pop().unwrap();
-                    let _ = self.bytecode.bindings[*obj].set(a);
+                    self.bytecode.bindings[*obj].set(a);
                 }
                 Instruction::Store(obj) => {
                     let a = self.stack.last().unwrap();
-                    let _ = self.bytecode.bindings[*obj].set(a.clone());
+                    self.bytecode.bindings[*obj].set(a.clone());
                 }
                 Instruction::Load(obj) => {
                     let a = self.bytecode.bindings[*obj].get().unwrap();
@@ -552,11 +552,11 @@ impl Machine {
                 }
                 Instruction::BeginScope(obj) => {
                     let a = self.stack.pop().unwrap();
-                    let _ = self.bytecode.bindings[*obj].set_scope(a);
+                    self.bytecode.bindings[*obj].set_scope(a);
                 }
                 Instruction::EndScope(obj) => {
                     if self.bytecode.bindings[*obj].items.len() > 1 {
-                        let _ = self.bytecode.bindings[*obj].unset();
+                        self.bytecode.bindings[*obj].unset();
                     }
                 }
                 Instruction::Call(pos) => {
