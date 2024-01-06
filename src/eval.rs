@@ -147,13 +147,12 @@ pub(crate) fn eval_form<E: Evaluator>(
     funcall::<E>(ctx, &func, &val.cdr()?)
 }
 
-fn eval_back_quote(
-    ctx: &mut TulispContext,
-    ret: &TulispObject,
-    mut vv: TulispObject,
-) -> Result<(), Error> {
+fn eval_back_quote(ctx: &mut TulispContext, mut vv: TulispObject) -> Result<TulispObject, Error> {
+    if !vv.consp() {
+        return Ok(vv);
+    }
     // TODO: with_span should stop cloning.
-    ret.with_span(vv.span());
+    let ret = TulispObject::nil().with_span(vv.span());
     loop {
         vv.car_and_then(|first| {
             let first_inner = &*first.inner_ref();
@@ -174,13 +173,7 @@ fn eval_back_quote(
                 )
                 .map_err(|e| e.with_trace(first.clone()))?;
             } else {
-                ret.push(eval(
-                    ctx,
-                    &TulispValue::Backquote {
-                        value: first.clone(),
-                    }
-                    .into_ref(first.span()),
-                )?)?;
+                ret.push(eval_back_quote(ctx, first.clone())?)?;
             }
             Ok(())
         })?;
@@ -193,11 +186,11 @@ fn eval_back_quote(
                     .with_span(value.span()),
             )
             .map_err(|e| e.with_trace(rest.clone()))?;
-            return Ok(());
+            return Ok(ret);
         }
         if !rest.consp() {
             ret.append(rest)?;
-            return Ok(());
+            return Ok(ret);
         }
         vv = rest;
     }
@@ -267,14 +260,8 @@ pub(crate) fn eval_basic<'a>(
             *result = Some(value.clone());
         }
         TulispValue::Backquote { value } => {
-            let mut ret = TulispObject::nil();
-            if !value.consp() {
-                *result = Some(value.clone());
-            } else {
-                eval_back_quote(ctx, &mut ret, value.clone())
-                    .map_err(|e| e.with_trace(expr.clone()))?;
-                *result = Some(ret);
-            }
+            *result =
+                Some(eval_back_quote(ctx, value.clone()).map_err(|e| e.with_trace(expr.clone()))?);
         }
         TulispValue::Unquote { .. } => {
             return Err(Error::new(
