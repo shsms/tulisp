@@ -575,8 +575,8 @@ impl Machine {
                 }
                 Instruction::Label(_) => {}
                 Instruction::Cons => {
-                    let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
+                    let a = self.stack.pop().unwrap();
                     self.stack
                         .push(TulispObject::cons(a.into(), b.into()).into());
                 }

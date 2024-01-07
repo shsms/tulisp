@@ -47,8 +47,8 @@ pub(super) fn compile_fn_cons(
         if !compiler.keep_result {
             return Ok(vec![]);
         }
-        let mut result = compiler.compile_expr(arg2)?;
-        result.append(&mut compiler.compile_expr(arg1)?);
+        let mut result = compiler.compile_expr(arg1)?;
+        result.append(&mut compiler.compile_expr(arg2)?);
         result.push(Instruction::Cons);
         Ok(result)
     })
