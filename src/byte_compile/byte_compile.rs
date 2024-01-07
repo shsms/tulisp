@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     vm::{Bytecode, Instruction, VMBindings},
-    Error, TulispContext, TulispObject, TulispValue,
+    Error, ErrorKind, TulispContext, TulispObject, TulispValue,
 };
 
 use super::forms::VMFunctions;
@@ -122,18 +122,15 @@ impl<'a> Compiler<'a> {
             | TulispValue::Macro(_)
             | TulispValue::Defmacro { .. }
             | TulispValue::Any(_)
-            | TulispValue::Bounce { .. }
-            | TulispValue::Sharpquote { .. }
-            | TulispValue::Backquote { .. }
-            | TulispValue::Unquote { .. }
-            | TulispValue::Splice { .. } => {
+            | TulispValue::Bounce { .. } => {
                 if self.keep_result {
                     return Ok(vec![Instruction::Push(expr.clone().into())]);
                 } else {
                     return Ok(vec![]);
                 }
             }
-            TulispValue::Quote { value } => {
+            TulispValue::Backquote { value } => self.compile_back_quote(value),
+            TulispValue::Quote { value } | TulispValue::Sharpquote { value } => {
                 if self.keep_result {
                     return Ok(vec![Instruction::Push(value.clone().into())]);
                 } else {
@@ -155,6 +152,13 @@ impl<'a> Compiler<'a> {
                     (idx, false) => idx,
                 }
             })]),
+            TulispValue::Unquote { .. } | TulispValue::Splice { .. } => {
+                return Err(Error::new(
+                    crate::ErrorKind::SyntaxError,
+                    "Unquote/Splice must be within a backquoted list.".to_string(),
+                )
+                .with_trace(expr.clone()));
+            }
         }
     }
 
@@ -178,5 +182,61 @@ impl<'a> Compiler<'a> {
         let ret = self.compile_progn(expr);
         self.keep_result = keep_result;
         ret
+    }
+
+    fn compile_back_quote(&mut self, value: &TulispObject) -> Result<Vec<Instruction>, Error> {
+        if !self.keep_result {
+            return Ok(vec![]);
+        }
+        if !value.consp() {
+            return Ok(vec![Instruction::Push(value.clone().into())]);
+        }
+        let mut result = vec![];
+
+        let mut value = value.clone();
+        let mut items = 0;
+        loop {
+            value.car_and_then(|first| {
+                let first_inner = &*first.inner_ref();
+                if let TulispValue::Unquote { value } = first_inner {
+                    items += 1;
+                    result.append(&mut self.compile_expr(&value)?);
+                } else if let TulispValue::Splice { value } = first_inner {
+                    result.append(&mut self.compile_expr(&value)?);
+                    let list_inst = result.pop().unwrap();
+                    if let Instruction::List(n) = list_inst {
+                        items += n;
+                    } else {
+                        if !value.consp() {
+                            return Err(Error::new(
+                                ErrorKind::SyntaxError,
+                                format!("Can only splice a list: {}", value),
+                            )
+                            .with_trace(first.clone()));
+                        }
+                    }
+                } else {
+                    items += 1;
+                    result.append(&mut self.compile_back_quote(first)?);
+                }
+                Ok(())
+            })?;
+            let rest = value.cdr()?;
+            if let TulispValue::Unquote { value } = &*rest.inner_ref() {
+                items += 1;
+                result.append(&mut self.compile_expr(&value)?);
+                break;
+            }
+            if !rest.consp() {
+                if !rest.null() {
+                    items += 1;
+                    result.push(Instruction::Push(rest.clone().into()));
+                }
+                break;
+            }
+            value = rest;
+        }
+        result.push(Instruction::List(items));
+        Ok(result)
     }
 }
