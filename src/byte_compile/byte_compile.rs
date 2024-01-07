@@ -195,6 +195,7 @@ impl<'a> Compiler<'a> {
 
         let mut value = value.clone();
         let mut items = 0;
+        let mut need_list = true;
         let mut need_append = false;
         loop {
             value.car_and_then(|first| {
@@ -235,20 +236,24 @@ impl<'a> Compiler<'a> {
             })?;
             let rest = value.cdr()?;
             if let TulispValue::Unquote { value } = &*rest.inner_ref() {
-                items += 1;
                 result.append(&mut self.compile_expr(&value)?);
+                result.push(Instruction::Cons);
+                need_list = false;
                 break;
             }
             if !rest.consp() {
                 if !rest.null() {
-                    items += 1;
                     result.push(Instruction::Push(rest.clone().into()));
+                    result.push(Instruction::Cons);
+                    need_list = false;
                 }
                 break;
             }
             value = rest;
         }
-        result.push(Instruction::List(items));
+        if need_list {
+            result.push(Instruction::List(items));
+        }
         if need_append {
             result.push(Instruction::Append);
         }
