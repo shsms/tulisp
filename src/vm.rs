@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fmt::Display, rc::Rc};
 
-use crate::{value::TulispFn, Error, ErrorKind, TulispContext, TulispObject};
+use crate::{value::TulispFn, Error, ErrorKind, TulispContext, TulispObject, TulispValue};
 
 macro_rules! compare_ops {
     ($name:ident, $oper:expr) => {
@@ -269,7 +269,19 @@ macro_rules! impl_from_for_stack_value {
 impl_from_for_stack_value!(Float, f64);
 impl_from_for_stack_value!(Int, i64);
 impl_from_for_stack_value!(Bool, bool);
-impl_from_for_stack_value!(TulispObject, TulispObject);
+
+impl From<TulispObject> for VMStackValue {
+    fn from(val: TulispObject) -> Self {
+        match &*val.inner_ref() {
+            TulispValue::Int { value } => return VMStackValue::Int(*value),
+            TulispValue::Float { value } => return VMStackValue::Float(*value),
+            TulispValue::T => return VMStackValue::Bool(true),
+            TulispValue::Nil => return VMStackValue::Bool(false),
+            _ => {}
+        }
+        VMStackValue::TulispObject(val)
+    }
+}
 
 impl Into<TulispObject> for VMStackValue {
     fn into(self) -> TulispObject {
