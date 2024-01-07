@@ -54,6 +54,7 @@ impl VMFunctions {
             // lists
             ("cons", other_functions::compile_fn_cons),
             ("list", other_functions::compile_fn_list),
+            ("append", other_functions::compile_fn_append),
             // conditionals
             ("if", conditionals::compile_fn_if),
             ("cond", conditionals::compile_fn_cond),

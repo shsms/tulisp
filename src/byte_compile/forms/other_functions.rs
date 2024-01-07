@@ -76,6 +76,22 @@ pub(super) fn compile_fn_list(
     Ok(result)
 }
 
+pub(super) fn compile_fn_append(
+    compiler: &mut Compiler<'_>,
+    _name: &TulispObject,
+    args: &TulispObject,
+) -> Result<Vec<Instruction>, Error> {
+    if !compiler.keep_result {
+        return Ok(vec![]);
+    }
+    compiler.compile_2_arg_call(_name, args, false, |compiler, arg1, arg2, _| {
+        let mut result = compiler.compile_expr(arg1)?;
+        result.append(&mut compiler.compile_expr(arg2)?);
+        result.push(Instruction::Append);
+        Ok(result)
+    })
+}
+
 fn compile_fn_defun_bounce_call(
     compiler: &mut Compiler<'_>,
     name: &TulispObject,

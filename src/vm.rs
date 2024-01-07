@@ -134,6 +134,7 @@ pub(crate) enum Instruction {
     // lists
     Cons,
     List(usize),
+    Append,
 }
 
 impl Display for Instruction {
@@ -172,6 +173,7 @@ impl Display for Instruction {
             Instruction::Label(name) => write!(f, "{}:", name),
             Instruction::Cons => write!(f, "    cons"),
             Instruction::List(len) => write!(f, "    list {}", len),
+            Instruction::Append => write!(f, "    append"),
         }
     }
 }
@@ -587,6 +589,13 @@ impl Machine {
                         list = TulispObject::cons(a.into(), list);
                     }
                     self.stack.push(list.into());
+                }
+                Instruction::Append => {
+                    let a: TulispObject = self.stack.pop().unwrap().into();
+                    let a = a.deep_copy().unwrap();
+                    let b: TulispObject = self.stack.pop().unwrap().into();
+                    b.append(a)?;
+                    self.stack.push(b.into());
                 }
             }
             self.pc += 1;
