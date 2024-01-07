@@ -195,6 +195,7 @@ impl<'a> Compiler<'a> {
 
         let mut value = value.clone();
         let mut items = 0;
+        let mut need_append = false;
         loop {
             value.car_and_then(|first| {
                 let first_inner = &*first.inner_ref();
@@ -206,11 +207,22 @@ impl<'a> Compiler<'a> {
                     let list_inst = result.pop().unwrap();
                     if let Instruction::List(n) = list_inst {
                         items += n;
+                    } else if let Instruction::Load(idx) = list_inst {
+                        result.push(Instruction::List(items));
+                        if need_append {
+                            result.push(Instruction::Append);
+                        }
+                        result.append(&mut vec![Instruction::Load(idx), Instruction::Append]);
+                        need_append = true;
+                        items = 0;
                     } else {
                         if !value.consp() {
                             return Err(Error::new(
                                 ErrorKind::SyntaxError,
-                                format!("Can only splice a list: {}", value),
+                                format!(
+                                    "Can only splice an inplace-list or a variable binding: {}",
+                                    value
+                                ),
                             )
                             .with_trace(first.clone()));
                         }
@@ -237,6 +249,9 @@ impl<'a> Compiler<'a> {
             value = rest;
         }
         result.push(Instruction::List(items));
+        if need_append {
+            result.push(Instruction::Append);
+        }
         Ok(result)
     }
 }
