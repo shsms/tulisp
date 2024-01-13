@@ -268,12 +268,12 @@ impl VMBindings {
         }
     }
 
-    pub fn set_scope(&mut self, to_set: VMStackValue) {
-        self.items.push(to_set);
+    pub fn set_scope(&mut self, to_set: &VMStackValue) {
+        self.items.push(to_set.to_owned());
     }
 
     pub fn unset(&mut self) {
-        self.items.pop();
+        self.items.truncate(self.items.len() - 1);
     }
 
     #[allow(dead_code)]
@@ -632,8 +632,9 @@ impl Machine {
                     self.stack.push(a.into());
                 }
                 Instruction::BeginScope(obj) => {
-                    let a = self.stack.pop().unwrap();
+                    let a = self.stack.last().unwrap();
                     self.bytecode.bindings[*obj].set_scope(a);
+                    self.stack.truncate(self.stack.len() - 1);
                 }
                 Instruction::EndScope(obj) => {
                     if self.bytecode.bindings[*obj].items.len() > 1 {
