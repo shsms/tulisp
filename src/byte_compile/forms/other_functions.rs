@@ -81,15 +81,14 @@ pub(super) fn compile_fn_append(
     _name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    if !compiler.keep_result {
-        return Ok(vec![]);
+    let mut result = vec![];
+    let mut len = 0;
+    for arg in args.base_iter() {
+        result.append(&mut compiler.compile_expr(&arg)?);
+        len += 1;
     }
-    compiler.compile_2_arg_call(_name, args, false, |compiler, arg1, arg2, _| {
-        let mut result = compiler.compile_expr(arg1)?;
-        result.append(&mut compiler.compile_expr(arg2)?);
-        result.push(Instruction::Append);
-        Ok(result)
-    })
+    result.push(Instruction::Append(len));
+    Ok(result)
 }
 
 fn compile_fn_defun_bounce_call(

@@ -168,7 +168,7 @@ pub(crate) enum Instruction {
     // lists
     Cons,
     List(usize),
-    Append,
+    Append(usize),
     Cxr(InstructionCxr),
 }
 
@@ -208,7 +208,7 @@ impl Display for Instruction {
             Instruction::Label(name) => write!(f, "{}:", name),
             Instruction::Cons => write!(f, "    cons"),
             Instruction::List(len) => write!(f, "    list {}", len),
-            Instruction::Append => write!(f, "    append"),
+            Instruction::Append(len) => write!(f, "    append {}", len),
             Instruction::Cxr(cxr) => match cxr {
                 InstructionCxr::Car => write!(f, "    car"),
                 InstructionCxr::Cdr => write!(f, "    cdr"),
@@ -669,12 +669,13 @@ impl Machine {
                     }
                     self.stack.push(list.into());
                 }
-                Instruction::Append => {
-                    let a: TulispObject = self.stack.pop().unwrap().into();
-                    let a = a.deep_copy().unwrap();
-                    let b: TulispObject = self.stack.pop().unwrap().into();
-                    b.append(a)?;
-                    self.stack.push(b.into());
+                Instruction::Append(len) => {
+                    let list = TulispObject::nil();
+
+                    for elt in self.stack.drain(self.stack.len() - *len..) {
+                        list.append(<VMStackValue as Into<TulispObject>>::into(elt).deep_copy()?)?;
+                    }
+                    self.stack.push(list.into());
                 }
                 Instruction::Cxr(cxr) => {
                     let a: TulispObject = self.stack.pop().unwrap().into();

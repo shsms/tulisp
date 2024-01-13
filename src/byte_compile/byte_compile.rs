@@ -213,9 +213,9 @@ impl<'a> Compiler<'a> {
                         result.append(&mut splice_result);
                         result.push(Instruction::List(items));
                         if need_append {
-                            result.push(Instruction::Append);
+                            result.push(Instruction::Append(2));
                         }
-                        result.append(&mut vec![Instruction::Load(idx), Instruction::Append]);
+                        result.append(&mut vec![Instruction::Load(idx), Instruction::Append(2)]);
                         need_append = true;
                         items = 0;
                     } else {
@@ -231,11 +231,11 @@ impl<'a> Compiler<'a> {
                         }
                         result.push(Instruction::List(items));
                         if need_append {
-                            result.push(Instruction::Append);
+                            result.push(Instruction::Append(2));
                         }
                         result.append(&mut splice_result);
                         result.push(list_inst);
-                        result.push(Instruction::Append);
+                        result.push(Instruction::Append(2));
                         need_append = true;
                         items = 0;
                     }
@@ -266,7 +266,7 @@ impl<'a> Compiler<'a> {
             result.push(Instruction::List(items));
         }
         if need_append {
-            result.push(Instruction::Append);
+            result.push(Instruction::Append(2));
         }
         Ok(result)
     }
