@@ -121,6 +121,14 @@ pub(crate) enum InstructionCxr {
     Cddddr,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum InstructionBinaryOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+}
+
 /// A single instruction in the VM.
 #[derive(Clone)]
 pub(crate) enum Instruction {
@@ -134,10 +142,7 @@ pub(crate) enum Instruction {
     BeginScope(usize),
     EndScope(usize),
     // arithmetic
-    Add,
-    Sub,
-    Mul,
-    Div,
+    BinaryOp(InstructionBinaryOp),
     // io
     PrintPop,
     Print,
@@ -182,10 +187,12 @@ impl Display for Instruction {
             Instruction::Load(obj) => write!(f, "    load {}", obj),
             Instruction::BeginScope(obj) => write!(f, "    begin_scope {}", obj),
             Instruction::EndScope(obj) => write!(f, "    end_scope {}", obj),
-            Instruction::Add => write!(f, "    add"),
-            Instruction::Sub => write!(f, "    sub"),
-            Instruction::Mul => write!(f, "    mul"),
-            Instruction::Div => write!(f, "    div"),
+            Instruction::BinaryOp(op) => match op {
+                InstructionBinaryOp::Add => write!(f, "    add"),
+                InstructionBinaryOp::Sub => write!(f, "    sub"),
+                InstructionBinaryOp::Mul => write!(f, "    mul"),
+                InstructionBinaryOp::Div => write!(f, "    div"),
+            },
             Instruction::PrintPop => write!(f, "    print_pop"),
             Instruction::Print => write!(f, "    print"),
             Instruction::JumpIfNil(pos) => write!(f, "    jnil {}", pos),
@@ -501,40 +508,17 @@ impl Machine {
                 Instruction::Pop => {
                     self.stack.pop();
                 }
-                Instruction::Add => {
-                    let minus2 = self.stack.len() - 2;
-                    let [ref b, ref a] = self.stack[minus2..] else {
+                Instruction::BinaryOp(op) => {
+                    let [ref b, ref a] = self.stack[(self.stack.len() - 2)..] else {
                         unreachable!()
                     };
-                    let vv = arith_add(a, b)?;
-                    self.stack.truncate(minus2);
-                    self.stack.push(vv);
-                }
-                Instruction::Sub => {
-                    let minus2 = self.stack.len() - 2;
-                    let [ref b, ref a] = self.stack[minus2..] else {
-                        unreachable!()
+                    let vv = match op {
+                        InstructionBinaryOp::Add => arith_add(&a, &b)?,
+                        InstructionBinaryOp::Sub => arith_sub(&a, &b)?,
+                        InstructionBinaryOp::Mul => arith_mul(&a, &b)?,
+                        InstructionBinaryOp::Div => arith_div(&a, &b)?,
                     };
-                    let vv = arith_sub(a, b)?;
-                    self.stack.truncate(minus2);
-                    self.stack.push(vv);
-                }
-                Instruction::Mul => {
-                    let minus2 = self.stack.len() - 2;
-                    let [ref b, ref a] = self.stack[minus2..] else {
-                        unreachable!()
-                    };
-                    let vv = arith_mul(a, b)?;
-                    self.stack.truncate(minus2);
-                    self.stack.push(vv);
-                }
-                Instruction::Div => {
-                    let minus2 = self.stack.len() - 2;
-                    let [ref b, ref a] = self.stack[minus2..] else {
-                        unreachable!()
-                    };
-                    let vv = arith_div(a, b)?;
-                    self.stack.truncate(minus2);
+                    self.stack.truncate(self.stack.len() - 2);
                     self.stack.push(vv);
                 }
                 Instruction::PrintPop => {
