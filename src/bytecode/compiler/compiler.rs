@@ -7,8 +7,6 @@ use crate::{
 
 use super::forms::VMFunctions;
 
-pub(crate) type CompileResult = Result<Vec<Instruction>, Error>;
-
 #[allow(dead_code)]
 pub(crate) struct Compiler<'a> {
     pub ctx: &'a mut TulispContext,

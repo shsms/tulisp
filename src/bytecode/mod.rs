@@ -6,3 +6,6 @@ pub(crate) use interpreter::{Bytecode, Machine, VMBindings};
 
 mod stack_value;
 pub(crate) use stack_value::VMStackValue;
+
+mod compiler;
+pub(crate) use compiler::Compiler;

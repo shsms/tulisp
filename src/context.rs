@@ -2,8 +2,7 @@ use std::{collections::HashMap, fs};
 
 use crate::{
     builtin,
-    byte_compile::Compiler,
-    bytecode,
+    bytecode::{self, Compiler},
     error::Error,
     eval::{eval, eval_and_then, eval_basic, funcall, DummyEval},
     list,

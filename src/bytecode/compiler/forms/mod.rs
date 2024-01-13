@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{bytecode::Instruction, Error, ErrorKind, TulispContext, TulispObject};
 
-use super::{byte_compile::CompileResult, Compiler};
+use super::Compiler;
 
 mod arithmetic_operations;
 mod common;
@@ -11,7 +11,8 @@ mod conditionals;
 mod list_elements;
 mod other_functions;
 
-type FnCallCompiler = fn(&mut Compiler, &TulispObject, &TulispObject) -> CompileResult;
+type FnCallCompiler =
+    fn(&mut Compiler, &TulispObject, &TulispObject) -> Result<Vec<Instruction>, Error>;
 
 pub(crate) struct VMFunctions {
     // TulispObject.addr() -> implementation

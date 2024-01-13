@@ -1,6 +1,5 @@
 use crate::{
-    byte_compile::Compiler,
-    bytecode::{Instruction, Pos},
+    bytecode::{Compiler, Instruction, Pos},
     Error, TulispObject,
 };
 
