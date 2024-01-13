@@ -1,4 +1,4 @@
-use super::{instruction, Instruction};
+use super::Instruction;
 use crate::{
     bytecode::{Pos, VMStackValue},
     Error, ErrorKind, TulispContext, TulispObject,
@@ -154,11 +154,15 @@ impl Machine {
                     let [ref b, ref a] = self.stack[(self.stack.len() - 2)..] else {
                         unreachable!()
                     };
-                    let vv = match op {
-                        instruction::BinaryOp::Add => a.add(b)?,
-                        instruction::BinaryOp::Sub => a.sub(b)?,
-                        instruction::BinaryOp::Mul => a.mul(b)?,
-                        instruction::BinaryOp::Div => a.div(b)?,
+
+                    let vv = {
+                        use crate::bytecode::instruction::BinaryOp::*;
+                        match op {
+                            Add => a.add(b)?,
+                            Sub => a.sub(b)?,
+                            Mul => a.mul(b)?,
+                            Div => a.div(b)?,
+                        }
                     };
                     self.stack.truncate(self.stack.len() - 2);
                     self.stack.push(vv);
@@ -344,41 +348,42 @@ impl Machine {
                 }
                 Instruction::Cxr(cxr) => {
                     let a: TulispObject = self.stack.pop().unwrap().into();
-                    self.stack.push(
-                        match cxr {
-                            instruction::Cxr::Car => a.car().unwrap(),
-                            instruction::Cxr::Cdr => a.cdr().unwrap(),
-                            instruction::Cxr::Caar => a.caar().unwrap(),
-                            instruction::Cxr::Cadr => a.cadr().unwrap(),
-                            instruction::Cxr::Cdar => a.cdar().unwrap(),
-                            instruction::Cxr::Cddr => a.cddr().unwrap(),
-                            instruction::Cxr::Caaar => a.caaar().unwrap(),
-                            instruction::Cxr::Caadr => a.caadr().unwrap(),
-                            instruction::Cxr::Cadar => a.cadar().unwrap(),
-                            instruction::Cxr::Caddr => a.caddr().unwrap(),
-                            instruction::Cxr::Cdaar => a.cdaar().unwrap(),
-                            instruction::Cxr::Cdadr => a.cdadr().unwrap(),
-                            instruction::Cxr::Cddar => a.cddar().unwrap(),
-                            instruction::Cxr::Cdddr => a.cdddr().unwrap(),
-                            instruction::Cxr::Caaaar => a.caaaar().unwrap(),
-                            instruction::Cxr::Caaadr => a.caaadr().unwrap(),
-                            instruction::Cxr::Caadar => a.caadar().unwrap(),
-                            instruction::Cxr::Caaddr => a.caaddr().unwrap(),
-                            instruction::Cxr::Cadaar => a.cadaar().unwrap(),
-                            instruction::Cxr::Cadadr => a.cadadr().unwrap(),
-                            instruction::Cxr::Caddar => a.caddar().unwrap(),
-                            instruction::Cxr::Cadddr => a.cadddr().unwrap(),
-                            instruction::Cxr::Cdaaar => a.cdaaar().unwrap(),
-                            instruction::Cxr::Cdaadr => a.cdaadr().unwrap(),
-                            instruction::Cxr::Cdadar => a.cdadar().unwrap(),
-                            instruction::Cxr::Cdaddr => a.cdaddr().unwrap(),
-                            instruction::Cxr::Cddaar => a.cddaar().unwrap(),
-                            instruction::Cxr::Cddadr => a.cddadr().unwrap(),
-                            instruction::Cxr::Cdddar => a.cdddar().unwrap(),
-                            instruction::Cxr::Cddddr => a.cddddr().unwrap(),
-                        }
-                        .into(),
-                    )
+
+                    self.stack.push({
+                        use crate::bytecode::instruction::Cxr::*;
+                        VMStackValue::from(match cxr {
+                            Car => a.car().unwrap(),
+                            Cdr => a.cdr().unwrap(),
+                            Caar => a.caar().unwrap(),
+                            Cadr => a.cadr().unwrap(),
+                            Cdar => a.cdar().unwrap(),
+                            Cddr => a.cddr().unwrap(),
+                            Caaar => a.caaar().unwrap(),
+                            Caadr => a.caadr().unwrap(),
+                            Cadar => a.cadar().unwrap(),
+                            Caddr => a.caddr().unwrap(),
+                            Cdaar => a.cdaar().unwrap(),
+                            Cdadr => a.cdadr().unwrap(),
+                            Cddar => a.cddar().unwrap(),
+                            Cdddr => a.cdddr().unwrap(),
+                            Caaaar => a.caaaar().unwrap(),
+                            Caaadr => a.caaadr().unwrap(),
+                            Caadar => a.caadar().unwrap(),
+                            Caaddr => a.caaddr().unwrap(),
+                            Cadaar => a.cadaar().unwrap(),
+                            Cadadr => a.cadadr().unwrap(),
+                            Caddar => a.caddar().unwrap(),
+                            Cadddr => a.cadddr().unwrap(),
+                            Cdaaar => a.cdaaar().unwrap(),
+                            Cdaadr => a.cdaadr().unwrap(),
+                            Cdadar => a.cdadar().unwrap(),
+                            Cdaddr => a.cdaddr().unwrap(),
+                            Cddaar => a.cddaar().unwrap(),
+                            Cddadr => a.cddadr().unwrap(),
+                            Cdddar => a.cdddar().unwrap(),
+                            Cddddr => a.cddddr().unwrap(),
+                        })
+                    })
                 }
             }
             self.pc += 1;
