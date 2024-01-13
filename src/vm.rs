@@ -499,27 +499,43 @@ impl Machine {
             match instr {
                 Instruction::Push(obj) => self.stack.push(obj.clone()),
                 Instruction::Pop => {
-                    self.stack.pop().unwrap();
+                    self.stack.pop();
                 }
                 Instruction::Add => {
-                    let a = self.stack.pop().unwrap();
-                    let b = self.stack.pop().unwrap();
-                    self.stack.push(arith_add(&a, &b)?);
+                    let minus2 = self.stack.len() - 2;
+                    let [ref b, ref a] = self.stack[minus2..] else {
+                        unreachable!()
+                    };
+                    let vv = arith_add(a, b)?;
+                    self.stack.truncate(minus2);
+                    self.stack.push(vv);
                 }
                 Instruction::Sub => {
-                    let a = self.stack.pop().unwrap();
-                    let b = self.stack.pop().unwrap();
-                    self.stack.push(arith_sub(&a, &b)?);
+                    let minus2 = self.stack.len() - 2;
+                    let [ref b, ref a] = self.stack[minus2..] else {
+                        unreachable!()
+                    };
+                    let vv = arith_sub(a, b)?;
+                    self.stack.truncate(minus2);
+                    self.stack.push(vv);
                 }
                 Instruction::Mul => {
-                    let a = self.stack.pop().unwrap();
-                    let b = self.stack.pop().unwrap();
-                    self.stack.push(arith_mul(&a, &b)?);
+                    let minus2 = self.stack.len() - 2;
+                    let [ref b, ref a] = self.stack[minus2..] else {
+                        unreachable!()
+                    };
+                    let vv = arith_mul(a, b)?;
+                    self.stack.truncate(minus2);
+                    self.stack.push(vv);
                 }
                 Instruction::Div => {
-                    let a = self.stack.pop().unwrap();
-                    let b = self.stack.pop().unwrap();
-                    self.stack.push(arith_div(&a, &b)?);
+                    let minus2 = self.stack.len() - 2;
+                    let [ref b, ref a] = self.stack[minus2..] else {
+                        unreachable!()
+                    };
+                    let vv = arith_div(a, b)?;
+                    self.stack.truncate(minus2);
+                    self.stack.push(vv);
                 }
                 Instruction::PrintPop => {
                     let a = self.stack.pop().unwrap();
