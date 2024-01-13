@@ -1,6 +1,6 @@
 use crate::{
     byte_compile::Compiler,
-    bytecode::{Instruction, InstructionBinaryOp},
+    bytecode::{instruction::BinaryOp, Instruction},
     Error, ErrorKind, TulispObject,
 };
 
@@ -24,7 +24,7 @@ pub(super) fn compile_fn_plus(
         result.append(&mut compiler.compile_expr(arg)?);
     }
     for _ in 0..args.len() - 1 {
-        result.push(Instruction::BinaryOp(InstructionBinaryOp::Add));
+        result.push(Instruction::BinaryOp(BinaryOp::Add));
     }
     Ok(result)
 }
@@ -50,11 +50,11 @@ pub(super) fn compile_fn_minus(
     }
     if args.len() == 1 {
         result.push(Instruction::Push((-1).into()));
-        result.push(Instruction::BinaryOp(InstructionBinaryOp::Mul));
+        result.push(Instruction::BinaryOp(BinaryOp::Mul));
         return Ok(result);
     }
     for _ in 0..args.len() - 1 {
-        result.push(Instruction::BinaryOp(InstructionBinaryOp::Sub));
+        result.push(Instruction::BinaryOp(BinaryOp::Sub));
     }
     Ok(result)
 }
@@ -79,7 +79,7 @@ pub(super) fn compile_fn_mul(
         result.append(&mut compiler.compile_expr(arg)?);
     }
     for _ in 0..args.len() - 1 {
-        result.push(Instruction::BinaryOp(InstructionBinaryOp::Mul));
+        result.push(Instruction::BinaryOp(BinaryOp::Mul));
     }
     Ok(result)
 }
@@ -105,11 +105,11 @@ pub(super) fn compile_fn_div(
     }
     if args.len() == 1 {
         result.push(Instruction::Push(1.into()));
-        result.push(Instruction::BinaryOp(InstructionBinaryOp::Div));
+        result.push(Instruction::BinaryOp(BinaryOp::Div));
         return Ok(result);
     }
     for _ in 0..args.len() - 1 {
-        result.push(Instruction::BinaryOp(InstructionBinaryOp::Div));
+        result.push(Instruction::BinaryOp(BinaryOp::Div));
     }
     Ok(result)
 }

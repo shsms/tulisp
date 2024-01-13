@@ -1,190 +1,9 @@
-use std::{collections::HashMap, fmt::Display, rc::Rc};
-
+use super::{instruction, Instruction};
 use crate::{
-    bytecode::VMStackValue, value::TulispFn, Error, ErrorKind, TulispContext, TulispObject,
+    bytecode::{Pos, VMStackValue},
+    Error, ErrorKind, TulispContext, TulispObject,
 };
-
-#[derive(Clone)]
-pub enum Pos {
-    Abs(usize),
-    Rel(isize),
-    Label(TulispObject),
-}
-
-impl Display for Pos {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Pos::Abs(p) => write!(f, "{}", p),
-            Pos::Rel(p) => write!(f, ". {}", p),
-            Pos::Label(p) => write!(f, "{}", p),
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-pub(crate) enum InstructionCxr {
-    Car,
-    Cdr,
-    Caar,
-    Cadr,
-    Cdar,
-    Cddr,
-    Caaar,
-    Caadr,
-    Cadar,
-    Caddr,
-    Cdaar,
-    Cdadr,
-    Cddar,
-    Cdddr,
-    Caaaar,
-    Caaadr,
-    Caadar,
-    Caaddr,
-    Cadaar,
-    Cadadr,
-    Caddar,
-    Cadddr,
-    Cdaaar,
-    Cdaadr,
-    Cdadar,
-    Cdaddr,
-    Cddaar,
-    Cddadr,
-    Cdddar,
-    Cddddr,
-}
-
-#[derive(Clone, Copy)]
-pub(crate) enum InstructionBinaryOp {
-    Add,
-    Sub,
-    Mul,
-    Div,
-}
-
-/// A single instruction in the VM.
-#[derive(Clone)]
-pub(crate) enum Instruction {
-    // stack
-    Push(VMStackValue),
-    Pop,
-    // variables
-    StorePop(usize),
-    Store(usize),
-    Load(usize),
-    BeginScope(usize),
-    EndScope(usize),
-    // arithmetic
-    BinaryOp(InstructionBinaryOp),
-    // io
-    PrintPop,
-    Print,
-    // comparison
-    Equal,
-    Eq,
-    Lt,
-    LtEq,
-    Gt,
-    GtEq,
-    // control flow
-    JumpIfNil(Pos),
-    JumpIfNilElsePop(Pos),
-    JumpIfNeq(Pos),
-    JumpIfLt(Pos),
-    JumpIfLtEq(Pos),
-    JumpIfGt(Pos),
-    JumpIfGtEq(Pos),
-    Jump(Pos),
-    // functions
-    Label(TulispObject),
-    #[allow(dead_code)]
-    RustCall {
-        func: Rc<TulispFn>,
-    },
-    Call(Pos),
-    Ret,
-    // lists
-    Cons,
-    List(usize),
-    Append(usize),
-    Cxr(InstructionCxr),
-}
-
-impl Display for Instruction {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Instruction::Push(obj) => write!(f, "    push {}", obj),
-            Instruction::Pop => write!(f, "    pop"),
-            Instruction::StorePop(obj) => write!(f, "    store_pop {}", obj),
-            Instruction::Store(obj) => write!(f, "    store {}", obj),
-            Instruction::Load(obj) => write!(f, "    load {}", obj),
-            Instruction::BeginScope(obj) => write!(f, "    begin_scope {}", obj),
-            Instruction::EndScope(obj) => write!(f, "    end_scope {}", obj),
-            Instruction::BinaryOp(op) => match op {
-                InstructionBinaryOp::Add => write!(f, "    add"),
-                InstructionBinaryOp::Sub => write!(f, "    sub"),
-                InstructionBinaryOp::Mul => write!(f, "    mul"),
-                InstructionBinaryOp::Div => write!(f, "    div"),
-            },
-            Instruction::PrintPop => write!(f, "    print_pop"),
-            Instruction::Print => write!(f, "    print"),
-            Instruction::JumpIfNil(pos) => write!(f, "    jnil {}", pos),
-            Instruction::JumpIfNilElsePop(pos) => write!(f, "    jnil_else_pop {}", pos),
-            Instruction::JumpIfNeq(pos) => write!(f, "    jne {}", pos),
-            Instruction::JumpIfLt(pos) => write!(f, "    jlt {}", pos),
-            Instruction::JumpIfLtEq(pos) => write!(f, "    jle {}", pos),
-            Instruction::JumpIfGt(pos) => write!(f, "    jgt {}", pos),
-            Instruction::JumpIfGtEq(pos) => write!(f, "    jge {}", pos),
-            Instruction::Equal => write!(f, "    equal"),
-            Instruction::Eq => write!(f, "    ceq"),
-            Instruction::Lt => write!(f, "    clt"),
-            Instruction::LtEq => write!(f, "    cle"),
-            Instruction::Gt => write!(f, "    cgt"),
-            Instruction::GtEq => write!(f, "    cge"),
-            Instruction::Jump(pos) => write!(f, "    jmp {}", pos),
-            Instruction::Call(pos) => write!(f, "    call {}", pos),
-            Instruction::Ret => write!(f, "    ret"),
-            Instruction::RustCall { .. } => write!(f, "    rustcall"),
-            Instruction::Label(name) => write!(f, "{}:", name),
-            Instruction::Cons => write!(f, "    cons"),
-            Instruction::List(len) => write!(f, "    list {}", len),
-            Instruction::Append(len) => write!(f, "    append {}", len),
-            Instruction::Cxr(cxr) => match cxr {
-                InstructionCxr::Car => write!(f, "    car"),
-                InstructionCxr::Cdr => write!(f, "    cdr"),
-                InstructionCxr::Caar => write!(f, "    caar"),
-                InstructionCxr::Cadr => write!(f, "    cadr"),
-                InstructionCxr::Cdar => write!(f, "    cdar"),
-                InstructionCxr::Cddr => write!(f, "    cddr"),
-                InstructionCxr::Caaar => write!(f, "    caaar"),
-                InstructionCxr::Caadr => write!(f, "    caadr"),
-                InstructionCxr::Cadar => write!(f, "    cadar"),
-                InstructionCxr::Caddr => write!(f, "    caddr"),
-                InstructionCxr::Cdaar => write!(f, "    cdaar"),
-                InstructionCxr::Cdadr => write!(f, "    cdadr"),
-                InstructionCxr::Cddar => write!(f, "    cddar"),
-                InstructionCxr::Cdddr => write!(f, "    cdddr"),
-                InstructionCxr::Caaaar => write!(f, "    caaaar"),
-                InstructionCxr::Caaadr => write!(f, "    caaadr"),
-                InstructionCxr::Caadar => write!(f, "    caadar"),
-                InstructionCxr::Caaddr => write!(f, "    caaddr"),
-                InstructionCxr::Cadaar => write!(f, "    cadaar"),
-                InstructionCxr::Cadadr => write!(f, "    cadadr"),
-                InstructionCxr::Caddar => write!(f, "    caddar"),
-                InstructionCxr::Cadddr => write!(f, "    cadddr"),
-                InstructionCxr::Cdaaar => write!(f, "    cdaaar"),
-                InstructionCxr::Cdaadr => write!(f, "    cdaadr"),
-                InstructionCxr::Cdadar => write!(f, "    cdadar"),
-                InstructionCxr::Cdaddr => write!(f, "    cdaddr"),
-                InstructionCxr::Cddaar => write!(f, "    cddaar"),
-                InstructionCxr::Cddadr => write!(f, "    cddadr"),
-                InstructionCxr::Cdddar => write!(f, "    cdddar"),
-                InstructionCxr::Cddddr => write!(f, "    cddddr"),
-            },
-        }
-    }
-}
+use std::collections::HashMap;
 
 #[derive(Default, Clone)]
 pub(crate) struct VMBindings {
@@ -336,10 +155,10 @@ impl Machine {
                         unreachable!()
                     };
                     let vv = match op {
-                        InstructionBinaryOp::Add => a.add(b)?,
-                        InstructionBinaryOp::Sub => a.sub(b)?,
-                        InstructionBinaryOp::Mul => a.mul(b)?,
-                        InstructionBinaryOp::Div => a.div(b)?,
+                        instruction::BinaryOp::Add => a.add(b)?,
+                        instruction::BinaryOp::Sub => a.sub(b)?,
+                        instruction::BinaryOp::Mul => a.mul(b)?,
+                        instruction::BinaryOp::Div => a.div(b)?,
                     };
                     self.stack.truncate(self.stack.len() - 2);
                     self.stack.push(vv);
@@ -527,36 +346,36 @@ impl Machine {
                     let a: TulispObject = self.stack.pop().unwrap().into();
                     self.stack.push(
                         match cxr {
-                            InstructionCxr::Car => a.car().unwrap(),
-                            InstructionCxr::Cdr => a.cdr().unwrap(),
-                            InstructionCxr::Caar => a.caar().unwrap(),
-                            InstructionCxr::Cadr => a.cadr().unwrap(),
-                            InstructionCxr::Cdar => a.cdar().unwrap(),
-                            InstructionCxr::Cddr => a.cddr().unwrap(),
-                            InstructionCxr::Caaar => a.caaar().unwrap(),
-                            InstructionCxr::Caadr => a.caadr().unwrap(),
-                            InstructionCxr::Cadar => a.cadar().unwrap(),
-                            InstructionCxr::Caddr => a.caddr().unwrap(),
-                            InstructionCxr::Cdaar => a.cdaar().unwrap(),
-                            InstructionCxr::Cdadr => a.cdadr().unwrap(),
-                            InstructionCxr::Cddar => a.cddar().unwrap(),
-                            InstructionCxr::Cdddr => a.cdddr().unwrap(),
-                            InstructionCxr::Caaaar => a.caaaar().unwrap(),
-                            InstructionCxr::Caaadr => a.caaadr().unwrap(),
-                            InstructionCxr::Caadar => a.caadar().unwrap(),
-                            InstructionCxr::Caaddr => a.caaddr().unwrap(),
-                            InstructionCxr::Cadaar => a.cadaar().unwrap(),
-                            InstructionCxr::Cadadr => a.cadadr().unwrap(),
-                            InstructionCxr::Caddar => a.caddar().unwrap(),
-                            InstructionCxr::Cadddr => a.cadddr().unwrap(),
-                            InstructionCxr::Cdaaar => a.cdaaar().unwrap(),
-                            InstructionCxr::Cdaadr => a.cdaadr().unwrap(),
-                            InstructionCxr::Cdadar => a.cdadar().unwrap(),
-                            InstructionCxr::Cdaddr => a.cdaddr().unwrap(),
-                            InstructionCxr::Cddaar => a.cddaar().unwrap(),
-                            InstructionCxr::Cddadr => a.cddadr().unwrap(),
-                            InstructionCxr::Cdddar => a.cdddar().unwrap(),
-                            InstructionCxr::Cddddr => a.cddddr().unwrap(),
+                            instruction::Cxr::Car => a.car().unwrap(),
+                            instruction::Cxr::Cdr => a.cdr().unwrap(),
+                            instruction::Cxr::Caar => a.caar().unwrap(),
+                            instruction::Cxr::Cadr => a.cadr().unwrap(),
+                            instruction::Cxr::Cdar => a.cdar().unwrap(),
+                            instruction::Cxr::Cddr => a.cddr().unwrap(),
+                            instruction::Cxr::Caaar => a.caaar().unwrap(),
+                            instruction::Cxr::Caadr => a.caadr().unwrap(),
+                            instruction::Cxr::Cadar => a.cadar().unwrap(),
+                            instruction::Cxr::Caddr => a.caddr().unwrap(),
+                            instruction::Cxr::Cdaar => a.cdaar().unwrap(),
+                            instruction::Cxr::Cdadr => a.cdadr().unwrap(),
+                            instruction::Cxr::Cddar => a.cddar().unwrap(),
+                            instruction::Cxr::Cdddr => a.cdddr().unwrap(),
+                            instruction::Cxr::Caaaar => a.caaaar().unwrap(),
+                            instruction::Cxr::Caaadr => a.caaadr().unwrap(),
+                            instruction::Cxr::Caadar => a.caadar().unwrap(),
+                            instruction::Cxr::Caaddr => a.caaddr().unwrap(),
+                            instruction::Cxr::Cadaar => a.cadaar().unwrap(),
+                            instruction::Cxr::Cadadr => a.cadadr().unwrap(),
+                            instruction::Cxr::Caddar => a.caddar().unwrap(),
+                            instruction::Cxr::Cadddr => a.cadddr().unwrap(),
+                            instruction::Cxr::Cdaaar => a.cdaaar().unwrap(),
+                            instruction::Cxr::Cdaadr => a.cdaadr().unwrap(),
+                            instruction::Cxr::Cdadar => a.cdadar().unwrap(),
+                            instruction::Cxr::Cdaddr => a.cdaddr().unwrap(),
+                            instruction::Cxr::Cddaar => a.cddaar().unwrap(),
+                            instruction::Cxr::Cddadr => a.cddadr().unwrap(),
+                            instruction::Cxr::Cdddar => a.cdddar().unwrap(),
+                            instruction::Cxr::Cddddr => a.cddddr().unwrap(),
                         }
                         .into(),
                     )
