@@ -204,11 +204,13 @@ impl<'a> Compiler<'a> {
                     items += 1;
                     result.append(&mut self.compile_expr(&value)?);
                 } else if let TulispValue::Splice { value } = first_inner {
-                    result.append(&mut self.compile_expr(&value)?);
-                    let list_inst = result.pop().unwrap();
+                    let mut splice_result = self.compile_expr(&value)?;
+                    let list_inst = splice_result.pop().unwrap();
                     if let Instruction::List(n) = list_inst {
+                        result.append(&mut splice_result);
                         items += n;
                     } else if let Instruction::Load(idx) = list_inst {
+                        result.append(&mut splice_result);
                         result.push(Instruction::List(items));
                         if need_append {
                             result.push(Instruction::Append);
@@ -227,6 +229,15 @@ impl<'a> Compiler<'a> {
                             )
                             .with_trace(first.clone()));
                         }
+                        result.push(Instruction::List(items));
+                        if need_append {
+                            result.push(Instruction::Append);
+                        }
+                        result.append(&mut splice_result);
+                        result.push(list_inst);
+                        result.push(Instruction::Append);
+                        need_append = true;
+                        items = 0;
                     }
                 } else {
                     items += 1;
