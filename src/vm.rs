@@ -546,8 +546,10 @@ impl Machine {
                     println!("{}", a);
                 }
                 Instruction::JumpIfNil(pos) => {
-                    let a = self.stack.pop().unwrap();
-                    if a.null() {
+                    let a = self.stack.last().unwrap();
+                    let cmp = a.null();
+                    self.stack.truncate(self.stack.len() - 1);
+                    if cmp {
                         jump_to_pos!(self, pos);
                         continue;
                     }
@@ -558,45 +560,65 @@ impl Machine {
                         jump_to_pos!(self, pos);
                         continue;
                     } else {
-                        self.stack.pop().unwrap();
+                        self.stack.truncate(self.stack.len() - 1);
                     }
                 }
                 Instruction::JumpIfNeq(pos) => {
-                    let a = self.stack.pop().unwrap();
-                    let b = self.stack.pop().unwrap();
-                    if !a.eq(&b) {
+                    let minus2 = self.stack.len() - 2;
+                    let [ref b, ref a] = self.stack[minus2..] else {
+                        unreachable!()
+                    };
+                    let cmp = !a.eq(&b);
+                    self.stack.truncate(minus2);
+                    if cmp {
                         jump_to_pos!(self, pos);
                         continue;
                     }
                 }
                 Instruction::JumpIfLt(pos) => {
-                    let a = self.stack.pop().unwrap();
-                    let b = self.stack.pop().unwrap();
-                    if cmp_lt(&a, &b)? {
+                    let minus2 = self.stack.len() - 2;
+                    let [ref b, ref a] = self.stack[minus2..] else {
+                        unreachable!()
+                    };
+                    let cmp = cmp_lt(a, b)?;
+                    self.stack.truncate(minus2);
+                    if cmp {
                         jump_to_pos!(self, pos);
                         continue;
                     }
                 }
                 Instruction::JumpIfLtEq(pos) => {
-                    let a = self.stack.pop().unwrap();
-                    let b = self.stack.pop().unwrap();
-                    if cmp_le(&a, &b)? {
+                    let minus2 = self.stack.len() - 2;
+                    let [ref b, ref a] = self.stack[minus2..] else {
+                        unreachable!()
+                    };
+                    let cmp = cmp_le(a, b)?;
+                    self.stack.truncate(minus2);
+                    if cmp {
                         jump_to_pos!(self, pos);
                         continue;
                     }
                 }
                 Instruction::JumpIfGt(pos) => {
-                    let a = self.stack.pop().unwrap();
-                    let b = self.stack.pop().unwrap();
-                    if cmp_gt(&a, &b)? {
+                    let minus2 = self.stack.len() - 2;
+                    let [ref b, ref a] = self.stack[minus2..] else {
+                        unreachable!()
+                    };
+                    let cmp = cmp_gt(a, b)?;
+                    self.stack.truncate(minus2);
+                    if cmp {
                         jump_to_pos!(self, pos);
                         continue;
                     }
                 }
                 Instruction::JumpIfGtEq(pos) => {
-                    let a = self.stack.pop().unwrap();
-                    let b = self.stack.pop().unwrap();
-                    if cmp_ge(&a, &b)? {
+                    let minus2 = self.stack.len() - 2;
+                    let [ref b, ref a] = self.stack[minus2..] else {
+                        unreachable!()
+                    };
+                    let cmp = cmp_ge(a, b)?;
+                    self.stack.truncate(minus2);
+                    if cmp {
                         jump_to_pos!(self, pos);
                         continue;
                     }
