@@ -87,6 +87,40 @@ impl Display for Pos {
     }
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum InstructionCxr {
+    Car,
+    Cdr,
+    Caar,
+    Cadr,
+    Cdar,
+    Cddr,
+    Caaar,
+    Caadr,
+    Cadar,
+    Caddr,
+    Cdaar,
+    Cdadr,
+    Cddar,
+    Cdddr,
+    Caaaar,
+    Caaadr,
+    Caadar,
+    Caaddr,
+    Cadaar,
+    Cadadr,
+    Caddar,
+    Cadddr,
+    Cdaaar,
+    Cdaadr,
+    Cdadar,
+    Cdaddr,
+    Cddaar,
+    Cddadr,
+    Cdddar,
+    Cddddr,
+}
+
 /// A single instruction in the VM.
 #[derive(Clone)]
 pub(crate) enum Instruction {
@@ -135,6 +169,7 @@ pub(crate) enum Instruction {
     Cons,
     List(usize),
     Append,
+    Cxr(InstructionCxr),
 }
 
 impl Display for Instruction {
@@ -174,6 +209,38 @@ impl Display for Instruction {
             Instruction::Cons => write!(f, "    cons"),
             Instruction::List(len) => write!(f, "    list {}", len),
             Instruction::Append => write!(f, "    append"),
+            Instruction::Cxr(cxr) => match cxr {
+                InstructionCxr::Car => write!(f, "    car"),
+                InstructionCxr::Cdr => write!(f, "    cdr"),
+                InstructionCxr::Caar => write!(f, "    caar"),
+                InstructionCxr::Cadr => write!(f, "    cadr"),
+                InstructionCxr::Cdar => write!(f, "    cdar"),
+                InstructionCxr::Cddr => write!(f, "    cddr"),
+                InstructionCxr::Caaar => write!(f, "    caaar"),
+                InstructionCxr::Caadr => write!(f, "    caadr"),
+                InstructionCxr::Cadar => write!(f, "    cadar"),
+                InstructionCxr::Caddr => write!(f, "    caddr"),
+                InstructionCxr::Cdaar => write!(f, "    cdaar"),
+                InstructionCxr::Cdadr => write!(f, "    cdadr"),
+                InstructionCxr::Cddar => write!(f, "    cddar"),
+                InstructionCxr::Cdddr => write!(f, "    cdddr"),
+                InstructionCxr::Caaaar => write!(f, "    caaaar"),
+                InstructionCxr::Caaadr => write!(f, "    caaadr"),
+                InstructionCxr::Caadar => write!(f, "    caadar"),
+                InstructionCxr::Caaddr => write!(f, "    caaddr"),
+                InstructionCxr::Cadaar => write!(f, "    cadaar"),
+                InstructionCxr::Cadadr => write!(f, "    cadadr"),
+                InstructionCxr::Caddar => write!(f, "    caddar"),
+                InstructionCxr::Cadddr => write!(f, "    cadddr"),
+                InstructionCxr::Cdaaar => write!(f, "    cdaaar"),
+                InstructionCxr::Cdaadr => write!(f, "    cdaadr"),
+                InstructionCxr::Cdadar => write!(f, "    cdadar"),
+                InstructionCxr::Cdaddr => write!(f, "    cdaddr"),
+                InstructionCxr::Cddaar => write!(f, "    cddaar"),
+                InstructionCxr::Cddadr => write!(f, "    cddadr"),
+                InstructionCxr::Cdddar => write!(f, "    cdddar"),
+                InstructionCxr::Cddddr => write!(f, "    cddddr"),
+            },
         }
     }
 }
@@ -608,6 +675,44 @@ impl Machine {
                     let b: TulispObject = self.stack.pop().unwrap().into();
                     b.append(a)?;
                     self.stack.push(b.into());
+                }
+                Instruction::Cxr(cxr) => {
+                    let a: TulispObject = self.stack.pop().unwrap().into();
+                    self.stack.push(
+                        match cxr {
+                            InstructionCxr::Car => a.car().unwrap(),
+                            InstructionCxr::Cdr => a.cdr().unwrap(),
+                            InstructionCxr::Caar => a.caar().unwrap(),
+                            InstructionCxr::Cadr => a.cadr().unwrap(),
+                            InstructionCxr::Cdar => a.cdar().unwrap(),
+                            InstructionCxr::Cddr => a.cddr().unwrap(),
+                            InstructionCxr::Caaar => a.caaar().unwrap(),
+                            InstructionCxr::Caadr => a.caadr().unwrap(),
+                            InstructionCxr::Cadar => a.cadar().unwrap(),
+                            InstructionCxr::Caddr => a.caddr().unwrap(),
+                            InstructionCxr::Cdaar => a.cdaar().unwrap(),
+                            InstructionCxr::Cdadr => a.cdadr().unwrap(),
+                            InstructionCxr::Cddar => a.cddar().unwrap(),
+                            InstructionCxr::Cdddr => a.cdddr().unwrap(),
+                            InstructionCxr::Caaaar => a.caaaar().unwrap(),
+                            InstructionCxr::Caaadr => a.caaadr().unwrap(),
+                            InstructionCxr::Caadar => a.caadar().unwrap(),
+                            InstructionCxr::Caaddr => a.caaddr().unwrap(),
+                            InstructionCxr::Cadaar => a.cadaar().unwrap(),
+                            InstructionCxr::Cadadr => a.cadadr().unwrap(),
+                            InstructionCxr::Caddar => a.caddar().unwrap(),
+                            InstructionCxr::Cadddr => a.cadddr().unwrap(),
+                            InstructionCxr::Cdaaar => a.cdaaar().unwrap(),
+                            InstructionCxr::Cdaadr => a.cdaadr().unwrap(),
+                            InstructionCxr::Cdadar => a.cdadar().unwrap(),
+                            InstructionCxr::Cdaddr => a.cdaddr().unwrap(),
+                            InstructionCxr::Cddaar => a.cddaar().unwrap(),
+                            InstructionCxr::Cddadr => a.cddadr().unwrap(),
+                            InstructionCxr::Cdddar => a.cdddar().unwrap(),
+                            InstructionCxr::Cddddr => a.cddddr().unwrap(),
+                        }
+                        .into(),
+                    )
                 }
             }
             self.pc += 1;

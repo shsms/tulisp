@@ -8,6 +8,7 @@ mod arithmetic_operations;
 mod common;
 mod comparison_of_numbers;
 mod conditionals;
+mod list_elements;
 mod other_functions;
 
 type FnCallCompiler = fn(&mut Compiler, &TulispObject, &TulispObject) -> CompileResult;
@@ -55,6 +56,37 @@ impl VMFunctions {
             ("cons", other_functions::compile_fn_cons),
             ("list", other_functions::compile_fn_list),
             ("append", other_functions::compile_fn_append),
+            // cxr
+            ("car", list_elements::compile_fn_cxr),
+            ("cdr", list_elements::compile_fn_cxr),
+            ("caar", list_elements::compile_fn_cxr),
+            ("cadr", list_elements::compile_fn_cxr),
+            ("cdar", list_elements::compile_fn_cxr),
+            ("cddr", list_elements::compile_fn_cxr),
+            ("caaar", list_elements::compile_fn_cxr),
+            ("caadr", list_elements::compile_fn_cxr),
+            ("cadar", list_elements::compile_fn_cxr),
+            ("caddr", list_elements::compile_fn_cxr),
+            ("cdaar", list_elements::compile_fn_cxr),
+            ("cdadr", list_elements::compile_fn_cxr),
+            ("cddar", list_elements::compile_fn_cxr),
+            ("cdddr", list_elements::compile_fn_cxr),
+            ("caaaar", list_elements::compile_fn_cxr),
+            ("caaadr", list_elements::compile_fn_cxr),
+            ("caadar", list_elements::compile_fn_cxr),
+            ("caaddr", list_elements::compile_fn_cxr),
+            ("cadaar", list_elements::compile_fn_cxr),
+            ("cadadr", list_elements::compile_fn_cxr),
+            ("caddar", list_elements::compile_fn_cxr),
+            ("cadddr", list_elements::compile_fn_cxr),
+            ("cdaaar", list_elements::compile_fn_cxr),
+            ("cdaadr", list_elements::compile_fn_cxr),
+            ("cdadar", list_elements::compile_fn_cxr),
+            ("cdaddr", list_elements::compile_fn_cxr),
+            ("cddaar", list_elements::compile_fn_cxr),
+            ("cddadr", list_elements::compile_fn_cxr),
+            ("cdddar", list_elements::compile_fn_cxr),
+            ("cddddr", list_elements::compile_fn_cxr),
             // conditionals
             ("if", conditionals::compile_fn_if),
             ("cond", conditionals::compile_fn_cond),
