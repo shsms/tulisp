@@ -1,6 +1,6 @@
 use crate::{
     byte_compile::Compiler,
-    vm::{Instruction, InstructionCxr},
+    bytecode::{Instruction, InstructionCxr},
     Error, ErrorKind, TulispObject,
 };
 

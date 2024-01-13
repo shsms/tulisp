@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    vm::{Bytecode, Instruction, VMBindings},
+    bytecode::{Bytecode, Instruction, VMBindings},
     Error, ErrorKind, TulispContext, TulispObject, TulispValue,
 };
 

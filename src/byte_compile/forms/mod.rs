@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{vm::Instruction, Error, ErrorKind, TulispContext, TulispObject};
+use crate::{bytecode::Instruction, Error, ErrorKind, TulispContext, TulispObject};
 
 use super::{byte_compile::CompileResult, Compiler};
 

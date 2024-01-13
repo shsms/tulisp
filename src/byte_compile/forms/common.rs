@@ -1,4 +1,6 @@
-use crate::{byte_compile::Compiler, vm::Instruction, Error, ErrorKind, TulispObject, TulispValue};
+use crate::{
+    byte_compile::Compiler, bytecode::Instruction, Error, ErrorKind, TulispObject, TulispValue,
+};
 
 impl Compiler<'_> {
     pub(crate) fn compile_1_arg_call(

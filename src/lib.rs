@@ -82,10 +82,10 @@ A list of currently available builtin functions can be found [here](builtin).
 */
 
 mod byte_compile;
+pub(crate) mod bytecode;
 mod eval;
 mod macros;
 mod parse;
-pub mod vm;
 
 pub use tulisp_proc_macros::{tulisp_add_func, tulisp_add_macro, tulisp_fn, tulisp_fn_no_eval};
 

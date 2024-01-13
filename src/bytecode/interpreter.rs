@@ -1,74 +1,8 @@
 use std::{collections::HashMap, fmt::Display, rc::Rc};
 
-use crate::{value::TulispFn, Error, ErrorKind, TulispContext, TulispObject, TulispValue};
-
-macro_rules! compare_ops {
-    ($name:ident, $oper:expr) => {
-        fn $name(selfobj: &VMStackValue, other: &VMStackValue) -> Result<bool, Error> {
-            match selfobj {
-                VMStackValue::Float(f1) => match other {
-                    VMStackValue::Float(f2) => Ok($oper(f1, f2)),
-                    VMStackValue::Int(i2) => Ok($oper(f1, &(*i2 as f64))),
-                    _ => Err(Error::new(
-                        ErrorKind::TypeMismatch,
-                        format!("Expected number, found: {}", other),
-                    )),
-                },
-                VMStackValue::Int(i1) => match other {
-                    VMStackValue::Float(f2) => Ok($oper(&(*i1 as f64), f2)),
-                    VMStackValue::Int(i2) => Ok($oper(i1, i2)),
-                    _ => Err(Error::new(
-                        ErrorKind::TypeMismatch,
-                        format!("Expected number, found: {}", other),
-                    )),
-                },
-                _ => Err(Error::new(
-                    ErrorKind::TypeMismatch,
-                    format!("Expected number, found: {}", selfobj),
-                )),
-            }
-        }
-    };
-}
-
-compare_ops!(cmp_lt, std::cmp::PartialOrd::lt);
-compare_ops!(cmp_le, std::cmp::PartialOrd::le);
-compare_ops!(cmp_gt, std::cmp::PartialOrd::gt);
-compare_ops!(cmp_ge, std::cmp::PartialOrd::ge);
-
-macro_rules! binary_ops {
-    ($name:ident, $oper:expr) => {
-        fn $name(selfobj: &VMStackValue, other: &VMStackValue) -> Result<VMStackValue, Error> {
-            match selfobj {
-                VMStackValue::Float(f1) => match other {
-                    VMStackValue::Float(f2) => Ok(VMStackValue::Float($oper(f1, f2))),
-                    VMStackValue::Int(i2) => Ok(VMStackValue::Float($oper(f1, &(*i2 as f64)))),
-                    _ => Err(Error::new(
-                        ErrorKind::TypeMismatch,
-                        format!("Expected number, found: {}", other),
-                    )),
-                },
-                VMStackValue::Int(i1) => match other {
-                    VMStackValue::Float(f2) => Ok(VMStackValue::Float($oper(&(*i1 as f64), f2))),
-                    VMStackValue::Int(i2) => Ok(VMStackValue::Int($oper(i1, i2))),
-                    _ => Err(Error::new(
-                        ErrorKind::TypeMismatch,
-                        format!("Expected number, found: {}", other),
-                    )),
-                },
-                _ => Err(Error::new(
-                    ErrorKind::TypeMismatch,
-                    format!("Expected number, found: {}", selfobj),
-                )),
-            }
-        }
-    };
-}
-
-binary_ops!(arith_add, std::ops::Add::add);
-binary_ops!(arith_sub, std::ops::Sub::sub);
-binary_ops!(arith_mul, std::ops::Mul::mul);
-binary_ops!(arith_div, std::ops::Div::div);
+use crate::{
+    bytecode::VMStackValue, value::TulispFn, Error, ErrorKind, TulispContext, TulispObject,
+};
 
 #[derive(Clone)]
 pub enum Pos {
@@ -322,117 +256,6 @@ impl Bytecode {
     }
 }
 
-#[derive(Clone)]
-pub(crate) enum VMStackValue {
-    TulispObject(TulispObject),
-    Bool(bool),
-    Float(f64),
-    Int(i64),
-}
-
-macro_rules! impl_from_for_stack_value {
-    ($name:ident, $type:ty) => {
-        impl From<$type> for VMStackValue {
-            fn from(val: $type) -> Self {
-                VMStackValue::$name(val)
-            }
-        }
-    };
-}
-
-impl_from_for_stack_value!(Float, f64);
-impl_from_for_stack_value!(Int, i64);
-impl_from_for_stack_value!(Bool, bool);
-
-impl From<TulispObject> for VMStackValue {
-    fn from(val: TulispObject) -> Self {
-        match &*val.inner_ref() {
-            TulispValue::Int { value } => return VMStackValue::Int(*value),
-            TulispValue::Float { value } => return VMStackValue::Float(*value),
-            TulispValue::T => return VMStackValue::Bool(true),
-            TulispValue::Nil => return VMStackValue::Bool(false),
-            _ => {}
-        }
-        VMStackValue::TulispObject(val)
-    }
-}
-
-impl Into<TulispObject> for VMStackValue {
-    fn into(self) -> TulispObject {
-        match self {
-            VMStackValue::TulispObject(obj) => obj,
-            VMStackValue::Bool(b) => b.into(),
-            VMStackValue::Float(fl) => fl.into(),
-            VMStackValue::Int(i) => i.into(),
-        }
-    }
-}
-
-impl VMStackValue {
-    pub fn null(&self) -> bool {
-        match self {
-            VMStackValue::TulispObject(obj) => obj.null(),
-            VMStackValue::Bool(b) => !b,
-            VMStackValue::Float(_) | VMStackValue::Int(_) => false,
-        }
-    }
-
-    pub fn equal(&self, other: &VMStackValue) -> bool {
-        match self {
-            VMStackValue::TulispObject(obj1) => match other {
-                VMStackValue::TulispObject(obj2) => obj1.equal(obj2),
-                VMStackValue::Bool(b2) => obj1.equal(&(*b2).into()),
-                VMStackValue::Float(fl2) => obj1.equal(&(*fl2).into()),
-                VMStackValue::Int(i2) => obj1.equal(&(*i2).into()),
-            },
-            VMStackValue::Bool(b) => match other {
-                VMStackValue::Bool(b2) => b == b2,
-                _ => false,
-            },
-            VMStackValue::Float(fl) => match other {
-                VMStackValue::Float(fl2) => fl == fl2,
-                _ => false,
-            },
-            VMStackValue::Int(i) => match other {
-                VMStackValue::Int(i2) => i == i2,
-                _ => false,
-            },
-        }
-    }
-
-    pub fn eq(&self, other: &VMStackValue) -> bool {
-        match self {
-            VMStackValue::TulispObject(obj1) => match other {
-                VMStackValue::TulispObject(obj2) => obj1.eq(obj2),
-                _ => false,
-            },
-            VMStackValue::Bool(b) => match other {
-                VMStackValue::Bool(b2) => b == b2,
-                _ => false,
-            },
-            VMStackValue::Float(fl) => match other {
-                VMStackValue::Float(fl2) => fl == fl2,
-                _ => false,
-            },
-            VMStackValue::Int(i) => match other {
-                VMStackValue::Int(i2) => i == i2,
-                _ => false,
-            },
-        }
-    }
-}
-
-impl Display for VMStackValue {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            VMStackValue::TulispObject(obj) => write!(f, "{}", obj),
-            VMStackValue::Bool(b) => write!(f, "{}", b),
-            VMStackValue::Float(fl) => write!(f, "{}", fl),
-            VMStackValue::Int(i) => write!(f, "{}", i),
-        }
-    }
-}
-
 pub struct Machine {
     stack: Vec<VMStackValue>,
     bytecode: Bytecode,
@@ -513,10 +336,10 @@ impl Machine {
                         unreachable!()
                     };
                     let vv = match op {
-                        InstructionBinaryOp::Add => arith_add(&a, &b)?,
-                        InstructionBinaryOp::Sub => arith_sub(&a, &b)?,
-                        InstructionBinaryOp::Mul => arith_mul(&a, &b)?,
-                        InstructionBinaryOp::Div => arith_div(&a, &b)?,
+                        InstructionBinaryOp::Add => a.add(b)?,
+                        InstructionBinaryOp::Sub => a.sub(b)?,
+                        InstructionBinaryOp::Mul => a.mul(b)?,
+                        InstructionBinaryOp::Div => a.div(b)?,
                     };
                     self.stack.truncate(self.stack.len() - 2);
                     self.stack.push(vv);
@@ -564,7 +387,7 @@ impl Machine {
                     let [ref b, ref a] = self.stack[minus2..] else {
                         unreachable!()
                     };
-                    let cmp = cmp_lt(a, b)?;
+                    let cmp = a.lt(b)?;
                     self.stack.truncate(minus2);
                     if cmp {
                         jump_to_pos!(self, pos);
@@ -576,7 +399,7 @@ impl Machine {
                     let [ref b, ref a] = self.stack[minus2..] else {
                         unreachable!()
                     };
-                    let cmp = cmp_le(a, b)?;
+                    let cmp = a.le(b)?;
                     self.stack.truncate(minus2);
                     if cmp {
                         jump_to_pos!(self, pos);
@@ -588,7 +411,7 @@ impl Machine {
                     let [ref b, ref a] = self.stack[minus2..] else {
                         unreachable!()
                     };
-                    let cmp = cmp_gt(a, b)?;
+                    let cmp = a.gt(b)?;
                     self.stack.truncate(minus2);
                     if cmp {
                         jump_to_pos!(self, pos);
@@ -600,7 +423,7 @@ impl Machine {
                     let [ref b, ref a] = self.stack[minus2..] else {
                         unreachable!()
                     };
-                    let cmp = cmp_ge(a, b)?;
+                    let cmp = a.ge(b)?;
                     self.stack.truncate(minus2);
                     if cmp {
                         jump_to_pos!(self, pos);
@@ -624,22 +447,22 @@ impl Machine {
                 Instruction::Lt => {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
-                    self.stack.push(cmp_lt(&a, &b)?.into());
+                    self.stack.push(a.lt(&b)?.into());
                 }
                 Instruction::LtEq => {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
-                    self.stack.push(cmp_le(&a, &b)?.into());
+                    self.stack.push(a.le(&b)?.into());
                 }
                 Instruction::Gt => {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
-                    self.stack.push(cmp_gt(&a, &b)?.into());
+                    self.stack.push(a.gt(&b)?.into());
                 }
                 Instruction::GtEq => {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
-                    self.stack.push(cmp_ge(&a, &b)?.into());
+                    self.stack.push(a.ge(&b)?.into());
                 }
                 Instruction::StorePop(obj) => {
                     let a = self.stack.pop().unwrap();

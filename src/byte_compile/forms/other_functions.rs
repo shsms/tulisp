@@ -1,8 +1,8 @@
 use crate::{
     byte_compile::Compiler,
+    bytecode::{Instruction, Pos},
     destruct_bind,
     parse::mark_tail_calls,
-    vm::{Instruction, Pos},
     Error, ErrorKind, TulispObject,
 };
 

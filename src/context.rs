@@ -3,11 +3,12 @@ use std::{collections::HashMap, fs};
 use crate::{
     builtin,
     byte_compile::Compiler,
+    bytecode,
     error::Error,
     eval::{eval, eval_and_then, eval_basic, funcall, DummyEval},
     list,
     parse::parse,
-    vm, TulispObject,
+    TulispObject,
 };
 
 #[derive(Debug, Default, Clone)]
@@ -197,7 +198,7 @@ impl TulispContext {
     pub fn vm_eval_string(&mut self, string: &str) -> Result<TulispObject, Error> {
         let vv = parse(self, 0, string)?;
         let bytecode = Compiler::new(self).compile(&vv)?;
-        vm::Machine::new(bytecode).run(self)
+        bytecode::Machine::new(bytecode).run(self)
     }
 
     pub fn vm_eval_file(&mut self, filename: &str) -> Result<TulispObject, Error> {
@@ -210,10 +211,17 @@ impl TulispContext {
         self.filenames.push(filename.to_owned());
 
         let string: &str = &contents;
+        let start = std::time::Instant::now();
         let vv = parse(self, self.filenames.len() - 1, string)?;
+        println!("Parsing took: {:?}", start.elapsed());
+        let start = std::time::Instant::now();
         let bytecode = Compiler::new(self).compile(&vv)?;
+        println!("Compiling took: {:?}", start.elapsed());
         bytecode.print();
-        vm::Machine::new(bytecode).run(self)
+        let start = std::time::Instant::now();
+        let ret = bytecode::Machine::new(bytecode).run(self);
+        println!("Running took: {:?}", start.elapsed());
+        ret
     }
 
     pub(crate) fn get_filename(&self, file_id: usize) -> String {
