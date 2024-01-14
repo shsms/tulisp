@@ -48,6 +48,7 @@ impl VMFunctions {
             ("/", arithmetic_operations::compile_fn_div),
             // other functions
             ("print", other_functions::compile_fn_print),
+            ("quote", other_functions::compile_fn_quote),
             ("setq", other_functions::compile_fn_setq),
             ("defun", other_functions::compile_fn_defun),
             ("progn", other_functions::compile_fn_progn),

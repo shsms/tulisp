@@ -21,6 +21,20 @@ pub(super) fn compile_fn_print(
     })
 }
 
+pub(super) fn compile_fn_quote(
+    compiler: &mut Compiler<'_>,
+    name: &TulispObject,
+    args: &TulispObject,
+) -> Result<Vec<Instruction>, Error> {
+    compiler.compile_1_arg_call(name, args, false, |compiler, arg, _| {
+        if compiler.keep_result {
+            return Ok(vec![Instruction::Push(arg.clone().into())]);
+        } else {
+            return Ok(vec![]);
+        }
+    })
+}
+
 pub(super) fn compile_fn_setq(
     compiler: &mut Compiler<'_>,
     name: &TulispObject,
