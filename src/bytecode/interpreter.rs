@@ -385,6 +385,11 @@ impl Machine {
                         })
                     })
                 }
+                // predicates
+                Instruction::Null => {
+                    let a = self.stack.last().unwrap().null();
+                    *self.stack.last_mut().unwrap() = a.into();
+                }
             }
             self.pc += 1;
         }

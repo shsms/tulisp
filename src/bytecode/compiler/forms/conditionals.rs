@@ -98,3 +98,17 @@ pub(super) fn compile_fn_while(
         Ok(result)
     })
 }
+
+pub(super) fn compile_fn_not(
+    compiler: &mut Compiler<'_>,
+    _name: &TulispObject,
+    args: &TulispObject,
+) -> Result<Vec<Instruction>, Error> {
+    compiler.compile_1_arg_call(_name, args, false, |compiler, arg, _| {
+        let mut result = compiler.compile_expr(arg)?;
+        if compiler.keep_result {
+            result.push(Instruction::Null);
+        }
+        Ok(result)
+    })
+}

@@ -85,6 +85,8 @@ pub(crate) enum Instruction {
     LtEq,
     Gt,
     GtEq,
+    // predicates
+    Null,
     // control flow
     JumpIfNil(Pos),
     JumpIfNilElsePop(Pos),
@@ -127,6 +129,7 @@ impl std::fmt::Display for Instruction {
             },
             Instruction::PrintPop => write!(f, "    print_pop"),
             Instruction::Print => write!(f, "    print"),
+            Instruction::Null => write!(f, "    null"),
             Instruction::JumpIfNil(pos) => write!(f, "    jnil {}", pos),
             Instruction::JumpIfNilElsePop(pos) => write!(f, "    jnil_else_pop {}", pos),
             Instruction::JumpIfNeq(pos) => write!(f, "    jne {}", pos),
