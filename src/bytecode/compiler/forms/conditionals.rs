@@ -112,3 +112,32 @@ pub(super) fn compile_fn_not(
         Ok(result)
     })
 }
+
+pub(super) fn compile_fn_and(
+    compiler: &mut Compiler<'_>,
+    _name: &TulispObject,
+    args: &TulispObject,
+) -> Result<Vec<Instruction>, Error> {
+    let mut result = vec![];
+    let label = TulispObject::symbol("end-and".to_string(), false);
+    let mut need_label = false;
+    for item in args.base_iter() {
+        let expr_result = &mut compiler.compile_expr(&item)?;
+        if !expr_result.is_empty() {
+            result.append(expr_result);
+            if compiler.keep_result {
+                result.push(Instruction::JumpIfNilElsePop(Pos::Label(label.clone())));
+            } else {
+                result.push(Instruction::JumpIfNil(Pos::Label(label.clone())));
+            }
+            need_label = true;
+        }
+    }
+    if need_label {
+        if compiler.keep_result {
+            result.push(Instruction::Push(true.into()))
+        }
+        result.push(Instruction::Label(label.into()));
+    }
+    Ok(result)
+}
