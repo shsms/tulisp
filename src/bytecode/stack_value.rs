@@ -136,7 +136,9 @@ impl std::fmt::Display for VMStackValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             VMStackValue::TulispObject(obj) => write!(f, "{}", obj),
-            VMStackValue::Bool(b) => write!(f, "{}", b),
+            VMStackValue::Bool(b) => {
+                write!(f, "{}", if *b { TulispValue::T } else { TulispValue::Nil })
+            }
             VMStackValue::Float(fl) => write!(f, "{}", fl),
             VMStackValue::Int(i) => write!(f, "{}", i),
         }
