@@ -714,9 +714,6 @@ fn test_math() -> Result<(), Error> {
     tulisp_assert! { program: "(min 12 5 45)",             result: "5"     }
     tulisp_assert! { program: "(max 12 5 45.2 8)",         result: "45.2"  }
 
-    tulisp_assert! { program: "(fround 3.14)",             result: "3.0"   }
-    tulisp_assert! { program: "(fround 3.5)",              result: "4.0"   }
-
     tulisp_assert! { program: "(< 8 32)",      result: "t"   }
     tulisp_assert! { program: "(< 80 32)",     result: "nil" }
     tulisp_assert! { program: "(<= 32 32)",    result: "t"   }
@@ -731,6 +728,32 @@ fn test_math() -> Result<(), Error> {
     tulisp_assert! { program: "(equal 8 4)",   result: "nil" }
     tulisp_assert! { program: "(equal 8.0 8)", result: "t"   }
     tulisp_assert! { program: "(equal 8.0 4)", result: "nil" }
+    Ok(())
+}
+
+#[test]
+fn test_rounding_operations() -> Result<(), Error> {
+    tulisp_assert! { program: "(fround 3.14)",             result: "3.0"   }
+    tulisp_assert! { program: "(fround 3.5)",              result: "4.0"   }
+
+    tulisp_assert! { program: "(ftruncate 3.14)",          result: "3.0"   }
+    tulisp_assert! { program: "(ftruncate 3.8)",           result: "3.0"   }
+    tulisp_assert! { program: "(ftruncate -3.8)",          result: "-3.0"  }
+    tulisp_assert! { program: "(ftruncate -3.14)",         result: "-3.0"  }
+
+    tulisp_assert! {
+        program: "(fround)",
+        error: r#"ERR MissingArgument: fround: expected 1 argument.
+<eval_string>:1.1-1.9:  at (fround)
+"#,
+    }
+    tulisp_assert! {
+        program: "(fround 3.14 3.14)",
+        error: r#"ERR MissingArgument: fround: expected only 1 argument.
+<eval_string>:1.1-1.19:  at (fround 3.14 3.14)
+"#,
+    }
+
     Ok(())
 }
 
