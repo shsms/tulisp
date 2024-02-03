@@ -135,7 +135,7 @@ pub(super) fn compile_fn_and(
     }
     if need_label {
         if compiler.keep_result {
-            result.push(Instruction::Push(true.into()))
+            result.pop();
         }
         result.push(Instruction::Label(label.into()));
     }
