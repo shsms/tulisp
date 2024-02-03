@@ -53,6 +53,7 @@ macro_rules! intern_set_func {
     };
 }
 
+pub(crate) mod common;
 mod conditionals;
 mod equality_predicates;
 mod functions;
