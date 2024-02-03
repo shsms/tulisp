@@ -1,4 +1,5 @@
 use crate::{
+    builtin::functions::common::eval_2_arg_special_form,
     eval::{eval_and_then, eval_basic},
     list,
     lists::{last, length},
@@ -9,11 +10,13 @@ use tulisp_proc_macros::{crate_fn, crate_fn_no_eval};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
     fn impl_if(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
-        if args.car_and_then(|x| eval_and_then(ctx, x, |x| Ok(x.is_truthy())))? {
-            args.cadr_and_then(|x| ctx.eval(x))
-        } else {
-            args.cddr_and_then(|x| ctx.eval_progn(x))
-        }
+        eval_2_arg_special_form(ctx, "if", args, true, |ctx, cond, then, else_body| {
+            if eval_and_then(ctx, cond, |x| Ok(x.is_truthy()))? {
+                ctx.eval(then)
+            } else {
+                ctx.eval_progn(else_body)
+            }
+        })
     }
     intern_set_func!(ctx, impl_if, "if");
 
