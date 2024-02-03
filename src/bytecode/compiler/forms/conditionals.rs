@@ -141,3 +141,32 @@ pub(super) fn compile_fn_and(
     }
     Ok(result)
 }
+
+pub(super) fn compile_fn_or(
+    compiler: &mut Compiler<'_>,
+    _name: &TulispObject,
+    args: &TulispObject,
+) -> Result<Vec<Instruction>, Error> {
+    let mut result = vec![];
+    let label = TulispObject::symbol("end-or".to_string(), false);
+    let mut need_label = false;
+    for item in args.base_iter() {
+        let expr_result = &mut compiler.compile_expr(&item)?;
+        if !expr_result.is_empty() {
+            result.append(expr_result);
+            if compiler.keep_result {
+                result.push(Instruction::JumpIfNotNilElsePop(Pos::Label(label.clone())));
+            } else {
+                result.push(Instruction::JumpIfNotNil(Pos::Label(label.clone())));
+            }
+            need_label = true;
+        }
+    }
+    if need_label {
+        if compiler.keep_result {
+            result.push(Instruction::Push(false.into()))
+        }
+        result.push(Instruction::Label(label.into()));
+    }
+    Ok(result)
+}

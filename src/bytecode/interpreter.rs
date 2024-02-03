@@ -184,9 +184,27 @@ impl Machine {
                         continue;
                     }
                 }
+                Instruction::JumpIfNotNil(pos) => {
+                    let a = self.stack.last().unwrap();
+                    let cmp = !a.null();
+                    self.stack.truncate(self.stack.len() - 1);
+                    if cmp {
+                        jump_to_pos!(self, pos);
+                        continue;
+                    }
+                }
                 Instruction::JumpIfNilElsePop(pos) => {
                     let a = self.stack.last().unwrap();
                     if a.null() {
+                        jump_to_pos!(self, pos);
+                        continue;
+                    } else {
+                        self.stack.truncate(self.stack.len() - 1);
+                    }
+                }
+                Instruction::JumpIfNotNilElsePop(pos) => {
+                    let a = self.stack.last().unwrap();
+                    if !a.null() {
                         jump_to_pos!(self, pos);
                         continue;
                     } else {
