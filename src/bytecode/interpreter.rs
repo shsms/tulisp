@@ -1,12 +1,49 @@
 use super::Instruction;
-use crate::{
-    bytecode::{Pos, VMStackValue},
-    Error, TulispContext, TulispObject,
-};
+use crate::{bytecode::Pos, Error, TulispContext, TulispObject};
 use std::collections::HashMap;
 
 pub(crate) struct Bytecode {
     instructions: Vec<Instruction>,
+}
+
+macro_rules! binary_ops {
+    ($oper:expr) => {{
+        |selfobj: &TulispObject, other: &TulispObject| -> Result<TulispObject, Error> {
+            if selfobj.floatp() {
+                let s: f64 = selfobj.as_float().unwrap();
+                let o: f64 = other.try_into()?;
+                Ok($oper(&s, &o).into())
+            } else if other.floatp() {
+                let o: f64 = other.as_float().unwrap();
+                let s: f64 = selfobj.try_into()?;
+                Ok($oper(&s, &o).into())
+            } else {
+                let s: i64 = selfobj.try_into()?;
+                let o: i64 = other.try_into()?;
+                Ok($oper(&s, &o).into())
+            }
+        }
+    }};
+}
+
+macro_rules! compare_ops {
+    ($oper:expr) => {{
+        |selfobj: &TulispObject, other: &TulispObject| -> Result<bool, Error> {
+            if selfobj.floatp() {
+                let s: f64 = selfobj.as_float().unwrap();
+                let o: f64 = other.try_into()?;
+                Ok($oper(&s, &o))
+            } else if other.floatp() {
+                let o: f64 = other.as_float().unwrap();
+                let s: f64 = selfobj.try_into()?;
+                Ok($oper(&s, &o))
+            } else {
+                let s: i64 = selfobj.try_into()?;
+                let o: i64 = other.try_into()?;
+                Ok($oper(&s, &o))
+            }
+        }
+    }};
 }
 
 impl Bytecode {
@@ -24,7 +61,7 @@ impl Bytecode {
 }
 
 pub struct Machine {
-    stack: Vec<VMStackValue>,
+    stack: Vec<TulispObject>,
     bytecode: Bytecode,
     labels: HashMap<usize, usize>, // TulispObject.addr -> instruction index
     pc: usize,
@@ -106,10 +143,10 @@ impl Machine {
                     let vv = {
                         use crate::bytecode::instruction::BinaryOp::*;
                         match op {
-                            Add => a.add(b)?,
-                            Sub => a.sub(b)?,
-                            Mul => a.mul(b)?,
-                            Div => a.div(b)?,
+                            Add => binary_ops!(|a, b| a + b)(a, b)?,
+                            Sub => binary_ops!(|a, b| a - b)(a, b)?,
+                            Mul => binary_ops!(|a, b| a * b)(a, b)?,
+                            Div => binary_ops!(|a, b| a / b)(a, b)?,
                         }
                     };
                     self.stack.truncate(self.stack.len() - 2);
@@ -176,7 +213,7 @@ impl Machine {
                     let [ref b, ref a] = self.stack[minus2..] else {
                         unreachable!()
                     };
-                    let cmp = a.lt(b)?;
+                    let cmp = compare_ops!(|a, b| a < b)(a, b)?;
                     self.stack.truncate(minus2);
                     if cmp {
                         jump_to_pos!(self, pos);
@@ -188,7 +225,7 @@ impl Machine {
                     let [ref b, ref a] = self.stack[minus2..] else {
                         unreachable!()
                     };
-                    let cmp = a.le(b)?;
+                    let cmp = compare_ops!(|a, b| a <= b)(a, b)?;
                     self.stack.truncate(minus2);
                     if cmp {
                         jump_to_pos!(self, pos);
@@ -200,7 +237,7 @@ impl Machine {
                     let [ref b, ref a] = self.stack[minus2..] else {
                         unreachable!()
                     };
-                    let cmp = a.gt(b)?;
+                    let cmp = compare_ops!(|a, b| a > b)(a, b)?;
                     self.stack.truncate(minus2);
                     if cmp {
                         jump_to_pos!(self, pos);
@@ -212,7 +249,7 @@ impl Machine {
                     let [ref b, ref a] = self.stack[minus2..] else {
                         unreachable!()
                     };
-                    let cmp = a.ge(b)?;
+                    let cmp = compare_ops!(|a, b| a >= b)(a, b)?;
                     self.stack.truncate(minus2);
                     if cmp {
                         jump_to_pos!(self, pos);
@@ -236,22 +273,22 @@ impl Machine {
                 Instruction::Lt => {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
-                    self.stack.push(a.lt(&b)?.into());
+                    self.stack.push(compare_ops!(|a, b| a < b)(&a, &b)?.into());
                 }
                 Instruction::LtEq => {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
-                    self.stack.push(a.le(&b)?.into());
+                    self.stack.push(compare_ops!(|a, b| a <= b)(&a, &b)?.into());
                 }
                 Instruction::Gt => {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
-                    self.stack.push(a.gt(&b)?.into());
+                    self.stack.push(compare_ops!(|a, b| a > b)(&a, &b)?.into());
                 }
                 Instruction::GtEq => {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
-                    self.stack.push(a.ge(&b)?.into());
+                    self.stack.push(compare_ops!(|a, b| a >= b)(&a, &b)?.into());
                 }
                 Instruction::StorePop(obj) => {
                     let a = self.stack.pop().unwrap();
@@ -281,10 +318,7 @@ impl Machine {
                 }
                 Instruction::Ret => return Ok(()),
                 Instruction::RustCall { func } => {
-                    let args = match self.stack.pop().unwrap() {
-                        VMStackValue::TulispObject(obj) => obj,
-                        e => panic!("Expected TulispObject as arg to rustcall. got {}", e),
-                    };
+                    let args = self.stack.pop().unwrap();
                     self.stack.push(func(ctx, &args)?.into());
                 }
                 Instruction::Label(_) => {}
@@ -306,7 +340,7 @@ impl Machine {
                     let list = TulispObject::nil();
 
                     for elt in self.stack.drain(self.stack.len() - *len..) {
-                        list.append(<VMStackValue as Into<TulispObject>>::into(elt).deep_copy()?)?;
+                        list.append(elt.deep_copy().unwrap())?;
                     }
                     self.stack.push(list.into());
                 }
@@ -315,7 +349,7 @@ impl Machine {
 
                     self.stack.push({
                         use crate::bytecode::instruction::Cxr::*;
-                        VMStackValue::from(match cxr {
+                        match cxr {
                             Car => a.car().unwrap(),
                             Cdr => a.cdr().unwrap(),
                             Caar => a.caar().unwrap(),
@@ -346,7 +380,7 @@ impl Machine {
                             Cddadr => a.cddadr().unwrap(),
                             Cdddar => a.cdddar().unwrap(),
                             Cddddr => a.cddddr().unwrap(),
-                        })
+                        }
                     })
                 }
                 // predicates

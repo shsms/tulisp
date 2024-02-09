@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::{bytecode::VMStackValue, value::TulispFn, TulispObject};
+use crate::{value::TulispFn, TulispObject};
 
 #[derive(Clone)]
 pub(crate) enum Pos {
@@ -65,7 +65,7 @@ pub(crate) enum BinaryOp {
 #[derive(Clone)]
 pub(crate) enum Instruction {
     // stack
-    Push(VMStackValue),
+    Push(TulispObject),
     Pop,
     // variables
     StorePop(TulispObject),
