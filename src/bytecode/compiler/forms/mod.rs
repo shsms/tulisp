@@ -96,9 +96,6 @@ impl VMFunctions {
             ("and", conditionals::compile_fn_and),
             ("or", conditionals::compile_fn_or),
             ("not", conditionals::compile_fn_not),
-            // noop
-            ("defmacro", other_functions::compile_fn_noop),
-            ("macroexpand", other_functions::compile_fn_noop),
         }
         VMFunctions { functions }
     }
@@ -112,12 +109,22 @@ impl Compiler<'_> {
         let name = cons.car();
         let args = cons.cdr();
         if let Some(compiler) = self.functions.functions.get(&name.addr_as_usize()) {
-            compiler(self, &name, &args)
-        } else {
-            Err(Error::new(
-                ErrorKind::Undefined,
-                format!("undefined function: {}", name),
-            ))
+            return compiler(self, &name, &args);
         }
+        if let Ok(func) = self.ctx.eval(&name) {
+            match &*func.inner_ref() {
+                crate::value::TulispValue::Func(func) => {
+                    return Ok(vec![
+                        Instruction::Push(args.clone().into()),
+                        Instruction::RustCall { func: func.clone() },
+                    ]);
+                }
+                _ => {}
+            }
+        }
+        Err(Error::new(
+            ErrorKind::Undefined,
+            format!("undefined function: {}", name),
+        ))
     }
 }

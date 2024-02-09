@@ -252,11 +252,3 @@ pub(super) fn compile_fn_progn(
 ) -> Result<Vec<Instruction>, Error> {
     Ok(compiler.compile_progn(args)?)
 }
-
-pub(crate) fn compile_fn_noop(
-    _compiler: &mut Compiler<'_>,
-    _name: &TulispObject,
-    _args: &TulispObject,
-) -> Result<Vec<Instruction>, Error> {
-    Ok(vec![])
-}
