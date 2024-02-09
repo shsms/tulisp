@@ -1,3 +1,5 @@
+use std::{cell::RefCell, rc::Rc};
+
 use crate::{
     bytecode::{Compiler, Instruction, Pos},
     destruct_bind,
@@ -178,7 +180,10 @@ pub(super) fn compile_fn_defun(
     let Some(Instruction::Call(addr)) = res.pop() else {
         unreachable!()
     };
-    compiler.bytecode.functions.insert(addr, res.into());
+    compiler
+        .bytecode
+        .functions
+        .insert(addr, Rc::new(RefCell::new(res)));
     Ok(vec![])
 }
 

@@ -100,10 +100,7 @@ pub(crate) enum Instruction {
     Jump(Pos),
     // functions
     Label(TulispObject),
-    #[allow(dead_code)]
-    RustCall {
-        func: Rc<TulispFn>,
-    },
+    RustCall { func: Rc<TulispFn> },
     Call(usize),
     Ret,
     // lists

@@ -55,12 +55,12 @@ macro_rules! jump_to_pos {
                 Pos::Abs(p) => *p,
                 Pos::Rel(p) => {
                     let abs_pos = ($pc as isize + *p + 1) as usize;
-                    // *$pos = Pos::Abs(abs_pos);
+                    *$pos = Pos::Abs(abs_pos);
                     abs_pos
                 }
                 Pos::Label(p) => {
                     let abs_pos = *$self.labels.get(&p.addr_as_usize()).unwrap();
-                    // *$pos = Pos::Abs(abs_pos); // TODO: uncomment
+                    *$pos = Pos::Abs(abs_pos); // TODO: uncomment
                     abs_pos
                 }
             }
@@ -83,13 +83,13 @@ impl Machine {
     fn locate_labels(bytecode: &Bytecode) -> HashMap<usize, usize> {
         // TODO: intern-soft and make sure that the labels are unique
         let mut labels = HashMap::new();
-        for (i, instr) in bytecode.global.iter().enumerate() {
+        for (i, instr) in bytecode.global.borrow().iter().enumerate() {
             if let Instruction::Label(name) = instr {
                 labels.insert(name.addr_as_usize(), i + 1);
             }
         }
         for (_, instr) in &bytecode.functions {
-            for (i, instr) in instr.iter().enumerate() {
+            for (i, instr) in instr.borrow().iter().enumerate() {
                 if let Instruction::Label(name) = instr {
                     labels.insert(name.addr_as_usize(), i + 1);
                 }
@@ -109,9 +109,9 @@ impl Machine {
             recursion_depth,
             pc,
             if let Some(func) = func {
-                self.bytecode.functions.get(&func).unwrap()[pc].clone()
+                self.bytecode.functions.get(&func).unwrap().borrow()[pc].clone()
             } else {
-                self.bytecode.global[pc].clone()
+                self.bytecode.global.borrow()[pc].clone()
             }
         );
     }
@@ -133,10 +133,11 @@ impl Machine {
         } else {
             self.bytecode.global.clone()
         };
-        let program_size = program.len();
+        let program_size = program.borrow().len();
+        let mut instr_ref = program.borrow_mut();
         while pc < program_size {
             // self.print_stack(func, pc, recursion_depth);
-            let instr = &program[pc];
+            let instr = &mut instr_ref[pc];
             match instr {
                 Instruction::Push(obj) => self.stack.push(obj.clone()),
                 Instruction::Pop => {
@@ -319,7 +320,9 @@ impl Machine {
                 }
                 Instruction::Call(func) => {
                     let func = Some(*func);
+                    drop(instr_ref);
                     self.run_impl(ctx, func, recursion_depth + 1)?;
+                    instr_ref = program.borrow_mut();
                 }
                 Instruction::Ret => return Ok(()),
                 Instruction::RustCall { func } => {

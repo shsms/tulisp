@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use crate::{
     bytecode::{Bytecode, Instruction},
@@ -31,7 +31,7 @@ impl<'a> Compiler<'a> {
     }
 
     pub fn compile(mut self, value: &TulispObject) -> Result<Bytecode, Error> {
-        self.bytecode.global = self.compile_progn(value)?.into();
+        self.bytecode.global = Rc::new(RefCell::new(self.compile_progn(value)?));
         Ok(self.bytecode)
     }
 
