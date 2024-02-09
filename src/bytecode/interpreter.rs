@@ -73,7 +73,7 @@ impl Machine {
     pub(crate) fn new(bytecode: Bytecode) -> Self {
         Machine {
             stack: Vec::new(),
-            labels: Self::locate_labels(&bytecode.instructions),
+            labels: Self::locate_labels(&bytecode.global),
             bytecode,
             // program: programs::print_range(92, 100),
             // program: programs::fib(30),
@@ -99,7 +99,7 @@ impl Machine {
         }
         println!(
             "\nDepth: {}: PC: {}; Executing: {}",
-            recursion_depth, self.pc, self.bytecode.instructions[self.pc]
+            recursion_depth, self.pc, self.bytecode.global[self.pc]
         );
     }
 
@@ -109,9 +109,9 @@ impl Machine {
     }
 
     fn run_impl(&mut self, ctx: &mut TulispContext, recursion_depth: u32) -> Result<(), Error> {
-        while self.pc < self.bytecode.instructions.len() {
+        while self.pc < self.bytecode.global.len() {
             // self.print_stack(recursion_depth);
-            let instr = &mut self.bytecode.instructions[self.pc];
+            let instr = &mut self.bytecode.global[self.pc];
             match instr {
                 Instruction::Push(obj) => self.stack.push(obj.clone()),
                 Instruction::Pop => {
