@@ -1,4 +1,4 @@
-use super::{bytecode::Bytecode, Instruction};
+use super::{bytecode::Bytecode, Compiler, Instruction};
 use crate::{bytecode::Pos, Error, TulispContext, TulispObject};
 use std::collections::HashMap;
 
@@ -159,6 +159,22 @@ impl Machine {
                     };
                     self.stack.truncate(self.stack.len() - 2);
                     self.stack.push(vv);
+                }
+                Instruction::LoadFile => {
+                    let filename = self.stack.pop().unwrap();
+                    let filename = filename
+                        .as_string()
+                        .map_err(|err| err.with_trace(filename))?;
+                    let ast = ctx.parse_file(&filename)?;
+                    let bytecode = Compiler::new(ctx).compile(&ast)?;
+                    // TODO: support global code in modules
+                    if bytecode.global.borrow().len() > 0 {
+                        return Err(Error::new(
+                            crate::ErrorKind::Undefined,
+                            "Cannot load a file with global code".to_string(),
+                        ));
+                    }
+                    self.bytecode.import_functions(&bytecode);
                 }
                 Instruction::PrintPop => {
                     let a = self.stack.pop().unwrap();

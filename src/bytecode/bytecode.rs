@@ -26,4 +26,10 @@ impl Bytecode {
             }
         }
     }
+
+    pub(crate) fn import_functions(&mut self, other: &Bytecode) {
+        for (name, instr) in &other.functions {
+            self.functions.insert(*name, instr.clone());
+        }
+    }
 }

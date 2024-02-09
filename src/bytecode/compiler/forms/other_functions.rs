@@ -257,3 +257,15 @@ pub(super) fn compile_fn_progn(
 ) -> Result<Vec<Instruction>, Error> {
     Ok(compiler.compile_progn(args)?)
 }
+
+pub(super) fn compile_fn_load_file(
+    compiler: &mut Compiler<'_>,
+    _name: &TulispObject,
+    args: &TulispObject,
+) -> Result<Vec<Instruction>, Error> {
+    compiler.compile_1_arg_call(_name, args, true, |compiler, arg, _| {
+        let mut result = compiler.compile_expr_keep_result(&arg)?;
+        result.push(Instruction::LoadFile);
+        Ok(result)
+    })
+}

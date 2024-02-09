@@ -76,6 +76,7 @@ pub(crate) enum Instruction {
     // arithmetic
     BinaryOp(BinaryOp),
     // io
+    LoadFile,
     PrintPop,
     Print,
     // comparison
@@ -126,6 +127,7 @@ impl std::fmt::Display for Instruction {
                 BinaryOp::Mul => write!(f, "    mul"),
                 BinaryOp::Div => write!(f, "    div"),
             },
+            Instruction::LoadFile => write!(f, "    load_file"),
             Instruction::PrintPop => write!(f, "    print_pop"),
             Instruction::Print => write!(f, "    print"),
             Instruction::Null => write!(f, "    null"),

@@ -201,17 +201,8 @@ impl TulispContext {
     }
 
     pub fn vm_eval_file(&mut self, filename: &str) -> Result<TulispObject, Error> {
-        let contents = fs::read_to_string(filename).map_err(|e| {
-            Error::new(
-                crate::ErrorKind::Undefined,
-                format!("Unable to read file: {filename}. Error: {e}"),
-            )
-        })?;
-        self.filenames.push(filename.to_owned());
-
-        let string: &str = &contents;
         let start = std::time::Instant::now();
-        let vv = parse(self, self.filenames.len() - 1, string)?;
+        let vv = self.parse_file(filename)?;
         println!("Parsing took: {:?}", start.elapsed());
         let start = std::time::Instant::now();
         let bytecode = Compiler::new(self).compile(&vv)?;
@@ -225,5 +216,18 @@ impl TulispContext {
 
     pub(crate) fn get_filename(&self, file_id: usize) -> String {
         self.filenames[file_id].clone()
+    }
+
+    pub(crate) fn parse_file(&mut self, filename: &str) -> Result<TulispObject, Error> {
+        let contents = fs::read_to_string(filename).map_err(|e| {
+            Error::new(
+                crate::ErrorKind::Undefined,
+                format!("Unable to read file: {filename}. Error: {e}"),
+            )
+        })?;
+        self.filenames.push(filename.to_owned());
+
+        let string: &str = &contents;
+        parse(self, self.filenames.len() - 1, string)
     }
 }
