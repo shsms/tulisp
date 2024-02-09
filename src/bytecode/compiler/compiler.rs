@@ -13,6 +13,7 @@ pub(crate) struct Compiler<'a> {
     pub functions: VMFunctions,
     pub defun_args: HashMap<usize, Vec<TulispObject>>, // fn_name.addr_as_usize() -> arg symbol idx
     pub symbol_to_binding_idx: HashMap<usize, Vec<usize>>,
+    pub bytecode: Bytecode,
     pub keep_result: bool,
 }
 
@@ -24,12 +25,14 @@ impl<'a> Compiler<'a> {
             functions,
             defun_args: HashMap::new(),
             symbol_to_binding_idx: HashMap::new(),
+            bytecode: Bytecode::new(),
             keep_result: true,
         }
     }
 
     pub fn compile(mut self, value: &TulispObject) -> Result<Bytecode, Error> {
-        Ok(Bytecode::new(self.compile_progn(value)?))
+        self.bytecode.global = self.compile_progn(value)?.into();
+        Ok(self.bytecode)
     }
 
     pub fn compile_progn(&mut self, value: &TulispObject) -> Result<Vec<Instruction>, Error> {

@@ -104,7 +104,7 @@ pub(crate) enum Instruction {
     RustCall {
         func: Rc<TulispFn>,
     },
-    Call(Pos),
+    Call(usize),
     Ret,
     // lists
     Cons,

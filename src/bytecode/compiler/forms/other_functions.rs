@@ -134,7 +134,7 @@ pub(super) fn compile_fn_defun_call(
     for param in params {
         result.push(Instruction::BeginScope(param.clone()))
     }
-    result.push(Instruction::Call(Pos::Label(name.clone())));
+    result.push(Instruction::Call(name.addr_as_usize()));
     for param in params {
         result.push(Instruction::EndScope(param.clone()));
     }
@@ -149,7 +149,7 @@ pub(super) fn compile_fn_defun(
     name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    compiler.compile_2_arg_call(name, args, true, |ctx, name, args, body| {
+    let mut res = compiler.compile_2_arg_call(name, args, true, |ctx, name, args, body| {
         ctx.functions
             .functions
             .insert(name.addr_as_usize(), compile_fn_defun_call);
@@ -170,16 +170,16 @@ pub(super) fn compile_fn_defun(
             println!("mark_tail_calls error: {:?}", e);
             e
         })?;
-        let mut body = ctx.compile_progn_keep_result(&body)?;
-
-        let mut result = vec![
-            Instruction::Jump(Pos::Rel(body.len() as isize + 2)),
-            Instruction::Label(name.clone()),
-        ];
-        result.append(&mut body);
+        let mut result = ctx.compile_progn_keep_result(&body)?;
         result.push(Instruction::Ret);
+        result.push(Instruction::Call(name.addr_as_usize()));
         Ok(result)
-    })
+    })?;
+    let Some(Instruction::Call(addr)) = res.pop() else {
+        unreachable!()
+    };
+    compiler.bytecode.functions.insert(addr, res.into());
+    Ok(vec![])
 }
 
 pub(super) fn compile_fn_let_star(
