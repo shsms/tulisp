@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    bytecode::{Bytecode, Instruction, VMBindings},
+    bytecode::{Bytecode, Instruction},
     Error, ErrorKind, TulispContext, TulispObject, TulispValue,
 };
 
@@ -11,8 +11,7 @@ use super::forms::VMFunctions;
 pub(crate) struct Compiler<'a> {
     pub ctx: &'a mut TulispContext,
     pub functions: VMFunctions,
-    pub defun_args: HashMap<usize, Vec<usize>>, // fn_name.addr_as_usize() -> arg symbol idx
-    pub bindings: Vec<VMBindings>,
+    pub defun_args: HashMap<usize, Vec<TulispObject>>, // fn_name.addr_as_usize() -> arg symbol idx
     pub symbol_to_binding_idx: HashMap<usize, Vec<usize>>,
     pub keep_result: bool,
 }
@@ -24,46 +23,13 @@ impl<'a> Compiler<'a> {
             ctx,
             functions,
             defun_args: HashMap::new(),
-            bindings: Vec::new(),
             symbol_to_binding_idx: HashMap::new(),
             keep_result: true,
         }
     }
 
-    pub fn get_symbol_idx(&mut self, symbol: &TulispObject) -> (usize, bool) {
-        let addr = &symbol.addr_as_usize();
-        if let Some(scopes) = self.symbol_to_binding_idx.get(addr) {
-            (*scopes.last().unwrap(), false)
-        } else {
-            self.bindings.push(VMBindings::new(symbol.to_string()));
-            let idx = self.bindings.len() - 1;
-            self.symbol_to_binding_idx.insert(*addr, vec![idx]);
-            (idx, true)
-        }
-    }
-
-    pub fn begin_scope(&mut self, symbol: &TulispObject) -> usize {
-        let addr = &symbol.addr_as_usize();
-        self.bindings.push(VMBindings::new(symbol.to_string()));
-        let idx = self.bindings.len() - 1;
-        if let Some(scopes) = self.symbol_to_binding_idx.get_mut(addr) {
-            scopes.push(idx);
-        } else {
-            self.symbol_to_binding_idx
-                .insert(*addr, vec![self.bindings.len() - 1]);
-        }
-        idx
-    }
-
-    pub fn end_scope(&mut self, symbol: &TulispObject) {
-        let addr = &symbol.addr_as_usize();
-        if let Some(scopes) = self.symbol_to_binding_idx.get_mut(addr) {
-            scopes.pop();
-        }
-    }
-
     pub fn compile(mut self, value: &TulispObject) -> Result<Bytecode, Error> {
-        Ok(Bytecode::new(self.compile_progn(value)?, self.bindings))
+        Ok(Bytecode::new(self.compile_progn(value)?))
     }
 
     pub fn compile_progn(&mut self, value: &TulispObject) -> Result<Vec<Instruction>, Error> {
@@ -138,18 +104,7 @@ impl<'a> Compiler<'a> {
             TulispValue::List { cons, .. } => self
                 .compile_form(cons)
                 .map_err(|e| e.with_trace(expr.clone())),
-            TulispValue::Symbol { .. } => Ok(vec![Instruction::Load({
-                match self.get_symbol_idx(expr) {
-                    (_, true) => {
-                        return Err(Error::new(
-                            crate::ErrorKind::SyntaxError,
-                            format!("Unbound symbol: {}", expr),
-                        )
-                        .with_trace(expr.clone()))
-                    }
-                    (idx, false) => idx,
-                }
-            })]),
+            TulispValue::Symbol { .. } => Ok(vec![Instruction::Load(expr.clone())]),
             TulispValue::Unquote { .. } | TulispValue::Splice { .. } => {
                 return Err(Error::new(
                     crate::ErrorKind::SyntaxError,

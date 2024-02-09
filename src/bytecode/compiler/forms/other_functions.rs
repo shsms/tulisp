@@ -43,9 +43,9 @@ pub(super) fn compile_fn_setq(
     compiler.compile_2_arg_call(name, args, false, |compiler, arg1, arg2, _| {
         let mut result = compiler.compile_expr_keep_result(arg2)?;
         if compiler.keep_result {
-            result.push(Instruction::Store(compiler.get_symbol_idx(arg1).0));
+            result.push(Instruction::Store(arg1.clone()));
         } else {
-            result.push(Instruction::StorePop(compiler.get_symbol_idx(arg1).0));
+            result.push(Instruction::StorePop(arg1.clone()));
         }
         Ok(result)
     })
@@ -115,7 +115,7 @@ fn compile_fn_defun_bounce_call(
     }
     let params = &compiler.defun_args[&name.addr_as_usize()];
     for param in params {
-        result.push(Instruction::StorePop(*param))
+        result.push(Instruction::StorePop(param.clone()))
     }
     result.push(Instruction::Jump(Pos::Label(name.clone())));
     return Ok(result);
@@ -132,11 +132,11 @@ pub(super) fn compile_fn_defun_call(
     }
     let params = &compiler.defun_args[&name.addr_as_usize()];
     for param in params {
-        result.push(Instruction::BeginScope(*param))
+        result.push(Instruction::BeginScope(param.clone()))
     }
     result.push(Instruction::Call(Pos::Label(name.clone())));
     for param in params {
-        result.push(Instruction::EndScope(*param));
+        result.push(Instruction::EndScope(param.clone()));
     }
     if !compiler.keep_result {
         result.push(Instruction::Pop);
@@ -156,7 +156,7 @@ pub(super) fn compile_fn_defun(
         let mut params = vec![];
         let args = args.base_iter().collect::<Vec<_>>();
         for arg in args.iter().rev() {
-            params.push(ctx.begin_scope(&arg));
+            params.push(arg.clone());
         }
 
         ctx.defun_args.insert(name.addr_as_usize(), params);
@@ -171,9 +171,6 @@ pub(super) fn compile_fn_defun(
             e
         })?;
         let mut body = ctx.compile_progn_keep_result(&body)?;
-        for arg in args.iter().rev() {
-            ctx.end_scope(&arg);
-        }
 
         let mut result = vec![
             Instruction::Jump(Pos::Rel(body.len() as isize + 2)),
@@ -196,8 +193,8 @@ pub(super) fn compile_fn_let_star(
         let mut symbols = vec![];
         for varitem in varlist.base_iter() {
             if varitem.symbolp() {
-                let param = ctx.begin_scope(&varitem);
-                params.push(param);
+                let param = varitem.clone();
+                params.push(param.clone());
                 result.append(&mut vec![
                     Instruction::Push(false.into()),
                     Instruction::BeginScope(param),
@@ -221,8 +218,8 @@ pub(super) fn compile_fn_let_star(
                     )
                     .with_trace(varitem));
                 }
-                let param = ctx.begin_scope(&name);
-                params.push(param);
+                let param = name.clone();
+                params.push(param.clone());
                 result.append(
                     &mut ctx
                         .compile_expr_keep_result(&value)

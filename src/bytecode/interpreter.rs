@@ -1,68 +1,17 @@
 use super::Instruction;
 use crate::{
     bytecode::{Pos, VMStackValue},
-    Error, ErrorKind, TulispContext, TulispObject,
+    Error, TulispContext, TulispObject,
 };
 use std::collections::HashMap;
 
-#[derive(Default, Clone)]
-pub(crate) struct VMBindings {
-    #[allow(dead_code)]
-    name: String,
-    items: Vec<VMStackValue>,
-}
-
-impl VMBindings {
-    pub(crate) fn new(name: String) -> Self {
-        Self {
-            name,
-            items: Vec::new(),
-        }
-    }
-
-    pub fn set(&mut self, to_set: VMStackValue) {
-        if self.items.is_empty() {
-            self.items.push(to_set);
-        } else {
-            *self.items.last_mut().unwrap() = to_set;
-        }
-    }
-
-    pub fn set_scope(&mut self, to_set: &VMStackValue) {
-        self.items.push(to_set.to_owned());
-    }
-
-    pub fn unset(&mut self) {
-        self.items.truncate(self.items.len() - 1);
-    }
-
-    #[allow(dead_code)]
-    pub fn boundp(&self) -> bool {
-        !self.items.is_empty()
-    }
-
-    pub fn get(&self) -> Result<VMStackValue, Error> {
-        if self.items.is_empty() {
-            return Err(Error::new(
-                ErrorKind::TypeMismatch,
-                format!("Variable definition is void: {}", self.name),
-            ));
-        }
-        return Ok(self.items.last().unwrap().clone());
-    }
-}
-
 pub(crate) struct Bytecode {
     instructions: Vec<Instruction>,
-    bindings: Vec<VMBindings>,
 }
 
 impl Bytecode {
-    pub(crate) fn new(instructions: Vec<Instruction>, bindings: Vec<VMBindings>) -> Self {
-        Self {
-            instructions,
-            bindings,
-        }
+    pub(crate) fn new(instructions: Vec<Instruction>) -> Self {
+        Self { instructions }
     }
 
     #[allow(dead_code)]
@@ -71,7 +20,6 @@ impl Bytecode {
         for (i, instr) in self.instructions.iter().enumerate() {
             println!("{:<40}   # {}", instr.to_string(), i);
         }
-        println!("Number of bindings: {}", self.bindings.len());
     }
 }
 
@@ -307,25 +255,23 @@ impl Machine {
                 }
                 Instruction::StorePop(obj) => {
                     let a = self.stack.pop().unwrap();
-                    self.bytecode.bindings[*obj].set(a);
+                    obj.set(a.into()).unwrap();
                 }
                 Instruction::Store(obj) => {
                     let a = self.stack.last().unwrap();
-                    self.bytecode.bindings[*obj].set(a.clone());
+                    obj.set(a.clone().into()).unwrap();
                 }
                 Instruction::Load(obj) => {
-                    let a = self.bytecode.bindings[*obj].get().unwrap();
+                    let a = obj.get()?;
                     self.stack.push(a.into());
                 }
                 Instruction::BeginScope(obj) => {
                     let a = self.stack.last().unwrap();
-                    self.bytecode.bindings[*obj].set_scope(a);
+                    obj.set_scope(a.clone().into()).unwrap();
                     self.stack.truncate(self.stack.len() - 1);
                 }
                 Instruction::EndScope(obj) => {
-                    if self.bytecode.bindings[*obj].items.len() > 1 {
-                        self.bytecode.bindings[*obj].unset();
-                    }
+                    obj.unset().unwrap();
                 }
                 Instruction::Call(pos) => {
                     let pc = self.pc;

@@ -68,11 +68,11 @@ pub(crate) enum Instruction {
     Push(VMStackValue),
     Pop,
     // variables
-    StorePop(usize),
-    Store(usize),
-    Load(usize),
-    BeginScope(usize),
-    EndScope(usize),
+    StorePop(TulispObject),
+    Store(TulispObject),
+    Load(TulispObject),
+    BeginScope(TulispObject),
+    EndScope(TulispObject),
     // arithmetic
     BinaryOp(BinaryOp),
     // io
