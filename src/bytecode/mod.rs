@@ -1,8 +1,11 @@
+mod bytecode;
+pub(crate) use bytecode::Bytecode;
+
 pub(crate) mod instruction;
 pub(crate) use instruction::{Instruction, Pos};
 
 mod interpreter;
-pub(crate) use interpreter::{Bytecode, Machine};
+pub(crate) use interpreter::Machine;
 
 mod compiler;
 pub(crate) use compiler::Compiler;

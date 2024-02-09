@@ -1,10 +1,6 @@
-use super::Instruction;
+use super::{bytecode::Bytecode, Instruction};
 use crate::{bytecode::Pos, Error, TulispContext, TulispObject};
 use std::collections::HashMap;
-
-pub(crate) struct Bytecode {
-    instructions: Vec<Instruction>,
-}
 
 macro_rules! binary_ops {
     ($oper:expr) => {{
@@ -44,20 +40,6 @@ macro_rules! compare_ops {
             }
         }
     }};
-}
-
-impl Bytecode {
-    pub(crate) fn new(instructions: Vec<Instruction>) -> Self {
-        Self { instructions }
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn print(&self) {
-        println!("start:");
-        for (i, instr) in self.instructions.iter().enumerate() {
-            println!("{:<40}   # {}", instr.to_string(), i);
-        }
-    }
 }
 
 pub struct Machine {
