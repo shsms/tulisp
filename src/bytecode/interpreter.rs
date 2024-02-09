@@ -162,11 +162,11 @@ impl Machine {
                 }
                 Instruction::PrintPop => {
                     let a = self.stack.pop().unwrap();
-                    println!("{}", a);
+                    println!("{}", a.fmt_string());
                 }
                 Instruction::Print => {
                     let a = self.stack.last().unwrap();
-                    println!("{}", a);
+                    println!("{}", a.fmt_string());
                 }
                 Instruction::JumpIfNil(pos) => {
                     let a = self.stack.last().unwrap();
