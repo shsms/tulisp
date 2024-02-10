@@ -120,7 +120,10 @@ impl Compiler<'_> {
                 crate::value::TulispValue::Func(func) => {
                     return Ok(vec![
                         Instruction::Push(args.clone().into()),
-                        Instruction::RustCall { func: func.clone() },
+                        Instruction::RustCall {
+                            name: name.clone(),
+                            func: func.clone(),
+                        },
                     ]);
                 }
                 _ => {}

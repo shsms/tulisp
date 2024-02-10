@@ -357,8 +357,8 @@ impl Machine {
                 Instruction::EndScope(obj) => {
                     obj.unset().unwrap();
                 }
-                Instruction::Call { addr, args } => {
-                    let addr = *addr;
+                Instruction::Call { name, args } => {
+                    let addr = name.addr_as_usize();
                     let func = Some(addr);
                     if args.is_none() {
                         if let Some(items) = self.bytecode.defun_args.get(&addr) {
@@ -366,9 +366,9 @@ impl Machine {
                         } else {
                             return Err(Error::new(
                                 crate::ErrorKind::Undefined,
-                                // TODO: err name with span instead of addr
-                                format!("undefined function: {}", addr),
-                            ));
+                                format!("undefined function: {}", name),
+                            )
+                            .with_trace(name.clone()));
                         }
                     }
 
@@ -388,7 +388,7 @@ impl Machine {
                     }
                 }
                 Instruction::Ret => return Ok(()),
-                Instruction::RustCall { func } => {
+                Instruction::RustCall { func, .. } => {
                     let args = self.stack.pop().unwrap();
                     self.stack.push(func(ctx, &args)?.into());
                 }

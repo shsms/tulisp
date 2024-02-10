@@ -153,7 +153,7 @@ pub(super) fn compile_fn_defun_call(
     }
     let params = compiler.defun_args.get(&name.addr_as_usize());
     result.push(Instruction::Call {
-        addr: name.addr_as_usize(),
+        name: name.clone(),
         args: params.cloned(),
     });
     if !compiler.keep_result {
