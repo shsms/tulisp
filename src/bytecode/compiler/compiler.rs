@@ -32,6 +32,7 @@ impl<'a> Compiler<'a> {
 
     pub fn compile(mut self, value: &TulispObject) -> Result<Bytecode, Error> {
         self.bytecode.global = Rc::new(RefCell::new(self.compile_progn(value)?));
+        self.bytecode.defun_args = self.defun_args;
         Ok(self.bytecode)
     }
 

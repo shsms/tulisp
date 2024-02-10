@@ -7,4 +7,3 @@
 (let* ((tgt 30)
        (res (fib tgt)))
   (print (format "\n  (fib %d)\n  %d\n" tgt res)))
-

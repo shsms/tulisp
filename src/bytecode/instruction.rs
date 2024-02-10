@@ -101,8 +101,13 @@ pub(crate) enum Instruction {
     Jump(Pos),
     // functions
     Label(TulispObject),
-    RustCall { func: Rc<TulispFn> },
-    Call(usize),
+    RustCall {
+        func: Rc<TulispFn>,
+    },
+    Call {
+        addr: usize,
+        args: Option<Vec<TulispObject>>,
+    },
     Ret,
     // lists
     Cons,
@@ -147,7 +152,7 @@ impl std::fmt::Display for Instruction {
             Instruction::Gt => write!(f, "    cgt"),
             Instruction::GtEq => write!(f, "    cge"),
             Instruction::Jump(pos) => write!(f, "    jmp {}", pos),
-            Instruction::Call(pos) => write!(f, "    call {}", pos),
+            Instruction::Call { addr, .. } => write!(f, "    call {}", addr),
             Instruction::Ret => write!(f, "    ret"),
             Instruction::RustCall { .. } => write!(f, "    rustcall"),
             Instruction::Label(name) => write!(f, "{}:", name),

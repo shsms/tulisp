@@ -334,11 +334,35 @@ impl Machine {
                 Instruction::EndScope(obj) => {
                     obj.unset().unwrap();
                 }
-                Instruction::Call(func) => {
-                    let func = Some(*func);
+                Instruction::Call { addr, args } => {
+                    let addr = *addr;
+                    let func = Some(addr);
+                    if args.is_none() {
+                        if let Some(items) = self.bytecode.defun_args.get(&addr) {
+                            *args = Some(items.clone());
+                        } else {
+                            return Err(Error::new(
+                                crate::ErrorKind::Undefined,
+                                // TODO: err name with span instead of addr
+                                format!("undefined function: {}", addr),
+                            ));
+                        }
+                    }
+
+                    if let Some(args) = args {
+                        for arg in args.iter() {
+                            arg.set_scope(self.stack.pop().unwrap()).unwrap();
+                        }
+                    }
+
                     drop(instr_ref);
                     self.run_impl(ctx, func, recursion_depth + 1)?;
                     instr_ref = program.borrow_mut();
+                    if let Some(args) = self.bytecode.defun_args.get(&addr) {
+                        for arg in args.iter() {
+                            arg.unset().unwrap();
+                        }
+                    }
                 }
                 Instruction::Ret => return Ok(()),
                 Instruction::RustCall { func } => {

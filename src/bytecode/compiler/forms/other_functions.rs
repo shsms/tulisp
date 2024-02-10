@@ -115,6 +115,8 @@ fn compile_fn_defun_bounce_call(
     for arg in args.cdr()?.base_iter() {
         result.append(&mut compiler.compile_expr_keep_result(&arg)?);
     }
+    // TODO: use .get() instead of indexing, to not crash if the function is not
+    // found
     let params = &compiler.defun_args[&name.addr_as_usize()];
     for param in params {
         result.push(Instruction::StorePop(param.clone()))
@@ -132,14 +134,11 @@ pub(super) fn compile_fn_defun_call(
     for arg in args.base_iter() {
         result.append(&mut compiler.compile_expr_keep_result(&arg)?);
     }
-    let params = &compiler.defun_args[&name.addr_as_usize()];
-    for param in params {
-        result.push(Instruction::BeginScope(param.clone()))
-    }
-    result.push(Instruction::Call(name.addr_as_usize()));
-    for param in params {
-        result.push(Instruction::EndScope(param.clone()));
-    }
+    let params = compiler.defun_args.get(&name.addr_as_usize());
+    result.push(Instruction::Call {
+        addr: name.addr_as_usize(),
+        args: params.cloned(),
+    });
     if !compiler.keep_result {
         result.push(Instruction::Pop);
     }
@@ -174,10 +173,16 @@ pub(super) fn compile_fn_defun(
         })?;
         let mut result = ctx.compile_progn_keep_result(&body)?;
         result.push(Instruction::Ret);
-        result.push(Instruction::Call(name.addr_as_usize()));
+
+        // This use of a `List` instruction is a hack to get the address of the
+        // function we just compiled so we can insert it into the
+        // bytecode.functions map. The instruction is discarded as soon as it is
+        // read, and isn't part of the compiler's output.
+        result.push(Instruction::List(name.addr_as_usize()));
+
         Ok(result)
     })?;
-    let Some(Instruction::Call(addr)) = res.pop() else {
+    let Some(Instruction::List(addr)) = res.pop() else {
         unreachable!()
     };
     compiler

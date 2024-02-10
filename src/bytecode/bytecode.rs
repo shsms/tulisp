@@ -1,11 +1,14 @@
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
+use crate::TulispObject;
+
 use super::Instruction;
 
 #[derive(Default)]
 pub(crate) struct Bytecode {
     pub(crate) global: Rc<RefCell<Vec<Instruction>>>,
     pub(crate) functions: HashMap<usize, Rc<RefCell<Vec<Instruction>>>>,
+    pub(crate) defun_args: HashMap<usize, Vec<TulispObject>>, // fn_name.addr_as_usize() -> arg symbol idx
 }
 
 impl Bytecode {
@@ -28,8 +31,7 @@ impl Bytecode {
     }
 
     pub(crate) fn import_functions(&mut self, other: &Bytecode) {
-        for (name, instr) in &other.functions {
-            self.functions.insert(*name, instr.clone());
-        }
+        self.functions.extend(other.functions.clone());
+        self.defun_args.extend(other.defun_args.clone());
     }
 }

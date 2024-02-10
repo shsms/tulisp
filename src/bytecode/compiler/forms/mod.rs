@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{bytecode::Instruction, Error, ErrorKind, TulispContext, TulispObject};
+use crate::{bytecode::Instruction, Error, TulispContext, TulispObject};
 
 use super::Compiler;
 
@@ -123,9 +123,6 @@ impl Compiler<'_> {
                 _ => {}
             }
         }
-        Err(Error::new(
-            ErrorKind::Undefined,
-            format!("undefined function: {}", name),
-        ))
+        other_functions::compile_fn_defun_call(self, &name, &args)
     }
 }
