@@ -136,7 +136,10 @@ impl Machine {
         let program_size = program.borrow().len();
         let mut instr_ref = program.borrow_mut();
         while pc < program_size {
+            // drop(instr_ref);
             // self.print_stack(func, pc, recursion_depth);
+            // instr_ref = program.borrow_mut();
+
             let instr = &mut instr_ref[pc];
             match instr {
                 Instruction::Push(obj) => self.stack.push(obj.clone()),
@@ -174,6 +177,8 @@ impl Machine {
                             "Cannot load a file with global code".to_string(),
                         ));
                     }
+                    // bytecode.print();
+                    self.labels.extend(Self::locate_labels(&bytecode));
                     self.bytecode.import_functions(&bytecode);
                 }
                 Instruction::PrintPop => {

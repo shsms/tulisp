@@ -97,6 +97,8 @@ impl VMFunctions {
             ("and", conditionals::compile_fn_and),
             ("or", conditionals::compile_fn_or),
             ("not", conditionals::compile_fn_not),
+            // noop
+            ("defmacro", other_functions::compile_fn_noop),
         }
         VMFunctions { functions }
     }
