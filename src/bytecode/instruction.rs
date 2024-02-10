@@ -68,6 +68,8 @@ pub(crate) enum Instruction {
     Push(TulispObject),
     Pop,
     // variables
+    Set,
+    SetPop,
     StorePop(TulispObject),
     Store(TulispObject),
     Load(TulispObject),
@@ -121,6 +123,8 @@ impl std::fmt::Display for Instruction {
         match self {
             Instruction::Push(obj) => write!(f, "    push {}", obj),
             Instruction::Pop => write!(f, "    pop"),
+            Instruction::Set => write!(f, "    set"),
+            Instruction::SetPop => write!(f, "    set_pop"),
             Instruction::StorePop(obj) => write!(f, "    store_pop {}", obj),
             Instruction::Store(obj) => write!(f, "    store {}", obj),
             Instruction::Load(obj) => write!(f, "    load {}", obj),

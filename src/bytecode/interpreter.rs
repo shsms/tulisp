@@ -319,6 +319,24 @@ impl Machine {
                     let b = self.stack.pop().unwrap();
                     self.stack.push(compare_ops!(|a, b| a >= b)(&a, &b)?.into());
                 }
+                Instruction::Set => {
+                    let minus2 = self.stack.len() - 2;
+                    let [ref value, ref variable] = self.stack[minus2..] else {
+                        unreachable!()
+                    };
+                    variable.set(value.clone()).unwrap();
+                    // remove just the variable from the stack, keep the value
+                    self.stack.truncate(self.stack.len() - 1);
+                }
+                Instruction::SetPop => {
+                    let minus2 = self.stack.len() - 2;
+                    let [ref value, ref variable] = self.stack[minus2..] else {
+                        unreachable!()
+                    };
+                    variable.set(value.clone()).unwrap();
+                    // remove both variable and value from stack.
+                    self.stack.truncate(minus2);
+                }
                 Instruction::StorePop(obj) => {
                     let a = self.stack.pop().unwrap();
                     obj.set(a.into()).unwrap();
