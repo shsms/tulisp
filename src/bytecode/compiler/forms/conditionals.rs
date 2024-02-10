@@ -57,7 +57,7 @@ pub(super) fn compile_fn_cond(
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
     let mut result = vec![];
-    let cond_end = TulispObject::symbol("cond-end".to_string(), true);
+    let cond_end = compiler.new_label();
 
     for branch in args.base_iter() {
         result.append(
@@ -119,7 +119,7 @@ pub(super) fn compile_fn_and(
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
     let mut result = vec![];
-    let label = TulispObject::symbol("end-and".to_string(), false);
+    let label = compiler.new_label();
     let mut need_label = false;
     for item in args.base_iter() {
         let expr_result = &mut compiler.compile_expr(&item)?;
@@ -148,7 +148,7 @@ pub(super) fn compile_fn_or(
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
     let mut result = vec![];
-    let label = TulispObject::symbol("end-or".to_string(), false);
+    let label = compiler.new_label();
     let mut need_label = false;
     for item in args.base_iter() {
         let expr_result = &mut compiler.compile_expr(&item)?;

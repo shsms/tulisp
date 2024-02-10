@@ -160,7 +160,7 @@ impl std::fmt::Display for Instruction {
             Instruction::Call { name, .. } => write!(f, "    call {}", name),
             Instruction::Ret => write!(f, "    ret"),
             Instruction::RustCall { name, .. } => write!(f, "    rustcall {}", name),
-            Instruction::Label(name) => write!(f, "{}:", name),
+            Instruction::Label(name) => write!(f, "{}", name),
             Instruction::Cons => write!(f, "    cons"),
             Instruction::List(len) => write!(f, "    list {}", len),
             Instruction::Append(len) => write!(f, "    append {}", len),

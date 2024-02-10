@@ -12,7 +12,7 @@ fn compile_fn_compare(
     if !compiler.keep_result {
         return Ok(vec![]);
     }
-    let label = TulispObject::symbol("_".to_string(), false);
+    let label = compiler.new_label();
     let mut result = vec![];
     let args = args.base_iter().collect::<Vec<_>>();
     if args.len() < 2 {

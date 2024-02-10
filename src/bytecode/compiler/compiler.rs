@@ -15,6 +15,7 @@ pub(crate) struct Compiler<'a> {
     pub symbol_to_binding_idx: HashMap<usize, Vec<usize>>,
     pub bytecode: Bytecode,
     pub keep_result: bool,
+    label_counter: usize,
 }
 
 impl<'a> Compiler<'a> {
@@ -27,7 +28,13 @@ impl<'a> Compiler<'a> {
             symbol_to_binding_idx: HashMap::new(),
             bytecode: Bytecode::new(),
             keep_result: true,
+            label_counter: 0,
         }
+    }
+
+    pub fn new_label(&mut self) -> TulispObject {
+        self.label_counter += 1;
+        TulispObject::symbol(format!(":{}", self.label_counter), true)
     }
 
     pub fn compile(mut self, value: &TulispObject) -> Result<Bytecode, Error> {
