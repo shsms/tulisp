@@ -1,4 +1,4 @@
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc};
 
 use crate::TulispObject;
 
@@ -11,23 +11,25 @@ pub(crate) struct Bytecode {
     pub(crate) defun_args: HashMap<usize, Vec<TulispObject>>, // fn_name.addr_as_usize() -> arg symbol idx
 }
 
+impl fmt::Display for Bytecode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "start:\n")?;
+        for (i, instr) in self.global.borrow().iter().enumerate() {
+            write!(f, "{:<40}   # {}\n", instr.to_string(), i)?;
+        }
+        for (name, instr) in &self.functions {
+            write!(f, "\n{}:", name)?;
+            for (i, instr) in instr.borrow().iter().enumerate() {
+                write!(f, "\n{:<40}   # {}", instr.to_string(), i)?;
+            }
+        }
+        Ok(())
+    }
+}
+
 impl Bytecode {
     pub(crate) fn new() -> Self {
         Self::default()
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn print(&self) {
-        println!("start:");
-        for (i, instr) in self.global.borrow().iter().enumerate() {
-            println!("{:<40}   # {}", instr.to_string(), i);
-        }
-        for (name, instr) in &self.functions {
-            println!("\n{}:", name);
-            for (i, instr) in instr.borrow().iter().enumerate() {
-                println!("{:<40}   # {}", instr.to_string(), i);
-            }
-        }
     }
 
     pub(crate) fn import_functions(&mut self, other: &Bytecode) {

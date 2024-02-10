@@ -207,7 +207,7 @@ impl TulispContext {
         let start = std::time::Instant::now();
         let bytecode = Compiler::new(self).compile(&vv)?;
         println!("Compiling took: {:?}", start.elapsed());
-        bytecode.print();
+        println!("{}", bytecode);
         let start = std::time::Instant::now();
         let ret = bytecode::Machine::new(bytecode).run(self);
         println!("Running took: {:?}", start.elapsed());

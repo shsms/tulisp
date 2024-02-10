@@ -177,7 +177,7 @@ impl Machine {
                             "Cannot load a file with global code".to_string(),
                         ));
                     }
-                    // bytecode.print();
+                    // println!("{}", bytecode);
                     self.labels.extend(Self::locate_labels(&bytecode));
                     self.bytecode.import_functions(&bytecode);
                 }
