@@ -115,7 +115,13 @@ impl<'a> Compiler<'a> {
             TulispValue::List { cons, .. } => self
                 .compile_form(cons)
                 .map_err(|e| e.with_trace(expr.clone())),
-            TulispValue::Symbol { .. } => Ok(vec![Instruction::Load(expr.clone())]),
+            TulispValue::Symbol { .. } => {
+                if self.keep_result {
+                    return Ok(vec![Instruction::Load(expr.clone())]);
+                } else {
+                    return Ok(vec![]);
+                }
+            }
             TulispValue::Unquote { .. } | TulispValue::Splice { .. } => {
                 return Err(Error::new(
                     crate::ErrorKind::SyntaxError,

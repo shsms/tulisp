@@ -60,7 +60,7 @@ pub(super) fn compile_fn_set(
 ) -> Result<Vec<Instruction>, Error> {
     compiler.compile_2_arg_call(name, args, false, |compiler, arg1, arg2, _| {
         let mut result = compiler.compile_expr_keep_result(arg2)?;
-        result.append(&mut compiler.compile_expr(arg1)?);
+        result.append(&mut compiler.compile_expr_keep_result(arg1)?);
         if compiler.keep_result {
             result.push(Instruction::Set);
         } else {
