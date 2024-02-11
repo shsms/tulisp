@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{bytecode::Instruction, Error, TulispContext, TulispObject};
+use crate::{bytecode::Instruction, Error, TulispContext, TulispObject, TulispValue};
 
 use super::Compiler;
 
@@ -106,23 +106,34 @@ impl VMFunctions {
 }
 
 impl Compiler<'_> {
-    pub(super) fn compile_form(
-        &mut self,
-        cons: &crate::cons::Cons,
-    ) -> Result<Vec<Instruction>, Error> {
-        let name = cons.car();
-        let args = cons.cdr();
+    pub(super) fn compile_form(&mut self, form: &TulispObject) -> Result<Vec<Instruction>, Error> {
+        let name = form.car()?;
+        let args = form.cdr()?;
         if let Some(compiler) = self.functions.functions.get(&name.addr_as_usize()) {
             return compiler(self, &name, &args);
         }
         if let Ok(func) = self.ctx.eval(&name) {
             match &*func.inner_ref() {
-                crate::value::TulispValue::Func(func) => {
+                TulispValue::Func(func) => {
                     return Ok(vec![
-                        Instruction::Push(args.clone().into()),
+                        Instruction::Push(args.clone()),
                         Instruction::RustCall {
                             name: name.clone(),
                             func: func.clone(),
+                        },
+                    ]);
+                }
+                TulispValue::Defmacro { .. } | TulispValue::Macro(..) => {
+                    let eval = self.ctx.intern("eval");
+                    return Ok(vec![
+                        Instruction::Push(form.clone()),
+                        Instruction::RustCall {
+                            name: eval.clone(),
+                            func: if let TulispValue::Func(func) = &*eval.get()?.inner_ref() {
+                                func.clone()
+                            } else {
+                                unreachable!()
+                            },
                         },
                     ]);
                 }

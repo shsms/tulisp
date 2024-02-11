@@ -112,8 +112,8 @@ impl<'a> Compiler<'a> {
                     return Ok(vec![]);
                 }
             }
-            TulispValue::List { cons, .. } => self
-                .compile_form(cons)
+            TulispValue::List { .. } => self
+                .compile_form(expr)
                 .map_err(|e| e.with_trace(expr.clone())),
             TulispValue::Symbol { .. } => {
                 if !self.keep_result {
