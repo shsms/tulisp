@@ -8,9 +8,6 @@ pub(super) fn compile_fn_plus(
     _name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    if !compiler.keep_result {
-        return Ok(vec![]);
-    }
     let mut result = vec![];
     let args = args.base_iter().collect::<Vec<_>>();
     if args.is_empty() {
@@ -22,8 +19,10 @@ pub(super) fn compile_fn_plus(
     for arg in args.iter().rev() {
         result.append(&mut compiler.compile_expr(arg)?);
     }
-    for _ in 0..args.len() - 1 {
-        result.push(Instruction::BinaryOp(BinaryOp::Add));
+    if compiler.keep_result {
+        for _ in 0..args.len() - 1 {
+            result.push(Instruction::BinaryOp(BinaryOp::Add));
+        }
     }
     Ok(result)
 }
@@ -33,9 +32,6 @@ pub(super) fn compile_fn_minus(
     _name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    if !compiler.keep_result {
-        return Ok(vec![]);
-    }
     let mut result = vec![];
     let args = args.base_iter().collect::<Vec<_>>();
     if args.is_empty() {
@@ -48,12 +44,16 @@ pub(super) fn compile_fn_minus(
         result.append(&mut compiler.compile_expr(arg)?);
     }
     if args.len() == 1 {
-        result.push(Instruction::Push((-1).into()));
-        result.push(Instruction::BinaryOp(BinaryOp::Mul));
+        if compiler.keep_result {
+            result.push(Instruction::Push((-1).into()));
+            result.push(Instruction::BinaryOp(BinaryOp::Mul));
+        }
         return Ok(result);
     }
-    for _ in 0..args.len() - 1 {
-        result.push(Instruction::BinaryOp(BinaryOp::Sub));
+    if compiler.keep_result {
+        for _ in 0..args.len() - 1 {
+            result.push(Instruction::BinaryOp(BinaryOp::Sub));
+        }
     }
     Ok(result)
 }
@@ -63,9 +63,6 @@ pub(super) fn compile_fn_mul(
     _name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    if !compiler.keep_result {
-        return Ok(vec![]);
-    }
     let mut result = vec![];
     let args = args.base_iter().collect::<Vec<_>>();
     if args.is_empty() {
@@ -77,8 +74,10 @@ pub(super) fn compile_fn_mul(
     for arg in args.iter().rev() {
         result.append(&mut compiler.compile_expr(arg)?);
     }
-    for _ in 0..args.len() - 1 {
-        result.push(Instruction::BinaryOp(BinaryOp::Mul));
+    if compiler.keep_result {
+        for _ in 0..args.len() - 1 {
+            result.push(Instruction::BinaryOp(BinaryOp::Mul));
+        }
     }
     Ok(result)
 }
