@@ -9,9 +9,6 @@ fn compile_fn_compare(
     args: &TulispObject,
     instruction: Instruction,
 ) -> Result<Vec<Instruction>, Error> {
-    if !compiler.keep_result {
-        return Ok(vec![]);
-    }
     let label = compiler.new_label();
     let mut result = vec![];
     let args = args.base_iter().collect::<Vec<_>>();
@@ -24,12 +21,16 @@ fn compile_fn_compare(
     for items in args.windows(2) {
         result.append(&mut compiler.compile_expr(&items[1])?);
         result.append(&mut compiler.compile_expr(&items[0])?);
-        result.push(instruction.clone());
-        result.push(Instruction::JumpIfNilElsePop(Pos::Label(label.clone())));
+        if compiler.keep_result {
+            result.push(instruction.clone());
+            result.push(Instruction::JumpIfNilElsePop(Pos::Label(label.clone())));
+        }
     }
-    result.pop();
-    if args.len() > 2 {
-        result.push(Instruction::Label(label));
+    if compiler.keep_result {
+        result.pop();
+        if args.len() > 2 {
+            result.push(Instruction::Label(label));
+        }
     }
     Ok(result)
 }
@@ -72,14 +73,12 @@ pub(super) fn compile_fn_eq(
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
     compiler.compile_2_arg_call(name, args, false, |compiler, arg1, arg2, _| {
-        if !compiler.keep_result {
-            Ok(vec![])
-        } else {
-            let mut result = compiler.compile_expr(arg2)?;
-            result.append(&mut compiler.compile_expr(arg1)?);
+        let mut result = compiler.compile_expr(arg2)?;
+        result.append(&mut compiler.compile_expr(arg1)?);
+        if compiler.keep_result {
             result.push(Instruction::Eq);
-            Ok(result)
         }
+        Ok(result)
     })
 }
 
@@ -89,13 +88,11 @@ pub(super) fn compile_fn_equal(
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
     compiler.compile_2_arg_call(name, args, false, |compiler, arg1, arg2, _| {
-        if !compiler.keep_result {
-            Ok(vec![])
-        } else {
-            let mut result = compiler.compile_expr(arg2)?;
-            result.append(&mut compiler.compile_expr(arg1)?);
+        let mut result = compiler.compile_expr(arg2)?;
+        result.append(&mut compiler.compile_expr(arg1)?);
+        if compiler.keep_result {
             result.push(Instruction::Equal);
-            Ok(result)
         }
+        Ok(result)
     })
 }
