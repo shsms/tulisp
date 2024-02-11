@@ -2,7 +2,7 @@ use std::{collections::HashMap, fs};
 
 use crate::{
     builtin,
-    bytecode::{self, Compiler},
+    bytecode::{self, Bytecode, Compiler},
     error::Error,
     eval::{eval, eval_and_then, eval_basic, funcall, DummyEval},
     list,
@@ -229,5 +229,22 @@ impl TulispContext {
 
         let string: &str = &contents;
         parse(self, self.filenames.len() - 1, string)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn compile_string(
+        &mut self,
+        string: &str,
+        keep_result: bool,
+    ) -> Result<crate::bytecode::Bytecode, Error> {
+        let vv = parse(self, 0, string)?;
+        let mut compiler = Compiler::new(self);
+        compiler.keep_result = keep_result;
+        compiler.compile(&vv)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn run_bytecode(&mut self, bytecode: Bytecode) -> Result<TulispObject, Error> {
+        bytecode::Machine::new(bytecode).run(self)
     }
 }

@@ -13,12 +13,11 @@ pub(crate) struct Bytecode {
 
 impl fmt::Display for Bytecode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "start:\n")?;
         for (i, instr) in self.global.borrow().iter().enumerate() {
-            write!(f, "{:<40}   # {}\n", instr.to_string(), i)?;
+            write!(f, "\n{:<40}   # {}", instr.to_string(), i)?;
         }
         for (name, instr) in &self.functions {
-            write!(f, "\n{}:", name)?;
+            write!(f, "\n\n{}:", name)?;
             for (i, instr) in instr.borrow().iter().enumerate() {
                 write!(f, "\n{:<40}   # {}", instr.to_string(), i)?;
             }

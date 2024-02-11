@@ -96,3 +96,104 @@ pub(super) fn compile_fn_equal(
         Ok(result)
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::TulispObject;
+
+    #[test]
+    fn test_compare_two_variables() {
+        let ctx = &mut crate::TulispContext::new();
+
+        let program = "(> 15 10)";
+        let bytecode = ctx.compile_string(program, false).unwrap();
+        assert!(bytecode.global.borrow().is_empty());
+        assert_eq!(bytecode.functions.len(), 0);
+
+        let program = "(> 15 10)";
+        let bytecode = ctx.compile_string(program, true).unwrap();
+        assert_eq!(
+            bytecode.to_string(),
+            r#"
+    push 10                                # 0
+    push 15                                # 1
+    cgt                                    # 2"#
+        );
+        let output = ctx.run_bytecode(bytecode).unwrap();
+        assert!(output.equal(&TulispObject::t()));
+        assert!(!output.equal(&TulispObject::nil()));
+
+        let program = "(> 10 15)";
+
+        let bytecode = ctx.compile_string(program, true).unwrap();
+        let output = ctx.run_bytecode(bytecode).unwrap();
+        assert!(output.equal(&TulispObject::nil()));
+        assert!(!output.equal(&TulispObject::t()));
+    }
+
+    #[test]
+    fn test_compare_multiple_variables() {
+        let ctx = &mut crate::TulispContext::new();
+
+        let program = "(< a b c 10)";
+        let bytecode = ctx.compile_string(program, false).unwrap();
+        assert!(bytecode.global.borrow().is_empty());
+        assert_eq!(bytecode.functions.len(), 0);
+
+        let bytecode = ctx.compile_string(program, true).unwrap();
+
+        assert_eq!(
+            bytecode.to_string(),
+            r#"
+    load b                                 # 0
+    load a                                 # 1
+    clt                                    # 2
+    jnil_else_pop :1                       # 3
+    load c                                 # 4
+    load b                                 # 5
+    clt                                    # 6
+    jnil_else_pop :1                       # 7
+    push 10                                # 8
+    load c                                 # 9
+    clt                                    # 10
+:1                                         # 11"#
+        );
+    }
+
+    #[test]
+    fn test_compare_side_effects() {
+        let ctx = &mut crate::TulispContext::new();
+
+        let program = "(<= (setq a 5) 8 10)";
+        let bytecode = ctx.compile_string(program, false).unwrap();
+        assert_eq!(
+            bytecode.to_string(),
+            r#"
+    push 5                                 # 0
+    store_pop a                            # 1"#
+        );
+
+        let bytecode = ctx.compile_string(program, true).unwrap();
+        assert_eq!(
+            bytecode.to_string(),
+            r#"
+    push 8                                 # 0
+    push 5                                 # 1
+    store a                                # 2
+    cle                                    # 3
+    jnil_else_pop :1                       # 4
+    push 10                                # 5
+    push 8                                 # 6
+    cle                                    # 7
+:1                                         # 8"#
+        );
+
+        let output = ctx.run_bytecode(bytecode).unwrap();
+        assert!(output.equal(&TulispObject::t()));
+
+        let program = "(<= (setq a 5) 8 5)";
+        let bytecode = ctx.compile_string(program, true).unwrap();
+        let output = ctx.run_bytecode(bytecode).unwrap();
+        assert!(output.equal(&TulispObject::nil()));
+    }
+}
