@@ -76,12 +76,11 @@ pub(super) fn compile_fn_cons(
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
     compiler.compile_2_arg_call(name, args, true, |compiler, arg1, arg2, _| {
-        if !compiler.keep_result {
-            return Ok(vec![]);
-        }
         let mut result = compiler.compile_expr(arg1)?;
         result.append(&mut compiler.compile_expr(arg2)?);
-        result.push(Instruction::Cons);
+        if compiler.keep_result {
+            result.push(Instruction::Cons);
+        }
         Ok(result)
     })
 }
@@ -95,16 +94,15 @@ pub(super) fn compile_fn_list(
         return compile_fn_defun_bounce_call(compiler, &name, args);
     }
 
-    if !compiler.keep_result {
-        return Ok(vec![]);
-    }
     let mut result = vec![];
     let mut len = 0;
     for arg in args.base_iter() {
         result.append(&mut compiler.compile_expr(&arg)?);
         len += 1;
     }
-    result.push(Instruction::List(len));
+    if compiler.keep_result {
+        result.push(Instruction::List(len));
+    }
     Ok(result)
 }
 
@@ -119,7 +117,9 @@ pub(super) fn compile_fn_append(
         result.append(&mut compiler.compile_expr(&arg)?);
         len += 1;
     }
-    result.push(Instruction::Append(len));
+    if compiler.keep_result {
+        result.push(Instruction::Append(len));
+    }
     Ok(result)
 }
 
@@ -264,7 +264,11 @@ pub(super) fn compile_fn_let_star(
                 .with_trace(varitem));
             }
         }
-        result.append(&mut ctx.compile_progn(body)?);
+        let mut body = ctx.compile_progn(body)?;
+        if body.is_empty() {
+            return Ok(vec![]);
+        }
+        result.append(&mut body);
         for param in params {
             result.push(Instruction::EndScope(param));
         }
