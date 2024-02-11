@@ -116,11 +116,14 @@ impl<'a> Compiler<'a> {
                 .compile_form(cons)
                 .map_err(|e| e.with_trace(expr.clone())),
             TulispValue::Symbol { .. } => {
-                if self.keep_result {
-                    return Ok(vec![Instruction::Load(expr.clone())]);
-                } else {
+                if !self.keep_result {
                     return Ok(vec![]);
                 }
+                return Ok(vec![if expr.keywordp() {
+                    Instruction::Push(expr.clone())
+                } else {
+                    Instruction::Load(expr.clone())
+                }]);
             }
             TulispValue::Unquote { .. } | TulispValue::Splice { .. } => {
                 return Err(Error::new(
