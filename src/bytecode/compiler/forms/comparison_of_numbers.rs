@@ -196,4 +196,137 @@ mod tests {
         let output = ctx.run_bytecode(bytecode).unwrap();
         assert!(output.equal(&TulispObject::nil()));
     }
+
+    #[test]
+    fn test_compare_eq() {
+        let ctx = &mut crate::TulispContext::new();
+
+        let program = "(eq 'a 'a)";
+        let bytecode = ctx.compile_string(program, true).unwrap();
+        assert_eq!(
+            bytecode.to_string(),
+            r#"
+    push a                                 # 0
+    push a                                 # 1
+    ceq                                    # 2"#
+        );
+        let output = ctx.run_bytecode(bytecode).unwrap();
+        assert!(output.equal(&TulispObject::t()));
+
+        let program = "(eq 'a 'b)";
+        let bytecode = ctx.compile_string(program, true).unwrap();
+        assert_eq!(
+            bytecode.to_string(),
+            r#"
+    push b                                 # 0
+    push a                                 # 1
+    ceq                                    # 2"#
+        );
+        let output = ctx.run_bytecode(bytecode).unwrap();
+        assert!(output.equal(&TulispObject::nil()));
+
+        let program = "(eq 'a 'a)";
+        let bytecode = ctx.compile_string(program, false).unwrap();
+        assert!(bytecode.global.borrow().is_empty());
+        assert_eq!(bytecode.functions.len(), 0);
+    }
+
+    #[test]
+    fn test_compare_eq_side_effects() {
+        let ctx = &mut crate::TulispContext::new();
+
+        let program = "(eq (setq a 'w) 'w)";
+        let bytecode = ctx.compile_string(program, false).unwrap();
+        println!("{}", bytecode.to_string());
+        assert_eq!(
+            bytecode.to_string(),
+            r#"
+    push w                                 # 0
+    store_pop a                            # 1"#
+        );
+
+        let bytecode = ctx.compile_string(program, true).unwrap();
+        assert_eq!(
+            bytecode.to_string(),
+            r#"
+    push w                                 # 0
+    push w                                 # 1
+    store a                                # 2
+    ceq                                    # 3"#
+        );
+
+        let output = ctx.run_bytecode(bytecode).unwrap();
+        assert!(output.equal(&TulispObject::t()));
+
+        let program = "(eq (setq a 'w) 'x)";
+        let bytecode = ctx.compile_string(program, true).unwrap();
+        let output = ctx.run_bytecode(bytecode).unwrap();
+        assert!(output.equal(&TulispObject::nil()));
+    }
+
+    #[test]
+    fn test_compare_equal() {
+        let ctx = &mut crate::TulispContext::new();
+
+        let program = "(equal 5 5)";
+        let bytecode = ctx.compile_string(program, true).unwrap();
+        assert_eq!(
+            bytecode.to_string(),
+            r#"
+    push 5                                 # 0
+    push 5                                 # 1
+    equal                                  # 2"#
+        );
+        let output = ctx.run_bytecode(bytecode).unwrap();
+        assert!(output.equal(&TulispObject::t()));
+
+        let program = "(equal 5 6)";
+        let bytecode = ctx.compile_string(program, true).unwrap();
+        assert_eq!(
+            bytecode.to_string(),
+            r#"
+    push 6                                 # 0
+    push 5                                 # 1
+    equal                                  # 2"#
+        );
+        let output = ctx.run_bytecode(bytecode).unwrap();
+        assert!(output.equal(&TulispObject::nil()));
+
+        let program = "(equal 5 5)";
+        let bytecode = ctx.compile_string(program, false).unwrap();
+        assert!(bytecode.global.borrow().is_empty());
+        assert_eq!(bytecode.functions.len(), 0);
+    }
+
+    #[test]
+    fn test_compare_equal_side_effects() {
+        let ctx = &mut crate::TulispContext::new();
+
+        let program = "(equal (setq a 5) 5)";
+        let bytecode = ctx.compile_string(program, false).unwrap();
+        assert_eq!(
+            bytecode.to_string(),
+            r#"
+    push 5                                 # 0
+    store_pop a                            # 1"#
+        );
+
+        let bytecode = ctx.compile_string(program, true).unwrap();
+        assert_eq!(
+            bytecode.to_string(),
+            r#"
+    push 5                                 # 0
+    push 5                                 # 1
+    store a                                # 2
+    equal                                  # 3"#
+        );
+
+        let output = ctx.run_bytecode(bytecode).unwrap();
+        assert!(output.equal(&TulispObject::t()));
+
+        let program = "(equal (setq a 5) 6)";
+        let bytecode = ctx.compile_string(program, true).unwrap();
+        let output = ctx.run_bytecode(bytecode).unwrap();
+        assert!(output.equal(&TulispObject::nil()));
+    }
 }
