@@ -7,11 +7,18 @@ use crate::{
 
 use super::forms::VMFunctions;
 
+#[derive(Clone)]
+pub(crate) struct VMDefunParams {
+    pub required: Vec<TulispObject>,
+    pub optional: Vec<TulispObject>,
+    pub rest: Option<TulispObject>,
+}
+
 #[allow(dead_code)]
 pub(crate) struct Compiler<'a> {
     pub ctx: &'a mut TulispContext,
     pub functions: VMFunctions,
-    pub defun_args: HashMap<usize, Vec<TulispObject>>, // fn_name.addr_as_usize() -> arg symbol idx
+    pub defun_args: HashMap<usize, VMDefunParams>, // fn_name.addr_as_usize() -> arg symbol idx
     pub symbol_to_binding_idx: HashMap<usize, Vec<usize>>,
     pub bytecode: Bytecode,
     pub keep_result: bool,

@@ -1,7 +1,7 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
-    bytecode::{Compiler, Instruction, Pos},
+    bytecode::{compiler::VMDefunParams, Compiler, Instruction, Pos},
     destruct_bind,
     parse::mark_tail_calls,
     Error, ErrorKind, TulispObject,
@@ -129,16 +129,52 @@ fn compile_fn_defun_bounce_call(
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
     let mut result = vec![];
+    let params = compiler.defun_args[&name.addr_as_usize()].clone();
+    let mut args_count = 0;
+    // cdr because the first element is `Bounce`.
     for arg in args.cdr()?.base_iter() {
         result.append(&mut compiler.compile_expr_keep_result(&arg)?);
+        args_count += 1;
     }
-    // TODO: use .get() instead of indexing, to not crash if the function is not
-    // found
-    let params = &compiler.defun_args[&name.addr_as_usize()];
-    for param in params {
+    let mut optional_count = 0;
+    let left_args = args_count - params.required.len();
+    if left_args > params.optional.len() {
+        if params.rest.is_none() {
+            return Err(Error::new(
+                ErrorKind::ArityMismatch,
+                format!(
+                    "defun bounce call: too many arguments. expected: {} got: {}",
+                    params.required.len() + params.optional.len(),
+                    args_count
+                ),
+            )
+            .with_trace(args.clone()));
+        }
+        result.push(Instruction::List(left_args - params.optional.len()));
+        optional_count = params.optional.len();
+    } else if params.rest.is_some() {
+        result.push(Instruction::Push(TulispObject::nil()));
+    }
+    if let Some(param) = &params.rest {
         result.push(Instruction::StorePop(param.clone()))
     }
-    result.push(Instruction::Jump(Pos::Label(name.clone())));
+    if left_args <= params.optional.len() && left_args > 0 {
+        optional_count = left_args;
+    }
+
+    for (ii, param) in params.optional.iter().enumerate().rev() {
+        if ii >= optional_count {
+            result.push(Instruction::Push(TulispObject::nil()));
+            result.push(Instruction::StorePop(param.clone()))
+        } else {
+            result.push(Instruction::StorePop(param.clone()));
+        }
+    }
+
+    for param in params.required.iter().rev() {
+        result.push(Instruction::StorePop(param.clone()))
+    }
+    result.push(Instruction::Jump(Pos::Abs(0)));
     return Ok(result);
 }
 
@@ -148,13 +184,17 @@ pub(super) fn compile_fn_defun_call(
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
     let mut result = vec![];
+    let mut args_count = 0;
     for arg in args.base_iter() {
         result.append(&mut compiler.compile_expr_keep_result(&arg)?);
+        args_count += 1;
     }
-    let params = compiler.defun_args.get(&name.addr_as_usize());
     result.push(Instruction::Call {
         name: name.clone(),
-        args: params.cloned(),
+        args_count,
+        params: None,
+        optional_count: 0,
+        rest_count: 0,
     });
     if !compiler.keep_result {
         result.push(Instruction::Pop);
@@ -171,13 +211,57 @@ pub(super) fn compile_fn_defun(
         ctx.functions
             .functions
             .insert(name.addr_as_usize(), compile_fn_defun_call);
-        let mut params = vec![];
+        let mut required = vec![];
+        let mut optional = vec![];
+        let mut rest = None;
         let args = args.base_iter().collect::<Vec<_>>();
-        for arg in args.iter().rev() {
-            params.push(arg.clone());
+        let mut is_optional = false;
+        let mut is_rest = false;
+        let optional_symbol = ctx.ctx.intern("&optional");
+        let rest_symbol = ctx.ctx.intern("&rest");
+        for arg in args.iter() {
+            if arg.eq(&optional_symbol) {
+                if is_rest {
+                    return Err(Error::new(
+                        ErrorKind::Undefined,
+                        "optional after rest".to_string(),
+                    )
+                    .with_trace(arg.clone()));
+                }
+                is_optional = true;
+            } else if arg.eq(&rest_symbol) {
+                if is_rest {
+                    return Err(
+                        Error::new(ErrorKind::Undefined, "rest after rest".to_string())
+                            .with_trace(arg.clone()),
+                    );
+                }
+                is_optional = false;
+                is_rest = true;
+            } else if is_optional {
+                optional.push(arg.clone());
+            } else if is_rest {
+                if rest.is_some() {
+                    return Err(Error::new(
+                        ErrorKind::Undefined,
+                        "multiple rest arguments".to_string(),
+                    )
+                    .with_trace(arg.clone()));
+                }
+                rest = Some(arg.clone());
+            } else {
+                required.push(arg.clone());
+            }
         }
 
-        ctx.defun_args.insert(name.addr_as_usize(), params);
+        ctx.defun_args.insert(
+            name.addr_as_usize(),
+            VMDefunParams {
+                required,
+                optional,
+                rest,
+            },
+        );
         // TODO: replace with `is_string`
         let body = if body.car()?.as_string().is_ok() {
             body.cdr()?

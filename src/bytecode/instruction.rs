@@ -2,6 +2,8 @@ use std::rc::Rc;
 
 use crate::{value::TulispFn, TulispObject};
 
+use super::compiler::VMDefunParams;
+
 #[derive(Clone)]
 pub(crate) enum Pos {
     Abs(usize),
@@ -109,7 +111,10 @@ pub(crate) enum Instruction {
     },
     Call {
         name: TulispObject,
-        args: Option<Vec<TulispObject>>,
+        args_count: usize,
+        params: Option<VMDefunParams>,
+        optional_count: usize,
+        rest_count: usize,
     },
     Ret,
     // lists

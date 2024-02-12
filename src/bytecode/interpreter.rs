@@ -357,12 +357,25 @@ impl Machine {
                 Instruction::EndScope(obj) => {
                     obj.unset().unwrap();
                 }
-                Instruction::Call { name, args } => {
+                Instruction::Call {
+                    name,
+                    params,
+                    args_count,
+                    optional_count,
+                    rest_count,
+                } => {
                     let addr = name.addr_as_usize();
                     let func = Some(addr);
-                    if args.is_none() {
+                    if params.is_none() {
                         if let Some(items) = self.bytecode.defun_args.get(&addr) {
-                            *args = Some(items.clone());
+                            *params = Some(items.clone());
+                            let left_args = *args_count - items.required.len();
+                            if left_args > items.optional.len() {
+                                *rest_count = left_args - items.optional.len();
+                                *optional_count = items.optional.len();
+                            } else if left_args > 0 {
+                                *optional_count = left_args
+                            }
                         } else {
                             return Err(Error::new(
                                 crate::ErrorKind::Undefined,
@@ -372,19 +385,34 @@ impl Machine {
                         }
                     }
 
-                    if let Some(args) = args {
-                        for arg in args.iter() {
-                            arg.set_scope(self.stack.pop().unwrap()).unwrap();
+                    let Some(params) = params else { unreachable!() };
+                    let mut set_params = vec![];
+                    if let Some(rest) = &params.rest {
+                        let mut rest_value = TulispObject::nil();
+                        for _ in 0..*rest_count {
+                            rest_value = TulispObject::cons(self.stack.pop().unwrap(), rest_value);
                         }
+                        rest.set_scope(rest_value).unwrap();
+                        set_params.push(rest.clone());
+                    }
+                    for (ii, arg) in params.optional.iter().enumerate().rev() {
+                        if ii >= *optional_count {
+                            arg.set_scope(TulispObject::nil()).unwrap();
+                            continue;
+                        }
+                        arg.set_scope(self.stack.pop().unwrap()).unwrap();
+                        set_params.push(arg.clone());
+                    }
+                    for arg in params.required.iter().rev() {
+                        arg.set_scope(self.stack.pop().unwrap()).unwrap();
+                        set_params.push(arg.clone());
                     }
 
                     drop(instr_ref);
                     self.run_impl(ctx, func, recursion_depth + 1)?;
                     instr_ref = program.borrow_mut();
-                    if let Some(args) = self.bytecode.defun_args.get(&addr) {
-                        for arg in args.iter() {
-                            arg.unset().unwrap();
-                        }
+                    for arg in set_params.iter() {
+                        arg.unset().unwrap();
                     }
                 }
                 Instruction::Ret => return Ok(()),

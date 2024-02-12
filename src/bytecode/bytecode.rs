@@ -1,14 +1,13 @@
 use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc};
 
-use crate::TulispObject;
-
 use super::Instruction;
+use crate::bytecode::compiler::VMDefunParams;
 
 #[derive(Default)]
 pub(crate) struct Bytecode {
     pub(crate) global: Rc<RefCell<Vec<Instruction>>>,
     pub(crate) functions: HashMap<usize, Rc<RefCell<Vec<Instruction>>>>,
-    pub(crate) defun_args: HashMap<usize, Vec<TulispObject>>, // fn_name.addr_as_usize() -> arg symbol idx
+    pub(crate) defun_args: HashMap<usize, VMDefunParams>, // fn_name.addr_as_usize() -> arg symbol idx
 }
 
 impl fmt::Display for Bytecode {
