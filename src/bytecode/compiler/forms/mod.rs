@@ -16,7 +16,7 @@ mod other_functions;
 type FnCallCompiler =
     fn(&mut Compiler, &TulispObject, &TulispObject) -> Result<Vec<Instruction>, Error>;
 
-pub(crate) struct VMFunctions {
+pub(crate) struct VMCompilers {
     // TulispObject.addr() -> implementation
     pub functions: HashMap<usize, FnCallCompiler>,
 }
@@ -32,7 +32,7 @@ macro_rules! map_fn_call_compilers {
     };
 }
 
-impl VMFunctions {
+impl VMCompilers {
     pub fn new(ctx: &mut TulispContext) -> Self {
         let mut functions = HashMap::new();
         map_fn_call_compilers! {
@@ -103,7 +103,7 @@ impl VMFunctions {
             // noop
             ("defmacro", other_functions::compile_fn_noop),
         }
-        VMFunctions { functions }
+        VMCompilers { functions }
     }
 }
 

@@ -5,7 +5,7 @@ use crate::{
     Error, ErrorKind, TulispContext, TulispObject, TulispValue,
 };
 
-use super::forms::VMFunctions;
+use super::forms::VMCompilers;
 
 #[derive(Clone)]
 pub(crate) struct VMDefunParams {
@@ -17,7 +17,7 @@ pub(crate) struct VMDefunParams {
 #[allow(dead_code)]
 pub(crate) struct Compiler<'a> {
     pub ctx: &'a mut TulispContext,
-    pub functions: VMFunctions,
+    pub functions: VMCompilers,
     pub defun_args: HashMap<usize, VMDefunParams>, // fn_name.addr_as_usize() -> arg symbol idx
     pub symbol_to_binding_idx: HashMap<usize, Vec<usize>>,
     pub bytecode: Bytecode,
@@ -27,7 +27,7 @@ pub(crate) struct Compiler<'a> {
 
 impl<'a> Compiler<'a> {
     pub fn new(ctx: &'a mut TulispContext) -> Self {
-        let functions = VMFunctions::new(ctx);
+        let functions = VMCompilers::new(ctx);
         Compiler {
             ctx,
             functions,
