@@ -69,7 +69,8 @@ impl<'a> Compiler<'a> {
     }
 
     pub(crate) fn compile_expr(&mut self, expr: &TulispObject) -> Result<Vec<Instruction>, Error> {
-        match &*expr.inner_ref() {
+        let expr_ref = expr.inner_ref();
+        match &*expr_ref {
             TulispValue::Int { value } => {
                 if self.keep_result {
                     return Ok(vec![Instruction::Push(value.clone().into())]);
@@ -119,9 +120,11 @@ impl<'a> Compiler<'a> {
                     return Ok(vec![]);
                 }
             }
-            TulispValue::List { .. } => self
-                .compile_form(expr)
-                .map_err(|e| e.with_trace(expr.clone())),
+            TulispValue::List { .. } => {
+                drop(expr_ref);
+                self.compile_form(expr)
+                    .map_err(|e| e.with_trace(expr.clone()))
+            }
             TulispValue::Symbol { .. } => {
                 if !self.keep_result {
                     return Ok(vec![]);
