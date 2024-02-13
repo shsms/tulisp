@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-use crate::{bytecode::Instruction, Error, TulispContext, TulispObject, TulispValue};
+use crate::{
+    bytecode::Instruction, eval::macroexpand, Error, TulispContext, TulispObject, TulispValue,
+};
 
 use super::Compiler;
 
@@ -124,18 +126,10 @@ impl Compiler<'_> {
                     ]);
                 }
                 TulispValue::Defmacro { .. } | TulispValue::Macro(..) => {
-                    let eval = self.ctx.intern("eval");
-                    return Ok(vec![
-                        Instruction::Push(form.clone()),
-                        Instruction::RustCall {
-                            name: eval.clone(),
-                            func: if let TulispValue::Func(func) = &*eval.get()?.inner_ref() {
-                                func.clone()
-                            } else {
-                                unreachable!()
-                            },
-                        },
-                    ]);
+                    // TODO: this should not be necessary, this should be
+                    // handled in the parser instead.
+                    let form = macroexpand(self.ctx, form.clone())?;
+                    return self.compile_expr(&form);
                 }
                 _ => {}
             }
