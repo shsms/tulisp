@@ -466,7 +466,10 @@ impl Parser<'_, '_> {
                     }
                 };
                 Ok(Some(
-                    TulispValue::Unquote { value: next }.into_ref(Some(span)),
+                    TulispValue::Unquote {
+                        value: macroexpand(self.ctx, next)?,
+                    }
+                    .into_ref(Some(span)),
                 ))
             }
             Token::Splice { span } => {
