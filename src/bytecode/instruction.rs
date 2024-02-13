@@ -108,6 +108,7 @@ pub(crate) enum Instruction {
     RustCall {
         name: TulispObject,
         func: Rc<TulispFn>,
+        keep_result: bool,
     },
     Call {
         name: TulispObject,

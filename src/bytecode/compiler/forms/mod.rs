@@ -122,6 +122,7 @@ impl Compiler<'_> {
                         Instruction::RustCall {
                             name: name.clone(),
                             func: func.clone(),
+                            keep_result: self.keep_result,
                         },
                     ]);
                 }

@@ -416,9 +416,14 @@ impl Machine {
                     }
                 }
                 Instruction::Ret => return Ok(()),
-                Instruction::RustCall { func, .. } => {
+                Instruction::RustCall {
+                    func, keep_result, ..
+                } => {
                     let args = self.stack.pop().unwrap();
-                    self.stack.push(func(ctx, &args)?.into());
+                    let result = func(ctx, &args)?;
+                    if *keep_result {
+                        self.stack.push(result);
+                    }
                 }
                 Instruction::Label(_) => {}
                 Instruction::Cons => {
