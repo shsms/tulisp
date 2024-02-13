@@ -2,7 +2,7 @@ use std::{cell::RefCell, rc::Rc};
 
 use crate::{
     bytecode::{compiler::VMDefunParams, Compiler, Instruction, Pos},
-    destruct_bind,
+    destruct_bind, list,
     parse::mark_tail_calls,
     Error, ErrorKind, TulispObject,
 };
@@ -185,6 +185,9 @@ pub(super) fn compile_fn_defun_call(
 ) -> Result<Vec<Instruction>, Error> {
     let mut result = vec![];
     let mut args_count = 0;
+    if name.consp() && name.car_and_then(|name| Ok(name.eq(&compiler.ctx.intern("lambda"))))? {
+        compile_fn_defun(compiler, &name.car()?, &list!(name.clone() ,@name.cdr()?)?)?;
+    }
     for arg in args.base_iter() {
         result.append(&mut compiler.compile_expr_keep_result(&arg)?);
         args_count += 1;
