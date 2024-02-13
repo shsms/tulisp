@@ -2,13 +2,15 @@ use std::{collections::HashMap, fs};
 
 use crate::{
     builtin,
-    bytecode::{self, Bytecode, Compiler},
+    bytecode::{self, compile, Bytecode, Compiler},
     error::Error,
     eval::{eval, eval_and_then, eval_basic, funcall, DummyEval},
     list,
     parse::parse,
     TulispObject,
 };
+
+use crate::bytecode::VMCompilers;
 
 #[derive(Debug, Default, Clone)]
 pub(crate) struct Scope {
@@ -41,6 +43,7 @@ impl Scope {
 pub struct TulispContext {
     obarray: HashMap<String, TulispObject>,
     pub(crate) filenames: Vec<String>,
+    pub(crate) compiler: Option<Compiler>,
 }
 
 impl Default for TulispContext {
@@ -55,9 +58,12 @@ impl TulispContext {
         let mut ctx = Self {
             obarray: HashMap::new(),
             filenames: vec!["<eval_string>".to_string()],
+            compiler: None,
         };
         builtin::functions::add(&mut ctx);
         builtin::macros::add(&mut ctx);
+        let vm_compilers = VMCompilers::new(&mut ctx);
+        ctx.compiler = Some(Compiler::new(vm_compilers));
         ctx
     }
 
@@ -181,22 +187,13 @@ impl TulispContext {
     /// Parses and evaluates the contents of the given file and returns the
     /// value.
     pub fn eval_file(&mut self, filename: &str) -> Result<TulispObject, Error> {
-        let contents = fs::read_to_string(filename).map_err(|e| {
-            Error::new(
-                crate::ErrorKind::Undefined,
-                format!("Unable to read file: {filename}. Error: {e}"),
-            )
-        })?;
-        self.filenames.push(filename.to_owned());
-
-        let string: &str = &contents;
-        let vv = parse(self, self.filenames.len() - 1, string)?;
+        let vv = self.parse_file(filename)?;
         self.eval_progn(&vv)
     }
 
     pub fn vm_eval_string(&mut self, string: &str) -> Result<TulispObject, Error> {
         let vv = parse(self, 0, string)?;
-        let bytecode = Compiler::new(self).compile(&vv)?;
+        let bytecode = compile(self, &vv)?;
         bytecode::Machine::new(bytecode).run(self)
     }
 
@@ -205,9 +202,9 @@ impl TulispContext {
         let vv = self.parse_file(filename)?;
         println!("Parsing took: {:?}", start.elapsed());
         let start = std::time::Instant::now();
-        let bytecode = Compiler::new(self).compile(&vv)?;
+        let bytecode = compile(self, &vv)?;
         println!("Compiling took: {:?}", start.elapsed());
-        println!("{}", bytecode);
+        // println!("{}", bytecode);
         let start = std::time::Instant::now();
         let ret = bytecode::Machine::new(bytecode).run(self);
         println!("Running took: {:?}", start.elapsed());
@@ -225,10 +222,15 @@ impl TulispContext {
                 format!("Unable to read file: {filename}. Error: {e}"),
             )
         })?;
-        self.filenames.push(filename.to_owned());
+        let idx = if let Some(idx) = self.filenames.iter().position(|x| x == filename) {
+            idx
+        } else {
+            self.filenames.push(filename.to_owned());
+            self.filenames.len() - 1
+        };
 
         let string: &str = &contents;
-        parse(self, self.filenames.len() - 1, string)
+        parse(self, idx, string)
     }
 
     #[allow(dead_code)]
@@ -238,9 +240,9 @@ impl TulispContext {
         keep_result: bool,
     ) -> Result<crate::bytecode::Bytecode, Error> {
         let vv = parse(self, 0, string)?;
-        let mut compiler = Compiler::new(self);
+        let compiler = self.compiler.as_mut().unwrap();
         compiler.keep_result = keep_result;
-        compiler.compile(&vv)
+        compile(self, &vv)
     }
 
     #[allow(dead_code)]

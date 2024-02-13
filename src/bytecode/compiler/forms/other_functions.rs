@@ -1,20 +1,28 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
-    bytecode::{compiler::VMDefunParams, Compiler, Instruction, Pos},
+    bytecode::{
+        compiler::{
+            compiler::{
+                compile_expr, compile_expr_keep_result, compile_progn, compile_progn_keep_result,
+            },
+            VMDefunParams,
+        },
+        Instruction, Pos,
+    },
     destruct_bind, list,
     parse::mark_tail_calls,
-    Error, ErrorKind, TulispObject,
+    Error, ErrorKind, TulispContext, TulispObject,
 };
 
 pub(super) fn compile_fn_print(
-    compiler: &mut Compiler<'_>,
+    ctx: &mut TulispContext,
     name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    compiler.compile_1_arg_call(name, args, false, |compiler, arg, _| {
-        let mut result = compiler.compile_expr_keep_result(arg)?;
-        if compiler.keep_result {
+    ctx.compile_1_arg_call(name, args, false, |ctx, arg, _| {
+        let mut result = compile_expr_keep_result(ctx, arg)?;
+        if ctx.compiler.as_ref().unwrap().keep_result {
             result.push(Instruction::Print);
         } else {
             result.push(Instruction::PrintPop);
@@ -24,11 +32,12 @@ pub(super) fn compile_fn_print(
 }
 
 pub(super) fn compile_fn_quote(
-    compiler: &mut Compiler<'_>,
+    ctx: &mut TulispContext,
     name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    compiler.compile_1_arg_call(name, args, false, |compiler, arg, _| {
+    ctx.compile_1_arg_call(name, args, false, |ctx, arg, _| {
+        let compiler = ctx.compiler.as_mut().unwrap();
         if compiler.keep_result {
             return Ok(vec![Instruction::Push(arg.clone().into())]);
         } else {
@@ -38,13 +47,13 @@ pub(super) fn compile_fn_quote(
 }
 
 pub(super) fn compile_fn_setq(
-    compiler: &mut Compiler<'_>,
+    ctx: &mut TulispContext,
     name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    compiler.compile_2_arg_call(name, args, false, |compiler, arg1, arg2, _| {
-        let mut result = compiler.compile_expr_keep_result(arg2)?;
-        if compiler.keep_result {
+    ctx.compile_2_arg_call(name, args, false, |ctx, arg1, arg2, _| {
+        let mut result = compile_expr_keep_result(ctx, arg2)?;
+        if ctx.compiler.as_ref().unwrap().keep_result {
             result.push(Instruction::Store(arg1.clone()));
         } else {
             result.push(Instruction::StorePop(arg1.clone()));
@@ -54,14 +63,14 @@ pub(super) fn compile_fn_setq(
 }
 
 pub(super) fn compile_fn_set(
-    compiler: &mut Compiler<'_>,
+    ctx: &mut TulispContext,
     name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    compiler.compile_2_arg_call(name, args, false, |compiler, arg1, arg2, _| {
-        let mut result = compiler.compile_expr_keep_result(arg2)?;
-        result.append(&mut compiler.compile_expr_keep_result(arg1)?);
-        if compiler.keep_result {
+    ctx.compile_2_arg_call(name, args, false, |ctx, arg1, arg2, _| {
+        let mut result = compile_expr_keep_result(ctx, arg2)?;
+        result.append(&mut compile_expr_keep_result(ctx, arg1)?);
+        if ctx.compiler.as_ref().unwrap().keep_result {
             result.push(Instruction::Set);
         } else {
             result.push(Instruction::SetPop);
@@ -71,14 +80,14 @@ pub(super) fn compile_fn_set(
 }
 
 pub(super) fn compile_fn_cons(
-    compiler: &mut Compiler<'_>,
+    ctx: &mut TulispContext,
     name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    compiler.compile_2_arg_call(name, args, true, |compiler, arg1, arg2, _| {
-        let mut result = compiler.compile_expr(arg1)?;
-        result.append(&mut compiler.compile_expr(arg2)?);
-        if compiler.keep_result {
+    ctx.compile_2_arg_call(name, args, true, |ctx, arg1, arg2, _| {
+        let mut result = compile_expr(ctx, arg1)?;
+        result.append(&mut compile_expr(ctx, arg2)?);
+        if ctx.compiler.as_ref().unwrap().keep_result {
             result.push(Instruction::Cons);
         }
         Ok(result)
@@ -86,54 +95,56 @@ pub(super) fn compile_fn_cons(
 }
 
 pub(super) fn compile_fn_list(
-    compiler: &mut Compiler<'_>,
+    ctx: &mut TulispContext,
     _name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
     if let Some(name) = args.is_bounced() {
-        return compile_fn_defun_bounce_call(compiler, &name, args);
+        return compile_fn_defun_bounce_call(ctx, &name, args);
     }
 
     let mut result = vec![];
     let mut len = 0;
     for arg in args.base_iter() {
-        result.append(&mut compiler.compile_expr(&arg)?);
+        result.append(&mut compile_expr(ctx, &arg)?);
         len += 1;
     }
-    if compiler.keep_result {
+    if ctx.compiler.as_ref().unwrap().keep_result {
         result.push(Instruction::List(len));
     }
     Ok(result)
 }
 
 pub(super) fn compile_fn_append(
-    compiler: &mut Compiler<'_>,
+    ctx: &mut TulispContext,
     _name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
     let mut result = vec![];
     let mut len = 0;
     for arg in args.base_iter() {
-        result.append(&mut compiler.compile_expr(&arg)?);
+        result.append(&mut compile_expr(ctx, &arg)?);
         len += 1;
     }
-    if compiler.keep_result {
+    if ctx.compiler.as_ref().unwrap().keep_result {
         result.push(Instruction::Append(len));
     }
     Ok(result)
 }
 
 fn compile_fn_defun_bounce_call(
-    compiler: &mut Compiler<'_>,
+    ctx: &mut TulispContext,
     name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
+    let compiler = ctx.compiler.as_mut().unwrap();
+
     let mut result = vec![];
     let params = compiler.defun_args[&name.addr_as_usize()].clone();
     let mut args_count = 0;
     // cdr because the first element is `Bounce`.
     for arg in args.cdr()?.base_iter() {
-        result.append(&mut compiler.compile_expr_keep_result(&arg)?);
+        result.append(&mut compile_expr_keep_result(ctx, &arg)?);
         args_count += 1;
     }
     let mut optional_count = 0;
@@ -179,17 +190,18 @@ fn compile_fn_defun_bounce_call(
 }
 
 pub(super) fn compile_fn_defun_call(
-    compiler: &mut Compiler<'_>,
+    ctx: &mut TulispContext,
     name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
     let mut result = vec![];
     let mut args_count = 0;
-    if name.consp() && name.car_and_then(|name| Ok(name.eq(&compiler.ctx.intern("lambda"))))? {
-        compile_fn_defun(compiler, &name.car()?, &list!(name.clone() ,@name.cdr()?)?)?;
+    if name.consp() && name.car_and_then(|name| Ok(name.eq(&ctx.intern("lambda"))))? {
+        compile_fn_defun(ctx, &name.car()?, &list!(name.clone() ,@name.cdr()?)?)?;
     }
+
     for arg in args.base_iter() {
-        result.append(&mut compiler.compile_expr_keep_result(&arg)?);
+        result.append(&mut compile_expr_keep_result(ctx, &arg)?);
         args_count += 1;
     }
     result.push(Instruction::Call {
@@ -199,19 +211,24 @@ pub(super) fn compile_fn_defun_call(
         optional_count: 0,
         rest_count: 0,
     });
-    if !compiler.keep_result {
+    if !ctx.compiler.as_ref().unwrap().keep_result {
         result.push(Instruction::Pop);
     }
     Ok(result)
 }
 
 pub(super) fn compile_fn_defun(
-    compiler: &mut Compiler<'_>,
+    ctx: &mut TulispContext,
     name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    let mut res = compiler.compile_2_arg_call(name, args, true, |ctx, name, args, body| {
-        ctx.functions
+    let mut res = ctx.compile_2_arg_call(name, args, true, |ctx, name, args, body| {
+        let optional_symbol = ctx.intern("&optional");
+        let rest_symbol = ctx.intern("&rest");
+
+        let compiler = ctx.compiler.as_mut().unwrap();
+        compiler
+            .vm_compilers
             .functions
             .insert(name.addr_as_usize(), compile_fn_defun_call);
         let mut required = vec![];
@@ -220,8 +237,6 @@ pub(super) fn compile_fn_defun(
         let args = args.base_iter().collect::<Vec<_>>();
         let mut is_optional = false;
         let mut is_rest = false;
-        let optional_symbol = ctx.ctx.intern("&optional");
-        let rest_symbol = ctx.ctx.intern("&rest");
         for arg in args.iter() {
             if arg.eq(&optional_symbol) {
                 if is_rest {
@@ -257,7 +272,7 @@ pub(super) fn compile_fn_defun(
             }
         }
 
-        ctx.defun_args.insert(
+        compiler.defun_args.insert(
             name.addr_as_usize(),
             VMDefunParams {
                 required,
@@ -271,11 +286,11 @@ pub(super) fn compile_fn_defun(
         } else {
             body.clone()
         };
-        let body = mark_tail_calls(ctx.ctx, name.clone(), body).map_err(|e| {
+        let body = mark_tail_calls(ctx, name.clone(), body).map_err(|e| {
             println!("mark_tail_calls error: {:?}", e);
             e
         })?;
-        let mut result = ctx.compile_progn_keep_result(&body)?;
+        let mut result = compile_progn_keep_result(ctx, &body)?;
         result.push(Instruction::Ret);
 
         // This use of a `List` instruction is a hack to get the address of the
@@ -289,6 +304,7 @@ pub(super) fn compile_fn_defun(
     let Some(Instruction::List(addr)) = res.pop() else {
         unreachable!()
     };
+    let compiler = ctx.compiler.as_mut().unwrap();
     compiler
         .bytecode
         .functions
@@ -297,11 +313,11 @@ pub(super) fn compile_fn_defun(
 }
 
 pub(super) fn compile_fn_let_star(
-    compiler: &mut Compiler<'_>,
+    ctx: &mut TulispContext,
     name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    compiler.compile_1_arg_call(name, args, true, |ctx, varlist, body| {
+    ctx.compile_1_arg_call(name, args, true, |ctx, varlist, body| {
         let mut result = vec![];
         let mut params = vec![];
         let mut symbols = vec![];
@@ -335,9 +351,7 @@ pub(super) fn compile_fn_let_star(
                 let param = name.clone();
                 params.push(param.clone());
                 result.append(
-                    &mut ctx
-                        .compile_expr_keep_result(&value)
-                        .map_err(|e| e.with_trace(value))?,
+                    &mut compile_expr_keep_result(ctx, &value).map_err(|e| e.with_trace(value))?,
                 );
                 result.push(Instruction::BeginScope(param));
             } else {
@@ -351,7 +365,7 @@ pub(super) fn compile_fn_let_star(
                 .with_trace(varitem));
             }
         }
-        let mut body = ctx.compile_progn(body)?;
+        let mut body = compile_progn(ctx, body)?;
         if body.is_empty() {
             return Ok(vec![]);
         }
@@ -364,27 +378,27 @@ pub(super) fn compile_fn_let_star(
 }
 
 pub(super) fn compile_fn_progn(
-    compiler: &mut Compiler<'_>,
+    ctx: &mut TulispContext,
     _name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    Ok(compiler.compile_progn(args)?)
+    Ok(compile_progn(ctx, args)?)
 }
 
 pub(super) fn compile_fn_load_file(
-    compiler: &mut Compiler<'_>,
+    ctx: &mut TulispContext,
     _name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    compiler.compile_1_arg_call(_name, args, true, |compiler, arg, _| {
-        let mut result = compiler.compile_expr_keep_result(&arg)?;
+    ctx.compile_1_arg_call(_name, args, true, |ctx, arg, _| {
+        let mut result = compile_expr_keep_result(ctx, &arg)?;
         result.push(Instruction::LoadFile);
         Ok(result)
     })
 }
 
 pub(super) fn compile_fn_noop(
-    _compiler: &mut Compiler<'_>,
+    _ctx: &mut TulispContext,
     _name: &TulispObject,
     _args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {

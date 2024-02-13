@@ -4,7 +4,7 @@ use crate::{
     bytecode::Instruction, eval::macroexpand, Error, TulispContext, TulispObject, TulispValue,
 };
 
-use super::Compiler;
+use super::compiler::compile_expr;
 
 mod arithmetic_operations;
 mod common;
@@ -14,7 +14,7 @@ mod list_elements;
 mod other_functions;
 
 type FnCallCompiler =
-    fn(&mut Compiler, &TulispObject, &TulispObject) -> Result<Vec<Instruction>, Error>;
+    fn(&mut TulispContext, &TulispObject, &TulispObject) -> Result<Vec<Instruction>, Error>;
 
 pub(crate) struct VMCompilers {
     // TulispObject.addr() -> implementation
@@ -107,34 +107,44 @@ impl VMCompilers {
     }
 }
 
-impl Compiler<'_> {
-    pub(super) fn compile_form(&mut self, form: &TulispObject) -> Result<Vec<Instruction>, Error> {
-        let name = form.car()?;
-        let args = form.cdr()?;
-        if let Some(compiler) = self.functions.functions.get(&name.addr_as_usize()) {
-            return compiler(self, &name, &args);
-        }
-        if let Ok(func) = self.ctx.eval(&name) {
-            match &*func.inner_ref() {
-                TulispValue::Func(func) => {
-                    return Ok(vec![
-                        Instruction::Push(args.clone()),
-                        Instruction::RustCall {
-                            name: name.clone(),
-                            func: func.clone(),
-                            keep_result: self.keep_result,
-                        },
-                    ]);
-                }
-                TulispValue::Defmacro { .. } | TulispValue::Macro(..) => {
-                    // TODO: this should not be necessary, this should be
-                    // handled in the parser instead.
-                    let form = macroexpand(self.ctx, form.clone())?;
-                    return self.compile_expr(&form);
-                }
-                _ => {}
-            }
-        }
-        other_functions::compile_fn_defun_call(self, &name, &args)
+pub(super) fn compile_form(
+    ctx: &mut TulispContext,
+    form: &TulispObject,
+) -> Result<Vec<Instruction>, Error> {
+    let name = form.car()?;
+    let args = form.cdr()?;
+    if let Some(compiler) = ctx
+        .compiler
+        .as_ref()
+        .unwrap()
+        .vm_compilers
+        .functions
+        .get(&name.addr_as_usize())
+    {
+        return compiler(ctx, &name, &args);
     }
+    if let Ok(func) = ctx.eval(&name) {
+        match &*func.inner_ref() {
+            TulispValue::Func(func) => {
+                let compiler = ctx.compiler.as_mut().unwrap();
+                return Ok(vec![
+                    Instruction::Push(args.clone()),
+                    Instruction::RustCall {
+                        name: name.clone(),
+                        func: func.clone(),
+                        keep_result: compiler.keep_result,
+                    },
+                ]);
+            }
+            TulispValue::Defmacro { .. } | TulispValue::Macro(..) => {
+                // TODO: this should not be necessary, this should be
+                // handled in the parser instead.
+                let form = macroexpand(ctx, form.clone())?;
+                return compile_expr(ctx, &form);
+            }
+            _ => {}
+        }
+    }
+
+    other_functions::compile_fn_defun_call(ctx, &name, &args)
 }

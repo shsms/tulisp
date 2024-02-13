@@ -1,16 +1,16 @@
 use crate::{
-    bytecode::{instruction::Cxr, Compiler, Instruction},
-    Error, ErrorKind, TulispObject,
+    bytecode::{compiler::compiler::compile_expr, instruction::Cxr, Instruction},
+    Error, ErrorKind, TulispContext, TulispObject,
 };
 
 pub(super) fn compile_fn_cxr(
-    compiler: &mut Compiler<'_>,
+    ctx: &mut TulispContext,
     name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    let mut result = compiler.compile_1_arg_call(name, args, false, |compiler, arg1, _| {
-        compiler.compile_expr(arg1)
-    })?;
+    let mut result =
+        ctx.compile_1_arg_call(name, args, false, |ctx, arg1, _| compile_expr(ctx, arg1))?;
+    let compiler = ctx.compiler.as_mut().unwrap();
     if compiler.keep_result {
         let name = name.to_string();
         match name.as_str() {

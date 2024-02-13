@@ -1,6 +1,9 @@
 use crate::{
-    bytecode::{Compiler, Instruction, Pos},
-    Error, TulispObject,
+    bytecode::{
+        compiler::compiler::{compile_expr, compile_expr_keep_result, compile_progn},
+        Instruction, Pos,
+    },
+    Error, TulispContext, TulispObject,
 };
 
 fn optimize_jump_if_nil(result: &mut Vec<Instruction>, tgt_pos: Pos) -> Instruction {
@@ -30,19 +33,19 @@ fn optimize_jump_if_nil(result: &mut Vec<Instruction>, tgt_pos: Pos) -> Instruct
 }
 
 pub(super) fn compile_fn_if(
-    compiler: &mut Compiler<'_>,
+    ctx: &mut TulispContext,
     name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    compiler.compile_2_arg_call(name, args, true, |ctx, cond, then, else_| {
-        let mut result = ctx.compile_expr_keep_result(cond)?;
-        let mut then = ctx.compile_expr(then)?;
-        let mut else_ = ctx.compile_progn(else_)?;
+    ctx.compile_2_arg_call(name, args, true, |ctx, cond, then, else_| {
+        let mut result = compile_expr_keep_result(ctx, cond)?;
+        let mut then = compile_expr(ctx, then)?;
+        let mut else_ = compile_progn(ctx, else_)?;
 
         let res = optimize_jump_if_nil(&mut result, Pos::Rel(then.len() as isize + 1));
         result.push(res);
         result.append(&mut then);
-        if else_.is_empty() && ctx.keep_result {
+        if else_.is_empty() && ctx.compiler.as_ref().unwrap().keep_result {
             else_.push(Instruction::Push(TulispObject::nil()));
         }
         result.push(Instruction::Jump(Pos::Rel(else_.len() as isize)));
@@ -52,19 +55,19 @@ pub(super) fn compile_fn_if(
 }
 
 pub(super) fn compile_fn_cond(
-    compiler: &mut Compiler<'_>,
+    ctx: &mut TulispContext,
     _name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
     let mut result = vec![];
-    let cond_end = compiler.new_label();
+    let cond_end = ctx.compiler.as_mut().unwrap().new_label();
 
     for branch in args.base_iter() {
         result.append(
-            &mut compiler
+            &mut ctx
                 .compile_1_arg_call(&"cond-branch".into(), &branch, true, |ctx, cond, body| {
-                    let mut result = ctx.compile_expr_keep_result(cond)?;
-                    let mut body = ctx.compile_progn(body)?;
+                    let mut result = compile_expr_keep_result(ctx, cond)?;
+                    let mut body = compile_progn(ctx, body)?;
 
                     let res = optimize_jump_if_nil(&mut result, Pos::Rel(body.len() as isize + 1));
                     result.push(res);
@@ -75,6 +78,7 @@ pub(super) fn compile_fn_cond(
         );
         result.push(Instruction::Jump(Pos::Label(cond_end.clone())));
     }
+    let compiler = ctx.compiler.as_mut().unwrap();
     if compiler.keep_result {
         result.push(Instruction::Push(false.into()));
     }
@@ -83,13 +87,13 @@ pub(super) fn compile_fn_cond(
 }
 
 pub(super) fn compile_fn_while(
-    compiler: &mut Compiler<'_>,
+    ctx: &mut TulispContext,
     name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    compiler.compile_1_arg_call(name, args, true, |ctx, cond, body| {
-        let mut result = ctx.compile_expr_keep_result(cond)?;
-        let mut body = ctx.compile_progn(body)?;
+    ctx.compile_1_arg_call(name, args, true, |ctx, cond, body| {
+        let mut result = compile_expr_keep_result(ctx, cond)?;
+        let mut body = compile_progn(ctx, body)?;
 
         let res = optimize_jump_if_nil(&mut result, Pos::Rel(body.len() as isize + 1));
         result.push(res);
@@ -100,13 +104,13 @@ pub(super) fn compile_fn_while(
 }
 
 pub(super) fn compile_fn_not(
-    compiler: &mut Compiler<'_>,
+    ctx: &mut TulispContext,
     _name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    compiler.compile_1_arg_call(_name, args, false, |compiler, arg, _| {
-        let mut result = compiler.compile_expr(arg)?;
-        if compiler.keep_result {
+    ctx.compile_1_arg_call(_name, args, false, |ctx, arg, _| {
+        let mut result = compile_expr(ctx, arg)?;
+        if ctx.compiler.as_ref().unwrap().keep_result {
             result.push(Instruction::Null);
         }
         Ok(result)
@@ -114,18 +118,22 @@ pub(super) fn compile_fn_not(
 }
 
 pub(super) fn compile_fn_and(
-    compiler: &mut Compiler<'_>,
+    ctx: &mut TulispContext,
     _name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
     let mut result = vec![];
+    let compiler = ctx.compiler.as_mut().unwrap();
     let label = compiler.new_label();
+    let keep_result = compiler.keep_result;
+    #[allow(dropping_references)]
+    drop(compiler);
     let mut need_label = false;
     for item in args.base_iter() {
-        let expr_result = &mut compiler.compile_expr(&item)?;
+        let expr_result = &mut compile_expr(ctx, &item)?;
         if !expr_result.is_empty() {
             result.append(expr_result);
-            if compiler.keep_result {
+            if keep_result {
                 result.push(Instruction::JumpIfNilElsePop(Pos::Label(label.clone())));
             } else {
                 result.push(Instruction::JumpIfNil(Pos::Label(label.clone())));
@@ -134,7 +142,7 @@ pub(super) fn compile_fn_and(
         }
     }
     if need_label {
-        if compiler.keep_result {
+        if keep_result {
             result.pop();
         }
         result.push(Instruction::Label(label.into()));
@@ -143,18 +151,20 @@ pub(super) fn compile_fn_and(
 }
 
 pub(super) fn compile_fn_or(
-    compiler: &mut Compiler<'_>,
+    ctx: &mut TulispContext,
     _name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
     let mut result = vec![];
+    let compiler = ctx.compiler.as_mut().unwrap();
     let label = compiler.new_label();
+    let keep_result = compiler.keep_result;
     let mut need_label = false;
     for item in args.base_iter() {
-        let expr_result = &mut compiler.compile_expr(&item)?;
+        let expr_result = &mut compile_expr(ctx, &item)?;
         if !expr_result.is_empty() {
             result.append(expr_result);
-            if compiler.keep_result {
+            if keep_result {
                 result.push(Instruction::JumpIfNotNilElsePop(Pos::Label(label.clone())));
             } else {
                 result.push(Instruction::JumpIfNotNil(Pos::Label(label.clone())));
@@ -163,7 +173,7 @@ pub(super) fn compile_fn_or(
         }
     }
     if need_label {
-        if compiler.keep_result {
+        if keep_result {
             result.push(Instruction::Push(false.into()))
         }
         result.push(Instruction::Label(label.into()));

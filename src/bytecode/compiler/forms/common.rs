@@ -1,15 +1,16 @@
-use crate::{
-    bytecode::{Compiler, Instruction},
-    Error, ErrorKind, TulispObject, TulispValue,
-};
+use crate::{bytecode::Instruction, Error, ErrorKind, TulispContext, TulispObject, TulispValue};
 
-impl Compiler<'_> {
+impl TulispContext {
     pub(crate) fn compile_1_arg_call(
         &mut self,
         name: &TulispObject,
         args: &TulispObject,
         has_rest: bool,
-        lambda: fn(&mut Compiler, &TulispObject, &TulispObject) -> Result<Vec<Instruction>, Error>,
+        lambda: fn(
+            &mut TulispContext,
+            &TulispObject,
+            &TulispObject,
+        ) -> Result<Vec<Instruction>, Error>,
     ) -> Result<Vec<Instruction>, Error> {
         if args.null() {
             return Err(Error::new(
@@ -40,7 +41,7 @@ impl Compiler<'_> {
         args: &TulispObject,
         has_rest: bool,
         lambda: fn(
-            &mut Compiler,
+            &mut TulispContext,
             &TulispObject,
             &TulispObject,
             &TulispObject,

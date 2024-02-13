@@ -1,15 +1,19 @@
 use crate::{
-    bytecode::{Compiler, Instruction, Pos},
-    Error, TulispObject,
+    bytecode::{compiler::compiler::compile_expr, Instruction, Pos},
+    Error, TulispContext, TulispObject,
 };
 
 fn compile_fn_compare(
-    compiler: &mut Compiler<'_>,
+    ctx: &mut TulispContext,
     name: &TulispObject,
     args: &TulispObject,
     instruction: Instruction,
 ) -> Result<Vec<Instruction>, Error> {
+    let compiler = ctx.compiler.as_mut().unwrap();
     let label = compiler.new_label();
+    let keep_result = compiler.keep_result;
+    #[allow(dropping_references)]
+    drop(compiler);
     let mut result = vec![];
     let args = args.base_iter().collect::<Vec<_>>();
     if args.len() < 2 {
@@ -19,14 +23,14 @@ fn compile_fn_compare(
         ));
     }
     for items in args.windows(2) {
-        result.append(&mut compiler.compile_expr(&items[1])?);
-        result.append(&mut compiler.compile_expr(&items[0])?);
-        if compiler.keep_result {
+        result.append(&mut compile_expr(ctx, &items[1])?);
+        result.append(&mut compile_expr(ctx, &items[0])?);
+        if keep_result {
             result.push(instruction.clone());
             result.push(Instruction::JumpIfNilElsePop(Pos::Label(label.clone())));
         }
     }
-    if compiler.keep_result {
+    if keep_result {
         result.pop();
         if args.len() > 2 {
             result.push(Instruction::Label(label));
@@ -36,46 +40,46 @@ fn compile_fn_compare(
 }
 
 pub(super) fn compile_fn_lt(
-    compiler: &mut Compiler<'_>,
+    ctx: &mut TulispContext,
     name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    compile_fn_compare(compiler, name, args, Instruction::Lt)
+    compile_fn_compare(ctx, name, args, Instruction::Lt)
 }
 
 pub(super) fn compile_fn_le(
-    compiler: &mut Compiler<'_>,
+    ctx: &mut TulispContext,
     name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    compile_fn_compare(compiler, name, args, Instruction::LtEq)
+    compile_fn_compare(ctx, name, args, Instruction::LtEq)
 }
 
 pub(super) fn compile_fn_gt(
-    compiler: &mut Compiler<'_>,
+    ctx: &mut TulispContext,
     name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    compile_fn_compare(compiler, name, args, Instruction::Gt)
+    compile_fn_compare(ctx, name, args, Instruction::Gt)
 }
 
 pub(super) fn compile_fn_ge(
-    compiler: &mut Compiler<'_>,
+    ctx: &mut TulispContext,
     name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    compile_fn_compare(compiler, name, args, Instruction::GtEq)
+    compile_fn_compare(ctx, name, args, Instruction::GtEq)
 }
 
 pub(super) fn compile_fn_eq(
-    compiler: &mut Compiler<'_>,
+    ctx: &mut TulispContext,
     name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    compiler.compile_2_arg_call(name, args, false, |compiler, arg1, arg2, _| {
-        let mut result = compiler.compile_expr(arg2)?;
-        result.append(&mut compiler.compile_expr(arg1)?);
-        if compiler.keep_result {
+    ctx.compile_2_arg_call(name, args, false, |ctx, arg1, arg2, _| {
+        let mut result = compile_expr(ctx, arg2)?;
+        result.append(&mut compile_expr(ctx, arg1)?);
+        if ctx.compiler.as_ref().unwrap().keep_result {
             result.push(Instruction::Eq);
         }
         Ok(result)
@@ -83,14 +87,14 @@ pub(super) fn compile_fn_eq(
 }
 
 pub(super) fn compile_fn_equal(
-    compiler: &mut Compiler<'_>,
+    ctx: &mut TulispContext,
     name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    compiler.compile_2_arg_call(name, args, false, |compiler, arg1, arg2, _| {
-        let mut result = compiler.compile_expr(arg2)?;
-        result.append(&mut compiler.compile_expr(arg1)?);
-        if compiler.keep_result {
+    ctx.compile_2_arg_call(name, args, false, |ctx, arg1, arg2, _| {
+        let mut result = compile_expr(ctx, arg2)?;
+        result.append(&mut compile_expr(ctx, arg1)?);
+        if ctx.compiler.as_ref().unwrap().keep_result {
             result.push(Instruction::Equal);
         }
         Ok(result)
@@ -148,15 +152,15 @@ mod tests {
     load b                                 # 0
     load a                                 # 1
     clt                                    # 2
-    jnil_else_pop :1                       # 3
+    jnil_else_pop :2                       # 3
     load c                                 # 4
     load b                                 # 5
     clt                                    # 6
-    jnil_else_pop :1                       # 7
+    jnil_else_pop :2                       # 7
     push 10                                # 8
     load c                                 # 9
     clt                                    # 10
-:1                                         # 11"#
+:2                                         # 11"#
         );
     }
 
@@ -181,11 +185,11 @@ mod tests {
     push 5                                 # 1
     store a                                # 2
     cle                                    # 3
-    jnil_else_pop :1                       # 4
+    jnil_else_pop :2                       # 4
     push 10                                # 5
     push 8                                 # 6
     cle                                    # 7
-:1                                         # 8"#
+:2                                         # 8"#
         );
 
         let output = ctx.run_bytecode(bytecode).unwrap();

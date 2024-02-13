@@ -8,4 +8,4 @@ mod interpreter;
 pub(crate) use interpreter::Machine;
 
 mod compiler;
-pub(crate) use compiler::Compiler;
+pub(crate) use compiler::{compile, Compiler, VMCompilers};

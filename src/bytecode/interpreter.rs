@@ -1,4 +1,4 @@
-use super::{bytecode::Bytecode, Compiler, Instruction};
+use super::{bytecode::Bytecode, compile, Instruction};
 use crate::{bytecode::Pos, Error, TulispContext, TulispObject};
 use std::collections::HashMap;
 
@@ -169,7 +169,7 @@ impl Machine {
                         .as_string()
                         .map_err(|err| err.with_trace(filename))?;
                     let ast = ctx.parse_file(&filename)?;
-                    let bytecode = Compiler::new(ctx).compile(&ast)?;
+                    let bytecode = compile(ctx, &ast)?;
                     // TODO: support global code in modules
                     if bytecode.global.borrow().len() > 0 {
                         return Err(Error::new(

@@ -3,7 +3,7 @@ use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc};
 use super::Instruction;
 use crate::bytecode::compiler::VMDefunParams;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(crate) struct Bytecode {
     pub(crate) global: Rc<RefCell<Vec<Instruction>>>,
     pub(crate) functions: HashMap<usize, Rc<RefCell<Vec<Instruction>>>>,

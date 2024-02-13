@@ -1,10 +1,10 @@
 use crate::{
-    bytecode::{instruction::BinaryOp, Compiler, Instruction},
-    Error, ErrorKind, TulispObject,
+    bytecode::{compiler::compiler::compile_expr, instruction::BinaryOp, Instruction},
+    Error, ErrorKind, TulispContext, TulispObject,
 };
 
 pub(super) fn compile_fn_plus(
-    compiler: &mut Compiler<'_>,
+    ctx: &mut TulispContext,
     _name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
@@ -17,8 +17,9 @@ pub(super) fn compile_fn_plus(
         ));
     }
     for arg in args.iter().rev() {
-        result.append(&mut compiler.compile_expr(arg)?);
+        result.append(&mut compile_expr(ctx, arg)?);
     }
+    let compiler = ctx.compiler.as_mut().unwrap();
     if compiler.keep_result {
         for _ in 0..args.len() - 1 {
             result.push(Instruction::BinaryOp(BinaryOp::Add));
@@ -28,7 +29,7 @@ pub(super) fn compile_fn_plus(
 }
 
 pub(super) fn compile_fn_minus(
-    compiler: &mut Compiler<'_>,
+    ctx: &mut TulispContext,
     _name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
@@ -41,8 +42,9 @@ pub(super) fn compile_fn_minus(
         ));
     }
     for arg in args.iter().rev() {
-        result.append(&mut compiler.compile_expr(arg)?);
+        result.append(&mut compile_expr(ctx, arg)?);
     }
+    let compiler = ctx.compiler.as_mut().unwrap();
     if args.len() == 1 {
         if compiler.keep_result {
             result.push(Instruction::Push((-1).into()));
@@ -59,7 +61,7 @@ pub(super) fn compile_fn_minus(
 }
 
 pub(super) fn compile_fn_mul(
-    compiler: &mut Compiler<'_>,
+    ctx: &mut TulispContext,
     _name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
@@ -72,8 +74,9 @@ pub(super) fn compile_fn_mul(
         ));
     }
     for arg in args.iter().rev() {
-        result.append(&mut compiler.compile_expr(arg)?);
+        result.append(&mut compile_expr(ctx, arg)?);
     }
+    let compiler = ctx.compiler.as_mut().unwrap();
     if compiler.keep_result {
         for _ in 0..args.len() - 1 {
             result.push(Instruction::BinaryOp(BinaryOp::Mul));
@@ -83,10 +86,11 @@ pub(super) fn compile_fn_mul(
 }
 
 pub(super) fn compile_fn_div(
-    compiler: &mut Compiler<'_>,
+    ctx: &mut TulispContext,
     _name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
+    let compiler = ctx.compiler.as_mut().unwrap();
     if !compiler.keep_result {
         return Ok(vec![]);
     }
@@ -99,7 +103,7 @@ pub(super) fn compile_fn_div(
         ));
     }
     for arg in args.iter().rev() {
-        result.append(&mut compiler.compile_expr(arg)?);
+        result.append(&mut compile_expr(ctx, arg)?);
     }
     if args.len() == 1 {
         result.push(Instruction::Push(1.into()));
