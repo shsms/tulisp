@@ -156,15 +156,12 @@ fn assoc_find(
 ///
 /// Read more about `plist`s
 /// [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Property-Lists.html).
-pub fn plist_get(plist: TulispObject, property: &TulispObject) -> Result<TulispObject, Error> {
-    let mut next = plist;
-    while let Some(cons) = next.as_list_cons() {
-        let car = cons.car();
-        let cdr = cons.cdr();
-        if car.eq(property) {
-            return cdr.car();
-        }
-        next = cdr.clone();
+pub fn plist_get(plist: &TulispObject, property: &TulispObject) -> Result<TulispObject, Error> {
+    if plist.car_and_then(|car| Ok(car.eq(property)))? {
+        return plist.cadr();
+    };
+    if plist.consp() {
+        return plist.cddr_and_then(|cddr| plist_get(cddr, property));
     }
     Ok(TulispObject::nil())
 }
@@ -205,8 +202,8 @@ mod tests {
             (b.clone(), 30.into()),
             (c.clone(), 40.into()),
         ]);
-        assert!(plist_get(list.clone(), &b)?.equal(&30.into()));
-        assert_eq!(plist_get(list, &d)?.null(), true);
+        assert!(plist_get(&list, &b)?.equal(&30.into()));
+        assert_eq!(plist_get(&list, &d)?.null(), true);
         Ok(())
     }
 }
