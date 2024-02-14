@@ -1,5 +1,5 @@
 use super::{bytecode::Bytecode, compile, Instruction};
-use crate::{bytecode::Pos, Error, TulispContext, TulispObject};
+use crate::{bytecode::Pos, lists, Error, TulispContext, TulispObject};
 use std::collections::HashMap;
 
 macro_rules! binary_ops {
@@ -486,6 +486,14 @@ impl Machine {
                             Cddddr => a.cddddr().unwrap(),
                         }
                     })
+                }
+                Instruction::PlistGet => {
+                    let [ref key, ref plist] = self.stack[(self.stack.len() - 2)..] else {
+                        unreachable!()
+                    };
+                    let value = lists::plist_get(plist, key)?;
+                    self.stack.truncate(self.stack.len() - 2);
+                    self.stack.push(value);
                 }
                 // predicates
                 Instruction::Null => {

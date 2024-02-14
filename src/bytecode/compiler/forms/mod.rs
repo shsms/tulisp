@@ -12,6 +12,7 @@ mod comparison_of_numbers;
 mod conditionals;
 mod list_elements;
 mod other_functions;
+mod plist;
 
 type FnCallCompiler =
     fn(&mut TulispContext, &TulispObject, &TulispObject) -> Result<Vec<Instruction>, Error>;
@@ -62,6 +63,7 @@ impl VMCompilers {
             ("cons", other_functions::compile_fn_cons),
             ("list", other_functions::compile_fn_list),
             ("append", other_functions::compile_fn_append),
+            ("plist-get", plist::compile_fn_plist_get),
             // cxr
             ("car", list_elements::compile_fn_cxr),
             ("cdr", list_elements::compile_fn_cxr),
