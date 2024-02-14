@@ -100,14 +100,14 @@ pub fn assoc(
     if let Some(testfn) = testfn {
         let pred = eval(ctx, &testfn)?;
 
-        let mut testfn = |_1: &TulispObject, _2: &TulispObject| -> Result<bool, Error> {
+        let testfn = |_1: &TulispObject, _2: &TulispObject| -> Result<bool, Error> {
             funcall::<DummyEval>(ctx, &pred, &list!(,_1.clone() ,_2.clone()).unwrap())
                 .map(|x| x.is_truthy())
         };
-        assoc_find(key, alist, &mut testfn)
+        assoc_find(key, alist, testfn)
     } else {
-        let mut testfn = |_1: &TulispObject, _2: &TulispObject| Ok(_1.equal(_2));
-        assoc_find(key, alist, &mut testfn)
+        let testfn = |_1: &TulispObject, _2: &TulispObject| Ok(_1.equal(_2));
+        assoc_find(key, alist, testfn)
     }
 }
 
@@ -135,18 +135,13 @@ pub fn alist_get(
 fn assoc_find(
     key: &TulispObject,
     alist: &TulispObject,
-    testfn: &mut dyn FnMut(&TulispObject, &TulispObject) -> Result<bool, Error>,
+    mut testfn: impl FnMut(&TulispObject, &TulispObject) -> Result<bool, Error>,
 ) -> Result<TulispObject, Error> {
-    for kvpair in alist.base_iter() {
-        if !kvpair.consp() {
-            return Err(Error::new(
-                ErrorKind::TypeMismatch,
-                "expected cons inside alist".to_owned(),
-            ));
-        }
-        if testfn(&kvpair.car()?, key)? {
-            return Ok(kvpair);
-        }
+    if alist.caar_and_then(|caar| testfn(&caar, key))? {
+        return alist.car();
+    }
+    if alist.consp() {
+        return alist.cdr_and_then(|cdr| assoc_find(key, cdr, testfn));
     }
     Ok(TulispObject::nil())
 }
@@ -156,15 +151,12 @@ fn assoc_find(
 ///
 /// Read more about `plist`s
 /// [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Property-Lists.html).
-pub fn plist_get(plist: TulispObject, property: &TulispObject) -> Result<TulispObject, Error> {
-    let mut next = plist;
-    while let Some(cons) = next.as_list_cons() {
-        let car = cons.car();
-        let cdr = cons.cdr();
-        if car.eq(property) {
-            return cdr.car();
-        }
-        next = cdr.clone();
+pub fn plist_get(plist: &TulispObject, property: &TulispObject) -> Result<TulispObject, Error> {
+    if plist.car_and_then(|car| Ok(car.eq(property)))? {
+        return plist.cadr();
+    };
+    if plist.consp() {
+        return plist.cddr_and_then(|cddr| plist_get(cddr, property));
     }
     Ok(TulispObject::nil())
 }
@@ -205,8 +197,8 @@ mod tests {
             (b.clone(), 30.into()),
             (c.clone(), 40.into()),
         ]);
-        assert!(plist_get(list.clone(), &b)?.equal(&30.into()));
-        assert_eq!(plist_get(list, &d)?.null(), true);
+        assert!(plist_get(&list, &b)?.equal(&30.into()));
+        assert_eq!(plist_get(&list, &d)?.null(), true);
         Ok(())
     }
 }
