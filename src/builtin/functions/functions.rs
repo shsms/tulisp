@@ -472,7 +472,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     #[crate_fn(add_func = "ctx", name = "plist-get")]
     fn plist_get(plist: TulispObject, property: TulispObject) -> Result<TulispObject, Error> {
-        lists::plist_get(plist, &property)
+        lists::plist_get(&plist, &property)
     }
 
     // predicates begin
