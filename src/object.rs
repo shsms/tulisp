@@ -348,6 +348,15 @@ impl TulispObject {
         }
     }
 
+    /// Sets the value without checking if the symbol is constant, or if it is
+    /// bound.
+    ///
+    /// For use in loops and other places where a set_scope has already been
+    /// done, and the symbol is known to be bound.
+    pub(crate) fn set_unchecked(&self, to_set: TulispObject) {
+        self.rc.borrow_mut().set_unchecked(to_set)
+    }
+
     pub(crate) fn eq_ptr(&self, other: &TulispObject) -> bool {
         Rc::ptr_eq(&self.rc, &other.rc)
     }
