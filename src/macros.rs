@@ -129,11 +129,7 @@ macro_rules! destruct_bind {
         }
     };
     (@rest $rest:ident $vv:ident) => {
-        let $rest = if $vv.null() {
-            TulispObject::nil()
-        } else {
-            $vv
-        };
+        let $rest = $vv;
     };
     (@optvar $vv:ident, $var:ident) => {
         let ($var, $vv) = if !$vv.null() {

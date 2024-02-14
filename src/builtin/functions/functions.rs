@@ -446,9 +446,8 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     }
 
     fn dolist(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
-        let spec = args.car()?;
+        destruct_bind!((spec &rest body) = args);
         destruct_bind!((var list &optional result) = spec);
-        let body = args.cdr()?;
         let mut list = ctx.eval(&list)?;
         var.set_scope(list.car()?)?;
         while list.is_truthy() {
@@ -463,8 +462,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     intern_set_func!(ctx, dolist);
 
     fn dotimes(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
-        let spec = args.car()?;
-        let body = args.cdr()?;
+        destruct_bind!((spec &rest body) = args);
         destruct_bind!((var count &optional result) = spec);
         var.set_scope(TulispObject::from(0))?;
         for counter in 0..count.as_int()? {
