@@ -134,6 +134,15 @@ impl SymbolBindings {
         Ok(())
     }
 
+    /// Sets the value without checking if the symbol is constant, or if it is
+    /// bound.
+    ///
+    /// For use in loops and other places where a set_scope has already been
+    /// done, and the symbol is known to be bound.
+    pub(crate) fn set_unchecked(&mut self, to_set: TulispObject) {
+        *self.items.last_mut().unwrap() = to_set;
+    }
+
     pub fn unset(&mut self) -> Result<(), Error> {
         if self.items.is_empty() {
             return Err(Error::new(
@@ -381,6 +390,17 @@ impl TulispValue {
                 ErrorKind::TypeMismatch,
                 format!("Expected Symbol: Can't assign to {self}"),
             ))
+        }
+    }
+
+    /// Sets the value without checking if the symbol is constant, or if it is
+    /// bound.
+    ///
+    /// For use in loops and other places where a set_scope has already been
+    /// done, and the symbol is known to be bound.
+    pub(crate) fn set_unchecked(&mut self, to_set: TulispObject) {
+        if let TulispValue::Symbol { value, .. } = self {
+            value.set_unchecked(to_set)
         }
     }
 
