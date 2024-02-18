@@ -503,26 +503,6 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(TulispObject::nil())
     }
 
-    fn quote(_ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
-        if !args.consp() {
-            return Err(Error::new(
-                ErrorKind::TypeMismatch,
-                "quote: expected one argument".to_string(),
-            ));
-        }
-        args.cdr_and_then(|cdr| {
-            if !cdr.null() {
-                return Err(Error::new(
-                    ErrorKind::TypeMismatch,
-                    "quote: expected one argument".to_string(),
-                ));
-            }
-            Ok(())
-        })?;
-        args.car()
-    }
-    intern_set_func!(ctx, quote);
-
     #[crate_fn(add_func = "ctx")]
     fn null(arg: TulispObject) -> bool {
         arg.null()

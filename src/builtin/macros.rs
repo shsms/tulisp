@@ -2,6 +2,7 @@ use std::rc::Rc;
 
 use crate::context::TulispContext;
 use crate::error::Error;
+use crate::ErrorKind;
 use crate::TulispObject;
 use crate::TulispValue;
 use crate::{destruct_bind, list};
@@ -38,17 +39,40 @@ fn thread_last(_ctx: &mut TulispContext, vv: &TulispObject) -> Result<TulispObje
     }
 }
 
+fn quote(_ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+    if !args.consp() {
+        return Err(Error::new(
+            ErrorKind::TypeMismatch,
+            "quote: expected one argument".to_string(),
+        ));
+    }
+    args.cdr_and_then(|cdr| {
+        if !cdr.null() {
+            return Err(Error::new(
+                ErrorKind::TypeMismatch,
+                "quote: expected one argument".to_string(),
+            ));
+        }
+        Ok(())
+    })?;
+    let arg = args.car()?;
+    Ok(TulispValue::Quote { value: arg }.into_ref(None))
+}
+
 pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.intern("->")
-        .set_scope(TulispValue::Macro(Rc::new(thread_first)).into_ref(None))
+        .set(TulispValue::Macro(Rc::new(thread_first)).into_ref(None))
         .unwrap();
     ctx.intern("thread-first")
-        .set_scope(TulispValue::Macro(Rc::new(thread_first)).into_ref(None))
+        .set(TulispValue::Macro(Rc::new(thread_first)).into_ref(None))
         .unwrap();
     ctx.intern("->>")
-        .set_scope(TulispValue::Macro(Rc::new(thread_last)).into_ref(None))
+        .set(TulispValue::Macro(Rc::new(thread_last)).into_ref(None))
         .unwrap();
     ctx.intern("thread-last")
-        .set_scope(TulispValue::Macro(Rc::new(thread_last)).into_ref(None))
+        .set(TulispValue::Macro(Rc::new(thread_last)).into_ref(None))
+        .unwrap();
+    ctx.intern("quote")
+        .set(TulispValue::Macro(Rc::new(quote)).into_ref(None))
         .unwrap();
 }
