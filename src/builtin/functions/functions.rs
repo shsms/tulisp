@@ -102,6 +102,45 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(ctx.intern(&name))
     }
 
+    #[crate_fn(add_func = "ctx", name = "make-symbol")]
+    fn make_symbol(name: String) -> Result<TulispObject, Error> {
+        let constant = if name.starts_with(":") { true } else { false };
+        Ok(TulispObject::symbol(name, constant))
+    }
+
+    #[crate_fn(add_func = "ctx")]
+    fn gensym(
+        ctx: &mut TulispContext,
+        prefix: Option<TulispObject>,
+    ) -> Result<TulispObject, Error> {
+        let prefix = if let Some(prefix) = prefix {
+            if prefix.stringp() {
+                prefix.as_string()?
+            } else {
+                return Err(Error::new(
+                    ErrorKind::TypeMismatch,
+                    "gensym: prefix must be a string".to_string(),
+                ));
+            }
+        } else {
+            "g".to_string()
+        };
+        let counter = ctx.intern("gensym-counter");
+        let count = if counter.boundp() {
+            let value = counter.get()?;
+            if value.integerp() {
+                value.as_int().unwrap()
+            } else {
+                0
+            }
+        } else {
+            0
+        };
+        counter.set(TulispObject::from(count + 1))?;
+
+        make_symbol(format!("{prefix}{count}"))
+    }
+
     #[crate_fn(add_func = "ctx")]
     fn expt(base: TulispObject, pow: TulispObject) -> Result<TulispObject, Error> {
         Ok(f64::powf(base.try_into()?, pow.try_into()?).into())
