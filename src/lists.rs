@@ -91,7 +91,7 @@ pub fn assoc(
     alist: &TulispObject,
     testfn: Option<TulispObject>,
 ) -> Result<TulispObject, Error> {
-    if !alist.consp() {
+    if !alist.listp() {
         return Err(Error::new(
             ErrorKind::TypeMismatch,
             format!("expected alist. got: {}", alist),

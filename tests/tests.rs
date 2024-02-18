@@ -623,9 +623,9 @@ fn test_lists() -> Result<(), Error> {
     tulisp_assert! {
         program: r##"
         (let ((vv '((name . "person") (age . 120))))
-          (list (assoc 'age vv) (alist-get 'name vv) (alist-get 'names vv) (alist-get 'names vv "something")))
+          (list (assoc 'age vv) (alist-get 'name vv) (alist-get 'names vv) (alist-get 'names vv "something") (alist-get 'name nil)))
         "##,
-        result: r##"'((age . 120) "person" nil "something")"##,
+        result: r##"'((age . 120) "person" nil "something" nil)"##,
     }
 
     tulisp_assert! {
