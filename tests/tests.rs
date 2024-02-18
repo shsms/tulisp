@@ -683,6 +683,19 @@ fn test_backquotes() -> Result<(), Error> {
         result: r#"t"#,
     }
 
+    tulisp_assert! {
+        program: r#"`(1 2 '(+ 10 20)  ',(+ 10 20)  (quote ,(+ 20 20)))"#,
+        result: r#"'(1 2 '(+ 10 20) '30 (quote 40))"#,
+    }
+
+    tulisp_assert! {
+        program: r#"`(1 2 ,,(+ 10 20))"#,
+        error: r#"ERR TypeMismatch: Unquote without backquote
+<eval_string>:1.7-1.8:  at ,,(+ 10 20)
+<eval_string>:1.1-1.2:  at `(1 2 ,,(+ 10 20))
+"#,
+    }
+
     Ok(())
 }
 
