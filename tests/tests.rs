@@ -1222,3 +1222,38 @@ fn test_predicates() -> Result<(), Error> {
     }
     Ok(())
 }
+
+#[test]
+fn test_symbol_creation() -> Result<(), Error> {
+    tulisp_assert! {
+        program: r#"
+        (let ((sym (intern "hello")))
+          (list (eq sym 'hello) (equal (format "%s" sym) "hello")))
+        "#,
+        result: "'(t t)"
+    }
+
+    tulisp_assert! {
+        program: r#"
+        (let ((sym (make-symbol "hello")))
+          (list (eq sym 'hello) (equal (format "%s" sym) "hello")))
+        "#,
+        result: "'(nil t)"
+    }
+
+    tulisp_assert! {
+        program: r#"
+        (let ((sym (gensym "hello"))
+              (sym2 (gensym)))
+          (list
+           (eq sym 'hello)
+           (eq sym 'hello0)
+           (equal (format "%s" sym2)             "g1")
+           (equal (format "%s" sym)              "hello0")
+           (equal (format "%s" (gensym "hello")) "hello2")))
+        "#,
+        result: r#"'(nil nil t t t)"#
+    }
+
+    Ok(())
+}
