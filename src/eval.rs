@@ -264,6 +264,9 @@ pub(crate) fn eval_basic<'a>(
             }
             *result = Some(value.get().map_err(|e| e.with_trace(expr.clone()))?);
         }
+        TulispValue::LexicalBinding { value, .. } => {
+            *result = Some(value.get().map_err(|e| e.with_trace(expr.clone()))?);
+        }
         TulispValue::Int { .. }
         | TulispValue::Float { .. }
         | TulispValue::String { .. }
