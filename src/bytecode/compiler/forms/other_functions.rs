@@ -207,6 +207,7 @@ pub(super) fn compile_fn_defun_call(
     result.push(Instruction::Call {
         name: name.clone(),
         args_count,
+        instructions: None,
         params: None,
         optional_count: 0,
         rest_count: 0,

@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::{cell::RefCell, rc::Rc};
 
 use crate::{value::TulispFn, TulispObject};
 
@@ -113,6 +113,7 @@ pub(crate) enum Instruction {
     Call {
         name: TulispObject,
         args_count: usize,
+        instructions: Option<Rc<RefCell<Vec<Instruction>>>>,
         params: Option<VMDefunParams>,
         optional_count: usize,
         rest_count: usize,

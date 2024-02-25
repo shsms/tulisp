@@ -1,6 +1,6 @@
 use super::{bytecode::Bytecode, compile, Instruction};
 use crate::{bytecode::Pos, lists, Error, TulispContext, TulispObject};
-use std::collections::HashMap;
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 macro_rules! binary_ops {
     ($oper:expr) => {{
@@ -117,22 +117,17 @@ impl Machine {
     }
 
     pub fn run(&mut self, ctx: &mut TulispContext) -> Result<TulispObject, Error> {
-        self.run_impl(ctx, None, 0)?;
+        self.run_impl(ctx, &self.bytecode.global.clone(), 0)?;
         Ok(self.stack.pop().unwrap().into())
     }
 
     fn run_impl(
         &mut self,
         ctx: &mut TulispContext,
-        func: Option<usize>,
+        program: &Rc<RefCell<Vec<Instruction>>>,
         recursion_depth: u32,
     ) -> Result<(), Error> {
         let mut pc: usize = 0;
-        let program = if let Some(func) = func {
-            self.bytecode.functions.get(&func).unwrap().clone()
-        } else {
-            self.bytecode.global.clone()
-        };
         let program_size = program.borrow().len();
         let mut instr_ref = program.borrow_mut();
         while pc < program_size {
@@ -361,12 +356,18 @@ impl Machine {
                     name,
                     params,
                     args_count,
+                    instructions,
                     optional_count,
                     rest_count,
                 } => {
-                    let addr = name.addr_as_usize();
-                    let func = Some(addr);
+                    if instructions.is_none() {
+                        let addr = name.addr_as_usize();
+                        let instrs = self.bytecode.functions.get(&addr).unwrap().clone();
+                        *instructions = Some(instrs);
+                    }
+                    let instructions = instructions.as_ref().unwrap().clone();
                     if params.is_none() {
+                        let addr = name.addr_as_usize();
                         if let Some(items) = self.bytecode.defun_args.get(&addr) {
                             *params = Some(items.clone());
                             let left_args = *args_count - items.required.len();
@@ -407,9 +408,8 @@ impl Machine {
                         arg.set_scope(self.stack.pop().unwrap()).unwrap();
                         set_params.push(arg.clone());
                     }
-
                     drop(instr_ref);
-                    self.run_impl(ctx, func, recursion_depth + 1)?;
+                    self.run_impl(ctx, &instructions, recursion_depth + 1)?;
                     instr_ref = program.borrow_mut();
                     for arg in set_params.iter() {
                         arg.unset().unwrap();
