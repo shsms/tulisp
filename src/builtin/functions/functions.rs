@@ -354,7 +354,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             println!("mark_tail_calls error: {:?}", e);
             e
         })?;
-        name.set_scope(
+        name.set_global(
             TulispValue::Lambda {
                 params: params.try_into()?,
                 body,

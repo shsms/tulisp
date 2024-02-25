@@ -125,6 +125,22 @@ impl SymbolBindings {
         Ok(())
     }
 
+    pub(crate) fn set_global(&mut self, to_set: TulispObject) -> Result<(), Error> {
+        if self.constant {
+            return Err(Error::new(
+                ErrorKind::Undefined,
+                format!("Can't set constant symbol: {}", self.name),
+            ));
+        }
+        self.has_global = true;
+        if self.items.is_empty() {
+            self.items.push(to_set);
+        } else {
+            *self.items.first_mut().unwrap() = to_set;
+        }
+        Ok(())
+    }
+
     pub fn set_scope(&mut self, to_set: TulispObject) -> Result<(), Error> {
         if self.constant {
             return Err(Error::new(
@@ -401,6 +417,18 @@ impl TulispValue {
         if let TulispValue::Symbol { value, .. } | TulispValue::LexicalBinding { value, .. } = self
         {
             value.set(to_set)
+        } else {
+            Err(Error::new(
+                ErrorKind::TypeMismatch,
+                "Can bind values only to Symbols".to_string(),
+            ))
+        }
+    }
+
+    pub(crate) fn set_global(&mut self, to_set: TulispObject) -> Result<(), Error> {
+        if let TulispValue::Symbol { value, .. } | TulispValue::LexicalBinding { value, .. } = self
+        {
+            value.set_global(to_set)
         } else {
             Err(Error::new(
                 ErrorKind::TypeMismatch,

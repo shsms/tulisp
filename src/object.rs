@@ -364,6 +364,10 @@ impl TulispObject {
         self.rc.borrow_mut().set_unchecked(to_set)
     }
 
+    pub(crate) fn set_global(&self, to_set: TulispObject) -> Result<(), Error> {
+        self.rc.borrow_mut().set_global(to_set)
+    }
+
     pub(crate) fn is_lexically_bound(&self) -> bool {
         self.rc.borrow().is_lexically_bound()
     }
