@@ -4,8 +4,8 @@ use tulisp::{tulisp_add_func, tulisp_fn, Error, Iter, TulispContext, TulispObjec
 macro_rules! tulisp_assert {
     (@impl $ctx: expr, program:$input:expr, result:$result:expr $(,)?) => {
         let output = $ctx.eval_string($input).map_err(|err| {
-            println!("{}:{}: execution failed: {}", file!(), line!(),err.format(&$ctx));
-            err
+            panic!("{}:{}: execution failed: {}", file!(), line!(),err.format(&$ctx));
+
         })?;
         let expected = $ctx.eval_string($result)?;
         assert!(
@@ -814,6 +814,50 @@ fn test_let() -> Result<(), Error> {
     tulisp_assert! {
         program: "(let* ((vv 21) (jj (+ vv 1))) (setq jj (+ 21 jj)) jj)",
         result: "43",
+    }
+
+    Ok(())
+}
+
+#[test]
+fn test_lexical_binding() -> Result<(), Error> {
+    tulisp_assert! {
+        program: r#"
+        (setq some-var 0)
+        (setq x 2)
+        (+ x (funcall (let ((x 10)
+                       (inc-some-var (lambda () (setq some-var (+ some-var x)))))
+                   (funcall inc-some-var)
+                   (let ((x 100))
+                     (funcall inc-some-var))
+                   inc-some-var)))
+        "#,
+        result: "32",
+    }
+
+    tulisp_assert! {
+        program: r#"
+        (setq n 2)
+        (defun make-adder (n)
+          (lambda (x) (+ x n)))
+
+        (setq add2 (make-adder 2))
+        (setq add10 (make-adder 10))
+
+        (list (+ n (funcall add2 2))
+              (funcall add10 2))
+        "#,
+        result: "'(6 12)",
+    }
+
+    tulisp_assert! {
+        program: r#"
+        (setq alist '((a . 1) (b . 2)))
+        (let ((a 10) (b 20))
+          (list (alist-get 'a alist)
+                (alist-get 'b alist)))
+        "#,
+        result: "'(1 2)",
     }
 
     Ok(())

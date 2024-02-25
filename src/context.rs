@@ -87,7 +87,7 @@ impl TulispContext {
         func: impl Fn(&mut TulispContext, &TulispObject) -> Result<TulispObject, Error> + 'static,
     ) {
         self.intern(name)
-            .set_scope(TulispValue::Func(Rc::new(func)).into_ref(None))
+            .set_global(TulispValue::Func(Rc::new(func)).into_ref(None))
             .unwrap();
     }
 
@@ -98,7 +98,7 @@ impl TulispContext {
         func: impl Fn(&mut TulispContext, &TulispObject) -> Result<TulispObject, Error> + 'static,
     ) {
         self.intern(name)
-            .set_scope(TulispValue::Macro(Rc::new(func)).into_ref(None))
+            .set_global(TulispValue::Macro(Rc::new(func)).into_ref(None))
             .unwrap();
     }
 

@@ -104,6 +104,7 @@ type TulispFn = dyn Fn(&mut TulispContext, &TulispObject) -> Result<TulispObject
 pub struct SymbolBindings {
     name: String,
     constant: bool,
+    has_global: bool,
     items: Vec<TulispObject>,
 }
 
@@ -116,9 +117,26 @@ impl SymbolBindings {
             ));
         }
         if self.items.is_empty() {
+            self.has_global = true;
             self.items.push(to_set);
         } else {
             *self.items.last_mut().unwrap() = to_set;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn set_global(&mut self, to_set: TulispObject) -> Result<(), Error> {
+        if self.constant {
+            return Err(Error::new(
+                ErrorKind::Undefined,
+                format!("Can't set constant symbol: {}", self.name),
+            ));
+        }
+        self.has_global = true;
+        if self.items.is_empty() {
+            self.items.push(to_set);
+        } else {
+            *self.items.first_mut().unwrap() = to_set;
         }
         Ok(())
     }
@@ -181,6 +199,10 @@ pub enum TulispValue {
     Symbol {
         value: SymbolBindings,
     },
+    LexicalBinding {
+        value: SymbolBindings,
+        symbol: TulispObject,
+    },
     Int {
         value: i64,
     },
@@ -232,6 +254,11 @@ impl std::fmt::Debug for TulispValue {
             Self::Symbol { value } => f
                 .debug_struct("Symbol")
                 .field("name", &value.name)
+                .field("value", value)
+                .finish(),
+            Self::LexicalBinding { value, symbol } => f
+                .debug_struct("LexicalBinding")
+                .field("symbol", symbol)
                 .field("value", value)
                 .finish(),
             Self::Int { value } => f.debug_struct("Int").field("value", value).finish(),
@@ -338,6 +365,7 @@ impl std::fmt::Display for TulispValue {
             TulispValue::Bounce => f.write_str("Bounce"),
             TulispValue::Nil { .. } => f.write_str("nil"),
             TulispValue::Symbol { value } => f.write_str(&value.name),
+            TulispValue::LexicalBinding { value, .. } => f.write_str(&value.name),
             TulispValue::Int { value, .. } => f.write_fmt(format_args!("{}", value)),
             TulispValue::Float { value, .. } => f.write_fmt(format_args!("{}", value)),
             TulispValue::String { value, .. } => f.write_fmt(format_args!(r#""{}""#, value)),
@@ -366,13 +394,28 @@ impl TulispValue {
             value: SymbolBindings {
                 name,
                 constant,
+                has_global: false,
+                items: Default::default(),
+            },
+        }
+    }
+
+    pub(crate) fn lexical_binding(symbol: TulispObject) -> TulispValue {
+        let name = symbol.to_string();
+        TulispValue::LexicalBinding {
+            symbol,
+            value: SymbolBindings {
+                name,
+                constant: false,
+                has_global: false,
                 items: Default::default(),
             },
         }
     }
 
     pub fn set(&mut self, to_set: TulispObject) -> Result<(), Error> {
-        if let TulispValue::Symbol { value, .. } = self {
+        if let TulispValue::Symbol { value, .. } | TulispValue::LexicalBinding { value, .. } = self
+        {
             value.set(to_set)
         } else {
             Err(Error::new(
@@ -382,8 +425,21 @@ impl TulispValue {
         }
     }
 
+    pub(crate) fn set_global(&mut self, to_set: TulispObject) -> Result<(), Error> {
+        if let TulispValue::Symbol { value, .. } | TulispValue::LexicalBinding { value, .. } = self
+        {
+            value.set_global(to_set)
+        } else {
+            Err(Error::new(
+                ErrorKind::TypeMismatch,
+                "Can bind values only to Symbols".to_string(),
+            ))
+        }
+    }
+
     pub fn set_scope(&mut self, to_set: TulispObject) -> Result<(), Error> {
-        if let TulispValue::Symbol { value, .. } = self {
+        if let TulispValue::Symbol { value, .. } | TulispValue::LexicalBinding { value, .. } = self
+        {
             value.set_scope(to_set)
         } else {
             Err(Error::new(
@@ -399,13 +455,15 @@ impl TulispValue {
     /// For use in loops and other places where a set_scope has already been
     /// done, and the symbol is known to be bound.
     pub(crate) fn set_unchecked(&mut self, to_set: TulispObject) {
-        if let TulispValue::Symbol { value, .. } = self {
+        if let TulispValue::Symbol { value, .. } | TulispValue::LexicalBinding { value, .. } = self
+        {
             value.set_unchecked(to_set)
         }
     }
 
     pub fn unset(&mut self) -> Result<(), Error> {
-        if let TulispValue::Symbol { value, .. } = self {
+        if let TulispValue::Symbol { value, .. } | TulispValue::LexicalBinding { value, .. } = self
+        {
             value.unset()
         } else {
             Err(Error::new(
@@ -415,8 +473,36 @@ impl TulispValue {
         }
     }
 
+    pub(crate) fn is_lexically_bound(&self) -> bool {
+        match self {
+            TulispValue::Symbol { value } => {
+                if value.has_global && value.items.len() > 1 {
+                    true
+                } else if !value.has_global && !value.items.is_empty() {
+                    true
+                } else {
+                    false
+                }
+            }
+            TulispValue::LexicalBinding { .. } => true,
+            _ => false,
+        }
+    }
+
+    pub(crate) fn lex_symbol_eq(&self, other: &TulispObject) -> bool {
+        let TulispValue::LexicalBinding { symbol, .. } = self else {
+            return false;
+        };
+        if let TulispValue::LexicalBinding { symbol: other, .. } = &*other.inner_ref() {
+            symbol.eq(other)
+        } else {
+            symbol.eq(other)
+        }
+    }
+
     pub fn get(&self) -> Result<TulispObject, Error> {
-        if let TulispValue::Symbol { value, .. } = self {
+        if let TulispValue::Symbol { value, .. } | TulispValue::LexicalBinding { value, .. } = self
+        {
             if value.is_constant() {
                 // Taking this path loses the span, so it should never be used.
                 // This check needs to be done in the object.
@@ -440,7 +526,8 @@ impl TulispValue {
     }
 
     pub fn boundp(&self) -> bool {
-        if let TulispValue::Symbol { value, .. } = self {
+        if let TulispValue::Symbol { value, .. } | TulispValue::LexicalBinding { value, .. } = self
+        {
             value.boundp()
         } else {
             false
@@ -515,7 +602,9 @@ impl TulispValue {
 
     pub fn as_symbol(&self) -> Result<String, Error> {
         match self {
-            TulispValue::Symbol { value } => Ok(value.name.to_string()),
+            TulispValue::Symbol { value } | TulispValue::LexicalBinding { value, .. } => {
+                Ok(value.name.to_string())
+            }
             _ => Err(Error::new(
                 ErrorKind::TypeMismatch,
                 format!("Expected symbol: {}", self),
@@ -609,7 +698,10 @@ impl TulispValue {
     }
 
     pub fn symbolp(&self) -> bool {
-        matches!(self, TulispValue::Symbol { .. })
+        matches!(
+            self,
+            TulispValue::Symbol { .. } | TulispValue::LexicalBinding { .. }
+        )
     }
 
     pub fn as_string(&self) -> Result<String, Error> {

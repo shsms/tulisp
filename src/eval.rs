@@ -264,6 +264,9 @@ pub(crate) fn eval_basic<'a>(
             }
             *result = Some(value.get().map_err(|e| e.with_trace(expr.clone()))?);
         }
+        TulispValue::LexicalBinding { value, .. } => {
+            *result = Some(value.get().map_err(|e| e.with_trace(expr.clone()))?);
+        }
         TulispValue::Int { .. }
         | TulispValue::Float { .. }
         | TulispValue::String { .. }
@@ -314,7 +317,7 @@ pub fn macroexpand(ctx: &mut TulispContext, inp: TulispObject) -> Result<TulispO
     };
     let mut x = match &*value.inner_ref() {
         TulispValue::Macro(func) => {
-            let expansion = func(ctx, &expr.cdr()?)?;
+            let expansion = func(ctx, &expr.cdr()?).map_err(|e| e.with_trace(inp))?;
             macroexpand(ctx, expansion)?
         }
         TulispValue::Defmacro { params, body } => {

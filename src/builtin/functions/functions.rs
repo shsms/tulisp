@@ -9,6 +9,7 @@ use crate::eval::eval_check_null;
 use crate::eval::DummyEval;
 use crate::eval::Eval;
 use crate::lists;
+use crate::value::DefunParams;
 use crate::TulispObject;
 use crate::TulispValue;
 use crate::{destruct_bind, list};
@@ -353,7 +354,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             println!("mark_tail_calls error: {:?}", e);
             e
         })?;
-        name.set_scope(
+        name.set_global(
             TulispValue::Lambda {
                 params: params.try_into()?,
                 body,
@@ -370,11 +371,115 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         } else {
             rest
         };
-        Ok(TulispValue::Lambda {
-            params: params.try_into()?,
-            body,
+        let params: DefunParams = params.try_into()?;
+        let param_names: Vec<_> = params.iter().map(|x| x.param.clone()).collect();
+
+        fn capture_inside_quoted(
+            captured_vars: &mut Vec<(TulispObject, TulispObject)>,
+            exclude: &[TulispObject],
+            value: TulispObject,
+        ) -> Result<TulispObject, Error> {
+            let inner_ref = value.inner_ref();
+            let res = match &*inner_ref {
+                TulispValue::Backquote { value } => TulispValue::Backquote {
+                    value: capture_variables(captured_vars, exclude, value.clone())?,
+                }
+                .into_ref(value.span()),
+                TulispValue::Unquote { value } => TulispValue::Unquote {
+                    value: capture_variables(captured_vars, exclude, value.clone())?,
+                }
+                .into_ref(value.span()),
+                TulispValue::Splice { value } => TulispValue::Splice {
+                    value: capture_variables(captured_vars, exclude, value.clone())?,
+                }
+                .into_ref(value.span()),
+                TulispValue::Sharpquote { value } => TulispValue::Sharpquote {
+                    value: capture_variables(captured_vars, exclude, value.clone())?,
+                }
+                .into_ref(value.span()),
+                TulispValue::Quote { value } => TulispValue::Quote {
+                    value: capture_variables(captured_vars, exclude, value.clone())?,
+                }
+                .into_ref(value.span()),
+                _ => {
+                    drop(inner_ref);
+                    value
+                }
+            };
+            Ok(res)
         }
-        .into_ref(None))
+
+        fn slice_contains(vec: &[TulispObject], item: &TulispObject) -> bool {
+            for i in vec {
+                if i.eq(item) {
+                    return true;
+                }
+            }
+            false
+        }
+
+        fn capture_symbol(
+            captured_vars: &mut Vec<(TulispObject, TulispObject)>,
+            exclude: &[TulispObject],
+            symbol: TulispObject,
+        ) -> Result<TulispObject, Error> {
+            if !symbol.is_lexically_bound() {
+                return Ok(symbol);
+            }
+            if !slice_contains(&exclude, &symbol) {
+                for (from, to) in captured_vars.iter() {
+                    if symbol.eq(from) {
+                        return Ok(to.clone().with_span(symbol.span()));
+                    }
+                }
+                let new_var = TulispObject::lexical_binding(symbol.clone());
+                new_var.set(symbol.get()?)?;
+                captured_vars.push((symbol, new_var.clone()));
+                return Ok(new_var);
+            }
+            return Ok(symbol);
+        }
+
+        fn capture_variables(
+            captured_vars: &mut Vec<(TulispObject, TulispObject)>,
+            exclude: &[TulispObject],
+            mut body: TulispObject,
+        ) -> Result<TulispObject, Error> {
+            let result = TulispObject::nil().with_span(body.span());
+            if !body.consp() {
+                if body.symbolp() {
+                    return Ok(capture_symbol(captured_vars, exclude, body)?);
+                }
+                return Ok(capture_inside_quoted(captured_vars, exclude, body)?);
+            }
+
+            loop {
+                let car = body.car()?;
+                if car.consp() {
+                    result.push(capture_variables(captured_vars, exclude, car)?)?;
+                } else if car.symbolp() {
+                    result.push(capture_symbol(captured_vars, exclude, car)?)?;
+                } else {
+                    result.push(capture_inside_quoted(captured_vars, exclude, car)?)?;
+                }
+                let cdr = body.cdr()?;
+                if cdr.null() {
+                    break;
+                }
+                if cdr.symbolp() {
+                    result.append(capture_symbol(captured_vars, exclude, cdr)?)?;
+                    break;
+                } else if !cdr.consp() {
+                    result.append(capture_inside_quoted(captured_vars, exclude, cdr)?)?;
+                    break;
+                }
+                body = cdr;
+            }
+            Ok(result)
+        }
+
+        let body = capture_variables(&mut vec![], &param_names, body)?;
+        Ok(TulispValue::Lambda { params, body }.into_ref(None))
     }
 
     #[crate_fn_no_eval(add_func = "ctx")]
@@ -397,26 +502,6 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         )?;
         Ok(TulispObject::nil())
     }
-
-    fn quote(_ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
-        if !args.consp() {
-            return Err(Error::new(
-                ErrorKind::TypeMismatch,
-                "quote: expected one argument".to_string(),
-            ));
-        }
-        args.cdr_and_then(|cdr| {
-            if !cdr.null() {
-                return Err(Error::new(
-                    ErrorKind::TypeMismatch,
-                    "quote: expected one argument".to_string(),
-                ));
-            }
-            Ok(())
-        })?;
-        args.car()
-    }
-    intern_set_func!(ctx, quote);
 
     #[crate_fn(add_func = "ctx")]
     fn null(arg: TulispObject) -> bool {
