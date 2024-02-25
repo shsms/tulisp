@@ -259,7 +259,7 @@ pub(crate) fn compile_expr(
             drop(expr_ref);
             compile_form(ctx, expr).map_err(|e| e.with_trace(expr.clone()))
         }
-        TulispValue::Symbol { .. } => {
+        TulispValue::Symbol { .. } | TulispValue::LexicalBinding { .. } => {
             if !compiler.keep_result {
                 return Ok(vec![]);
             }

@@ -4,8 +4,8 @@ use tulisp::{tulisp_add_func, tulisp_fn, Error, Iter, TulispContext, TulispObjec
 macro_rules! tulisp_assert {
     (@impl $ctx: expr, program:$input:expr, result:$result:expr $(,)?) => {
         let output = $ctx.eval_string($input).map_err(|err| {
-            println!("{}:{}: execution failed: {}", file!(), line!(),err.format(&$ctx));
-            err
+            panic!("{}:{}: execution failed: {}", file!(), line!(),err.format(&$ctx));
+
         })?;
         let expected = $ctx.eval_string($result)?;
         assert!(
@@ -623,9 +623,9 @@ fn test_lists() -> Result<(), Error> {
     tulisp_assert! {
         program: r##"
         (let ((vv '((name . "person") (age . 120))))
-          (list (assoc 'age vv) (alist-get 'name vv) (alist-get 'names vv) (alist-get 'names vv "something")))
+          (list (assoc 'age vv) (alist-get 'name vv) (alist-get 'names vv) (alist-get 'names vv "something") (alist-get 'name nil)))
         "##,
-        result: r##"'((age . 120) "person" nil "something")"##,
+        result: r##"'((age . 120) "person" nil "something" nil)"##,
     }
 
     tulisp_assert! {
@@ -681,6 +681,19 @@ fn test_backquotes() -> Result<(), Error> {
           (eq 'a (cdr `(a . a))))
         "#,
         result: r#"t"#,
+    }
+
+    tulisp_assert! {
+        program: r#"`(1 2 '(+ 10 20)  ',(+ 10 20)  (quote ,(+ 20 20)))"#,
+        result: r#"'(1 2 '(+ 10 20) '30 (quote 40))"#,
+    }
+
+    tulisp_assert! {
+        program: r#"`(1 2 ,,(+ 10 20))"#,
+        error: r#"ERR TypeMismatch: Unquote without backquote
+<eval_string>:1.7-1.8:  at ,,(+ 10 20)
+<eval_string>:1.1-1.2:  at `(1 2 ,,(+ 10 20))
+"#,
     }
 
     Ok(())
@@ -801,6 +814,50 @@ fn test_let() -> Result<(), Error> {
     tulisp_assert! {
         program: "(let* ((vv 21) (jj (+ vv 1))) (setq jj (+ 21 jj)) jj)",
         result: "43",
+    }
+
+    Ok(())
+}
+
+#[test]
+fn test_lexical_binding() -> Result<(), Error> {
+    tulisp_assert! {
+        program: r#"
+        (setq some-var 0)
+        (setq x 2)
+        (+ x (funcall (let ((x 10)
+                       (inc-some-var (lambda () (setq some-var (+ some-var x)))))
+                   (funcall inc-some-var)
+                   (let ((x 100))
+                     (funcall inc-some-var))
+                   inc-some-var)))
+        "#,
+        result: "32",
+    }
+
+    tulisp_assert! {
+        program: r#"
+        (setq n 2)
+        (defun make-adder (n)
+          (lambda (x) (+ x n)))
+
+        (setq add2 (make-adder 2))
+        (setq add10 (make-adder 10))
+
+        (list (+ n (funcall add2 2))
+              (funcall add10 2))
+        "#,
+        result: "'(6 12)",
+    }
+
+    tulisp_assert! {
+        program: r#"
+        (setq alist '((a . 1) (b . 2)))
+        (let ((a 10) (b 20))
+          (list (alist-get 'a alist)
+                (alist-get 'b alist)))
+        "#,
+        result: "'(1 2)",
     }
 
     Ok(())
@@ -1220,5 +1277,40 @@ fn test_predicates() -> Result<(), Error> {
         program: "(list (keywordp :a) (keywordp ':abcd) (keywordp 'abcd) (keywordp nil))",
         result: "'(t t nil nil)"
     }
+    Ok(())
+}
+
+#[test]
+fn test_symbol_creation() -> Result<(), Error> {
+    tulisp_assert! {
+        program: r#"
+        (let ((sym (intern "hello")))
+          (list (eq sym 'hello) (equal (format "%s" sym) "hello")))
+        "#,
+        result: "'(t t)"
+    }
+
+    tulisp_assert! {
+        program: r#"
+        (let ((sym (make-symbol "hello")))
+          (list (eq sym 'hello) (equal (format "%s" sym) "hello")))
+        "#,
+        result: "'(nil t)"
+    }
+
+    tulisp_assert! {
+        program: r#"
+        (let ((sym (gensym "hello"))
+              (sym2 (gensym)))
+          (list
+           (eq sym 'hello)
+           (eq sym 'hello0)
+           (equal (format "%s" sym2)             "g1")
+           (equal (format "%s" sym)              "hello0")
+           (equal (format "%s" (gensym "hello")) "hello2")))
+        "#,
+        result: r#"'(nil nil t t t)"#
+    }
+
     Ok(())
 }

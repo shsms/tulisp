@@ -164,3 +164,78 @@ macro_rules! destruct_bind {
         destruct_bind!(@impl ($($rest)*) = $vv);
     };
 }
+
+/**
+Creates a struct that holds interned symbols.
+
+## Example
+
+```rust
+use tulisp::{TulispContext, intern};
+
+intern!{
+    #[derive(Clone)]
+    pub(crate) struct Keywords {
+        name: ":name",
+        scale: ":scale",
+        pos: ":pos",
+    }
+}
+
+fn main() {
+    let ctx = &mut TulispContext::new();
+
+    let kw = Keywords::new(ctx);
+
+    assert!(kw.name.eq(&ctx.intern(":name")));
+    assert!(kw.scale.eq(&ctx.intern(":scale")));
+    assert!(kw.pos.eq(&ctx.intern(":pos")));
+}
+```
+
+It can also be used to create an instance of the struct directly:
+
+```rust
+use tulisp::{TulispContext, intern};
+
+fn main() {
+    let ctx = &mut TulispContext::new();
+
+    let kw = intern!(ctx => {
+        name: ":name",
+        scale: ":scale",
+        pos: ":pos",
+    });
+
+    assert!(kw.name.eq(&ctx.intern(":name")));
+    assert!(kw.scale.eq(&ctx.intern(":scale")));
+    assert!(kw.pos.eq(&ctx.intern(":pos")));
+}
+```
+*/
+#[macro_export]
+macro_rules! intern {
+    ($( #[$meta:meta] )*
+     $vis:vis struct $struct_name:ident {
+         $($name:ident : $symbol:literal),+ $(,)?
+     }) => {
+        $( #[$meta] )*
+        $vis struct $struct_name {
+            $(pub $name: $crate::TulispObject),+
+        }
+
+        impl $struct_name {
+            fn new(ctx: &mut $crate::TulispContext) -> Self {
+                let ret = $struct_name {
+                    $($name: ctx.intern($symbol),)+
+                };
+                ret
+            }
+        }
+    };
+
+    ($ctx: ident => {$($name:ident : $symbol:literal),+ $(,)?}) => {{
+        intern!(pub(crate) struct Keywords {$($name : $symbol),+});
+        Keywords::new($ctx)
+    }};
+}

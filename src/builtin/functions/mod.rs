@@ -45,7 +45,7 @@ macro_rules! binary_ops {
 macro_rules! intern_set_func {
     ($ctx:ident, $func: ident, $name: expr) => {
         $ctx.intern($name)
-            .set_scope(TulispValue::Func(Rc::new($func)).into_ref(None))
+            .set_global(TulispValue::Func(Rc::new($func)).into_ref(None))
             .unwrap();
     };
     ($ctx:ident, $func: ident) => {

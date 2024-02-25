@@ -1,7 +1,7 @@
 [package]
 name = "tulisp"
 description = "An embeddable lisp interpreter."
-version = "0.15.0"
+version = "0.17.0"
 repository = "https://github.com/shsms/tulisp"
 license = "GPL-3.0"
 edition = "2021"

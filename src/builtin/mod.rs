@@ -163,8 +163,10 @@ These functions need to be organized into categories.  They are grouped here for
 | `expt`                                                                                                  | ☑️      |                                                   |
 | `load`                                                                                                  | ☑️      |                                                   |
 | `intern`                                                                                                | ☑️      | no optional obarray param, always uses default.   |
+| `make-symbol`                                                                                           | ☑️      |                                                   |
+| `gensym`                                                                                                | ☑️      |                                                   |
 | `fround`                                                                                                | ☑️      |                                                   |
-
+| `ftruncate`                                                                                             | ☑️      |                                                   |
 
 ## Other predicates
 
@@ -178,7 +180,7 @@ These functions need to be organized into categories.  They are grouped here for
 | `floatp`   | ☑️      |         |
 | `integerp` | ☑️      |         |
 | `boundp`   | ☑️      |         |
-
+| `keywordp` | ☑️      |         |
 */
 
 pub(crate) mod functions;

@@ -47,7 +47,7 @@ It is very easy to get started.  Here's an example:
 - Backquote/Unquote forms (for example `` `(answer . ,(+ 2 3)) ``)
 - Threading macros (`thread-first` and `thread-last`)
 - Methods for reading from alists and plists
-- Dynamic binding (lexical binding planned)
+- Lexical scopes and lexical binding
 - Tailcall Optimization
 - Proc macros for exposing rust functions to tulisp
 - Decl macros for

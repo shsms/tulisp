@@ -103,7 +103,7 @@ impl TulispObject {
     /// [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Equality-Predicates.html).
     pub fn equal(&self, other: &TulispObject) -> bool {
         if self.symbolp() {
-            self.eq_ptr(other)
+            self.eq(other)
         } else {
             self.eq_val(other)
         }
@@ -115,6 +115,8 @@ impl TulispObject {
     /// [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Equality-Predicates.html).
     pub fn eq(&self, other: &TulispObject) -> bool {
         self.eq_ptr(other)
+            || other.inner_ref().lex_symbol_eq(self)
+            || self.inner_ref().lex_symbol_eq(other)
     }
 
     /// Returns true if `self` and `other` are the same object, or are
@@ -338,6 +340,11 @@ impl TulispObject {
         TulispValue::symbol(name, constant).into_ref(None)
     }
 
+    pub(crate) fn lexical_binding(symbol: TulispObject) -> TulispObject {
+        let span = symbol.span();
+        TulispValue::lexical_binding(symbol).into_ref(span)
+    }
+
     pub(crate) fn new(vv: TulispValue, span: Option<Span>) -> TulispObject {
         Self {
             rc: Rc::new(RefCell::new(vv)),
@@ -352,6 +359,14 @@ impl TulispObject {
     /// done, and the symbol is known to be bound.
     pub(crate) fn set_unchecked(&self, to_set: TulispObject) {
         self.rc.borrow_mut().set_unchecked(to_set)
+    }
+
+    pub(crate) fn set_global(&self, to_set: TulispObject) -> Result<(), Error> {
+        self.rc.borrow_mut().set_global(to_set)
+    }
+
+    pub(crate) fn is_lexically_bound(&self) -> bool {
+        self.rc.borrow().is_lexically_bound()
     }
 
     pub(crate) fn eq_ptr(&self, other: &TulispObject) -> bool {

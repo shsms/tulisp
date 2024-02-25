@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs};
+use std::{collections::HashMap, fs, rc::Rc};
 
 use crate::{
     builtin,
@@ -7,7 +7,7 @@ use crate::{
     eval::{eval, eval_and_then, eval_basic, funcall, DummyEval},
     list,
     parse::parse,
-    TulispObject,
+    TulispObject, TulispValue,
 };
 
 use crate::bytecode::VMCompilers;
@@ -85,6 +85,28 @@ impl TulispContext {
 
     pub(crate) fn intern_soft(&mut self, name: &str) -> Option<TulispObject> {
         self.obarray.get(name).map(|x| x.clone_without_span())
+    }
+
+    #[inline(always)]
+    pub fn add_special_form(
+        &mut self,
+        name: &str,
+        func: impl Fn(&mut TulispContext, &TulispObject) -> Result<TulispObject, Error> + 'static,
+    ) {
+        self.intern(name)
+            .set_global(TulispValue::Func(Rc::new(func)).into_ref(None))
+            .unwrap();
+    }
+
+    #[inline(always)]
+    pub fn add_macro(
+        &mut self,
+        name: &str,
+        func: impl Fn(&mut TulispContext, &TulispObject) -> Result<TulispObject, Error> + 'static,
+    ) {
+        self.intern(name)
+            .set_global(TulispValue::Macro(Rc::new(func)).into_ref(None))
+            .unwrap();
     }
 
     /// Evaluates the given value and returns the result.

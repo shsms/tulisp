@@ -149,6 +149,25 @@ pub(crate) fn eval_form<E: Evaluator>(
 
 fn eval_back_quote(ctx: &mut TulispContext, mut vv: TulispObject) -> Result<TulispObject, Error> {
     if !vv.consp() {
+        let inner = vv.inner_ref();
+        if let TulispValue::Unquote { value } = &*inner {
+            return eval(ctx, &value)
+                .map_err(|e| e.with_trace(vv.clone()))
+                .map(|x| x.with_span(value.span()));
+        } else if let TulispValue::Splice { value } = &*inner {
+            return eval(ctx, &value)
+                .map_err(|e| e.with_trace(vv.clone()))?
+                .deep_copy()
+                .map_err(|e| e.with_trace(vv.clone()))
+                .map(|value| value.with_span(value.span()));
+        } else if let TulispValue::Quote { value } = &*inner {
+            return Ok(TulispValue::Quote {
+                value: eval_back_quote(ctx, value.clone())?,
+            }
+            .into_ref(None)
+            .with_span(value.span()));
+        }
+        drop(inner);
         return Ok(vv);
     }
     // TODO: with_span should stop cloning.
@@ -245,6 +264,9 @@ pub(crate) fn eval_basic<'a>(
             }
             *result = Some(value.get().map_err(|e| e.with_trace(expr.clone()))?);
         }
+        TulispValue::LexicalBinding { value, .. } => {
+            *result = Some(value.get().map_err(|e| e.with_trace(expr.clone()))?);
+        }
         TulispValue::Int { .. }
         | TulispValue::Float { .. }
         | TulispValue::String { .. }
@@ -295,7 +317,7 @@ pub fn macroexpand(ctx: &mut TulispContext, inp: TulispObject) -> Result<TulispO
     };
     let mut x = match &*value.inner_ref() {
         TulispValue::Macro(func) => {
-            let expansion = func(ctx, &expr.cdr()?)?;
+            let expansion = func(ctx, &expr.cdr()?).map_err(|e| e.with_trace(inp))?;
             macroexpand(ctx, expansion)?
         }
         TulispValue::Defmacro { params, body } => {
