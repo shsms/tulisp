@@ -81,6 +81,7 @@ A list of currently available builtin functions can be found [here](builtin).
    a `TulispContext` object, so that they can be called from lisp code.
 */
 
+pub(crate) mod bytecode;
 mod eval;
 mod macros;
 mod parse;
