@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use crate::{
     context::TulispContext,
     error::{Error, ErrorKind},
@@ -216,13 +218,7 @@ fn eval_back_quote(ctx: &mut TulispContext, mut vv: TulispObject) -> Result<Tuli
 }
 
 pub(crate) fn eval(ctx: &mut TulispContext, expr: &TulispObject) -> Result<TulispObject, Error> {
-    let mut result = None;
-    eval_basic(ctx, expr, &mut result)?;
-    if let Some(result) = result {
-        Ok(result)
-    } else {
-        Ok(expr.clone())
-    }
+    eval_cow(ctx, expr).map(|x| x.into_owned())
 }
 
 pub(crate) fn eval_check_null(ctx: &mut TulispContext, expr: &TulispObject) -> Result<bool, Error> {
@@ -246,6 +242,20 @@ pub(crate) fn eval_and_then<T>(
         func(&result)
     } else {
         func(expr)
+    }
+}
+
+// Eventually this should replace eval
+pub(crate) fn eval_cow<'a>(
+    ctx: &mut TulispContext,
+    expr: &'a TulispObject,
+) -> Result<Cow<'a, TulispObject>, Error> {
+    let mut result = None;
+    eval_basic(ctx, expr, &mut result)?;
+    if let Some(result) = result {
+        Ok(Cow::Owned(result))
+    } else {
+        Ok(Cow::Borrowed(expr))
     }
 }
 
