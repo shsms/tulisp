@@ -67,16 +67,23 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ) -> Result<TulispObject, Error> {
         let pred = eval(ctx, &pred)?;
         let mut vec: Vec<_> = seq.base_iter().collect();
+        let mut err = None;
         vec.sort_by(|v1, v2| {
             if funcall::<DummyEval>(ctx, &pred, &list!(v1.clone(), v2.clone()).unwrap())
                 .map(|v| v.null())
-                .unwrap_or(false)
+                .unwrap_or_else(|x| {
+                    err = Some(x);
+                    false
+                })
             {
                 Ordering::Equal
             } else {
                 Ordering::Less
             }
         });
+        if let Some(err) = err {
+            return Err(err);
+        }
         let ret = vec
             .iter()
             .fold(list!(), |v1, v2| list!(,@v1 ,(*v2).clone()).unwrap());

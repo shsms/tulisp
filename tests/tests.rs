@@ -934,10 +934,23 @@ fn test_sort() -> Result<(), Error> {
         result: "'(45 30 20 15 10)",
     }
     tulisp_assert! {
+        program: r#"(sort '("hello" "world") '>)"#,
+        error: r#"ERR TypeMismatch: Expected number, found: "world"
+<eval_string>:1.18-1.24:  at "world"
+<eval_string>:1.1-1.29:  at (sort '("hello" "world") '>)
+"#,
+    }
+    tulisp_assert! {
         program: "(sort '(20 10 30 15 45) '<<)",
         error: r#"ERR TypeMismatch: Variable definition is void: <<
 <eval_string>:1.26-1.28:  at <<
 <eval_string>:1.1-1.29:  at (sort '(20 10 30 15 45) '<<)
+"#
+    }
+    tulisp_assert! {
+        program: "(sort '(20 10 30 15 45))",
+        error: r#"ERR Undefined: function is void: nil
+<eval_string>:1.1-1.25:  at (sort '(20 10 30 15 45))
 "#
     }
     tulisp_assert! {
