@@ -1,6 +1,6 @@
 use crate::{
     builtin::functions::common::eval_2_arg_special_form,
-    eval::{eval_basic, eval_cow},
+    eval::eval_cow,
     list,
     lists::{last, length},
     Error, ErrorKind, TulispContext, TulispObject, TulispValue,
@@ -57,19 +57,11 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     fn and(ctx: &mut TulispContext, rest: TulispObject) -> Result<TulispObject, Error> {
         let mut ret = TulispObject::nil();
         for item in rest.base_iter() {
-            let mut result = None;
-            eval_basic(ctx, &item, &mut result)?;
-            if let Some(result) = result {
-                if result.null() {
-                    return Ok(result);
-                }
-                ret = result;
-            } else {
-                if item.null() {
-                    return Ok(item);
-                }
-                ret = item;
+            let result = eval_cow(ctx, &item)?;
+            if result.null() {
+                return Ok(result.into_owned());
             }
+            ret = result.into_owned();
         }
         Ok(ret)
     }
@@ -77,14 +69,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     #[crate_fn_no_eval(add_func = "ctx")]
     fn or(ctx: &mut TulispContext, rest: TulispObject) -> Result<TulispObject, Error> {
         for item in rest.base_iter() {
-            let mut result = None;
-            eval_basic(ctx, &item, &mut result)?;
-            if let Some(result) = result {
-                if !result.null() {
-                    return Ok(result);
-                }
-            } else if !item.null() {
-                return Ok(item);
+            let result = eval_cow(ctx, &item)?;
+            if !result.null() {
+                return Ok(result.into_owned());
             }
         }
         Ok(TulispObject::nil())

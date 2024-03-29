@@ -235,7 +235,7 @@ pub(crate) fn eval_cow<'a>(
     }
 }
 
-pub(crate) fn eval_basic<'a>(
+fn eval_basic<'a>(
     ctx: &mut TulispContext,
     expr: &'a TulispObject,
     result: &'a mut Option<TulispObject>,
