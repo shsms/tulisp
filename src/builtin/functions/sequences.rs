@@ -76,9 +76,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                     false
                 })
             {
-                Ordering::Equal
-            } else {
                 Ordering::Less
+            } else {
+                Ordering::Greater
             }
         });
         if let Some(err) = err {
@@ -86,7 +86,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         }
         let ret = vec
             .iter()
-            .fold(list!(), |v1, v2| list!(,@v1 ,(*v2).clone()).unwrap());
+            .fold(TulispObject::nil(), |v1, v2| TulispObject::cons(v2.clone(), v1));
         Ok(ret)
     }
 }
