@@ -136,6 +136,29 @@ fn test_comparison_of_numbers() -> Result<(), Error> {
 }
 
 #[test]
+fn test_comparison_of_strings() -> Result<(), Error> {
+    tulisp_assert!{ program: r#"(string< "hello" "world")"#, result: "t" }
+    tulisp_assert!{ program: r#"(string< "hello" "hello")"#, result: "nil" }
+    tulisp_assert!{ program: r#"(string< "world" "hello")"#, result: "nil" }
+    tulisp_assert!{ program: r#"(string> "hello" "world")"#, result: "nil" }
+    tulisp_assert!{ program: r#"(string> "hello" "hello")"#, result: "nil" }
+    tulisp_assert!{ program: r#"(string> "world" "hello")"#, result: "t" }
+    tulisp_assert!{ program: r#"(string= "hello" "world")"#, result: "nil" }
+    tulisp_assert!{ program: r#"(string= "hello" "hello")"#, result: "t" }
+    tulisp_assert!{ program: r#"(string= "world" "hello")"#, result: "nil" }
+    tulisp_assert!{ program: r#"(string-lessp "hello" "world")"#, result: "t" }
+    tulisp_assert!{ program: r#"(string-lessp "hello" "hello")"#, result: "nil" }
+    tulisp_assert!{ program: r#"(string-lessp "world" "hello")"#, result: "nil" }
+    tulisp_assert!{ program: r#"(string-greaterp "hello" "world")"#, result: "nil" }
+    tulisp_assert!{ program: r#"(string-greaterp "hello" "hello")"#, result: "nil" }
+    tulisp_assert!{ program: r#"(string-greaterp "world" "hello")"#, result: "t" }
+    tulisp_assert!{ program: r#"(string-equal "hello" "world")"#, result: "nil" }
+    tulisp_assert!{ program: r#"(string-equal "hello" "hello")"#, result: "t" }
+    tulisp_assert!{ program: r#"(string-equal "world" "hello")"#, result: "nil" }
+    Ok(())
+}
+
+#[test]
 fn test_conditionals() -> Result<(), Error> {
     tulisp_assert! { program: "(if t 10 15 20)",      result: "10" }
     tulisp_assert! { program: "(if nil 10 15 20)",    result: "20" }
@@ -934,11 +957,19 @@ fn test_sort() -> Result<(), Error> {
         result: "'(45 30 20 15 10)",
     }
     tulisp_assert! {
-        program: r#"(sort '("hello" "world") '>)"#,
+        program: r#"(sort '("sort" "hello" "a" "world") '>)"#,
         error: r#"ERR TypeMismatch: Expected number, found: "world"
-<eval_string>:1.18-1.24:  at "world"
-<eval_string>:1.1-1.29:  at (sort '("hello" "world") '>)
+<eval_string>:1.29-1.35:  at "world"
+<eval_string>:1.1-1.40:  at (sort '("sort" "hello" "a" "world") '>)
 "#,
+    }
+    tulisp_assert! {
+        program: r#"(sort '("sort" "hello" "a" "world") 'string<)"#,
+        result: r#"'("a" "hello" "sort" "world")"#,
+    }
+    tulisp_assert! {
+        program: r#"(sort '("sort" "hello" "a" "world") 'string>)"#,
+        result: r#"'("world" "sort" "hello" "a")"#,
     }
     tulisp_assert! {
         program: "(sort '(20 10 30 15 45) '<<)",
