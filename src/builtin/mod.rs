@@ -52,6 +52,20 @@ Click [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Compariso
 | `min` | ☑️      |                                                     |
 
 
+## Comparison of Strings
+
+Click [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Text-Comparison.html) for the Emacs lisp manual page for comparison of strings. Not all methods are implemented.
+
+| Name              | Status | Details |
+|-------------------|--------|---------|
+| `string>`         | ☑️      |         |
+| `string<`         | ☑️      |         |
+| `string=`         | ☑️      |         |
+| `string-lessp`    | ☑️      |         |
+| `string-greaterp` | ☑️      |         |
+| `string-equal`    | ☑️      |         |
+
+
 ## Equality Predicates
 
 Click [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Equality-Predicates.html) for the Emacs lisp manual page for equality predicates.

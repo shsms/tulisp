@@ -61,6 +61,7 @@ mod hash_table;
 mod list_elements;
 mod numbers;
 mod sequences;
+mod comparison_of_strings;
 
 pub(crate) fn add(ctx: &mut TulispContext) {
     conditionals::add(ctx);
@@ -70,4 +71,5 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     list_elements::add(ctx);
     sequences::add(ctx);
     numbers::add(ctx);
+    comparison_of_strings::add(ctx);
 }
