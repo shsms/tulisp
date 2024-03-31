@@ -217,32 +217,21 @@ pub(crate) fn eval_cow<'a>(
     ctx: &mut TulispContext,
     expr: &'a TulispObject,
 ) -> Result<Cow<'a, TulispObject>, Error> {
-    let mut result = None;
-    eval_basic(ctx, expr, &mut result)?;
-    if let Some(result) = result {
-        Ok(Cow::Owned(result))
-    } else {
-        Ok(Cow::Borrowed(expr))
-    }
-}
-
-fn eval_basic<'a>(
-    ctx: &mut TulispContext,
-    expr: &'a TulispObject,
-    result: &'a mut Option<TulispObject>,
-) -> Result<(), Error> {
     match &*expr.inner_ref() {
         TulispValue::List { .. } => {
-            *result = Some(eval_form::<Eval>(ctx, expr).map_err(|e| e.with_trace(expr.clone()))?);
+            return Ok(Cow::Owned(
+                eval_form::<Eval>(ctx, expr)
+                    .map_err(|e| e.with_trace(expr.clone()))?
+            ));
         }
         TulispValue::Symbol { value, .. } => {
             if value.is_constant() {
-                return Ok(());
+                return Ok(Cow::Borrowed(expr));
             }
-            *result = Some(value.get().map_err(|e| e.with_trace(expr.clone()))?);
+            return Ok(Cow::Owned(value.get().map_err(|e| e.with_trace(expr.clone()))?));
         }
         TulispValue::LexicalBinding { value, .. } => {
-            *result = Some(value.get().map_err(|e| e.with_trace(expr.clone()))?);
+            return Ok(Cow::Owned(value.get().map_err(|e| e.with_trace(expr.clone()))?));
         }
         TulispValue::Int { .. }
         | TulispValue::Float { .. }
@@ -254,13 +243,18 @@ fn eval_basic<'a>(
         | TulispValue::Any(_)
         | TulispValue::Bounce
         | TulispValue::Nil
-        | TulispValue::T => {}
-        TulispValue::Quote { value, .. } => {
-            *result = Some(value.clone());
+        | TulispValue::T => {
+            return Ok(Cow::Borrowed(expr));
+        }
+        TulispValue::Sharpquote { value }
+        | TulispValue::Quote { value } => {
+            return Ok(Cow::Owned(value.clone()));
         }
         TulispValue::Backquote { value } => {
-            *result =
-                Some(eval_back_quote(ctx, value.clone()).map_err(|e| e.with_trace(expr.clone()))?);
+            return Ok(Cow::Owned(
+                eval_back_quote(ctx, value.clone())
+                    .map_err(|e| e.with_trace(expr.clone()))?
+            ));
         }
         TulispValue::Unquote { .. } => {
             return Err(Error::new(
@@ -274,11 +268,7 @@ fn eval_basic<'a>(
                 "Splice without backquote".to_string(),
             ))
         }
-        TulispValue::Sharpquote { value, .. } => {
-            *result = Some(value.clone());
-        }
-    };
-    Ok(())
+    }
 }
 
 pub fn macroexpand(ctx: &mut TulispContext, inp: TulispObject) -> Result<TulispObject, Error> {
