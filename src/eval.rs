@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use crate::{
     context::TulispContext,
     error::{Error, ErrorKind},
@@ -10,8 +12,7 @@ pub(crate) trait Evaluator {
     fn eval(
         ctx: &mut TulispContext,
         value: &TulispObject,
-        result: &mut Option<TulispObject>,
-    ) -> Result<(), Error>;
+    ) -> Result<TulispObject, Error>;
 }
 
 pub(crate) struct Eval;
@@ -19,9 +20,8 @@ impl Evaluator for Eval {
     fn eval(
         ctx: &mut TulispContext,
         value: &TulispObject,
-        result: &mut Option<TulispObject>,
-    ) -> Result<(), Error> {
-        eval_basic(ctx, value, result)
+    ) -> Result<TulispObject, Error> {
+        eval(ctx, value)
     }
 }
 
@@ -30,9 +30,8 @@ impl Evaluator for DummyEval {
     fn eval(
         _ctx: &mut TulispContext,
         _value: &TulispObject,
-        _result: &mut Option<TulispObject>,
-    ) -> Result<(), Error> {
-        Ok(())
+    ) -> Result<TulispObject, Error> {
+        Ok(_value.to_owned())
     }
 }
 
@@ -42,26 +41,20 @@ fn zip_function_args<E: Evaluator>(
     args: &TulispObject,
 ) -> Result<(), Error> {
     let mut args_iter = args.base_iter();
-    let mut eval_result = None;
     for param in params.iter() {
         let val = if param.is_optional {
             match args_iter.next() {
-                Some(vv) => {
-                    E::eval(ctx, &vv, &mut eval_result)?;
-                    eval_result.take().unwrap_or(vv)
-                }
+                Some(vv) => E::eval(ctx, &vv)?,
                 None => TulispObject::nil(),
             }
         } else if param.is_rest {
             let ret = TulispObject::nil();
             for arg in args_iter.by_ref() {
-                E::eval(ctx, &arg, &mut eval_result)?;
-                ret.push(eval_result.take().unwrap_or(arg))?;
+                ret.push(E::eval(ctx, &arg)?)?;
             }
             ret
         } else if let Some(vv) = args_iter.next() {
-            E::eval(ctx, &vv, &mut eval_result)?;
-            eval_result.take().unwrap_or(vv)
+            E::eval(ctx, &vv)?
         } else {
             return Err(Error::new(
                 ErrorKind::TypeMismatch,
@@ -216,56 +209,29 @@ fn eval_back_quote(ctx: &mut TulispContext, mut vv: TulispObject) -> Result<Tuli
 }
 
 pub(crate) fn eval(ctx: &mut TulispContext, expr: &TulispObject) -> Result<TulispObject, Error> {
-    let mut result = None;
-    eval_basic(ctx, expr, &mut result)?;
-    if let Some(result) = result {
-        Ok(result)
-    } else {
-        Ok(expr.clone())
-    }
+    eval_cow(ctx, expr).map(|x| x.into_owned())
 }
 
-pub(crate) fn eval_check_null(ctx: &mut TulispContext, expr: &TulispObject) -> Result<bool, Error> {
-    let mut result = None;
-    eval_basic(ctx, expr, &mut result)?;
-    if let Some(result) = result {
-        Ok(result.null())
-    } else {
-        Ok(expr.null())
-    }
-}
-
-pub(crate) fn eval_and_then<T>(
-    ctx: &mut TulispContext,
-    expr: &TulispObject,
-    func: impl FnOnce(&TulispObject) -> Result<T, Error>,
-) -> Result<T, Error> {
-    let mut result = None;
-    eval_basic(ctx, expr, &mut result)?;
-    if let Some(result) = result {
-        func(&result)
-    } else {
-        func(expr)
-    }
-}
-
-pub(crate) fn eval_basic<'a>(
+// Eventually this should replace eval
+pub(crate) fn eval_cow<'a>(
     ctx: &mut TulispContext,
     expr: &'a TulispObject,
-    result: &'a mut Option<TulispObject>,
-) -> Result<(), Error> {
+) -> Result<Cow<'a, TulispObject>, Error> {
     match &*expr.inner_ref() {
         TulispValue::List { .. } => {
-            *result = Some(eval_form::<Eval>(ctx, expr).map_err(|e| e.with_trace(expr.clone()))?);
+            return Ok(Cow::Owned(
+                eval_form::<Eval>(ctx, expr)
+                    .map_err(|e| e.with_trace(expr.clone()))?
+            ));
         }
         TulispValue::Symbol { value, .. } => {
             if value.is_constant() {
-                return Ok(());
+                return Ok(Cow::Borrowed(expr));
             }
-            *result = Some(value.get().map_err(|e| e.with_trace(expr.clone()))?);
+            return Ok(Cow::Owned(value.get().map_err(|e| e.with_trace(expr.clone()))?));
         }
         TulispValue::LexicalBinding { value, .. } => {
-            *result = Some(value.get().map_err(|e| e.with_trace(expr.clone()))?);
+            return Ok(Cow::Owned(value.get().map_err(|e| e.with_trace(expr.clone()))?));
         }
         TulispValue::Int { .. }
         | TulispValue::Float { .. }
@@ -277,13 +243,18 @@ pub(crate) fn eval_basic<'a>(
         | TulispValue::Any(_)
         | TulispValue::Bounce
         | TulispValue::Nil
-        | TulispValue::T => {}
-        TulispValue::Quote { value, .. } => {
-            *result = Some(value.clone());
+        | TulispValue::T => {
+            return Ok(Cow::Borrowed(expr));
+        }
+        TulispValue::Sharpquote { value }
+        | TulispValue::Quote { value } => {
+            return Ok(Cow::Owned(value.clone()));
         }
         TulispValue::Backquote { value } => {
-            *result =
-                Some(eval_back_quote(ctx, value.clone()).map_err(|e| e.with_trace(expr.clone()))?);
+            return Ok(Cow::Owned(
+                eval_back_quote(ctx, value.clone())
+                    .map_err(|e| e.with_trace(expr.clone()))?
+            ));
         }
         TulispValue::Unquote { .. } => {
             return Err(Error::new(
@@ -297,11 +268,7 @@ pub(crate) fn eval_basic<'a>(
                 "Splice without backquote".to_string(),
             ))
         }
-        TulispValue::Sharpquote { value, .. } => {
-            *result = Some(value.clone());
-        }
-    };
-    Ok(())
+    }
 }
 
 pub fn macroexpand(ctx: &mut TulispContext, inp: TulispObject) -> Result<TulispObject, Error> {
