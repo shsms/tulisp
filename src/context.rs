@@ -3,7 +3,7 @@ use std::{collections::HashMap, fs, rc::Rc};
 use crate::{
     builtin,
     error::Error,
-    eval::{eval, eval_basic, funcall, DummyEval},
+    eval::{eval, eval_and_then, eval_basic, funcall, DummyEval},
     list,
     parse::parse,
     TulispObject, TulispValue,
@@ -105,6 +105,16 @@ impl TulispContext {
     /// Evaluates the given value and returns the result.
     pub fn eval(&mut self, value: &TulispObject) -> Result<TulispObject, Error> {
         eval(self, value)
+    }
+
+    /// Evaluates the given value, run the given function on the result of the
+    /// evaluation, and returns the result of the function.
+    pub fn eval_and_then<T>(
+        &mut self,
+        expr: &TulispObject,
+        f: impl FnOnce(&TulispObject) -> Result<T, Error>,
+    ) -> Result<T, Error> {
+        eval_and_then(self, expr, f)
     }
 
     /// Calls the given function with the given arguments, and returns the
