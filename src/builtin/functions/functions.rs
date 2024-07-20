@@ -3,7 +3,9 @@ use crate::context::Scope;
 use crate::context::TulispContext;
 use crate::error::Error;
 use crate::error::ErrorKind;
-use crate::eval::{eval, eval_cow};
+use crate::eval::eval;
+use crate::eval::eval_and_then;
+use crate::eval::eval_check_null;
 use crate::eval::DummyEval;
 use crate::eval::Eval;
 use crate::lists;
@@ -229,7 +231,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         rest: TulispObject,
     ) -> Result<TulispObject, Error> {
         let mut result = TulispObject::nil();
-        while !eval_cow(ctx, &condition)?.null() {
+        while !eval_check_null(ctx, &condition)? {
             result = ctx.eval_progn(&rest)?;
         }
         Ok(result)
@@ -276,7 +278,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 args.car_and_then(|arg| ctx.eval(arg))
             })
         })?;
-        args.car_and_then(|name_sym| eval_cow(ctx, name_sym)?.set(value.clone()))?;
+        args.car_and_then(|name_sym| ctx.eval_and_then(name_sym, |name| name.set(value.clone())))?;
         Ok(value)
     }
     intern_set_func!(ctx, set);
@@ -669,7 +671,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                     }
                     Ok(true) => {}
                 }
-                args.car_and_then(|arg| Ok(eval_cow(ctx, &arg)?.$name().into()))
+                args.car_and_then(|arg| eval_and_then(ctx, &arg, |x| Ok(x.$name().into())))
             }
             intern_set_func!(ctx, $name);
         };
