@@ -221,6 +221,16 @@ pub(crate) fn eval(ctx: &mut TulispContext, expr: &TulispObject) -> Result<Tulis
     eval_cow(ctx, expr).map(|x| x.into_owned())
 }
 
+pub(crate) fn eval_check_null(ctx: &mut TulispContext, expr: &TulispObject) -> Result<bool, Error> {
+    let mut result = None;
+    eval_basic(ctx, expr, &mut result)?;
+    if let Some(result) = result {
+        Ok(result.null())
+    } else {
+        Ok(expr.null())
+    }
+}
+
 // Eventually this should replace eval
 pub(crate) fn eval_cow<'a>(
     ctx: &mut TulispContext,

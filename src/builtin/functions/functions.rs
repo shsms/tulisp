@@ -4,6 +4,7 @@ use crate::context::TulispContext;
 use crate::error::Error;
 use crate::error::ErrorKind;
 use crate::eval::{eval, eval_cow};
+use crate::eval::eval_check_null;
 use crate::eval::DummyEval;
 use crate::eval::Eval;
 use crate::lists;
@@ -229,7 +230,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         rest: TulispObject,
     ) -> Result<TulispObject, Error> {
         let mut result = TulispObject::nil();
-        while !eval_cow(ctx, &condition)?.null() {
+        while !eval_check_null(ctx, &condition)? {
             result = ctx.eval_progn(&rest)?;
         }
         Ok(result)
