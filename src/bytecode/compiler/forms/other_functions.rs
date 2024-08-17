@@ -234,9 +234,6 @@ pub(super) fn compile_fn_defun(
             .vm_compilers
             .functions
             .insert(defun_name.addr_as_usize(), compile_fn_defun_call);
-        let mut required = vec![];
-        let mut optional = vec![];
-        let mut rest = None;
         let args = args.base_iter().collect::<Vec<_>>();
         let mut is_optional = false;
         let mut is_rest = false;
@@ -260,26 +257,20 @@ pub(super) fn compile_fn_defun(
                 is_optional = false;
                 is_rest = true;
             } else if is_optional {
-                optional.push(arg.clone());
+                defun_params.optional.push(arg.clone());
             } else if is_rest {
-                if rest.is_some() {
+                if defun_params.rest.is_some() {
                     return Err(Error::new(
                         ErrorKind::Undefined,
                         "multiple rest arguments".to_string(),
                     )
                     .with_trace(arg.clone()));
                 }
-                rest = Some(arg.clone());
+                defun_params.rest = Some(arg.clone());
             } else {
-                required.push(arg.clone());
+                defun_params.required.push(arg.clone());
             }
         }
-
-        defun_params = VMDefunParams {
-            required,
-            optional,
-            rest,
-        };
 
         // TODO: replace with `is_string`
         let body = if body.car()?.as_string().is_ok() {
