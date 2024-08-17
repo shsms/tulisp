@@ -220,7 +220,7 @@ pub(super) fn compile_fn_defun_call(
 
 pub(super) fn compile_fn_defun(
     ctx: &mut TulispContext,
-    name: &TulispObject,
+    defun_kw: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
     let mut defun_params = VMDefunParams {
@@ -228,12 +228,12 @@ pub(super) fn compile_fn_defun(
         optional: vec![],
         rest: None,
     };
-    let mut res = ctx.compile_2_arg_call(name, args, true, |ctx, name, args, body| {
+    let mut res = ctx.compile_2_arg_call(defun_kw, args, true, |ctx, defun_name, args, body| {
         let compiler = ctx.compiler.as_mut().unwrap();
         compiler
             .vm_compilers
             .functions
-            .insert(name.addr_as_usize(), compile_fn_defun_call);
+            .insert(defun_name.addr_as_usize(), compile_fn_defun_call);
         let mut required = vec![];
         let mut optional = vec![];
         let mut rest = None;
@@ -287,7 +287,7 @@ pub(super) fn compile_fn_defun(
         } else {
             body.clone()
         };
-        let body = mark_tail_calls(ctx, name.clone(), body).map_err(|e| {
+        let body = mark_tail_calls(ctx, defun_name.clone(), body).map_err(|e| {
             println!("mark_tail_calls error: {:?}", e);
             e
         })?;
@@ -298,7 +298,7 @@ pub(super) fn compile_fn_defun(
         // function we just compiled so we can insert it into the
         // bytecode.functions map. The instruction is discarded as soon as it is
         // read, and isn't part of the compiler's output.
-        result.push(Instruction::List(name.addr_as_usize()));
+        result.push(Instruction::List(defun_name.addr_as_usize()));
 
         Ok(result)
     })?;
