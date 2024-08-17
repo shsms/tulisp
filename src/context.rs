@@ -1,16 +1,42 @@
 use std::{collections::HashMap, fs, rc::Rc};
 
 use crate::{
-    builtin,
-    bytecode::{self, compile, Bytecode, Compiler},
-    error::Error,
-    eval::{eval, eval_and_then, eval_basic, funcall, DummyEval},
-    list,
-    parse::parse,
-    TulispObject, TulispValue,
+    builtin, bytecode::{self, compile, Bytecode, Compiler}, error::Error, eval::{eval, eval_and_then, eval_basic, funcall, DummyEval},  list, parse::parse, TulispObject, TulispValue
 };
 
 use crate::bytecode::VMCompilers;
+
+macro_rules! intern_from_obarray {
+    ($( #[$meta:meta] )*
+     $vis:vis struct $struct_name:ident {
+         $($name:ident : $symbol:literal),+ $(,)?
+     }) => {
+        $( #[$meta] )*
+        $vis struct $struct_name {
+            $(pub $name: $crate::TulispObject),+
+        }
+
+        impl $struct_name {
+            fn from_obarray(obarray: &mut std::collections::HashMap<String, $crate::TulispObject>) -> Self {
+                $struct_name {
+                    $($name: intern_from_obarray!(@intern obarray, $symbol)),+
+                }
+            }
+        }
+    };
+
+    (@intern $obarray:ident, $name:literal) => {
+        if let Some(sym) = $obarray.get($name) {
+            sym.clone_without_span()
+        } else {
+            let name = $name.to_string();
+            let constant = name.starts_with(':');
+            let sym = TulispObject::symbol(name.clone(), constant);
+            $obarray.insert(name, sym.clone());
+            sym
+        }
+    }
+}
 
 #[derive(Debug, Default, Clone)]
 pub(crate) struct Scope {
@@ -32,6 +58,15 @@ impl Scope {
     }
 }
 
+intern_from_obarray! {
+    #[derive(Clone)]
+    pub(crate) struct Keywords {
+        amp_optional: "&optional",
+        amp_rest: "&rest",
+        lambda: "lambda",
+    }
+}
+
 /// Represents an instance of the _Tulisp_ interpreter.
 ///
 /// Owns the
@@ -44,6 +79,7 @@ pub struct TulispContext {
     obarray: HashMap<String, TulispObject>,
     pub(crate) filenames: Vec<String>,
     pub(crate) compiler: Option<Compiler>,
+    pub(crate) keywords: Keywords,
 }
 
 impl Default for TulispContext {
@@ -55,10 +91,13 @@ impl Default for TulispContext {
 impl TulispContext {
     /// Creates a TulispContext with an empty global scope.
     pub fn new() -> Self {
+        let mut obarray = HashMap::new();
+        let keywords = Keywords::from_obarray(&mut obarray);
         let mut ctx = Self {
-            obarray: HashMap::new(),
+            obarray,
             filenames: vec!["<eval_string>".to_string()],
             compiler: None,
+            keywords,
         };
         builtin::functions::add(&mut ctx);
         builtin::macros::add(&mut ctx);

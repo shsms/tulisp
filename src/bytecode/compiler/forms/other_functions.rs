@@ -196,7 +196,7 @@ pub(super) fn compile_fn_defun_call(
 ) -> Result<Vec<Instruction>, Error> {
     let mut result = vec![];
     let mut args_count = 0;
-    if name.consp() && name.car_and_then(|name| Ok(name.eq(&ctx.intern("lambda"))))? {
+    if name.consp() && name.car_and_then(|name| Ok(name.eq(&ctx.keywords.lambda)))? {
         compile_fn_defun(ctx, &name.car()?, &list!(name.clone() ,@name.cdr()?)?)?;
     }
 
@@ -224,9 +224,6 @@ pub(super) fn compile_fn_defun(
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
     let mut res = ctx.compile_2_arg_call(name, args, true, |ctx, name, args, body| {
-        let optional_symbol = ctx.intern("&optional");
-        let rest_symbol = ctx.intern("&rest");
-
         let compiler = ctx.compiler.as_mut().unwrap();
         compiler
             .vm_compilers
@@ -239,7 +236,7 @@ pub(super) fn compile_fn_defun(
         let mut is_optional = false;
         let mut is_rest = false;
         for arg in args.iter() {
-            if arg.eq(&optional_symbol) {
+            if arg.eq(&ctx.keywords.amp_optional) {
                 if is_rest {
                     return Err(Error::new(
                         ErrorKind::Undefined,
@@ -248,7 +245,7 @@ pub(super) fn compile_fn_defun(
                     .with_trace(arg.clone()));
                 }
                 is_optional = true;
-            } else if arg.eq(&rest_symbol) {
+            } else if arg.eq(&ctx.keywords.amp_rest) {
                 if is_rest {
                     return Err(
                         Error::new(ErrorKind::Undefined, "rest after rest".to_string())
