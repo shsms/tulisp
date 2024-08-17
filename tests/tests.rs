@@ -65,7 +65,7 @@ fn test_comparison_of_numbers() -> Result<(), Error> {
     tulisp_assert! { program: "(> 5.0 10.0)", result: "nil" }
     tulisp_assert! {
         program: "(let ((a 10)) (> a))",
-        error: r#"ERR OutOfRange: gt requires at least 2 arguments
+        error: r#"ERR OutOfRange: > requires at least 2 arguments
 <eval_string>:1.15-1.20:  at (> a)
 <eval_string>:1.1-1.21:  at (let ((a 10)) (> a))
 "#
@@ -90,7 +90,7 @@ fn test_comparison_of_numbers() -> Result<(), Error> {
     tulisp_assert! { program: "(>= 5.0 10.0)", result: "nil" }
     tulisp_assert! {
         program: "(let ((a 10)) (>= a))",
-        error: r#"ERR OutOfRange: ge requires at least 2 arguments
+        error: r#"ERR OutOfRange: >= requires at least 2 arguments
 <eval_string>:1.15-1.21:  at (>= a)
 <eval_string>:1.1-1.22:  at (let ((a 10)) (>= a))
 "#
@@ -108,7 +108,7 @@ fn test_comparison_of_numbers() -> Result<(), Error> {
     tulisp_assert! { program: "(< 5.0 10.0)", result: "t" }
     tulisp_assert! {
         program: "(let ((a 10)) (< a))",
-        error: r#"ERR OutOfRange: lt requires at least 2 arguments
+        error: r#"ERR OutOfRange: < requires at least 2 arguments
 <eval_string>:1.15-1.20:  at (< a)
 <eval_string>:1.1-1.21:  at (let ((a 10)) (< a))
 "#
@@ -126,7 +126,7 @@ fn test_comparison_of_numbers() -> Result<(), Error> {
     tulisp_assert! { program: "(<= 5.0 10.0)", result: "t" }
     tulisp_assert! {
         program: "(let ((a 10)) (<= a))",
-        error: r#"ERR OutOfRange: le requires at least 2 arguments
+        error: r#"ERR OutOfRange: <= requires at least 2 arguments
 <eval_string>:1.15-1.21:  at (<= a)
 <eval_string>:1.1-1.22:  at (let ((a 10)) (<= a))
 "#

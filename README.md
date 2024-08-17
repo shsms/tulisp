@@ -67,3 +67,8 @@ Tulisp has a light-weight tree-walking interpreter with very low startup times a
 ## Builtin functions
 
 A list of currently available builtin functions can be found [here](https://docs.rs/tulisp/latest/tulisp/builtin).
+
+## Projects using Tulisp
+
+- [slippy](https://github.com/shsms/slippy) - a configuration tool for the Sway window manager.
+- [microsim](https://github.com/shsms/microsim) - a microgrid simulator.

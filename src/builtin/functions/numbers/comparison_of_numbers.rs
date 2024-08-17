@@ -24,13 +24,13 @@ macro_rules! compare_ops {
 }
 
 macro_rules! compare_impl {
-    ($name:ident) => {
+    ($name:ident, $symbol:literal) => {
         fn $name(ctx: &mut TulispContext, rest: &TulispObject) -> Result<TulispObject, Error> {
             let items: Vec<TulispObject> = rest.base_iter().collect();
             if items.len() < 2 {
                 return Err(Error::new(
                     crate::ErrorKind::OutOfRange,
-                    format!("{} requires at least 2 arguments", stringify!($name)),
+                    format!("{} requires at least 2 arguments", $symbol),
                 ));
             }
             for items in items.windows(2) {
@@ -60,16 +60,16 @@ macro_rules! compare_impl {
 }
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    compare_impl!(gt);
+    compare_impl!(gt, ">");
     intern_set_func!(ctx, gt, ">");
 
-    compare_impl!(ge);
+    compare_impl!(ge, ">=");
     intern_set_func!(ctx, ge, ">=");
 
-    compare_impl!(lt);
+    compare_impl!(lt, "<");
     intern_set_func!(ctx, lt, "<");
 
-    compare_impl!(le);
+    compare_impl!(le, "<=");
     intern_set_func!(ctx, le, "<=");
 
     fn max(ctx: &mut TulispContext, rest: &TulispObject) -> Result<TulispObject, Error> {
