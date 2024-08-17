@@ -14,11 +14,11 @@ impl TulispContext {
     ) -> Result<Vec<Instruction>, Error> {
         if args.null() {
             return Err(Error::new(
-                ErrorKind::ArityMismatch,
+                ErrorKind::TypeMismatch,  // TODO: change to ArityMismatch
                 if has_rest {
-                    format!("{} requires at least 1 argument.", name)
+                    format!("{} requires at least 1 argument", name)
                 } else {
-                    format!("{} requires 1 argument.", name)
+                    format!("{} requires exactly 1 argument", name)
                 },
             ));
         }
@@ -26,8 +26,8 @@ impl TulispContext {
             args.cdr_and_then(|rest| {
                 if !has_rest && !rest.null() {
                     return Err(Error::new(
-                        ErrorKind::ArityMismatch,
-                        format!("{} accepts only 1 argument.", name),
+                        ErrorKind::TypeMismatch,  // TODO: change to ArityMismatch
+                        format!("{} requires exactly 1 argument", name),
                     ));
                 }
                 lambda(self, arg1, rest)
@@ -49,21 +49,21 @@ impl TulispContext {
     ) -> Result<Vec<Instruction>, Error> {
         let TulispValue::List { cons: args, .. } = &*args.inner_ref() else {
             return Err(Error::new(
-                ErrorKind::ArityMismatch,
+                ErrorKind::TypeMismatch,  // TODO: change to ArityMismatch
                 if has_rest {
-                    format!("{} requires at least 2 arguments.", name)
+                    format!("{} requires at least 2 arguments", name)
                 } else {
-                    format!("{} requires 2 arguments.", name)
+                    format!("{} requires exactly 2 arguments", name)
                 },
             ));
         };
         if args.cdr().null() {
             return Err(Error::new(
-                ErrorKind::ArityMismatch,
+                ErrorKind::TypeMismatch,  // TODO: change to ArityMismatch
                 if has_rest {
-                    format!("{} requires at least 2 arguments.", name)
+                    format!("{} requires at least 2 arguments", name)
                 } else {
-                    format!("{} requires 2 arguments.", name)
+                    format!("{} requires exactly 2 arguments", name)
                 },
             ));
         }
@@ -72,8 +72,8 @@ impl TulispContext {
             args.cdr().cdr_and_then(|rest| {
                 if !has_rest && !rest.null() {
                     return Err(Error::new(
-                        ErrorKind::ArityMismatch,
-                        format!("{} accepts only 2 arguments.", name),
+                        ErrorKind::TypeMismatch,  // TODO: change to ArityMismatch
+                        format!("{} requires exactly 2 arguments", name),
                     ));
                 }
                 lambda(self, arg1, arg2, rest)
