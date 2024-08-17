@@ -1,10 +1,11 @@
 use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc};
 
 use super::Instruction;
-use crate::bytecode::compiler::VMDefunParams;
+use crate::{bytecode::compiler::VMDefunParams, TulispObject};
 
 #[derive(Default, Clone)]
 pub(crate) struct CompiledDefun {
+    pub(crate) name: TulispObject,
     pub(crate) instructions: Rc<RefCell<Vec<Instruction>>>,
     pub(crate) params: VMDefunParams,
 }

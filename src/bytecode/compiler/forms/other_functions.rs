@@ -228,7 +228,9 @@ pub(super) fn compile_fn_defun(
         optional: vec![],
         rest: None,
     };
+    let mut fn_name = TulispObject::nil();
     let mut res = ctx.compile_2_arg_call(defun_kw, args, true, |ctx, defun_name, args, body| {
+        fn_name = defun_name.clone();
         let compiler = ctx.compiler.as_mut().unwrap();
         compiler
             .vm_compilers
@@ -285,25 +287,18 @@ pub(super) fn compile_fn_defun(
         let mut result = compile_progn_keep_result(ctx, &body)?;
         result.push(Instruction::Ret);
 
-        // This use of a `List` instruction is a hack to get the address of the
-        // function we just compiled so we can insert it into the
-        // bytecode.functions map. The instruction is discarded as soon as it is
-        // read, and isn't part of the compiler's output.
-        result.push(Instruction::List(defun_name.addr_as_usize()));
-
         Ok(result)
     })?;
-    let Some(Instruction::List(addr)) = res.pop() else {
-        unreachable!()
+    let function = CompiledDefun {
+        name: fn_name.clone(),
+        instructions: Rc::new(RefCell::new(res)),
+        params: defun_params,
     };
     let compiler = ctx.compiler.as_mut().unwrap();
-    compiler.bytecode.functions.insert(
-        addr,
-        CompiledDefun {
-            instructions: Rc::new(RefCell::new(res)),
-            params: defun_params,
-        },
-    );
+    compiler
+        .bytecode
+        .functions
+        .insert(fn_name.addr_as_usize(), function);
     Ok(vec![])
 }
 
