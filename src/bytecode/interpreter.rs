@@ -1,4 +1,4 @@
-use super::{bytecode::Bytecode, compile, Instruction};
+use super::{bytecode::Bytecode, compile, compiler::VMDefunParams, Instruction};
 use crate::{bytecode::Pos, lists, Error, TulispContext, TulispObject};
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
@@ -40,6 +40,26 @@ macro_rules! compare_ops {
             }
         }
     }};
+}
+
+struct SetParams(Vec<TulispObject>);
+
+impl SetParams {
+    fn new() -> Self {
+        Self(Vec::new())
+    }
+
+    fn push(&mut self, obj: TulispObject) {
+        self.0.push(obj);
+    }
+}
+
+impl Drop for SetParams {
+    fn drop(&mut self) {
+        for obj in self.0.iter() {
+            obj.unset().unwrap();
+        }
+    }
 }
 
 pub struct Machine {
@@ -365,7 +385,6 @@ impl Machine {
                         let instrs = self.bytecode.functions.get(&addr).unwrap().clone();
                         *instructions = Some(instrs);
                     }
-                    let instructions = instructions.as_ref().unwrap().clone();
                     if params.is_none() {
                         let addr = name.addr_as_usize();
                         if let Some(items) = self.bytecode.defun_args.get(&addr) {
@@ -386,34 +405,14 @@ impl Machine {
                         }
                     }
 
+                    let instructions = instructions.as_ref().unwrap().clone();
                     let Some(params) = params else { unreachable!() };
-                    let mut set_params = vec![];
-                    if let Some(rest) = &params.rest {
-                        let mut rest_value = TulispObject::nil();
-                        for _ in 0..*rest_count {
-                            rest_value = TulispObject::cons(self.stack.pop().unwrap(), rest_value);
-                        }
-                        rest.set_scope(rest_value).unwrap();
-                        set_params.push(rest.clone());
-                    }
-                    for (ii, arg) in params.optional.iter().enumerate().rev() {
-                        if ii >= *optional_count {
-                            arg.set_scope(TulispObject::nil()).unwrap();
-                            continue;
-                        }
-                        arg.set_scope(self.stack.pop().unwrap()).unwrap();
-                        set_params.push(arg.clone());
-                    }
-                    for arg in params.required.iter().rev() {
-                        arg.set_scope(self.stack.pop().unwrap()).unwrap();
-                        set_params.push(arg.clone());
-                    }
+
+                    let params = self.init_defun_args(&params, optional_count, rest_count);
                     drop(instr_ref);
-                    self.run_impl(ctx, &instructions, recursion_depth + 1)?;
+                    self.run_function(ctx, &instructions, recursion_depth + 1)?;
                     instr_ref = program.borrow_mut();
-                    for arg in set_params.iter() {
-                        arg.unset().unwrap();
-                    }
+                    drop(params);
                 }
                 Instruction::Ret => return Ok(()),
                 Instruction::RustCall {
@@ -503,6 +502,46 @@ impl Machine {
             }
             pc += 1;
         }
+        Ok(())
+    }
+
+    fn init_defun_args(
+        &mut self,
+        params: &VMDefunParams,
+        optional_count: &usize,
+        rest_count: &usize,
+    ) -> SetParams {
+        let mut set_params = SetParams::new();
+        if let Some(rest) = &params.rest {
+            let mut rest_value = TulispObject::nil();
+            for _ in 0..*rest_count {
+                rest_value = TulispObject::cons(self.stack.pop().unwrap(), rest_value);
+            }
+            rest.set_scope(rest_value).unwrap();
+            set_params.push(rest.clone());
+        }
+        for (ii, arg) in params.optional.iter().enumerate().rev() {
+            if ii >= *optional_count {
+                arg.set_scope(TulispObject::nil()).unwrap();
+                continue;
+            }
+            arg.set_scope(self.stack.pop().unwrap()).unwrap();
+            set_params.push(arg.clone());
+        }
+        for arg in params.required.iter().rev() {
+            arg.set_scope(self.stack.pop().unwrap()).unwrap();
+            set_params.push(arg.clone());
+        }
+        set_params
+    }
+
+    fn run_function(
+        &mut self,
+        ctx: &mut TulispContext,
+        instructions: &Rc<RefCell<Vec<Instruction>>>,
+        recursion_depth: u32,
+    ) -> Result<(), Error> {
+        self.run_impl(ctx, &instructions, recursion_depth)?;
         Ok(())
     }
 }
