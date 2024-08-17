@@ -117,14 +117,11 @@ macro_rules! jump_to_pos {
 }
 
 impl Machine {
-    pub(crate) fn new(bytecode: Bytecode) -> Self {
-        let labels = Self::locate_labels(&bytecode);
+    pub(crate) fn new() -> Self {
         Machine {
             stack: Vec::new(),
-            labels,
-            bytecode,
-            // program: programs::print_range(92, 100),
-            // program: programs::fib(30),
+            bytecode: Bytecode::new(),
+            labels: HashMap::new(),
         }
     }
 
@@ -170,7 +167,15 @@ impl Machine {
         );
     }
 
-    pub fn run(&mut self, ctx: &mut TulispContext) -> Result<TulispObject, Error> {
+    pub fn run(
+        &mut self,
+        ctx: &mut TulispContext,
+        bytecode: Bytecode,
+    ) -> Result<TulispObject, Error> {
+        let labels = Self::locate_labels(&bytecode);
+        self.labels.extend(labels);
+        self.bytecode.import_functions(&bytecode);
+        self.bytecode.global = bytecode.global;
         self.run_impl(ctx, &self.bytecode.global.clone(), 0)?;
         Ok(self.stack.pop().unwrap().into())
     }

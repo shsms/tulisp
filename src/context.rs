@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, fs, rc::Rc};
 
 use crate::{
     builtin,
@@ -86,6 +86,7 @@ pub struct TulispContext {
     pub(crate) filenames: Vec<String>,
     pub(crate) compiler: Option<Compiler>,
     pub(crate) keywords: Keywords,
+    pub(crate) vm: Rc<RefCell<bytecode::Machine>>,
 }
 
 impl Default for TulispContext {
@@ -104,6 +105,7 @@ impl TulispContext {
             filenames: vec!["<eval_string>".to_string()],
             compiler: None,
             keywords,
+            vm: Rc::new(RefCell::new(bytecode::Machine::new())),
         };
         builtin::functions::add(&mut ctx);
         builtin::macros::add(&mut ctx);
@@ -261,7 +263,10 @@ impl TulispContext {
     pub fn vm_eval_string(&mut self, string: &str) -> Result<TulispObject, Error> {
         let vv = parse(self, 0, string)?;
         let bytecode = compile(self, &vv)?;
-        bytecode::Machine::new(bytecode).run(self)
+        let vm = self.vm.clone();
+        let res = vm.borrow_mut().run(self, bytecode);
+        drop(vm);
+        res
     }
 
     pub fn vm_eval_file(&mut self, filename: &str) -> Result<TulispObject, Error> {
@@ -273,9 +278,11 @@ impl TulispContext {
         println!("Compiling took: {:?}", start.elapsed());
         // println!("{}", bytecode);
         let start = std::time::Instant::now();
-        let ret = bytecode::Machine::new(bytecode).run(self);
+        let vm = self.vm.clone();
+        let res = vm.borrow_mut().run(self, bytecode);
+        drop(vm);
         println!("Running took: {:?}", start.elapsed());
-        ret
+        res
     }
 
     pub(crate) fn get_filename(&self, file_id: usize) -> String {
@@ -314,6 +321,9 @@ impl TulispContext {
 
     #[allow(dead_code)]
     pub(crate) fn run_bytecode(&mut self, bytecode: Bytecode) -> Result<TulispObject, Error> {
-        bytecode::Machine::new(bytecode).run(self)
+        let vm = self.vm.clone();
+        let res = vm.borrow_mut().run(self, bytecode);
+        drop(vm);
+        res
     }
 }
