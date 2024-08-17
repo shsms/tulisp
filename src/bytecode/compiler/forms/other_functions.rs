@@ -84,7 +84,7 @@ pub(super) fn compile_fn_cons(
     name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    ctx.compile_2_arg_call(name, args, true, |ctx, arg1, arg2, _| {
+    ctx.compile_2_arg_call(name, args, false, |ctx, arg1, arg2, _| {
         let mut result = compile_expr(ctx, arg1)?;
         result.append(&mut compile_expr(ctx, arg2)?);
         if ctx.compiler.as_ref().unwrap().keep_result {
