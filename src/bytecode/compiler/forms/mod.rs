@@ -13,6 +13,7 @@ mod conditionals;
 mod list_elements;
 mod other_functions;
 mod plist;
+mod setting;
 
 type FnCallCompiler =
     fn(&mut TulispContext, &TulispObject, &TulispObject) -> Result<Vec<Instruction>, Error>;
@@ -53,12 +54,13 @@ impl VMCompilers {
             ("load", other_functions::compile_fn_load_file),
             ("print", other_functions::compile_fn_print),
             ("quote", other_functions::compile_fn_quote),
-            ("setq", other_functions::compile_fn_setq),
-            ("set", other_functions::compile_fn_set),
             ("defun", other_functions::compile_fn_defun),
             ("progn", other_functions::compile_fn_progn),
-            ("let", other_functions::compile_fn_let_star),
-            ("let*", other_functions::compile_fn_let_star),
+            // setting
+            ("let", setting::compile_fn_let_star),
+            ("let*", setting::compile_fn_let_star),
+            ("setq", setting::compile_fn_setq),
+            ("set", setting::compile_fn_set),
             // lists
             ("cons", other_functions::compile_fn_cons),
             ("list", other_functions::compile_fn_list),
