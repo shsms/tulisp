@@ -1,7 +1,13 @@
 use std::{collections::HashMap, fs, rc::Rc};
 
 use crate::{
-    builtin, bytecode::{self, compile, Bytecode, Compiler}, error::Error, eval::{eval, eval_and_then, eval_basic, funcall, DummyEval},  list, parse::parse, TulispObject, TulispValue
+    builtin,
+    bytecode::{self, compile, Bytecode, Compiler},
+    error::Error,
+    eval::{eval, eval_and_then, eval_basic, funcall, DummyEval},
+    list,
+    parse::parse,
+    TulispObject, TulispValue,
 };
 
 use crate::bytecode::VMCompilers;

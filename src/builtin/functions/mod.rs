@@ -54,6 +54,7 @@ macro_rules! intern_set_func {
 }
 
 pub(crate) mod common;
+mod comparison_of_strings;
 mod conditionals;
 mod equality_predicates;
 mod functions;
@@ -61,7 +62,6 @@ mod hash_table;
 mod list_elements;
 mod numbers;
 mod sequences;
-mod comparison_of_strings;
 
 pub(crate) fn add(ctx: &mut TulispContext) {
     conditionals::add(ctx);
