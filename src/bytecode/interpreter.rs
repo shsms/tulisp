@@ -186,7 +186,15 @@ impl Machine {
                             Add => binary_ops!(|a, b| a + b)(a, b)?,
                             Sub => binary_ops!(|a, b| a - b)(a, b)?,
                             Mul => binary_ops!(|a, b| a * b)(a, b)?,
-                            Div => binary_ops!(|a, b| a / b)(a, b)?,
+                            Div => {
+                                if b.integerp() && b.as_int().unwrap() == 0 {
+                                    return Err(Error::new(
+                                        crate::ErrorKind::Undefined,
+                                        "Division by zero".to_string(),
+                                    ));
+                                }
+                                binary_ops!(|a, b| a / b)(a, b)?
+                            },
                         }
                     };
                     self.stack.truncate(self.stack.len() - 2);
