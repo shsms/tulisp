@@ -18,7 +18,6 @@ pub(crate) struct VMDefunParams {
 pub(crate) struct Compiler {
     pub vm_compilers: VMCompilers,
     pub defun_args: HashMap<usize, VMDefunParams>, // fn_name.addr_as_usize() -> arg symbol idx
-    pub symbol_to_binding_idx: HashMap<usize, Vec<usize>>,
     pub bytecode: Bytecode,
     pub keep_result: bool,
     label_counter: usize,
@@ -29,7 +28,6 @@ impl Compiler {
         Compiler {
             vm_compilers,
             defun_args: HashMap::new(),
-            symbol_to_binding_idx: HashMap::new(),
             bytecode: Bytecode::new(),
             keep_result: true,
             label_counter: 0,
