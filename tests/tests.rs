@@ -825,6 +825,7 @@ fn test_let() -> Result<(), Error> {
     tulisp_assert! {
         program: "(let (18 (vv (+ 55 1)) (jj 20)) (+ vv jj 1))",
         error: r#"ERR SyntaxError: varitems inside a let-varlist should be a var or a binding: 18
+<eval_string>:1.7-1.9:  at 18
 <eval_string>:1.1-1.45:  at (let (18 (vv (+ 55 1)) (jj 20)) (+ vv jj 1))
 "#
     }

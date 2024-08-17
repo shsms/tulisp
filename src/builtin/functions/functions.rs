@@ -265,7 +265,8 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                         "varitems inside a let-varlist should be a var or a binding: {}",
                         varitem
                     ),
-                ));
+                )
+                .with_trace(varitem.clone()));
             };
         }
 

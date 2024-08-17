@@ -336,6 +336,13 @@ pub(super) fn compile_fn_let_star(
                     )
                     .with_trace(varitem));
                 }
+                if !name.symbolp() {
+                    return Err(Error::new(
+                        ErrorKind::TypeMismatch,
+                        format!("Expected Symbol: Can't assign to {}", name),
+                    )
+                    .with_trace(name));
+                }
                 if !rest.null() {
                     return Err(Error::new(
                         ErrorKind::Undefined,
