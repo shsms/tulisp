@@ -18,8 +18,8 @@ fn compile_fn_compare(
     let args = args.base_iter().collect::<Vec<_>>();
     if args.len() < 2 {
         return Err(Error::new(
-            crate::ErrorKind::ArityMismatch,
-            format!("{} requires at least 2 arguments.", name),
+            crate::ErrorKind::OutOfRange, // TODO: change to ArityMismatch
+            format!("{} requires at least 2 arguments", name),
         ));
     }
     for items in args.windows(2) {

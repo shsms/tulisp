@@ -25,6 +25,20 @@ macro_rules! binary_ops {
 macro_rules! compare_ops {
     ($oper:expr) => {{
         |selfobj: &TulispObject, other: &TulispObject| -> Result<bool, Error> {
+            if !selfobj.numberp() {
+                return Err(Error::new(
+                    crate::ErrorKind::TypeMismatch,
+                    format!("Expected number, found: {selfobj}"),
+                )
+                .with_trace(selfobj.clone()));
+            }
+            if !other.numberp() {
+                return Err(Error::new(
+                    crate::ErrorKind::TypeMismatch,
+                    format!("Expected number, found: {other}"),
+                )
+                .with_trace(other.clone()));
+            }
             if selfobj.floatp() {
                 let s: f64 = selfobj.as_float().unwrap();
                 let o: f64 = other.try_into()?;
