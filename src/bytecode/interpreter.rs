@@ -5,6 +5,20 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 macro_rules! binary_ops {
     ($oper:expr) => {{
         |selfobj: &TulispObject, other: &TulispObject| -> Result<TulispObject, Error> {
+            if !selfobj.numberp() {
+                return Err(Error::new(
+                    crate::ErrorKind::TypeMismatch,
+                    format!("Expected number, found: {selfobj}"),
+                )
+                .with_trace(selfobj.clone()));
+            }
+            if !other.numberp() {
+                return Err(Error::new(
+                    crate::ErrorKind::TypeMismatch,
+                    format!("Expected number, found: {other}"),
+                )
+                .with_trace(other.clone()));
+            }
             if selfobj.floatp() {
                 let s: f64 = selfobj.as_float().unwrap();
                 let o: f64 = other.try_into()?;
@@ -122,8 +136,8 @@ impl Machine {
                 labels.insert(name.addr_as_usize(), i + 1);
             }
         }
-        for (_, instr) in &bytecode.functions {
-            for (i, instr) in instr.borrow().iter().enumerate() {
+        for (_, func) in &bytecode.functions {
+            for (i, instr) in func.instructions.borrow().iter().enumerate() {
                 if let Instruction::Label(name) = instr {
                     labels.insert(name.addr_as_usize(), i + 1);
                 }
@@ -143,7 +157,13 @@ impl Machine {
             recursion_depth,
             pc,
             if let Some(func) = func {
-                self.bytecode.functions.get(&func).unwrap().borrow()[pc].clone()
+                self.bytecode
+                    .functions
+                    .get(&func)
+                    .unwrap()
+                    .instructions
+                    .borrow()[pc]
+                    .clone()
             } else {
                 self.bytecode.global.borrow()[pc].clone()
             }
@@ -194,7 +214,7 @@ impl Machine {
                                     ));
                                 }
                                 binary_ops!(|a, b| a / b)(a, b)?
-                            },
+                            }
                         }
                     };
                     self.stack.truncate(self.stack.len() - 2);
@@ -396,41 +416,38 @@ impl Machine {
                 }
                 Instruction::Call {
                     name,
-                    params,
+                    function,
                     args_count,
-                    instructions,
                     optional_count,
                     rest_count,
                 } => {
-                    if instructions.is_none() {
+                    if function.is_none() {
                         let addr = name.addr_as_usize();
-                        let instrs = self.bytecode.functions.get(&addr).unwrap().clone();
-                        *instructions = Some(instrs);
-                    }
-                    if params.is_none() {
-                        let addr = name.addr_as_usize();
-                        if let Some(items) = self.bytecode.defun_args.get(&addr) {
-                            *params = Some(items.clone());
-                            let left_args = *args_count - items.required.len();
-                            if left_args > items.optional.len() {
-                                *rest_count = left_args - items.optional.len();
-                                *optional_count = items.optional.len();
-                            } else if left_args > 0 {
-                                *optional_count = left_args
-                            }
-                        } else {
+                        let Some(func) = self.bytecode.functions.get(&addr) else {
                             return Err(Error::new(
                                 crate::ErrorKind::Undefined,
                                 format!("undefined function: {}", name),
                             )
                             .with_trace(name.clone()));
+                        };
+                        let func = func.clone();
+
+                        let left_args = *args_count - func.params.required.len();
+                        if left_args > func.params.optional.len() {
+                            *rest_count = left_args - func.params.optional.len();
+                            *optional_count = func.params.optional.len();
+                        } else if left_args > 0 {
+                            *optional_count = left_args
                         }
+                        *function = Some(func);
                     }
 
-                    let instructions = instructions.as_ref().unwrap().clone();
-                    let Some(params) = params else { unreachable!() };
+                    let instructions = function.as_ref().unwrap().instructions.clone();
+                    let Some(function) = function.as_ref() else {
+                        unreachable!()
+                    };
 
-                    let params = self.init_defun_args(&params, optional_count, rest_count);
+                    let params = self.init_defun_args(&function.params, optional_count, rest_count);
                     drop(instr_ref);
                     self.run_function(ctx, &instructions, recursion_depth + 1)?;
                     instr_ref = program.borrow_mut();

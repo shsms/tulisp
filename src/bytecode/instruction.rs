@@ -1,8 +1,8 @@
-use std::{cell::RefCell, rc::Rc};
+use std::rc::Rc;
 
 use crate::{value::TulispFn, TulispObject};
 
-use super::compiler::VMDefunParams;
+use super::bytecode::CompiledDefun;
 
 #[derive(Clone)]
 pub(crate) enum Pos {
@@ -113,8 +113,7 @@ pub(crate) enum Instruction {
     Call {
         name: TulispObject,
         args_count: usize,
-        instructions: Option<Rc<RefCell<Vec<Instruction>>>>,
-        params: Option<VMDefunParams>,
+        function: Option<CompiledDefun>,
         optional_count: usize,
         rest_count: usize,
     },

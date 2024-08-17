@@ -7,7 +7,7 @@ use crate::{
 
 use super::forms::{compile_form, VMCompilers};
 
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub(crate) struct VMDefunParams {
     pub required: Vec<TulispObject>,
     pub optional: Vec<TulispObject>,
@@ -44,10 +44,6 @@ pub fn compile(ctx: &mut TulispContext, value: &TulispObject) -> Result<Bytecode
     let output = compile_progn(ctx, value)?;
     let compiler = ctx.compiler.as_mut().unwrap();
     compiler.bytecode.global = Rc::new(RefCell::new(output));
-    compiler
-        .bytecode
-        .defun_args
-        .extend(compiler.defun_args.clone());
     Ok(compiler.bytecode.clone())
 }
 

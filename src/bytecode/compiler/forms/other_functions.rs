@@ -2,6 +2,7 @@ use std::{cell::RefCell, rc::Rc};
 
 use crate::{
     bytecode::{
+        bytecode::CompiledDefun,
         compiler::{
             compiler::{
                 compile_expr, compile_expr_keep_result, compile_progn, compile_progn_keep_result,
@@ -207,8 +208,7 @@ pub(super) fn compile_fn_defun_call(
     result.push(Instruction::Call {
         name: name.clone(),
         args_count,
-        instructions: None,
-        params: None,
+        function: None,
         optional_count: 0,
         rest_count: 0,
     });
@@ -223,6 +223,11 @@ pub(super) fn compile_fn_defun(
     name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
+    let mut defun_params = VMDefunParams {
+        required: vec![],
+        optional: vec![],
+        rest: None,
+    };
     let mut res = ctx.compile_2_arg_call(name, args, true, |ctx, name, args, body| {
         let compiler = ctx.compiler.as_mut().unwrap();
         compiler
@@ -270,14 +275,12 @@ pub(super) fn compile_fn_defun(
             }
         }
 
-        compiler.defun_args.insert(
-            name.addr_as_usize(),
-            VMDefunParams {
-                required,
-                optional,
-                rest,
-            },
-        );
+        defun_params = VMDefunParams {
+            required,
+            optional,
+            rest,
+        };
+
         // TODO: replace with `is_string`
         let body = if body.car()?.as_string().is_ok() {
             body.cdr()?
@@ -303,10 +306,13 @@ pub(super) fn compile_fn_defun(
         unreachable!()
     };
     let compiler = ctx.compiler.as_mut().unwrap();
-    compiler
-        .bytecode
-        .functions
-        .insert(addr, Rc::new(RefCell::new(res)));
+    compiler.bytecode.functions.insert(
+        addr,
+        CompiledDefun {
+            instructions: Rc::new(RefCell::new(res)),
+            params: defun_params,
+        },
+    );
     Ok(vec![])
 }
 
