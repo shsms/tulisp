@@ -1,4 +1,5 @@
 use crate::{
+    bytecode::CompiledDefun,
     cons::{self, Cons},
     context::Scope,
     error::{Error, ErrorKind},
@@ -243,6 +244,9 @@ pub enum TulispValue {
         params: DefunParams,
         body: TulispObject,
     },
+    CompiledDefun {
+        value: CompiledDefun,
+    },
     Bounce {
         value: TulispObject,
     },
@@ -291,6 +295,7 @@ impl std::fmt::Debug for TulispValue {
                 .field("params", params)
                 .field("body", body)
                 .finish(),
+            Self::CompiledDefun { .. } => f.debug_struct("CompiledDefun").finish(),
             Self::Bounce { value } => f.debug_struct("Bounce").field("value", value).finish(),
         }
     }
@@ -386,6 +391,7 @@ impl std::fmt::Display for TulispValue {
             TulispValue::Macro(_) => f.write_str("Macro"),
             TulispValue::Defmacro { .. } => f.write_str("Defmacro"),
             TulispValue::Lambda { .. } => f.write_str("Defun"),
+            TulispValue::CompiledDefun { .. } => f.write_str("CompiledDefun"),
         }
     }
 }

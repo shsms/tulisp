@@ -228,19 +228,20 @@ pub(crate) fn compile_expr(
                 return Ok(vec![]);
             }
         }
-        TulispValue::String { .. }
-        | TulispValue::Lambda { .. }
-        | TulispValue::Func(_)
-        | TulispValue::Macro(_)
-        | TulispValue::Defmacro { .. }
-        | TulispValue::Any(_)
-        | TulispValue::Bounce { .. } => {
+        TulispValue::String { .. } | TulispValue::Any(_) => {
             if compiler.keep_result {
                 return Ok(vec![Instruction::Push(expr.clone().into())]);
             } else {
                 return Ok(vec![]);
             }
         }
+        TulispValue::Lambda { .. }
+        | TulispValue::Func(_)
+        | TulispValue::CompiledDefun { .. }
+        | TulispValue::Macro(_)
+        | TulispValue::Defmacro { .. }
+        | TulispValue::Bounce { .. } => return Ok(vec![]),
+
         TulispValue::Backquote { value } => compile_back_quote(ctx, value),
         TulispValue::Quote { value } | TulispValue::Sharpquote { value } => {
             if compiler.keep_result {

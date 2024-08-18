@@ -1,5 +1,5 @@
 mod bytecode;
-pub(crate) use bytecode::Bytecode;
+pub(crate) use bytecode::{Bytecode, CompiledDefun};
 
 pub(crate) mod instruction;
 pub(crate) use instruction::{Instruction, Pos};
