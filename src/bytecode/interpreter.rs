@@ -437,6 +437,20 @@ impl Machine {
                         };
                         let func = func.clone();
 
+                        if *args_count < func.params.required.len() {
+                            return Err(Error::new(
+                                crate::ErrorKind::TypeMismatch, // TODO: change to ArityMismatch
+                                "Too few arguments".to_string(),
+                            ));
+                        }
+                        if func.params.rest.is_none()
+                            && *args_count > func.params.required.len() + func.params.optional.len()
+                        {
+                            return Err(Error::new(
+                                crate::ErrorKind::TypeMismatch, // TODO: change to ArityMismatch
+                                "Too many arguments".to_string(),
+                            ));
+                        }
                         let left_args = *args_count - func.params.required.len();
                         if left_args > func.params.optional.len() {
                             *rest_count = left_args - func.params.optional.len();
