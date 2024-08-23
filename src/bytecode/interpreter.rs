@@ -1,5 +1,5 @@
 use super::{bytecode::Bytecode, compile, compiler::VMDefunParams, Instruction};
-use crate::{bytecode::Pos, lists, Error, TulispContext, TulispObject};
+use crate::{bytecode::Pos, lists, Error, TulispContext, TulispObject, TulispValue};
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 macro_rules! binary_ops {
@@ -556,6 +556,11 @@ impl Machine {
                 Instruction::Null => {
                     let a = self.stack.last().unwrap().null();
                     *self.stack.last_mut().unwrap() = a.into();
+                }
+                Instruction::Quote => {
+                    let a = self.stack.pop().unwrap();
+                    self.stack
+                        .push(TulispValue::Quote { value: a.clone() }.into_ref(None));
                 }
             }
             pc += 1;

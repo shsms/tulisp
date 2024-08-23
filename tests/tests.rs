@@ -707,6 +707,14 @@ fn test_backquotes() -> Result<(), Error> {
     }
 
     tulisp_assert! {
+        program: r#"
+        (let ((a 10))
+          (cdr `(a . ,a)))
+        "#,
+        result: r#"10"#,
+    }
+
+    tulisp_assert! {
         program: r#"`(1 2 '(+ 10 20)  ',(+ 10 20)  (quote ,(+ 20 20)))"#,
         result: r#"'(1 2 '(+ 10 20) '30 (quote 40))"#,
     }

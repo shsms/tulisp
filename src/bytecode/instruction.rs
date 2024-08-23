@@ -124,6 +124,8 @@ pub(crate) enum Instruction {
     Append(usize),
     Cxr(Cxr),
     PlistGet,
+    // values
+    Quote,
 }
 
 impl std::fmt::Display for Instruction {
@@ -204,6 +206,7 @@ impl std::fmt::Display for Instruction {
                 Cxr::Cddddr => write!(f, "    cddddr"),
             },
             Instruction::PlistGet => write!(f, "    plist_get"),
+            Instruction::Quote => write!(f, "    quote"),
         }
     }
 }

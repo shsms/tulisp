@@ -110,8 +110,24 @@ fn compile_back_quote(
     if !compiler.keep_result {
         return Ok(vec![]);
     }
-    if !value.consp() {
-        return Ok(vec![Instruction::Push(value.clone().into())]);
+    match &*value.inner_ref() {
+        TulispValue::Quote { value } => {
+            return compile_back_quote(ctx, value).map(|mut v| {
+                v.push(Instruction::Quote);
+                v
+            })
+        }
+        TulispValue::Unquote { value } => {
+            return compile_expr(ctx, value).map_err(|e| e.with_trace(value.clone()));
+        }
+        TulispValue::Splice { .. } => {
+            return Err(Error::new(
+                crate::ErrorKind::SyntaxError,
+                "Splice must be within a backquoted list.".to_string(),
+            ));
+        }
+        TulispValue::List { .. } => {}
+        _ => return Ok(vec![Instruction::Push(value.clone().into())]),
     }
     let mut result = vec![];
 
@@ -124,7 +140,9 @@ fn compile_back_quote(
             let first_inner = &*first.inner_ref();
             if let TulispValue::Unquote { value } = first_inner {
                 items += 1;
-                result.append(&mut compile_expr(ctx, &value)?);
+                result.append(
+                    &mut compile_expr(ctx, &value).map_err(|e| e.with_trace(first.clone()))?,
+                );
             } else if let TulispValue::Splice { value } = first_inner {
                 let mut splice_result = compile_expr(ctx, &value)?;
                 let list_inst = splice_result.pop().unwrap();
@@ -266,10 +284,9 @@ pub(crate) fn compile_expr(
         }
         TulispValue::Unquote { .. } | TulispValue::Splice { .. } => {
             return Err(Error::new(
-                crate::ErrorKind::SyntaxError,
-                "Unquote/Splice must be within a backquoted list.".to_string(),
-            )
-            .with_trace(expr.clone()));
+                crate::ErrorKind::TypeMismatch, // TODO: ErrorKind::SyntaxError
+                "Unquote without backquote".to_string(),
+            ));
         }
     }
 }
