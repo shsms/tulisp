@@ -1,4 +1,5 @@
 use crate::{
+    bytecode::CompiledDefun,
     cons::{self, Cons},
     context::Scope,
     error::{Error, ErrorKind},
@@ -98,7 +99,7 @@ impl DefunParams {
     }
 }
 
-type TulispFn = dyn Fn(&mut TulispContext, &TulispObject) -> Result<TulispObject, Error>;
+pub(crate) type TulispFn = dyn Fn(&mut TulispContext, &TulispObject) -> Result<TulispObject, Error>;
 
 #[derive(Default, Clone, Debug)]
 pub struct SymbolBindings {
@@ -243,7 +244,12 @@ pub enum TulispValue {
         params: DefunParams,
         body: TulispObject,
     },
-    Bounce,
+    CompiledDefun {
+        value: CompiledDefun,
+    },
+    Bounce {
+        value: TulispObject,
+    },
 }
 
 impl std::fmt::Debug for TulispValue {
@@ -289,7 +295,8 @@ impl std::fmt::Debug for TulispValue {
                 .field("params", params)
                 .field("body", body)
                 .finish(),
-            Self::Bounce => write!(f, "Bounce"),
+            Self::CompiledDefun { .. } => f.debug_struct("CompiledDefun").finish(),
+            Self::Bounce { value } => f.debug_struct("Bounce").field("value", value).finish(),
         }
     }
 }
@@ -362,7 +369,7 @@ fn fmt_list(mut vv: TulispObject, f: &mut std::fmt::Formatter<'_>) -> Result<(),
 impl std::fmt::Display for TulispValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TulispValue::Bounce => f.write_str("Bounce"),
+            TulispValue::Bounce { value } => f.write_fmt(format_args!("{}::bounce", value)),
             TulispValue::Nil { .. } => f.write_str("nil"),
             TulispValue::Symbol { value } => f.write_str(&value.name),
             TulispValue::LexicalBinding { value, .. } => f.write_str(&value.name),
@@ -384,6 +391,7 @@ impl std::fmt::Display for TulispValue {
             TulispValue::Macro(_) => f.write_str("Macro"),
             TulispValue::Defmacro { .. } => f.write_str("Defmacro"),
             TulispValue::Lambda { .. } => f.write_str("Defun"),
+            TulispValue::CompiledDefun { .. } => f.write_str("CompiledDefun"),
         }
     }
 }
@@ -662,15 +670,18 @@ impl TulispValue {
         matches!(self, TulispValue::Nil)
     }
 
-    pub fn is_bounced(&self) -> bool {
+    pub fn is_bounced(&self) -> Option<TulispObject> {
         match self {
             TulispValue::List { cons, .. } => cons.car().is_bounce(),
-            _ => false,
+            _ => None,
         }
     }
 
-    pub fn is_bounce(&self) -> bool {
-        matches!(self, TulispValue::Bounce)
+    pub fn is_bounce(&self) -> Option<TulispObject> {
+        match self {
+            TulispValue::Bounce { value } => Some(value.clone()),
+            _ => None,
+        }
     }
 
     pub fn consp(&self) -> bool {
