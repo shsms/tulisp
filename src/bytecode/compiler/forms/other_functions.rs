@@ -241,6 +241,12 @@ pub(super) fn compile_fn_defun(
             }
         }
 
+        // This is required at this point, before the body is compiled, in case
+        // of tail calls.
+        compiler
+            .defun_args
+            .insert(defun_name.addr_as_usize(), defun_params.clone());
+
         // TODO: replace with `is_string`
         let body = if body.car()?.as_string().is_ok() {
             body.cdr()?
