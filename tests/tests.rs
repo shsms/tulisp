@@ -1244,7 +1244,7 @@ fn test_load() -> Result<(), Error> {
 
     tulisp_assert! {
         ctx: ctx,
-        program: r#"(load "tests/good-load.lisp")"#,
+        program: r#"(load "tests/good-load.lisp") (test)"#,
         result: "'(1 2 3)",
     }
 
