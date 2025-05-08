@@ -1,12 +1,11 @@
 use std::{collections::HashMap, fs, rc::Rc};
 
 use crate::{
-    builtin,
+    TulispObject, TulispValue, builtin,
     error::Error,
-    eval::{eval, eval_and_then, eval_basic, funcall, DummyEval},
+    eval::{DummyEval, eval, eval_and_then, eval_basic, funcall},
     list,
     parse::parse,
-    TulispObject, TulispValue,
 };
 
 #[derive(Debug, Default, Clone)]

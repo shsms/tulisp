@@ -1,17 +1,17 @@
+use crate::TulispObject;
+use crate::TulispValue;
 use crate::cons::Cons;
 use crate::context::Scope;
 use crate::context::TulispContext;
 use crate::error::Error;
 use crate::error::ErrorKind;
+use crate::eval::DummyEval;
+use crate::eval::Eval;
 use crate::eval::eval;
 use crate::eval::eval_and_then;
 use crate::eval::eval_check_null;
-use crate::eval::DummyEval;
-use crate::eval::Eval;
 use crate::lists;
 use crate::value::DefunParams;
-use crate::TulispObject;
-use crate::TulispValue;
 use crate::{destruct_bind, list};
 use std::convert::TryInto;
 use std::rc::Rc;
@@ -157,7 +157,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                     return Err(Error::new(
                         ErrorKind::TypeMismatch,
                         format!("Not a string: {}", ele),
-                    ))
+                    ));
                 }
             }
         }
@@ -200,7 +200,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                     return Err(Error::new(
                         ErrorKind::SyntaxError,
                         format!("Invalid format operation: %{}", ch),
-                    ))
+                    ));
                 }
             }
         }

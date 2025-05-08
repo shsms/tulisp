@@ -1,12 +1,12 @@
 use std::marker::PhantomData;
 
+use crate::TulispContext;
+use crate::TulispObject;
+use crate::TulispValue;
 use crate::error::Error;
 use crate::error::ErrorKind;
 use crate::eval::eval_basic;
 use crate::object::Span;
-use crate::TulispContext;
-use crate::TulispObject;
-use crate::TulispValue;
 
 #[derive(Debug, Clone)]
 pub struct Cons {

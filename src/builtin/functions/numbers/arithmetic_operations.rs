@@ -1,8 +1,8 @@
 use tulisp_proc_macros::crate_fn;
 
+use crate::ErrorKind;
 use crate::builtin::functions::functions::reduce_with;
 use crate::eval::eval;
-use crate::ErrorKind;
 
 use crate::{Error, TulispContext, TulispObject, TulispValue};
 

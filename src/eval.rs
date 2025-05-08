@@ -1,9 +1,9 @@
 use crate::{
+    TulispObject, TulispValue,
     context::TulispContext,
     error::{Error, ErrorKind},
     list,
     value::DefunParams,
-    TulispObject, TulispValue,
 };
 
 pub(crate) trait Evaluator {
@@ -286,13 +286,13 @@ pub(crate) fn eval_basic<'a>(
             return Err(Error::new(
                 ErrorKind::TypeMismatch,
                 "Unquote without backquote".to_string(),
-            ))
+            ));
         }
         TulispValue::Splice { .. } => {
             return Err(Error::new(
                 ErrorKind::TypeMismatch,
                 "Splice without backquote".to_string(),
-            ))
+            ));
         }
         TulispValue::Sharpquote { value, .. } => {
             *result = Some(value.clone());

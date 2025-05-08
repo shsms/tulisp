@@ -1,5 +1,5 @@
 use crate::{
-    builtin::functions::functions::reduce_with, Error, TulispContext, TulispObject, TulispValue,
+    Error, TulispContext, TulispObject, TulispValue, builtin::functions::functions::reduce_with,
 };
 use std::rc::Rc;
 

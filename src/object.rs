@@ -1,7 +1,7 @@
 use crate::{
+    TulispValue,
     cons::{self, Cons},
     error::Error,
-    TulispValue,
 };
 use std::{
     any::Any,

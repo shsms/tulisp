@@ -1,6 +1,7 @@
 use crate::{
-    eval::{eval, funcall, DummyEval},
-    list, lists, Error, TulispContext, TulispObject,
+    Error, TulispContext, TulispObject,
+    eval::{DummyEval, eval, funcall},
+    list, lists,
 };
 use std::cmp::Ordering;
 use tulisp_proc_macros::crate_fn;
@@ -84,9 +85,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         if let Some(err) = err {
             return Err(err);
         }
-        let ret = vec
-            .iter()
-            .fold(TulispObject::nil(), |v1, v2| TulispObject::cons(v2.clone(), v1));
+        let ret = vec.iter().fold(TulispObject::nil(), |v1, v2| {
+            TulispObject::cons(v2.clone(), v1)
+        });
         Ok(ret)
     }
 }

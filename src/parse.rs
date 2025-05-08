@@ -1,9 +1,9 @@
 use std::{collections::HashMap, fmt::Write, iter::Peekable, str::Chars};
 
 use crate::{
+    Error, ErrorKind, TulispContext, TulispObject, TulispValue,
     eval::{eval, macroexpand},
     object::Span,
-    Error, ErrorKind, TulispContext, TulispObject, TulispValue,
 };
 
 struct Tokenizer<'a> {
@@ -102,7 +102,7 @@ impl Tokenizer<'_> {
                                     start: (self.line, self.pos - 1),
                                     end: (self.line, self.pos),
                                 },
-                            )))
+                            )));
                         }
                     };
                     output.write_char(out_ch).unwrap();
@@ -115,7 +115,7 @@ impl Tokenizer<'_> {
                             end: (self.line, self.pos),
                         },
                         value: output,
-                    })
+                    });
                 }
                 ch => output.write_char(ch).unwrap(),
             }
@@ -423,7 +423,7 @@ impl Parser<'_, '_> {
                             ErrorKind::ParsingError,
                             "Unexpected EOF".to_string(),
                         )
-                        .with_trace(TulispValue::Nil.into_ref(Some(span))))
+                        .with_trace(TulispValue::Nil.into_ref(Some(span))));
                     }
                 };
                 Ok(Some(
@@ -438,7 +438,7 @@ impl Parser<'_, '_> {
                             ErrorKind::ParsingError,
                             "Unexpected EOF".to_string(),
                         )
-                        .with_trace(TulispValue::Nil.into_ref(Some(span))))
+                        .with_trace(TulispValue::Nil.into_ref(Some(span))));
                     }
                 };
                 Ok(Some(
@@ -458,7 +458,7 @@ impl Parser<'_, '_> {
                             ErrorKind::ParsingError,
                             "Unexpected EOF".to_string(),
                         )
-                        .with_trace(TulispValue::Nil.into_ref(Some(span))))
+                        .with_trace(TulispValue::Nil.into_ref(Some(span))));
                     }
                 };
                 Ok(Some(
@@ -473,7 +473,7 @@ impl Parser<'_, '_> {
                             ErrorKind::ParsingError,
                             "Unexpected EOF".to_string(),
                         )
-                        .with_trace(TulispValue::Nil.into_ref(Some(span))))
+                        .with_trace(TulispValue::Nil.into_ref(Some(span))));
                     }
                 };
                 Ok(Some(

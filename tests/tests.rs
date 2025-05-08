@@ -1,5 +1,5 @@
 use std::{any::Any, rc::Rc};
-use tulisp::{tulisp_add_func, tulisp_fn, Error, Iter, TulispContext, TulispObject};
+use tulisp::{Error, Iter, TulispContext, TulispObject, tulisp_add_func, tulisp_fn};
 
 macro_rules! tulisp_assert {
     (@impl $ctx: expr, program:$input:expr, result:$result:expr $(,)?) => {
@@ -137,24 +137,24 @@ fn test_comparison_of_numbers() -> Result<(), Error> {
 
 #[test]
 fn test_comparison_of_strings() -> Result<(), Error> {
-    tulisp_assert!{ program: r#"(string< "hello" "world")"#, result: "t" }
-    tulisp_assert!{ program: r#"(string< "hello" "hello")"#, result: "nil" }
-    tulisp_assert!{ program: r#"(string< "world" "hello")"#, result: "nil" }
-    tulisp_assert!{ program: r#"(string> "hello" "world")"#, result: "nil" }
-    tulisp_assert!{ program: r#"(string> "hello" "hello")"#, result: "nil" }
-    tulisp_assert!{ program: r#"(string> "world" "hello")"#, result: "t" }
-    tulisp_assert!{ program: r#"(string= "hello" "world")"#, result: "nil" }
-    tulisp_assert!{ program: r#"(string= "hello" "hello")"#, result: "t" }
-    tulisp_assert!{ program: r#"(string= "world" "hello")"#, result: "nil" }
-    tulisp_assert!{ program: r#"(string-lessp "hello" "world")"#, result: "t" }
-    tulisp_assert!{ program: r#"(string-lessp "hello" "hello")"#, result: "nil" }
-    tulisp_assert!{ program: r#"(string-lessp "world" "hello")"#, result: "nil" }
-    tulisp_assert!{ program: r#"(string-greaterp "hello" "world")"#, result: "nil" }
-    tulisp_assert!{ program: r#"(string-greaterp "hello" "hello")"#, result: "nil" }
-    tulisp_assert!{ program: r#"(string-greaterp "world" "hello")"#, result: "t" }
-    tulisp_assert!{ program: r#"(string-equal "hello" "world")"#, result: "nil" }
-    tulisp_assert!{ program: r#"(string-equal "hello" "hello")"#, result: "t" }
-    tulisp_assert!{ program: r#"(string-equal "world" "hello")"#, result: "nil" }
+    tulisp_assert! { program: r#"(string< "hello" "world")"#, result: "t" }
+    tulisp_assert! { program: r#"(string< "hello" "hello")"#, result: "nil" }
+    tulisp_assert! { program: r#"(string< "world" "hello")"#, result: "nil" }
+    tulisp_assert! { program: r#"(string> "hello" "world")"#, result: "nil" }
+    tulisp_assert! { program: r#"(string> "hello" "hello")"#, result: "nil" }
+    tulisp_assert! { program: r#"(string> "world" "hello")"#, result: "t" }
+    tulisp_assert! { program: r#"(string= "hello" "world")"#, result: "nil" }
+    tulisp_assert! { program: r#"(string= "hello" "hello")"#, result: "t" }
+    tulisp_assert! { program: r#"(string= "world" "hello")"#, result: "nil" }
+    tulisp_assert! { program: r#"(string-lessp "hello" "world")"#, result: "t" }
+    tulisp_assert! { program: r#"(string-lessp "hello" "hello")"#, result: "nil" }
+    tulisp_assert! { program: r#"(string-lessp "world" "hello")"#, result: "nil" }
+    tulisp_assert! { program: r#"(string-greaterp "hello" "world")"#, result: "nil" }
+    tulisp_assert! { program: r#"(string-greaterp "hello" "hello")"#, result: "nil" }
+    tulisp_assert! { program: r#"(string-greaterp "world" "hello")"#, result: "t" }
+    tulisp_assert! { program: r#"(string-equal "hello" "world")"#, result: "nil" }
+    tulisp_assert! { program: r#"(string-equal "hello" "hello")"#, result: "t" }
+    tulisp_assert! { program: r#"(string-equal "world" "hello")"#, result: "nil" }
     Ok(())
 }
 

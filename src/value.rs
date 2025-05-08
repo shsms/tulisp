@@ -1,9 +1,9 @@
 use crate::{
+    TulispContext, TulispObject,
     cons::{self, Cons},
     context::Scope,
     error::{Error, ErrorKind},
     object::Span,
-    TulispContext, TulispObject,
 };
 use std::{any::Any, convert::TryInto, fmt::Write, rc::Rc};
 

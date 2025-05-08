@@ -1,10 +1,10 @@
 use std::rc::Rc;
 
-use crate::context::TulispContext;
-use crate::error::Error;
 use crate::ErrorKind;
 use crate::TulispObject;
 use crate::TulispValue;
+use crate::context::TulispContext;
+use crate::error::Error;
 use crate::{destruct_bind, list};
 
 fn thread_first(_ctx: &mut TulispContext, vv: &TulispObject) -> Result<TulispObject, Error> {

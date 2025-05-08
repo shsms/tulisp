@@ -1,6 +1,6 @@
 use tulisp_proc_macros::crate_fn;
 
-use crate::{lists, Error, TulispContext, TulispObject};
+use crate::{Error, TulispContext, TulispObject, lists};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
     #[crate_fn(add_func = "ctx")]
