@@ -4,7 +4,7 @@ description = "An embeddable lisp interpreter."
 version = "0.18.0"
 repository = "https://github.com/shsms/tulisp"
 license = "GPL-3.0"
-edition = "2021"
+edition = "2024"
 keywords = ["lisp", "scripting", "emacs-lisp"]
 categories = ["compilers", "config"]
 

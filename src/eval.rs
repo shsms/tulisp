@@ -119,11 +119,8 @@ pub(crate) fn funcall<E: Evaluator>(
     args: &TulispObject,
 ) -> Result<TulispObject, Error> {
     match &*func.inner_ref() {
-        TulispValue::Func(ref func) => func(ctx, args),
-        TulispValue::Lambda {
-            ref params,
-            ref body,
-        } => eval_lambda::<E>(ctx, params, body, args),
+        TulispValue::Func(func) => func(ctx, args),
+        TulispValue::Lambda { params, body } => eval_lambda::<E>(ctx, params, body, args),
         TulispValue::Macro(_) | TulispValue::Defmacro { .. } => {
             let expanded = macroexpand(ctx, list!(func.clone() ,@args.clone())?)?;
             eval(ctx, &expanded)
