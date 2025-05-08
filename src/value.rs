@@ -56,10 +56,7 @@ impl TryFrom<TulispObject> for DefunParams {
         let mut is_optional = false;
         let mut is_rest = false;
         while let Some(param) = params_iter.next() {
-            let name = match param.as_symbol() {
-                Ok(vv) => vv,
-                Err(e) => return Err(e),
-            };
+            let name = param.as_symbol()?;
             if name == "&optional" {
                 is_optional = true;
                 continue;
@@ -183,7 +180,7 @@ impl SymbolBindings {
                 format!("Variable definition is void: {}", self.name),
             ));
         }
-        return Ok(self.items.last().unwrap().clone());
+        Ok(self.items.last().unwrap().clone())
     }
 
     pub(crate) fn is_constant(&self) -> bool {
@@ -363,7 +360,7 @@ impl std::fmt::Display for TulispValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             TulispValue::Bounce => f.write_str("Bounce"),
-            TulispValue::Nil { .. } => f.write_str("nil"),
+            TulispValue::Nil => f.write_str("nil"),
             TulispValue::Symbol { value } => f.write_str(&value.name),
             TulispValue::LexicalBinding { value, .. } => f.write_str(&value.name),
             TulispValue::Int { value, .. } => f.write_fmt(format_args!("{}", value)),
@@ -476,13 +473,8 @@ impl TulispValue {
     pub(crate) fn is_lexically_bound(&self) -> bool {
         match self {
             TulispValue::Symbol { value } => {
-                if value.has_global && value.items.len() > 1 {
-                    true
-                } else if !value.has_global && !value.items.is_empty() {
-                    true
-                } else {
-                    false
-                }
+                (value.has_global && value.items.len() > 1)
+                    || (!value.has_global && !value.items.is_empty())
             }
             TulispValue::LexicalBinding { .. } => true,
             _ => false,

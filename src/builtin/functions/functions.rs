@@ -105,7 +105,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     #[crate_fn(add_func = "ctx", name = "make-symbol")]
     fn make_symbol(name: String) -> Result<TulispObject, Error> {
-        let constant = if name.starts_with(":") { true } else { false };
+        let constant = name.starts_with(":");
         Ok(TulispObject::symbol(name, constant))
     }
 
@@ -426,7 +426,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             if !symbol.is_lexically_bound() {
                 return Ok(symbol);
             }
-            if !slice_contains(&exclude, &symbol) {
+            if !slice_contains(exclude, &symbol) {
                 for (from, to) in captured_vars.iter() {
                     if symbol.eq(from) {
                         return Ok(to.clone().with_span(symbol.span()));
@@ -437,7 +437,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 captured_vars.push((symbol, new_var.clone()));
                 return Ok(new_var);
             }
-            return Ok(symbol);
+            Ok(symbol)
         }
 
         fn capture_variables(
@@ -448,9 +448,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             let result = TulispObject::nil().with_span(body.span());
             if !body.consp() {
                 if body.symbolp() {
-                    return Ok(capture_symbol(captured_vars, exclude, body)?);
+                    return capture_symbol(captured_vars, exclude, body);
                 }
-                return Ok(capture_inside_quoted(captured_vars, exclude, body)?);
+                return capture_inside_quoted(captured_vars, exclude, body);
             }
 
             loop {

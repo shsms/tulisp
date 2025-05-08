@@ -12,19 +12,17 @@ fn string_cmp(
     let string2 = string2.inner_ref();
     match (&*string1, &*string2) {
         (TulispValue::String { value: string1 }, TulispValue::String { value: string2 }) => {
-            return Ok(oper(string1, string2).into());
+            Ok(oper(string1, string2).into())
         }
-        (_, _) => {
-            return Err(Error::new(
-                ErrorKind::TypeMismatch,
-                "Both arguments need to be strings".to_string(),
-            )
-            .with_trace(if string1.stringp() {
-                arg2.clone()
-            } else {
-                arg1.clone()
-            }));
-        }
+        (_, _) => Err(Error::new(
+            ErrorKind::TypeMismatch,
+            "Both arguments need to be strings".to_string(),
+        )
+        .with_trace(if string1.stringp() {
+            arg2.clone()
+        } else {
+            arg1.clone()
+        })),
     }
 }
 

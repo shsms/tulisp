@@ -182,15 +182,14 @@ intern!{
     }
 }
 
-fn main() {
-    let ctx = &mut TulispContext::new();
 
-    let kw = Keywords::new(ctx);
+let ctx = &mut TulispContext::new();
 
-    assert!(kw.name.eq(&ctx.intern(":name")));
-    assert!(kw.scale.eq(&ctx.intern(":scale")));
-    assert!(kw.pos.eq(&ctx.intern(":pos")));
-}
+let kw = Keywords::new(ctx);
+
+assert!(kw.name.eq(&ctx.intern(":name")));
+assert!(kw.scale.eq(&ctx.intern(":scale")));
+assert!(kw.pos.eq(&ctx.intern(":pos")));
 ```
 
 It can also be used to create an instance of the struct directly:
@@ -198,19 +197,17 @@ It can also be used to create an instance of the struct directly:
 ```rust
 use tulisp::{TulispContext, intern};
 
-fn main() {
-    let ctx = &mut TulispContext::new();
+let ctx = &mut TulispContext::new();
 
-    let kw = intern!(ctx => {
-        name: ":name",
-        scale: ":scale",
-        pos: ":pos",
-    });
+let kw = intern!(ctx => {
+    name: ":name",
+    scale: ":scale",
+    pos: ":pos",
+});
 
-    assert!(kw.name.eq(&ctx.intern(":name")));
-    assert!(kw.scale.eq(&ctx.intern(":scale")));
-    assert!(kw.pos.eq(&ctx.intern(":pos")));
-}
+assert!(kw.name.eq(&ctx.intern(":name")));
+assert!(kw.scale.eq(&ctx.intern(":scale")));
+assert!(kw.pos.eq(&ctx.intern(":pos")));
 ```
 */
 #[macro_export]

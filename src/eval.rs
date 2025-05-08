@@ -148,11 +148,11 @@ fn eval_back_quote(ctx: &mut TulispContext, mut vv: TulispObject) -> Result<Tuli
     if !vv.consp() {
         let inner = vv.inner_ref();
         if let TulispValue::Unquote { value } = &*inner {
-            return eval(ctx, &value)
+            return eval(ctx, value)
                 .map_err(|e| e.with_trace(vv.clone()))
                 .map(|x| x.with_span(value.span()));
         } else if let TulispValue::Splice { value } = &*inner {
-            return eval(ctx, &value)
+            return eval(ctx, value)
                 .map_err(|e| e.with_trace(vv.clone()))?
                 .deep_copy()
                 .map_err(|e| e.with_trace(vv.clone()))
@@ -174,14 +174,14 @@ fn eval_back_quote(ctx: &mut TulispContext, mut vv: TulispObject) -> Result<Tuli
             let first_inner = &*first.inner_ref();
             if let TulispValue::Unquote { value } = first_inner {
                 ret.push(
-                    eval(ctx, &value)
+                    eval(ctx, value)
                         .map_err(|e| e.with_trace(first.clone()))?
                         .with_span(value.span()),
                 )
                 .map_err(|e| e.with_trace(first.clone()))?;
             } else if let TulispValue::Splice { value } = first_inner {
                 ret.append(
-                    eval(ctx, &value)
+                    eval(ctx, value)
                         .map_err(|e| e.with_trace(first.clone()))?
                         .deep_copy()
                         .map_err(|e| e.with_trace(first.clone()))?
@@ -197,7 +197,7 @@ fn eval_back_quote(ctx: &mut TulispContext, mut vv: TulispObject) -> Result<Tuli
         let rest = vv.cdr()?;
         if let TulispValue::Unquote { value } = &*rest.inner_ref() {
             ret.append(
-                eval(ctx, &value)
+                eval(ctx, value)
                     .map_err(|e| e.with_trace(rest.clone()))?
                     .with_span(value.span()),
             )

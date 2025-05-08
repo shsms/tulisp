@@ -138,7 +138,7 @@ fn assoc_find(
     alist: &TulispObject,
     mut testfn: impl FnMut(&TulispObject, &TulispObject) -> Result<bool, Error>,
 ) -> Result<TulispObject, Error> {
-    if alist.caar_and_then(|caar| testfn(&caar, key))? {
+    if alist.caar_and_then(|caar| testfn(caar, key))? {
         return alist.car();
     }
     if alist.consp() {

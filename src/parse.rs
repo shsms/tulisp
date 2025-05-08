@@ -70,14 +70,13 @@ impl Tokenizer<'_> {
     }
 
     fn next_char(&mut self) -> Option<char> {
-        self.chars.next().map(|ch| {
-            if ch == '\n' {
+        self.chars.next().inspect(|ch| {
+            if *ch == '\n' {
                 self.line += 1;
                 self.pos = 1;
             } else {
                 self.pos += 1;
             }
-            ch
         })
     }
 
