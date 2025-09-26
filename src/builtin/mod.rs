@@ -153,13 +153,14 @@ arguments can be integers representing a number of seconds since the Unix epoch,
 or they can be `(ticks . hz)` values, representing `ticks/hz` values seconds since
 the unix epoch.
 
-| Name            | Status | Details                                                                               |
-|-----------------|--------|---------------------------------------------------------------------------------------|
-| `current-time`  | ☑️      | Returns a `(ticks . hz)` value, usually with a hz value of 1000000000, corresponding to a nano-second resolution.
-| `time-less-p`   | ☑️      |                                                     |
-| `time-equal-p`  | ☑️      |                                                     |
-| `test-subtract` | ☑️      |                                                     |
-| `test-add`      | ☑️      |                                                     |
+| Name             | Status | Details                                                                                                           |
+|------------------|--------|-------------------------------------------------------------------------------------------------------------------|
+| `current-time`   | ☑️      | Returns a `(ticks . hz)` value, usually with a hz value of 1000000000, corresponding to a nano-second resolution. |
+| `time-less-p`    | ☑️      |                                                                                                                   |
+| `time-equal-p`   | ☑️      |                                                                                                                   |
+| `test-subtract`  | ☑️      |                                                                                                                   |
+| `test-add`       | ☑️      |                                                                                                                   |
+| `format-seconds` | ☑️      |                                                                                                                   |
 
 ## Others
 
