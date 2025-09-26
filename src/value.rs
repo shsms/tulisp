@@ -86,7 +86,7 @@ impl TryFrom<TulispObject> for DefunParams {
 }
 
 impl DefunParams {
-    pub(crate) fn iter(&self) -> std::slice::Iter<DefunParam> {
+    pub(crate) fn iter(&self) -> std::slice::Iter<'_, DefunParam> {
         self.params.iter()
     }
 
