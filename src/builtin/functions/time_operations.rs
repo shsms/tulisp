@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use tulisp_proc_macros::crate_fn;
 
 use crate::{Error, ErrorKind, TulispContext, TulispObject};
@@ -82,6 +84,125 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             let factor = hz2 / hz1;
             return Ok(op(ticks1 * factor, ticks2, hz2));
         }
+    }
+
+    // Formatting spec defined here:
+    // https://www.gnu.org/software/emacs/manual/html_node/elisp/Time-Parsing.html#index-format_002dseconds
+    #[crate_fn(add_func = "ctx", name = "format-seconds")]
+    fn format_seconds(
+        format_string: TulispObject,
+        seconds: TulispObject,
+    ) -> Result<TulispObject, Error> {
+        let (ticks, hz) = ticks_hz_from_obj(&seconds)?;
+        let duration = Duration::new(
+            (ticks / hz) as u64,
+            ((ticks % hz) * 1_000_000_000 / hz) as u32,
+        );
+        println!("duration secs: {}", duration.as_secs());
+
+        let mut output = String::new();
+
+        let fmt_string = format_string
+            .as_string()
+            .map_err(|e| e.with_trace(format_string.clone()))?;
+        let mut format_chars = fmt_string.chars();
+
+        while let Some(ch) = format_chars.next() {
+            if ch != '%' {
+                output.push(ch);
+                continue;
+            }
+            let mut prefix = String::new();
+            let mut has_dot = false;
+            let mut has_comma = false;
+            loop {
+                let ch = match format_chars.next() {
+                    Some(vv) => vv,
+                    None => break,
+                };
+                if ch == '%' {
+                    output.push(ch);
+                    break;
+                }
+                let matched = match ch {
+                    'y' => (duration.as_secs() / 3600 / 24 / 365).to_string(),
+                    'd' => (duration.as_secs() / 3600 / 24 % 365).to_string(),
+                    'h' => (duration.as_secs() / 3600 % 24 % 365).to_string(),
+                    'm' => (duration.as_secs() / 60 % 60 % 24 % 365).to_string(),
+                    's' => (duration.as_secs() % 60 % 60 % 24 % 365).to_string(),
+                    '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' => {
+                        prefix.push(ch);
+                        continue;
+                    }
+                    '.' => {
+                        if prefix.len() > 0 || has_comma || has_dot {
+                            return Err(Error::new(
+                                ErrorKind::SyntaxError,
+                                "Invalid format operation: '.' allowed only in the first place."
+                                    .to_string(),
+                            )
+                            .with_trace(format_string.clone()));
+                        }
+                        has_dot = true;
+                        continue;
+                    }
+                    ',' => {
+                        if prefix.len() > 0 || has_comma || has_dot {
+                            return Err(Error::new(
+                                ErrorKind::SyntaxError,
+                                "Invalid format operation: ',' allowed only in the first place."
+                                    .to_string(),
+                            )
+                            .with_trace(format_string.clone()));
+                        }
+                        has_comma = true;
+                        continue;
+                    }
+                    _ => {
+                        return Err(Error::new(
+                            ErrorKind::SyntaxError,
+                            format!("Invalid format operation: %{}", ch),
+                        ));
+                    }
+                };
+                let padding = if prefix.len() > 0 {
+                    prefix.parse::<usize>().map_err(|_| {
+                        Error::new(
+                            ErrorKind::SyntaxError,
+                            format!("Invalid padding number: {}", prefix),
+                        )
+                        .with_trace(format_string.clone())
+                    })?
+                } else {
+                    0
+                };
+
+                if matched.len() < padding {
+                    for _ in 0..(padding - matched.len()) {
+                        if has_dot {
+                            output.push('0');
+                        } else if !has_comma {
+                            output.push(' ');
+                        }
+                    }
+                }
+                output.push_str(&matched);
+                if ch == 's' || ch == 'S' {
+                    if has_comma && padding > 0 {
+                        output.push('.');
+                        output.push_str(
+                            duration
+                                .subsec_millis()
+                                .to_string()
+                                .get(0..padding)
+                                .unwrap_or(""),
+                        );
+                    }
+                }
+                break;
+            }
+        }
+        Ok(output.into())
     }
 }
 
@@ -301,6 +422,57 @@ mod tests {
             ctx,
             &format!("(time-subtract '{t1} 1)"),
             "'(1758549820506645000 . 1000000000)",
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_format_seconds() -> Result<(), Error> {
+        let mut ctx = TulispContext::new();
+        let ctx = &mut ctx;
+        super::add(ctx);
+
+        eval_assert_equal(
+            ctx,
+            r#"(format-seconds "%y years, %d days, %h hours, %m minutes, %s seconds" '(31536061 . 1))"#,
+            r#""1 years, 0 days, 0 hours, 1 minutes, 1 seconds""#,
+        );
+
+        eval_assert_equal(
+            ctx,
+            r#"(format-seconds "%yy %dd %h:%m:%s" '(63072000 . 1))"#,
+            r#""2y 0d 0:0:0""#,
+        );
+
+        eval_assert_equal(
+            ctx,
+            r#"(format-seconds "%yy %dd %h:%m:%s" '(63115200 . 1))"#,
+            r#""2y 0d 12:0:0""#,
+        );
+
+        eval_assert_equal(
+            ctx,
+            r#"(format-seconds "%yy %dd %h:%m:%s" '(63115201 . 1))"#,
+            r#""2y 0d 12:0:1""#,
+        );
+
+        eval_assert_equal(
+            ctx,
+            r#"(format-seconds "%yy %dd %h:%m:%s" '(63158400 . 1))"#,
+            r#""2y 1d 0:0:0""#,
+        );
+
+        eval_assert_equal(
+            ctx,
+            r#"(format-seconds "%yy %dd %h:%m:%s" '(63158401 . 1))"#,
+            r#""2y 1d 0:0:1""#,
+        );
+
+        eval_assert_equal(
+            ctx,
+            r#"(format-seconds "%yy %dd %h:%m:%s" '(63158461 . 1))"#,
+            r#""2y 1d 0:1:1""#,
         );
 
         Ok(())
