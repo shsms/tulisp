@@ -106,3 +106,32 @@ pub use value::TulispValue;
 
 mod object;
 pub use object::TulispObject;
+
+#[cfg(test)]
+mod test_utils {
+    #[track_caller]
+    pub(crate) fn eval_assert_equal(ctx: &mut crate::TulispContext, a: &str, b: &str) {
+        let av = ctx.eval_string(a).unwrap();
+        let bv = ctx.eval_string(b).unwrap();
+        assert!(
+            crate::TulispObject::equal(&av, &bv),
+            "{}({}) != {}({})",
+            a,
+            av,
+            b,
+            bv
+        );
+    }
+
+    #[track_caller]
+    pub(crate) fn eval_assert(ctx: &mut crate::TulispContext, a: &str) {
+        let av = ctx.eval_string(a).unwrap();
+        assert!(av.is_truthy(), "{}({}) is not true", a, av);
+    }
+
+    #[track_caller]
+    pub(crate) fn eval_assert_not(ctx: &mut crate::TulispContext, a: &str) {
+        let av = ctx.eval_string(a).unwrap();
+        assert!(av.null(), "{}({}) is not nil", a, av);
+    }
+}

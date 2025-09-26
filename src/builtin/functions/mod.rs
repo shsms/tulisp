@@ -62,6 +62,7 @@ mod hash_table;
 mod list_elements;
 mod numbers;
 mod sequences;
+mod time_operations;
 
 pub(crate) fn add(ctx: &mut TulispContext) {
     conditionals::add(ctx);
@@ -72,4 +73,5 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     sequences::add(ctx);
     numbers::add(ctx);
     comparison_of_strings::add(ctx);
+    time_operations::add(ctx);
 }
