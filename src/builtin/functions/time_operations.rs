@@ -36,64 +36,42 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         })
     }
 
+    fn ticks_hz_from_obj(obj: &TulispObject) -> Result<(i64, i64), Error> {
+        if obj.integerp() {
+            if let Ok(ticks) = obj.as_int() {
+                return Ok((ticks, 1));
+            } else {
+                return Err(
+                    Error::new(ErrorKind::TypeMismatch, "expected integer".to_string())
+                        .with_trace(obj.clone()),
+                );
+            }
+        } else if let Some(cons) = obj.as_list_cons() {
+            if let (Ok(ticks), Ok(hz)) = (cons.car().as_int(), cons.cdr().as_int()) {
+                return Ok((ticks, hz));
+            } else {
+                return Err(Error::new(
+                    ErrorKind::TypeMismatch,
+                    "expected (ticks . hz) pair".to_string(),
+                )
+                .with_trace(obj.clone()));
+            }
+        } else {
+            return Err(Error::new(
+                ErrorKind::TypeMismatch,
+                "expected integer or (ticks . hz) pair".to_string(),
+            )
+            .with_trace(obj.clone()));
+        };
+    }
+
     fn time_operation(
         t1: TulispObject,
         t2: TulispObject,
         op: impl Fn(i64, i64, i64) -> TulispObject,
     ) -> Result<TulispObject, Error> {
-        let (ticks1, hz1) = if t1.integerp() {
-            if let Ok(ticks1) = t1.as_int() {
-                (ticks1, 1)
-            } else {
-                return Err(
-                    Error::new(ErrorKind::TypeMismatch, "expected integer".to_string())
-                        .with_trace(t1),
-                );
-            }
-        } else if let Some(cons) = t1.as_list_cons() {
-            if let (Ok(ticks1), Ok(hz1)) = (cons.car().as_int(), cons.cdr().as_int()) {
-                (ticks1, hz1)
-            } else {
-                return Err(Error::new(
-                    ErrorKind::TypeMismatch,
-                    "expected (ticks . hz) pair".to_string(),
-                )
-                .with_trace(t1));
-            }
-        } else {
-            return Err(Error::new(
-                ErrorKind::TypeMismatch,
-                "expected integer or (ticks . hz) pair".to_string(),
-            )
-            .with_trace(t1));
-        };
-
-        let (ticks2, hz2) = if t2.integerp() {
-            if let Ok(ticks2) = t2.as_int() {
-                (ticks2, 1)
-            } else {
-                return Err(
-                    Error::new(ErrorKind::TypeMismatch, "expected integer".to_string())
-                        .with_trace(t2),
-                );
-            }
-        } else if let Some(cons) = t2.as_list_cons() {
-            if let (Ok(ticks2), Ok(hz2)) = (cons.car().as_int(), cons.cdr().as_int()) {
-                (ticks2, hz2)
-            } else {
-                return Err(Error::new(
-                    ErrorKind::TypeMismatch,
-                    "expected (ticks . hz) pair".to_string(),
-                )
-                .with_trace(t2));
-            }
-        } else {
-            return Err(Error::new(
-                ErrorKind::TypeMismatch,
-                "expected integer or (ticks . hz) pair".to_string(),
-            )
-            .with_trace(t2));
-        };
+        let (ticks1, hz1) = ticks_hz_from_obj(&t1)?;
+        let (ticks2, hz2) = ticks_hz_from_obj(&t2)?;
 
         if hz1 == hz2 {
             return Ok(op(ticks1, ticks2, hz1));
