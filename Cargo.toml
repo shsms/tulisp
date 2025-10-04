@@ -20,3 +20,8 @@ path = "src/lib.rs"
 
 [dependencies]
 tulisp-proc-macros = "0.4.1"
+
+[features]
+# This enables an `Arc<RwLock<...>>` implementation of `TulispObject`
+# which enables the objects to be shared across threads.
+sync_send = []
