@@ -10,6 +10,7 @@ pub enum ErrorKind {
     SyntaxError,
     MissingArgument,
     OutOfRange,
+    LispError,
 }
 
 impl std::fmt::Display for ErrorKind {
@@ -23,6 +24,7 @@ impl std::fmt::Display for ErrorKind {
             ErrorKind::SyntaxError => f.write_str("SyntaxError"),
             ErrorKind::MissingArgument => f.write_str("MissingArgument"),
             ErrorKind::OutOfRange => f.write_str("OutOfRange"),
+            ErrorKind::LispError => f.write_str("LispError"),
         }
     }
 }
