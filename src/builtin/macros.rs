@@ -1,4 +1,8 @@
+#[cfg(not(feature = "sync_send"))]
 use std::rc::Rc;
+
+#[cfg(feature = "sync_send")]
+use std::sync::Arc;
 
 use crate::ErrorKind;
 use crate::TulispObject;
@@ -59,6 +63,7 @@ fn quote(_ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, 
     Ok(TulispValue::Quote { value: arg }.into_ref(None))
 }
 
+#[cfg(not(feature = "sync_send"))]
 pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.intern("->")
         .set(TulispValue::Macro(Rc::new(thread_first)).into_ref(None))
@@ -74,5 +79,24 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         .unwrap();
     ctx.intern("quote")
         .set(TulispValue::Macro(Rc::new(quote)).into_ref(None))
+        .unwrap();
+}
+
+#[cfg(feature = "sync_send")]
+pub(crate) fn add(ctx: &mut TulispContext) {
+    ctx.intern("->")
+        .set(TulispValue::Macro(Arc::new(thread_first)).into_ref(None))
+        .unwrap();
+    ctx.intern("thread-first")
+        .set(TulispValue::Macro(Arc::new(thread_first)).into_ref(None))
+        .unwrap();
+    ctx.intern("->>")
+        .set(TulispValue::Macro(Arc::new(thread_last)).into_ref(None))
+        .unwrap();
+    ctx.intern("thread-last")
+        .set(TulispValue::Macro(Arc::new(thread_last)).into_ref(None))
+        .unwrap();
+    ctx.intern("quote")
+        .set(TulispValue::Macro(Arc::new(quote)).into_ref(None))
         .unwrap();
 }

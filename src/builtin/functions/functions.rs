@@ -14,7 +14,6 @@ use crate::lists;
 use crate::value::DefunParams;
 use crate::{destruct_bind, list};
 use std::convert::TryInto;
-use std::rc::Rc;
 
 use tulisp_proc_macros::crate_add_func;
 use tulisp_proc_macros::{crate_fn, crate_fn_no_eval};

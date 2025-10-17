@@ -5,7 +5,12 @@ use crate::{
     error::{Error, ErrorKind},
     object::Span,
 };
-use std::{any::Any, convert::TryInto, fmt::Write, rc::Rc};
+#[cfg(not(feature = "sync_send"))]
+use std::rc::Rc;
+
+#[cfg(feature = "sync_send")]
+use std::sync::Arc;
+use std::{any::Any, convert::TryInto, fmt::Write};
 
 #[doc(hidden)]
 #[derive(Debug, Clone)]
@@ -229,9 +234,18 @@ pub enum TulispValue {
     Splice {
         value: TulispObject,
     },
+    #[cfg(not(feature = "sync_send"))]
     Any(Rc<dyn Any>),
+    #[cfg(not(feature = "sync_send"))]
     Func(Rc<TulispFn>),
+    #[cfg(not(feature = "sync_send"))]
     Macro(Rc<TulispFn>),
+    #[cfg(feature = "sync_send")]
+    Any(Arc<dyn Any>),
+    #[cfg(feature = "sync_send")]
+    Func(Arc<TulispFn>),
+    #[cfg(feature = "sync_send")]
+    Macro(Arc<TulispFn>),
     Defmacro {
         params: DefunParams,
         body: TulispObject,
@@ -706,12 +720,24 @@ impl TulispValue {
         }
     }
 
+    #[cfg(not(feature = "sync_send"))]
     pub fn as_any(&self) -> Result<Rc<dyn Any>, Error> {
         match self {
             TulispValue::Any(value) => Ok(value.clone()),
             _ => Err(Error::new(
                 ErrorKind::TypeMismatch,
                 format!("Expected Any(Rc<dyn Any>): {}", self),
+            )),
+        }
+    }
+
+    #[cfg(feature = "sync_send")]
+    pub fn as_any(&self) -> Result<Arc<dyn Any>, Error> {
+        match self {
+            TulispValue::Any(value) => Ok(value.clone()),
+            _ => Err(Error::new(
+                ErrorKind::TypeMismatch,
+                format!("Expected Any(Arc<dyn Any>): {}", self),
             )),
         }
     }
@@ -801,8 +827,16 @@ impl From<bool> for TulispValue {
     }
 }
 
+#[cfg(not(feature = "sync_send"))]
 impl From<Rc<dyn Any>> for TulispValue {
     fn from(value: Rc<dyn Any>) -> Self {
+        TulispValue::Any(value)
+    }
+}
+
+#[cfg(feature = "sync_send")]
+impl From<Arc<dyn Any>> for TulispValue {
+    fn from(value: Arc<dyn Any>) -> Self {
         TulispValue::Any(value)
     }
 }

@@ -1,5 +1,3 @@
-use std::rc::Rc;
-
 use crate::{
     Error, ErrorKind, TulispContext, TulispObject, TulispValue,
     builtin::functions::common::eval_1_arg_special_form, eval::eval_and_then,

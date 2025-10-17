@@ -44,8 +44,14 @@ macro_rules! binary_ops {
 
 macro_rules! intern_set_func {
     ($ctx:ident, $func: ident, $name: expr) => {
+        #[cfg(not(feature = "sync_send"))]
         $ctx.intern($name)
-            .set_global(TulispValue::Func(Rc::new($func)).into_ref(None))
+            .set_global(TulispValue::Func(std::rc::Rc::new($func)).into_ref(None))
+            .unwrap();
+
+        #[cfg(feature = "sync_send")]
+        $ctx.intern($name)
+            .set_global(TulispValue::Func(std::sync::Arc::new($func)).into_ref(None))
             .unwrap();
     };
     ($ctx:ident, $func: ident) => {

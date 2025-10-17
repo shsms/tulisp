@@ -1,7 +1,6 @@
 use crate::{
     Error, TulispContext, TulispObject, TulispValue, builtin::functions::functions::reduce_with,
 };
-use std::rc::Rc;
 
 macro_rules! compare_ops {
     ($oper:expr) => {{

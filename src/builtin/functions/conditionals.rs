@@ -5,7 +5,6 @@ use crate::{
     list,
     lists::{last, length},
 };
-use std::rc::Rc;
 use tulisp_proc_macros::{crate_fn, crate_fn_no_eval};
 
 pub(crate) fn add(ctx: &mut TulispContext) {

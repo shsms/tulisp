@@ -6,8 +6,6 @@ use crate::eval::eval;
 
 use crate::{Error, TulispContext, TulispObject, TulispValue};
 
-use std::rc::Rc;
-
 pub(crate) fn add(ctx: &mut TulispContext) {
     fn add(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
         reduce_with(ctx, args, binary_ops!(std::ops::Add::add))
