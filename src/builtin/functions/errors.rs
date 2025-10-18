@@ -1,8 +1,8 @@
-use crate::{Error, ErrorKind, TulispContext, TulispObject, destruct_bind_no_eval};
+use crate::{Error, ErrorKind, TulispContext, TulispObject, destruct_bind};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.add_special_form("error", |ctx, args| {
-        destruct_bind_no_eval!((msg) = args);
+        destruct_bind!((msg) = args);
         Err(Error::new(
             ErrorKind::LispError,
             ctx.eval(&msg)?.as_string()?,
@@ -10,7 +10,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     });
 
     ctx.add_special_form("catch", |ctx, args| {
-        destruct_bind_no_eval!((tag &rest body) = args);
+        destruct_bind!((tag &rest body) = args);
         let res = ctx.eval_progn(&body);
         if let Err(ref e) = res {
             let tag = ctx.eval(&tag)?;
@@ -24,7 +24,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     });
 
     ctx.add_special_form("throw", |ctx, args| {
-        destruct_bind_no_eval!((tag value) = args);
+        destruct_bind!((tag value) = args);
         Err(Error::new(
             ErrorKind::Throw(TulispObject::cons(ctx.eval(&tag)?, ctx.eval(&value)?)),
             String::new(),

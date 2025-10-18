@@ -5,10 +5,10 @@ use crate::TulispObject;
 use crate::TulispValue;
 use crate::context::TulispContext;
 use crate::error::Error;
-use crate::{destruct_bind_no_eval, list};
+use crate::{destruct_bind, list};
 
 fn thread_first(_ctx: &mut TulispContext, vv: &TulispObject) -> Result<TulispObject, Error> {
-    destruct_bind_no_eval!((x &optional form &rest more) = vv);
+    destruct_bind!((x &optional form &rest more) = vv);
     if form.null() {
         Ok(x)
     } else if more.null() {
@@ -24,7 +24,7 @@ fn thread_first(_ctx: &mut TulispContext, vv: &TulispObject) -> Result<TulispObj
 }
 
 fn thread_last(_ctx: &mut TulispContext, vv: &TulispObject) -> Result<TulispObject, Error> {
-    destruct_bind_no_eval!((x &optional form &rest more) = vv);
+    destruct_bind!((x &optional form &rest more) = vv);
     if form.null() {
         Ok(x)
     } else if more.null() {

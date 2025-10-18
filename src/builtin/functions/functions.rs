@@ -12,7 +12,7 @@ use crate::eval::eval_and_then;
 use crate::eval::eval_check_null;
 use crate::lists;
 use crate::value::DefunParams;
-use crate::{destruct_bind_no_eval, list};
+use crate::{destruct_bind, list};
 use std::convert::TryInto;
 use std::rc::Rc;
 
@@ -65,7 +65,7 @@ fn mark_tail_calls(
     } else if tail_name_str == "progn" || tail_name_str == "let" || tail_name_str == "let*" {
         list!(,tail_ident ,@mark_tail_calls(ctx, name, tail.cdr()?)?)?
     } else if tail_name_str == "if" {
-        destruct_bind_no_eval!((_if condition then_body &rest else_body) = tail);
+        destruct_bind!((_if condition then_body &rest else_body) = tail);
         list!(,tail_ident
               ,condition.clone()
               ,mark_tail_calls(
@@ -76,10 +76,10 @@ fn mark_tail_calls(
               ,@mark_tail_calls(ctx, name, else_body)?
         )?
     } else if tail_name_str == "cond" {
-        destruct_bind_no_eval!((_cond &rest conds) = tail);
+        destruct_bind!((_cond &rest conds) = tail);
         let mut ret = list!(,tail_ident)?;
         for cond in conds.base_iter() {
-            destruct_bind_no_eval!((condition &rest body) = cond);
+            destruct_bind!((condition &rest body) = cond);
             ret = list!(,@ret
                         ,list!(,condition.clone()
                                ,@mark_tail_calls(ctx, name.clone(), body)?)?)?;
@@ -302,7 +302,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             if varitem.symbolp() {
                 local.set(varitem, TulispObject::nil())?;
             } else if varitem.consp() {
-                destruct_bind_no_eval!((&optional name value &rest rest) = varitem);
+                destruct_bind!((&optional name value &rest rest) = varitem);
                 if name.null() {
                     return Err(Error::new(
                         ErrorKind::Undefined,
@@ -572,8 +572,8 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     }
 
     fn dolist(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
-        destruct_bind_no_eval!((spec &rest body) = args);
-        destruct_bind_no_eval!((var list &optional result) = spec);
+        destruct_bind!((spec &rest body) = args);
+        destruct_bind!((var list &optional result) = spec);
         let mut list = ctx.eval(&list)?;
         var.set_scope(list.car()?)?;
         while list.is_truthy() {
@@ -588,8 +588,8 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     intern_set_func!(ctx, dolist);
 
     fn dotimes(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
-        destruct_bind_no_eval!((spec &rest body) = args);
-        destruct_bind_no_eval!((var count &optional result) = spec);
+        destruct_bind!((spec &rest body) = args);
+        destruct_bind!((var count &optional result) = spec);
         var.set_scope(TulispObject::from(0))?;
         for counter in 0..count.as_int()? {
             var.set_unchecked(TulispObject::from(counter));
