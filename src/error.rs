@@ -1,6 +1,6 @@
 use crate::{TulispContext, TulispObject};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum ErrorKind {
     NotImplemented,
     ParsingError,
@@ -11,6 +11,7 @@ pub enum ErrorKind {
     MissingArgument,
     OutOfRange,
     LispError,
+    Throw(TulispObject),
 }
 
 impl std::fmt::Display for ErrorKind {
@@ -25,6 +26,7 @@ impl std::fmt::Display for ErrorKind {
             ErrorKind::MissingArgument => f.write_str("MissingArgument"),
             ErrorKind::OutOfRange => f.write_str("OutOfRange"),
             ErrorKind::LispError => f.write_str("LispError"),
+            ErrorKind::Throw(args) => write!(f, "Throw{}", args),
         }
     }
 }
@@ -83,6 +85,10 @@ impl Error {
     #[allow(dead_code)]
     pub fn kind(&self) -> ErrorKind {
         self.kind.clone()
+    }
+
+    pub(crate) fn kind_ref(&self) -> &ErrorKind {
+        &self.kind
     }
 
     #[allow(dead_code)]
