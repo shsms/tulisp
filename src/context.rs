@@ -111,7 +111,7 @@ impl TulispContext {
     pub fn eval_and_then<T>(
         &mut self,
         expr: &TulispObject,
-        f: impl FnOnce(&TulispObject) -> Result<T, Error>,
+        f: impl FnOnce(&mut TulispContext, &TulispObject) -> Result<T, Error>,
     ) -> Result<T, Error> {
         eval_and_then(self, expr, f)
     }
