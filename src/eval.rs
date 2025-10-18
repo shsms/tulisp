@@ -79,6 +79,7 @@ fn zip_function_args<E: Evaluator>(
     Ok(())
 }
 
+#[inline(always)]
 fn eval_function<E: Evaluator>(
     ctx: &mut TulispContext,
     params: &DefunParams,
@@ -91,6 +92,7 @@ fn eval_function<E: Evaluator>(
     Ok(result)
 }
 
+#[inline(always)]
 fn eval_lambda<E: Evaluator>(
     ctx: &mut TulispContext,
     params: &DefunParams,
@@ -104,6 +106,7 @@ fn eval_lambda<E: Evaluator>(
     Ok(result)
 }
 
+#[inline(always)]
 pub(crate) fn eval_defmacro(
     ctx: &mut TulispContext,
     params: &DefunParams,
@@ -132,6 +135,7 @@ pub(crate) fn funcall<E: Evaluator>(
     }
 }
 
+#[inline(always)]
 pub(crate) fn eval_form<E: Evaluator>(
     ctx: &mut TulispContext,
     val: &TulispObject,
@@ -212,6 +216,7 @@ fn eval_back_quote(ctx: &mut TulispContext, mut vv: TulispObject) -> Result<Tuli
     }
 }
 
+#[inline(always)]
 pub(crate) fn eval(ctx: &mut TulispContext, expr: &TulispObject) -> Result<TulispObject, Error> {
     let mut result = None;
     eval_basic(ctx, expr, &mut result)?;
@@ -222,6 +227,7 @@ pub(crate) fn eval(ctx: &mut TulispContext, expr: &TulispObject) -> Result<Tulis
     }
 }
 
+#[inline(always)]
 pub(crate) fn eval_check_null(ctx: &mut TulispContext, expr: &TulispObject) -> Result<bool, Error> {
     let mut result = None;
     eval_basic(ctx, expr, &mut result)?;
@@ -232,6 +238,7 @@ pub(crate) fn eval_check_null(ctx: &mut TulispContext, expr: &TulispObject) -> R
     }
 }
 
+#[inline(always)]
 pub(crate) fn eval_and_then<T>(
     ctx: &mut TulispContext,
     expr: &TulispObject,

@@ -102,12 +102,14 @@ impl TulispContext {
     }
 
     /// Evaluates the given value and returns the result.
+    #[inline(always)]
     pub fn eval(&mut self, value: &TulispObject) -> Result<TulispObject, Error> {
         eval(self, value)
     }
 
     /// Evaluates the given value, run the given function on the result of the
     /// evaluation, and returns the result of the function.
+    #[inline(always)]
     pub fn eval_and_then<T>(
         &mut self,
         expr: &TulispObject,
@@ -178,6 +180,7 @@ impl TulispContext {
 
     /// Evaluates each item in the given sequence, and returns the value of the
     /// last one.
+    #[inline(always)]
     pub fn eval_progn(&mut self, seq: &TulispObject) -> Result<TulispObject, Error> {
         let mut ret = None;
         let mut result = None;
@@ -190,6 +193,7 @@ impl TulispContext {
 
     /// Evaluates each item in the given sequence, and returns the value of
     /// each.
+    #[inline(always)]
     pub fn eval_each(&mut self, seq: &TulispObject) -> Result<TulispObject, Error> {
         let ret = TulispObject::nil();
         for val in seq.base_iter() {

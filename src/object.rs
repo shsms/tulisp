@@ -34,6 +34,7 @@ pub struct TulispObject {
 }
 
 impl Default for TulispObject {
+    #[inline(always)]
     fn default() -> Self {
         TulispObject::nil()
     }
@@ -76,6 +77,7 @@ impl TulispObject {
     ///
     /// Read more about `nil` in Emacs Lisp
     /// [here](https://www.gnu.org/software/emacs/manual/html_node/eintr/nil-explained.html).
+    #[inline(always)]
     pub fn nil() -> TulispObject {
         TulispValue::Nil.into_ref(None)
     }
@@ -84,11 +86,13 @@ impl TulispObject {
     ///
     /// Any value that is not `nil` is considered `True`.  `t` may be used as a
     /// way to explicitly specify `True`.
+    #[inline(always)]
     pub fn t() -> TulispObject {
         TulispValue::T.into_ref(None)
     }
 
     /// Make a cons cell with the given car and cdr values.
+    #[inline(always)]
     pub fn cons(car: TulispObject, cdr: TulispObject) -> TulispObject {
         TulispValue::List {
             cons: Cons::new(car, cdr),
@@ -372,10 +376,12 @@ impl TulispObject {
         self.rc.borrow().is_lexically_bound()
     }
 
+    #[inline(always)]
     pub(crate) fn eq_ptr(&self, other: &TulispObject) -> bool {
         Rc::ptr_eq(&self.rc, &other.rc)
     }
 
+    #[inline(always)]
     pub(crate) fn eq_val(&self, other: &TulispObject) -> bool {
         self.inner_ref().eq(&other.inner_ref())
     }
@@ -391,9 +397,12 @@ impl TulispObject {
         }
     }
 
+    #[inline(always)]
     pub(crate) fn strong_count(&self) -> usize {
         Rc::strong_count(&self.rc)
     }
+
+    #[inline(always)]
     pub(crate) fn assign(&self, vv: TulispValue) {
         *self.rc.borrow_mut() = vv
     }
@@ -402,6 +411,7 @@ impl TulispObject {
         self.rc.borrow().clone()
     }
 
+    #[inline(always)]
     pub(crate) fn inner_ref(&self) -> Ref<'_, TulispValue> {
         self.rc.borrow()
     }
@@ -428,6 +438,7 @@ impl TulispObject {
     }
 
     #[doc(hidden)]
+    #[inline(always)]
     pub fn span(&self) -> Option<Span> {
         self.span.get()
     }
@@ -578,6 +589,7 @@ impl FromIterator<TulispObject> for TulispObject {
 macro_rules! extractor_cxr_fn {
     ($name: ident, $doc: literal) => {
         #[doc=concat!("Returns the ", $doc, " of `self` if it is a list, and an Error otherwise.")]
+        #[inline(always)]
         pub fn $name(&self) -> Result<TulispObject, Error> {
             self.rc
                 .borrow()
@@ -587,6 +599,7 @@ macro_rules! extractor_cxr_fn {
     };
     ($name: ident) => {
         #[doc(hidden)]
+        #[inline(always)]
         pub fn $name(&self) -> Result<TulispObject, Error> {
             self.rc
                 .borrow()
@@ -601,6 +614,7 @@ macro_rules! extractor_cxr_and_then_fn {
         #[doc=concat!(
             "Executes the given function on the ", $doc, " of `self` and returns the result."
         )]
+        #[inline(always)]
         pub fn $name<Out: Default>(
             &self,
             f: impl FnOnce(&TulispObject) -> Result<Out, Error>,
@@ -613,6 +627,7 @@ macro_rules! extractor_cxr_and_then_fn {
     };
     ($name: ident) => {
         #[doc(hidden)]
+        #[inline(always)]
         pub fn $name<Out: Default>(
             &self,
             f: impl FnOnce(&TulispObject) -> Result<Out, Error>,
