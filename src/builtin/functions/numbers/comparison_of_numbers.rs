@@ -59,6 +59,52 @@ macro_rules! compare_impl {
     };
 }
 
+macro_rules! compare_impl {
+    ($name:ident, $symbol:literal) => {
+        fn $name(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+            if args.null() || args.cdr_and_then(|x| Ok(x.null()))? {
+                return Err(Error::new(
+                    crate::ErrorKind::OutOfRange,
+                    format!("{} requires at least 2 arguments", $symbol),
+                ));
+            }
+            args.car_and_then(|x| {
+                ctx.eval_and_then(x, |ctx, first| {
+                    if !first.numberp() {
+                        return Err(Error::new(
+                            crate::ErrorKind::TypeMismatch,
+                            format!("Expected number, found: {first}"),
+                        )
+                        .with_trace(args.car()?));
+                    }
+                    args.cadr_and_then(|x| {
+                        ctx.eval_and_then(x, |ctx, second| {
+                            if !second.numberp() {
+                                return Err(Error::new(
+                                    crate::ErrorKind::TypeMismatch,
+                                    format!("Expected number, found: {second}"),
+                                )
+                                .with_trace(args.cadr()?));
+                            }
+                            if compare_ops!(std::cmp::PartialOrd::$name)(first, second)? {
+                                args.cdr_and_then(|cdr| {
+                                    if cdr.cdr_and_then(|x| Ok(x.null()))? {
+                                        Ok(TulispObject::t())
+                                    } else {
+                                        $name(ctx, &cdr)
+                                    }
+                                })
+                            } else {
+                                Ok(TulispObject::nil())
+                            }
+                        })
+                    })
+                })
+            })
+        }
+    };
+}
+
 pub(crate) fn add(ctx: &mut TulispContext) {
     compare_impl!(gt, ">");
     intern_set_func!(ctx, gt, ">");
