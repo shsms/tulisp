@@ -165,6 +165,59 @@ macro_rules! destruct_bind {
     };
 }
 
+#[macro_export]
+macro_rules! destruct_eval_bind {
+    (@reqr $ctx:ident, $vv:ident, $var:ident) => {
+        let $var = $vv.car_and_then(|x| $ctx.eval(x))?;
+        let $vv = $vv.cdr()?;
+    };
+    (@reqr $ctx:ident, $vv:ident, $var:ident $($vars:tt)+) => {
+        destruct_eval_bind!(@reqr $ctx, $vv, $var);
+        destruct_eval_bind!(@reqr $ctx, $vv, $($vars)+);
+    };
+    (@reqr $ctx:ident, $vv:ident,) => {};
+    (@no-rest $ctx:ident, $vv:ident) => {
+        if !$vv.null() {
+            return Err(Error::new(ErrorKind::TypeMismatch,"Too many arguments".to_string()));
+        }
+    };
+    (@rest $ctx:ident, $rest:ident $vv:ident) => {
+        let $rest = $ctx.eval_each(&$vv)?;
+    };
+    (@optvar $ctx:ident, $vv:ident, $var:ident) => {
+        let ($var, $vv) = if !$vv.null() {
+            ($vv.car_and_then(|x| $ctx.eval(x))?, $vv.cdr()?)
+        } else {
+            (TulispObject::nil(), TulispObject::nil())
+        };
+    };
+    (@optvar $ctx:ident, $vv:ident, $var:ident $($vars:ident)+) => {
+        destruct_eval_bind!(@optvar $ctx, $vv, $var);
+        destruct_eval_bind!(@optvar $ctx, $vv, $($vars)+)
+    };
+    (@impl $ctx:ident, ($($vars:ident)+) = $vv:ident) => {
+        destruct_eval_bind!(@reqr $ctx, $vv, $($vars)+);
+        destruct_eval_bind!(@no-rest $ctx, $vv);
+    };
+    (@impl $ctx:ident, ($($vars:ident)* &optional $($optvars:ident)+) = $vv:ident) => {
+	destruct_eval_bind!(@reqr $ctx, $vv, $($vars)*);
+        destruct_eval_bind!(@optvar $ctx, $vv, $($optvars)+);
+        destruct_eval_bind!(@no-rest $ctx, $vv);
+    };
+    (@impl $ctx:ident, ($($vars:ident)* &rest $rest:ident) = $vv:ident) => {
+	destruct_eval_bind!(@reqr $ctx, $vv, $($vars)*);
+        destruct_eval_bind!(@rest $ctx, $rest $vv);
+    };
+    (@impl $ctx:ident, ($($vars:ident)* &optional $($optvars:ident)+ &rest $rest:ident) = $vv:ident) => {
+	destruct_eval_bind!(@reqr $ctx, $vv, $($vars)*);
+        destruct_eval_bind!(@optvar $ctx, $vv, $($optvars)+);
+        destruct_eval_bind!(@rest $ctx, $rest $vv);
+    };
+    ($ctx:ident, ($($rest:tt)*) = $vv:ident) => {
+        destruct_eval_bind!(@impl $ctx, ($($rest)*) = $vv);
+    };
+}
+
 /**
 Creates a struct that holds interned symbols.
 

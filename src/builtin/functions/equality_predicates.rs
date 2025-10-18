@@ -1,15 +1,15 @@
-use tulisp_proc_macros::crate_fn;
-
-use crate::{TulispContext, TulispObject};
+use crate::{Error, ErrorKind, TulispContext, TulispObject, destruct_eval_bind};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    #[crate_fn(add_func = "ctx")]
-    fn equal(object1: TulispObject, object2: TulispObject) -> bool {
-        object1.equal(&object2)
+    fn equal(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+        destruct_eval_bind!(ctx, (object1 object2) = args);
+        Ok(object1.equal(&object2).into())
     }
+    ctx.add_special_form("equal", equal);
 
-    #[crate_fn(add_func = "ctx")]
-    fn eq(object1: TulispObject, object2: TulispObject) -> bool {
-        object1.eq(&object2)
+    fn eq(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+        destruct_eval_bind!(ctx, (object1 object2) = args);
+        Ok(object1.eq(&object2).into())
     }
+    ctx.add_special_form("eq", eq);
 }

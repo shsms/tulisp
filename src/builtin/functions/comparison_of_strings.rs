@@ -1,13 +1,12 @@
-use crate::{Error, ErrorKind, TulispContext, TulispObject, TulispValue, destruct_bind};
+use crate::{Error, ErrorKind, TulispContext, TulispObject, TulispValue, destruct_eval_bind};
 
 fn string_cmp(
     ctx: &mut TulispContext,
     args: &TulispObject,
     oper: impl Fn(&str, &str) -> bool,
 ) -> Result<TulispObject, Error> {
-    destruct_bind!((arg1 arg2) = args);
-    let string1 = ctx.eval(&arg1)?;
-    let string2 = ctx.eval(&arg2)?;
+    let args_other = args;
+    destruct_eval_bind!(ctx, (string1 string2) = args_other);
     let string1 = string1.inner_ref();
     let string2 = string2.inner_ref();
     match (&*string1, &*string2) {
@@ -19,9 +18,9 @@ fn string_cmp(
             "Both arguments need to be strings".to_string(),
         )
         .with_trace(if string1.stringp() {
-            arg2.clone()
+            args.cadr()?
         } else {
-            arg1.clone()
+            args.car()?
         })),
     }
 }
