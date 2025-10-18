@@ -67,14 +67,14 @@ Has a syntax similar to emacs lisp defun parameters.
 ## Example
 
 ```rust
-use tulisp::{destruct_bind, list, TulispObject, Error, ErrorKind};
+use tulisp::{destruct_bind_no_eval, list, TulispObject, Error, ErrorKind};
 
 fn main() -> Result<(), Error> {
     // Destruct from a list with just the required item present.
     let list1 = list!(
         ,10.into()
     )?;
-    destruct_bind!((num1 &optional str1 num2) = list1);
+    destruct_bind_no_eval!((num1 &optional str1 num2) = list1);
 
     assert_eq!(num1.as_int()?, 10);
     assert!(str1.null());
@@ -86,7 +86,7 @@ fn main() -> Result<(), Error> {
         ,"hello".into()
         ,5.2.into()
     )?;
-    destruct_bind!((num1 str1 num2 &rest other) = list1);
+    destruct_bind_no_eval!((num1 str1 num2 &rest other) = list1);
 
     assert_eq!(num1.as_int()?, 10);
     assert_eq!(str1.as_string()?, "hello");
@@ -101,7 +101,7 @@ fn main() -> Result<(), Error> {
         ,22.into()
         ,42.into()
     )?;
-    destruct_bind!((num1 &optional str1 num2 &rest other) = list1);
+    destruct_bind_no_eval!((num1 &optional str1 num2 &rest other) = list1);
 
     assert_eq!(num1.as_int()?, 10);
     assert_eq!(str1.as_string()?, "hello");
@@ -113,14 +113,14 @@ fn main() -> Result<(), Error> {
  ```
 */
 #[macro_export]
-macro_rules! destruct_bind {
+macro_rules! destruct_bind_no_eval {
     (@reqr $vv:ident, $var:ident) => {
         let $var = $vv.car()?;
         let $vv = $vv.cdr()?;
     };
     (@reqr $vv:ident, $var:ident $($vars:tt)+) => {
-        destruct_bind!(@reqr $vv, $var);
-        destruct_bind!(@reqr $vv, $($vars)+);
+        destruct_bind_no_eval!(@reqr $vv, $var);
+        destruct_bind_no_eval!(@reqr $vv, $($vars)+);
     };
     (@reqr $vv:ident,) => {};
     (@no-rest $vv:ident) => {
@@ -139,29 +139,32 @@ macro_rules! destruct_bind {
         };
     };
     (@optvar $vv:ident, $var:ident $($vars:ident)+) => {
-        destruct_bind!(@optvar $vv, $var);
-        destruct_bind!(@optvar $vv, $($vars)+)
+        destruct_bind_no_eval!(@optvar $vv, $var);
+        destruct_bind_no_eval!(@optvar $vv, $($vars)+)
     };
     (@impl ($($vars:ident)+) = $vv:ident) => {
-        destruct_bind!(@reqr $vv, $($vars)+);
-        destruct_bind!(@no-rest $vv);
+        destruct_bind_no_eval!(@reqr $vv, $($vars)+);
+        destruct_bind_no_eval!(@no-rest $vv);
     };
     (@impl ($($vars:ident)* &optional $($optvars:ident)+) = $vv:ident) => {
-	destruct_bind!(@reqr $vv, $($vars)*);
-        destruct_bind!(@optvar $vv, $($optvars)+);
-        destruct_bind!(@no-rest $vv);
+	destruct_bind_no_eval!(@reqr $vv, $($vars)*);
+        destruct_bind_no_eval!(@optvar $vv, $($optvars)+);
+        destruct_bind_no_eval!(@no-rest $vv);
     };
     (@impl ($($vars:ident)* &rest $rest:ident) = $vv:ident) => {
-	destruct_bind!(@reqr $vv, $($vars)*);
-        destruct_bind!(@rest $rest $vv);
+	destruct_bind_no_eval!(@reqr $vv, $($vars)*);
+        destruct_bind_no_eval!(@rest $rest $vv);
     };
     (@impl ($($vars:ident)* &optional $($optvars:ident)+ &rest $rest:ident) = $vv:ident) => {
-	destruct_bind!(@reqr $vv, $($vars)*);
-        destruct_bind!(@optvar $vv, $($optvars)+);
-        destruct_bind!(@rest $rest $vv);
+	destruct_bind_no_eval!(@reqr $vv, $($vars)*);
+        destruct_bind_no_eval!(@optvar $vv, $($optvars)+);
+        destruct_bind_no_eval!(@rest $rest $vv);
     };
     (($($rest:tt)*) = $vv:ident) => {
-        destruct_bind!(@impl ($($rest)*) = $vv);
+        destruct_bind_no_eval!(@impl ($($rest)*) = $vv);
+    };
+}
+
     };
 }
 

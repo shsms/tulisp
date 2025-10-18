@@ -1,11 +1,11 @@
-use crate::{Error, ErrorKind, TulispContext, TulispObject, TulispValue, destruct_bind};
+use crate::{Error, ErrorKind, TulispContext, TulispObject, TulispValue, destruct_bind_no_eval};
 
 fn string_cmp(
     ctx: &mut TulispContext,
     args: &TulispObject,
     oper: impl Fn(&str, &str) -> bool,
 ) -> Result<TulispObject, Error> {
-    destruct_bind!((arg1 arg2) = args);
+    destruct_bind_no_eval!((arg1 arg2) = args);
     let string1 = ctx.eval(&arg1)?;
     let string2 = ctx.eval(&arg2)?;
     let string1 = string1.inner_ref();
