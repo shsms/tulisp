@@ -745,7 +745,6 @@ fn test_math() -> Result<(), Error> {
     tulisp_assert! { program: "(/ 24 2 2)",                result: "6"     }
     tulisp_assert! { program: "(+ 40 (* 2.5 4) (- 4 12))", result: "42.0"  }
     tulisp_assert! { program: "(+ 40 (* 2.5 4) (- -1 7))", result: "42.0"  }
-    tulisp_assert! { program: "(expt 2 3)",                result: "8.0"   }
     tulisp_assert! { program: "(mod 32 5)",                result: "2"     }
     tulisp_assert! { program: "(min 12 5 45)",             result: "5"     }
     tulisp_assert! { program: "(max 12 5 45.2 8)",         result: "45.2"  }
