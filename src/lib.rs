@@ -115,7 +115,7 @@ mod test_utils {
         let bv = ctx.eval_string(b).unwrap();
         assert!(
             crate::TulispObject::equal(&av, &bv),
-            "{}({}) != {}({})",
+            "{}(=> {}) != {}(=> {})",
             a,
             av,
             b,
@@ -126,12 +126,12 @@ mod test_utils {
     #[track_caller]
     pub(crate) fn eval_assert(ctx: &mut crate::TulispContext, a: &str) {
         let av = ctx.eval_string(a).unwrap();
-        assert!(av.is_truthy(), "{}({}) is not true", a, av);
+        assert!(av.is_truthy(), "{}(=> {}) is not true", a, av);
     }
 
     #[track_caller]
     pub(crate) fn eval_assert_not(ctx: &mut crate::TulispContext, a: &str) {
         let av = ctx.eval_string(a).unwrap();
-        assert!(av.null(), "{}({}) is not nil", a, av);
+        assert!(av.null(), "{}(=> {}) is not nil", a, av);
     }
 }
