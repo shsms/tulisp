@@ -143,11 +143,6 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     }
 
     #[crate_fn(add_func = "ctx")]
-    fn expt(base: TulispObject, pow: TulispObject) -> Result<TulispObject, Error> {
-        Ok(f64::powf(base.try_into()?, pow.try_into()?).into())
-    }
-
-    #[crate_fn(add_func = "ctx")]
     fn concat(rest: TulispObject) -> Result<TulispObject, Error> {
         let mut ret = String::new();
         for ele in rest.base_iter() {

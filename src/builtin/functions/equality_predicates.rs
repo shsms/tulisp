@@ -1,4 +1,4 @@
-use crate::{Error, ErrorKind, TulispContext, TulispObject, destruct_eval_bind};
+use crate::{Error, TulispContext, TulispObject, destruct_eval_bind};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
     fn equal(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {

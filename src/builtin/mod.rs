@@ -39,17 +39,18 @@ Click  [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Conditio
 
 Click [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Comparison-of-Numbers.html) for the Emacs lisp manual page for comparison of numbers.
 
-| Name  | Status | Details                                             |
-|-------|--------|-----------------------------------------------------|
-| `>`   | ☑️      |                                                    |
-| `<`   | ☑️      |                                                    |
-| `>=`  | ☑️      |                                                    |
-| `<=`  | ☑️      |                                                    |
-| `=`   | 🔳     |                                                    |
-| `eql` | 🔳     |                                                     |
-| `/=`  | 🔳     |                                                     |
-| `max` | ☑️      |                                                     |
-| `min` | ☑️      |                                                     |
+| Name  | Status | Details |
+|-------|--------|---------|
+| `>`   | ☑️      |         |
+| `<`   | ☑️      |         |
+| `>=`  | ☑️      |         |
+| `<=`  | ☑️      |         |
+| `=`   | 🔳     |         |
+| `eql` | ☑️     |         |
+| `/=`  | 🔳     |         |
+| `max` | ☑️      |         |
+| `min` | ☑️      |         |
+| `abs` | ☑️      |         |
 
 
 ## Comparison of Strings
@@ -162,6 +163,14 @@ the unix epoch.
 | `test-add`       | ☑️      |                                                                                                                   |
 | `format-seconds` | ☑️      |                                                                                                                   |
 
+## Math Functions
+
+| Name        | Status | Details |
+|-------------|--------|---------|
+| `expt`      | ☑️      |        |
+| `sqrt`      | ☑️      |        |
+| `abs`       | ☑️      |        |
+
 ## Others
 
 These functions need to be organized into categories.  They are grouped here for now.
@@ -196,7 +205,6 @@ These functions need to be organized into categories.  They are grouped here for
 | `set`                                                                                                   | ☑️      |                                                   |
 | `setq`                                                                                                  | ☑️      |                                                   |
 | `concat`                                                                                                | ☑️      | for strings                                       |
-| `expt`                                                                                                  | ☑️      |                                                   |
 | `load`                                                                                                  | ☑️      |                                                   |
 | `intern`                                                                                                | ☑️      | no optional obarray param, always uses default.   |
 | `make-symbol`                                                                                           | ☑️      |                                                   |

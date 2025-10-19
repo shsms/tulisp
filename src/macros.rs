@@ -125,7 +125,9 @@ macro_rules! destruct_bind {
     (@reqr $vv:ident,) => {};
     (@no-rest $vv:ident) => {
         if !$vv.null() {
-            return Err(Error::new(ErrorKind::TypeMismatch,"Too many arguments".to_string()));
+            return Err($crate::Error::new(
+                $crate::ErrorKind::TypeMismatch,"Too many arguments".to_string()
+            ));
         }
     };
     (@rest $rest:ident $vv:ident) => {
@@ -178,7 +180,9 @@ macro_rules! destruct_eval_bind {
     (@reqr $ctx:ident, $vv:ident,) => {};
     (@no-rest $ctx:ident, $vv:ident) => {
         if !$vv.null() {
-            return Err(Error::new(ErrorKind::TypeMismatch,"Too many arguments".to_string()));
+            return Err($crate::Error::new(
+                $crate::ErrorKind::TypeMismatch,"Too many arguments".to_string()
+            ));
         }
     };
     (@rest $ctx:ident, $rest:ident $vv:ident) => {
