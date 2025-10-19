@@ -1,4 +1,4 @@
-use crate::{Error, ErrorKind, TulispContext, destruct_eval_bind};
+use crate::{TulispContext, destruct_eval_bind};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.add_special_form("sqrt", |ctx, args| {
