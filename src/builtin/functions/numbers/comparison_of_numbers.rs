@@ -1,5 +1,6 @@
 use crate::{
     Error, TulispContext, TulispObject, TulispValue, builtin::functions::functions::reduce_with,
+    destruct_eval_bind,
 };
 use std::rc::Rc;
 
@@ -91,4 +92,27 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         reduce_with(ctx, rest, max_min_ops!(min))
     }
     intern_set_func!(ctx, min, "min");
+
+    ctx.add_special_form("abs", |ctx, args| {
+        destruct_eval_bind!(ctx, (number) = args);
+
+        Ok(number.try_float()?.abs().into())
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{TulispContext, test_utils::eval_assert_equal};
+
+    #[test]
+    fn test_abs() {
+        let ctx = &mut TulispContext::new();
+
+        eval_assert_equal(ctx, "(abs -4.0)", "4.0");
+        eval_assert_equal(ctx, "(abs 0.0)", "0.0");
+        eval_assert_equal(ctx, "(abs 2.25)", "2.25");
+        eval_assert_equal(ctx, "(abs -3)", "3.0");
+        eval_assert_equal(ctx, "(abs 0)", "0.0");
+        eval_assert_equal(ctx, "(abs 5)", "5.0");
+    }
 }
