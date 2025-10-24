@@ -1,71 +1,44 @@
 use crate::{
-    Error, TulispContext, TulispObject,
+    TulispContext, TulispObject, destruct_eval_bind,
     eval::{DummyEval, eval, funcall},
     list, lists,
 };
 use std::cmp::Ordering;
-use tulisp_proc_macros::crate_fn;
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    #[crate_fn(add_func = "ctx")]
-    fn length(list: TulispObject) -> Result<i64, Error> {
-        lists::length(&list)
-    }
+    ctx.add_special_form("length", |ctx, args| {
+        destruct_eval_bind!(ctx, (list) = args);
+        lists::length(&list).map(TulispObject::from)
+    });
 
-    #[crate_fn(add_func = "ctx", name = "seq-map")]
-    fn seq_map(
-        ctx: &mut TulispContext,
-        func: TulispObject,
-        seq: TulispObject,
-    ) -> Result<TulispObject, Error> {
+    ctx.add_special_form("seq-map", |ctx, args| {
+        destruct_eval_bind!(ctx, (func seq) = args);
         ctx.map(&func, &seq)
-    }
+    });
 
-    #[crate_fn(add_func = "ctx", name = "seq-reduce")]
-    fn seq_reduce(
-        ctx: &mut TulispContext,
-        func: TulispObject,
-        seq: TulispObject,
-        initial_value: TulispObject,
-    ) -> Result<TulispObject, Error> {
+    ctx.add_special_form("seq-reduce", |ctx, args| {
+        destruct_eval_bind!(ctx, (func seq initial_value) = args);
         ctx.reduce(&func, &seq, &initial_value)
-    }
+    });
 
-    #[crate_fn(add_func = "ctx", name = "seq-filter")]
-    fn seq_filter(
-        ctx: &mut TulispContext,
-        func: TulispObject,
-        seq: TulispObject,
-    ) -> Result<TulispObject, Error> {
+    ctx.add_special_form("seq-filter", |ctx, args| {
+        destruct_eval_bind!(ctx, (func seq) = args);
         ctx.filter(&func, &seq)
-    }
+    });
 
-    #[crate_fn(add_func = "ctx", name = "seq-find")]
-    fn seq_find(
-        ctx: &mut TulispContext,
-        func: TulispObject,
-        seq: TulispObject,
-        default: Option<TulispObject>,
-    ) -> Result<TulispObject, Error> {
+    ctx.add_special_form("seq-find", |ctx, args| {
+        destruct_eval_bind!(ctx, (func seq &optional default) = args);
         let func = eval(ctx, &func)?;
         for item in seq.base_iter() {
             if funcall::<DummyEval>(ctx, &func, &list!(item.clone())?)?.is_truthy() {
                 return Ok(item);
             }
         }
-        if let Some(default) = default {
-            Ok(default)
-        } else {
-            Ok(TulispObject::nil())
-        }
-    }
+        Ok(default)
+    });
 
-    #[crate_fn(add_func = "ctx")]
-    fn sort(
-        ctx: &mut TulispContext,
-        seq: TulispObject,
-        pred: TulispObject,
-    ) -> Result<TulispObject, Error> {
+    ctx.add_special_form("sort", |ctx, args| {
+        destruct_eval_bind!(ctx, (seq pred) = args);
         let pred = eval(ctx, &pred)?;
         let mut vec: Vec<_> = seq.base_iter().collect();
         let mut err = None;
@@ -89,5 +62,5 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             TulispObject::cons(v2.clone(), v1)
         });
         Ok(ret)
-    }
+    });
 }
