@@ -1,29 +1,27 @@
-use tulisp_proc_macros::crate_fn;
-
-use crate::{Error, TulispContext, TulispObject, lists};
+use crate::{TulispContext, TulispObject, destruct_eval_bind, lists};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    #[crate_fn(add_func = "ctx")]
-    fn nth(n: i64, list: TulispObject) -> Result<TulispObject, Error> {
-        lists::nth(n, list)
-    }
+    ctx.add_special_form("nth", |ctx, args| {
+        destruct_eval_bind!(ctx, (n list) = args);
+        lists::nth(n.as_int()?, list)
+    });
 
-    #[crate_fn(add_func = "ctx")]
-    fn nthcdr(n: i64, list: TulispObject) -> Result<TulispObject, Error> {
-        lists::nthcdr(n, list)
-    }
+    ctx.add_special_form("nthcdr", |ctx, args| {
+        destruct_eval_bind!(ctx, (n list) = args);
+        lists::nthcdr(n.as_int()?, list)
+    });
 
-    #[crate_fn(add_func = "ctx")]
-    fn last(list: TulispObject, n: Option<i64>) -> Result<TulispObject, Error> {
-        lists::last(&list, n)
-    }
+    ctx.add_special_form("last", |ctx, args| {
+        destruct_eval_bind!(ctx, (list &optional n) = args);
+        lists::last(&list, if n.null() { None } else { Some(n.as_int()?) })
+    });
 
     macro_rules! impl_all_cxr {
         ($name:ident) => {
-            #[crate_fn(add_func = "ctx")]
-            fn $name(name: TulispObject) -> Result<TulispObject, Error> {
+            ctx.add_special_form(stringify!($name), |ctx, args| {
+                destruct_eval_bind!(ctx, (name) = args);
                 name.$name()
-            }
+            });
         };
         ($name:ident, $($rest:ident),*) => {
             impl_all_cxr!($name);
