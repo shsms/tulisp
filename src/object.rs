@@ -49,6 +49,7 @@ impl std::fmt::Display for TulispObject {
 macro_rules! predicate_fn {
     ($visibility: vis, $name: ident $(, $doc: literal)?) => {
         $(#[doc=$doc])?
+        #[inline(always)]
         $visibility fn $name(&self) -> bool {
             self.rc.borrow().$name()
         }
@@ -58,6 +59,7 @@ macro_rules! predicate_fn {
 macro_rules! extractor_fn_with_err {
     ($retty: ty, $name: ident $(, $doc: literal)?) => {
         $(#[doc=$doc])?
+        #[inline(always)]
         pub fn $name(&self) -> Result<$retty, Error> {
             self.rc
                 .borrow()
