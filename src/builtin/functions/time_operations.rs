@@ -1,42 +1,48 @@
+use crate::{Error, ErrorKind, TulispContext, TulispObject, destruct_eval_bind};
 use std::time::Duration;
 
-use tulisp_proc_macros::crate_fn;
-
-use crate::{Error, ErrorKind, TulispContext, TulispObject};
-
 pub(crate) fn add(ctx: &mut TulispContext) {
-    #[crate_fn(add_func = "ctx", name = "current-time")]
-    fn current_time() -> TulispObject {
+    ctx.add_special_form("current-time", |_ctx, args| {
+        if !args.null() {
+            return Err(Error::new(
+                ErrorKind::SyntaxError,
+                "current-time takes no arguments".to_string(),
+            )
+            .with_trace(args.clone()));
+        }
         let usec_since_epoch = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos() as i64;
-        return TulispObject::cons(usec_since_epoch.into(), 1_000_000_000.into());
-    }
+        return Ok(TulispObject::cons(
+            usec_since_epoch.into(),
+            1_000_000_000.into(),
+        ));
+    });
 
-    #[crate_fn(add_func = "ctx", name = "time-less-p")]
-    fn time_less_p(t1: TulispObject, t2: TulispObject) -> Result<TulispObject, Error> {
+    ctx.add_special_form("time-less-p", |ctx, args| {
+        destruct_eval_bind!(ctx, (t1 t2) = args);
         time_operation(t1, t2, |a, b, _| (a < b).into())
-    }
+    });
 
-    #[crate_fn(add_func = "ctx", name = "time-equal-p")]
-    fn time_equal_p(t1: TulispObject, t2: TulispObject) -> Result<TulispObject, Error> {
+    ctx.add_special_form("time-equal-p", |ctx, args| {
+        destruct_eval_bind!(ctx, (t1 t2) = args);
         time_operation(t1, t2, |a, b, _| (a == b).into())
-    }
+    });
 
-    #[crate_fn(add_func = "ctx", name = "time-subtract")]
-    fn time_subtract(t1: TulispObject, t2: TulispObject) -> Result<TulispObject, Error> {
+    ctx.add_special_form("time-subtract", |ctx, args| {
+        destruct_eval_bind!(ctx, (t1 t2) = args);
         time_operation(t1, t2, |a, b, hz| {
             TulispObject::cons((a - b).into(), hz.into())
         })
-    }
+    });
 
-    #[crate_fn(add_func = "ctx", name = "time-add")]
-    fn time_add(t1: TulispObject, t2: TulispObject) -> Result<TulispObject, Error> {
+    ctx.add_special_form("time-add", |ctx, args| {
+        destruct_eval_bind!(ctx, (t1 t2) = args);
         time_operation(t1, t2, |a, b, hz| {
             TulispObject::cons((a + b).into(), hz.into())
         })
-    }
+    });
 
     fn ticks_hz_from_obj(obj: &TulispObject) -> Result<(i64, i64), Error> {
         if obj.integerp() {
@@ -88,7 +94,6 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     // Formatting spec defined here:
     // https://www.gnu.org/software/emacs/manual/html_node/elisp/Time-Parsing.html#index-format_002dseconds
-    #[crate_fn(add_func = "ctx", name = "format-seconds")]
     fn format_seconds(
         format_string: TulispObject,
         seconds: TulispObject,
@@ -98,7 +103,6 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             (ticks / hz) as u64,
             ((ticks % hz) * 1_000_000_000 / hz) as u32,
         );
-        println!("duration secs: {}", duration.as_secs());
 
         let mut output = String::new();
 
@@ -204,6 +208,11 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         }
         Ok(output.into())
     }
+
+    ctx.add_special_form("format-seconds", |ctx, args| {
+        destruct_eval_bind!(ctx, (format_string seconds) = args);
+        format_seconds(format_string, seconds)
+    });
 }
 
 #[cfg(test)]
