@@ -1121,36 +1121,21 @@ fn test_from_iter() -> Result<(), Error> {
 fn test_typed_iter() -> Result<(), Error> {
     let mut ctx = TulispContext::new();
 
-    #[tulisp_fn(add_func = "ctx")]
-    fn add_ints(ints: Option<Iter<i64>>) -> Result<i64, Error> {
-        Ok(match ints {
-            Some(ints) => {
-                let mut sums = 0;
-                for next in ints {
-                    sums += next?;
-                }
-                sums
-            }
-            None => -1,
-        })
-    }
+    ctx.add_special_form("add_ints", |_ctx, args| {
+        destruct_eval_bind!(_ctx, (ints) = args);
 
-    #[tulisp_fn(add_func = "ctx")]
-    fn add_ints_no_default(ints: Iter<i64>) -> Result<i64, Error> {
+        let ints: Iter<i64> = ints.iter()?;
+
         Ok({
             let mut sums = 0;
             for next in ints {
                 sums += next?;
             }
             sums
-        })
-    }
+        }
+        .into())
+    });
 
-    tulisp_assert! {
-        ctx: ctx,
-        program: "(add_ints_no_default '(10 20 30))",
-        result: "60",
-    }
     tulisp_assert! {
         ctx: ctx,
         program: "(add_ints '(10 20 30))",
@@ -1158,20 +1143,8 @@ fn test_typed_iter() -> Result<(), Error> {
     }
     tulisp_assert! {
         ctx: ctx,
-        program: "(add_ints)",
-        result: "-1",
-    }
-    tulisp_assert! {
-        ctx: ctx,
-        program: "(add_ints_no_default 20)",
-        error: r#"ERR TypeMismatch: In call to "add_ints_no_default", arg "ints" needs to be a list
-<eval_string>:1.1-1.25:  at (add_ints_no_default 20)
-"#
-    }
-    tulisp_assert! {
-        ctx: ctx,
         program: "(add_ints 20)",
-        error: r#"ERR TypeMismatch: In call to "add_ints", arg "ints" needs to be a list
+        error: r#"ERR TypeMismatch: Expected a list, got 20
 <eval_string>:1.1-1.14:  at (add_ints 20)
 "#
     }

@@ -1,5 +1,5 @@
 use crate::{
-    TulispValue,
+    ErrorKind, TulispValue,
     cons::{self, Cons},
     error::Error,
 };
@@ -156,7 +156,7 @@ impl TulispObject {
     /// let items = ctx.eval_string("'(10 20 30 40 -5)")?;
     ///
     /// let items_vec: Vec<i64> = items
-    ///     .iter::<i64>()
+    ///     .iter::<i64>()?
     ///     .map(|x| x.unwrap()) // works because there are only i64 values.
     ///     .collect();
     ///
@@ -165,8 +165,14 @@ impl TulispObject {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn iter<T: std::convert::TryFrom<TulispObject>>(&self) -> cons::Iter<T> {
-        cons::Iter::new(self.base_iter())
+    pub fn iter<T: std::convert::TryFrom<TulispObject>>(&self) -> Result<cons::Iter<T>, Error> {
+        if !self.listp() {
+            return Err(Error::new(
+                ErrorKind::TypeMismatch,
+                format!("Expected a list, got {}", self.fmt_string()),
+            ));
+        }
+        Ok(cons::Iter::new(self.base_iter()))
     }
 
     /// Adds the given value to the end of a list. Returns an Error if `self` is
