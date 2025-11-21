@@ -289,7 +289,7 @@ with `as_any`, and downcast to desired types.
 
 ## Example
 ```rust
-# use tulisp::{TulispContext, tulisp_fn, Error};
+# use tulisp::{TulispContext, destruct_bind, Error};
 # use std::any::Any;
 # use std::rc::Rc;
 #
@@ -300,10 +300,14 @@ struct TestStruct {
     value: i64,
 }
 
-#[tulisp_fn(add_func = "ctx")]
-fn make_any(inp: i64) -> Rc<dyn Any> {
-    Rc::new(TestStruct { value: inp })
-}
+ctx.add_special_form("make_any", |_ctx, args| {
+    destruct_bind!((inp) = args);
+    let inp: i64 = inp.try_into()?;
+
+    let any_obj: Rc<dyn Any> = Rc::new(TestStruct { value: inp });
+
+    Ok(any_obj.into())
+});
 
 let out = ctx.eval_string("(make_any 25)")?;
 let ts = out.as_any()?.downcast::<TestStruct>().unwrap();
