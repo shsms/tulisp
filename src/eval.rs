@@ -142,7 +142,7 @@ pub(crate) fn eval_form<E: Evaluator>(
 ) -> Result<TulispObject, Error> {
     let func = match val.ctxobj() {
         Some(func) => func,
-        None => val.car_and_then(|name| eval(ctx, &name))?,
+        None => val.car_and_then(|name| eval(ctx, name))?,
     };
     funcall::<E>(ctx, &func, &val.cdr()?)
 }

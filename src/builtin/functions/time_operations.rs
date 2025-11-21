@@ -14,10 +14,10 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos() as i64;
-        return Ok(TulispObject::cons(
+        Ok(TulispObject::cons(
             usec_since_epoch.into(),
             1_000_000_000.into(),
-        ));
+        ))
     });
 
     ctx.add_special_form("time-less-p", |ctx, args| {
@@ -47,30 +47,30 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     fn ticks_hz_from_obj(obj: &TulispObject) -> Result<(i64, i64), Error> {
         if obj.integerp() {
             if let Ok(ticks) = obj.as_int() {
-                return Ok((ticks, 1));
+                Ok((ticks, 1))
             } else {
-                return Err(
+                Err(
                     Error::new(ErrorKind::TypeMismatch, "expected integer".to_string())
                         .with_trace(obj.clone()),
-                );
+                )
             }
         } else if let Some(cons) = obj.as_list_cons() {
             if let (Ok(ticks), Ok(hz)) = (cons.car().as_int(), cons.cdr().as_int()) {
-                return Ok((ticks, hz));
+                Ok((ticks, hz))
             } else {
-                return Err(Error::new(
+                Err(Error::new(
                     ErrorKind::TypeMismatch,
                     "expected (ticks . hz) pair".to_string(),
                 )
-                .with_trace(obj.clone()));
+                .with_trace(obj.clone()))
             }
         } else {
-            return Err(Error::new(
+            Err(Error::new(
                 ErrorKind::TypeMismatch,
                 "expected integer or (ticks . hz) pair".to_string(),
             )
-            .with_trace(obj.clone()));
-        };
+            .with_trace(obj.clone()))
+        }
     }
 
     fn time_operation(
@@ -82,13 +82,13 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         let (ticks2, hz2) = ticks_hz_from_obj(&t2)?;
 
         if hz1 == hz2 {
-            return Ok(op(ticks1, ticks2, hz1));
+            Ok(op(ticks1, ticks2, hz1))
         } else if hz1 > hz2 {
             let factor = hz1 / hz2;
-            return Ok(op(ticks1, ticks2 * factor, hz1));
+            Ok(op(ticks1, ticks2 * factor, hz1))
         } else {
             let factor = hz2 / hz1;
-            return Ok(op(ticks1 * factor, ticks2, hz2));
+            Ok(op(ticks1 * factor, ticks2, hz2))
         }
     }
 
@@ -119,11 +119,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             let mut prefix = String::new();
             let mut has_dot = false;
             let mut has_comma = false;
-            loop {
-                let ch = match format_chars.next() {
-                    Some(vv) => vv,
-                    None => break,
-                };
+            for ch in format_chars.by_ref() {
                 if ch == '%' {
                     output.push(ch);
                     break;
@@ -139,7 +135,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                         continue;
                     }
                     '.' => {
-                        if prefix.len() > 0 || has_comma || has_dot {
+                        if !prefix.is_empty() || has_comma || has_dot {
                             return Err(Error::new(
                                 ErrorKind::SyntaxError,
                                 "Invalid format operation: '.' allowed only in the first place."
@@ -151,7 +147,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                         continue;
                     }
                     ',' => {
-                        if prefix.len() > 0 || has_comma || has_dot {
+                        if !prefix.is_empty() || has_comma || has_dot {
                             return Err(Error::new(
                                 ErrorKind::SyntaxError,
                                 "Invalid format operation: ',' allowed only in the first place."
@@ -169,7 +165,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                         ));
                     }
                 };
-                let padding = if prefix.len() > 0 {
+                let padding = if !prefix.is_empty() {
                     prefix.parse::<usize>().map_err(|_| {
                         Error::new(
                             ErrorKind::SyntaxError,
@@ -191,17 +187,15 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                     }
                 }
                 output.push_str(&matched);
-                if ch == 's' || ch == 'S' {
-                    if has_comma && padding > 0 {
-                        output.push('.');
-                        output.push_str(
-                            duration
-                                .subsec_millis()
-                                .to_string()
-                                .get(0..padding)
-                                .unwrap_or(""),
-                        );
-                    }
+                if (ch == 's' || ch == 'S') && has_comma && padding > 0 {
+                    output.push('.');
+                    output.push_str(
+                        duration
+                            .subsec_millis()
+                            .to_string()
+                            .get(0..padding)
+                            .unwrap_or(""),
+                    );
                 }
                 break;
             }

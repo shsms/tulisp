@@ -14,11 +14,10 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         let res = ctx.eval_progn(&body);
         if let Err(ref e) = res {
             let tag = ctx.eval(&tag)?;
-            if let ErrorKind::Throw(obj) = e.kind_ref() {
-                if let Ok(true) = obj.car_and_then(|e_tag| Ok(e_tag.eq(&tag))) {
-                    return Ok(obj.cdr()?);
+            if let ErrorKind::Throw(obj) = e.kind_ref()
+                && let Ok(true) = obj.car_and_then(|e_tag| Ok(e_tag.eq(&tag))) {
+                    return obj.cdr();
                 }
-            }
         }
         res
     });
