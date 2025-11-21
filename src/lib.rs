@@ -17,15 +17,15 @@ It is very easy to get started.  Here's an example:
 
 /*!
   ```rust
-  use tulisp::{TulispContext, TulispObject, Error, destruct_bind};
+  use tulisp::{TulispContext, TulispObject, Error, destruct_eval_bind};
 
   fn main() -> Result<(), Error> {
       // Create a new Tulisp execution context.
       let mut ctx = TulispContext::new();
 
       // Add a function called `add_nums` to `ctx`.
-      ctx.add_special_form("add_nums", |_ctx, args| {
-          destruct_bind!((num1 num2) = args);
+      ctx.add_special_form("add_nums", |ctx, args| {
+          destruct_eval_bind!(ctx, (num1 num2) = args);
 
           let num1: i64 = num1.try_into()?;
           let num2: i64 = num2.try_into()?;
@@ -79,10 +79,6 @@ A list of currently available builtin functions can be found [here](builtin).
 
 1. [`TulispContext`] tracks the state of the interpreter and provides methods
    for executing _Tulisp_ programs.
-
-1. [`#[tulisp_fn]`](tulisp_fn) and [`#[tulisp_fn_no_eval]`](tulisp_fn_no_eval)
-   are flexible attribute macros for adding many different kinds of functions to
-   a `TulispContext` object, so that they can be called from lisp code.
 */
 
 mod eval;

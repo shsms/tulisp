@@ -19,15 +19,15 @@ Tulisp requires `rustc` version 1.70 or higher.
 It is very easy to get started.  Here's an example:
 
   ```rust
-  use tulisp::{TulispContext, TulispObject, Error, destruct_bind};
+  use tulisp::{TulispContext, TulispObject, Error, destruct_eval_bind};
 
   fn main() -> Result<(), Error> {
       // Create a new Tulisp execution context.
       let mut ctx = TulispContext::new();
 
       // Add a function called `add_nums` to `ctx`.
-      ctx.add_special_form("add_nums", |_ctx, args| {
-          destruct_bind!((num1 num2) = args);
+      ctx.add_special_form("add_nums", |ctx, args| {
+          destruct_eval_bind!(ctx, (num1 num2) = args);
 
           let num1: i64 = num1.try_into()?;
           let num2: i64 = num2.try_into()?;
