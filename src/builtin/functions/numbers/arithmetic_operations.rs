@@ -1,8 +1,6 @@
-use tulisp_proc_macros::crate_fn;
-
-use crate::ErrorKind;
 use crate::builtin::functions::functions::reduce_with;
 use crate::eval::eval;
+use crate::{ErrorKind, destruct_eval_bind};
 
 use crate::{Error, TulispContext, TulispObject, TulispValue};
 
@@ -55,8 +53,8 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     }
     intern_set_func!(ctx, div, "/");
 
-    #[crate_fn(add_func = "ctx", name = "1+")]
-    fn impl_1_plus(number: TulispObject) -> Result<TulispObject, Error> {
+    ctx.add_special_form("1+", |ctx, args| {
+        destruct_eval_bind!(ctx, (number) = args);
         match &*number.inner_ref() {
             TulispValue::Int { value } => Ok((*value + 1).into()),
             TulispValue::Float { value } => Ok((*value + 1.0).into()),
@@ -65,10 +63,10 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 "expected a number as argument.".to_string(),
             )),
         }
-    }
+    });
 
-    #[crate_fn(add_func = "ctx", name = "1-")]
-    fn impl_1_minus(number: TulispObject) -> Result<TulispObject, Error> {
+    ctx.add_special_form("1-", |ctx, args| {
+        destruct_eval_bind!(ctx, (number) = args);
         match &*number.inner_ref() {
             TulispValue::Int { value } => Ok((*value - 1).into()),
             TulispValue::Float { value } => Ok((*value - 1.0).into()),
@@ -77,10 +75,10 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 "expected a number as argument.".to_string(),
             )),
         }
-    }
+    });
 
-    #[crate_fn(add_func = "ctx", name = "mod")]
-    fn impl_mod(dividend: TulispObject, divisor: TulispObject) -> Result<TulispObject, Error> {
+    ctx.add_special_form("mod", |ctx, args| {
+        destruct_eval_bind!(ctx, (dividend divisor) = args);
         binary_ops!(std::ops::Rem::rem)(&dividend, &divisor)
-    }
+    });
 }

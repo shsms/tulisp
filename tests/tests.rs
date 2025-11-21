@@ -1,5 +1,5 @@
 use std::{any::Any, rc::Rc};
-use tulisp::{Error, Iter, TulispContext, TulispObject, tulisp_add_func, tulisp_fn};
+use tulisp::{Error, Iter, TulispContext, TulispObject, destruct_eval_bind};
 
 macro_rules! tulisp_assert {
     (@impl $ctx: expr, program:$input:expr, result:$result:expr $(,)?) => {
@@ -1084,12 +1084,11 @@ fn test_threading_macros() -> Result<(), Error> {
 }
 
 #[test]
-fn test_tulisp_fn() -> Result<(), Error> {
+fn test_owned_method() -> Result<(), Error> {
     struct Demo {
         vv: i64,
     }
     impl Demo {
-        #[tulisp_fn]
         fn run(&self) -> i64 {
             self.vv
         }
@@ -1099,7 +1098,7 @@ fn test_tulisp_fn() -> Result<(), Error> {
 
     let mut ctx = TulispContext::new();
 
-    tulisp_add_func!(ctx, d.run);
+    ctx.add_special_form("d.run", move |_, _| Ok(d.run().into()));
 
     tulisp_assert! {
         ctx: ctx,
@@ -1121,36 +1120,21 @@ fn test_from_iter() -> Result<(), Error> {
 fn test_typed_iter() -> Result<(), Error> {
     let mut ctx = TulispContext::new();
 
-    #[tulisp_fn(add_func = "ctx")]
-    fn add_ints(ints: Option<Iter<i64>>) -> Result<i64, Error> {
-        Ok(match ints {
-            Some(ints) => {
-                let mut sums = 0;
-                for next in ints {
-                    sums += next?;
-                }
-                sums
-            }
-            None => -1,
-        })
-    }
+    ctx.add_special_form("add_ints", |_ctx, args| {
+        destruct_eval_bind!(_ctx, (ints) = args);
 
-    #[tulisp_fn(add_func = "ctx")]
-    fn add_ints_no_default(ints: Iter<i64>) -> Result<i64, Error> {
+        let ints: Iter<i64> = ints.iter()?;
+
         Ok({
             let mut sums = 0;
             for next in ints {
                 sums += next?;
             }
             sums
-        })
-    }
+        }
+        .into())
+    });
 
-    tulisp_assert! {
-        ctx: ctx,
-        program: "(add_ints_no_default '(10 20 30))",
-        result: "60",
-    }
     tulisp_assert! {
         ctx: ctx,
         program: "(add_ints '(10 20 30))",
@@ -1158,20 +1142,8 @@ fn test_typed_iter() -> Result<(), Error> {
     }
     tulisp_assert! {
         ctx: ctx,
-        program: "(add_ints)",
-        result: "-1",
-    }
-    tulisp_assert! {
-        ctx: ctx,
-        program: "(add_ints_no_default 20)",
-        error: r#"ERR TypeMismatch: In call to "add_ints_no_default", arg "ints" needs to be a list
-<eval_string>:1.1-1.25:  at (add_ints_no_default 20)
-"#
-    }
-    tulisp_assert! {
-        ctx: ctx,
         program: "(add_ints 20)",
-        error: r#"ERR TypeMismatch: In call to "add_ints", arg "ints" needs to be a list
+        error: r#"ERR TypeMismatch: Expected a list, got 20
 <eval_string>:1.1-1.14:  at (add_ints 20)
 "#
     }
@@ -1184,18 +1156,20 @@ fn test_any() -> Result<(), Error> {
         value: i64,
     }
     let mut ctx = TulispContext::new();
-    #[tulisp_fn(add_func = "ctx")]
-    fn make_any(inp: i64) -> Rc<dyn Any> {
-        Rc::new(TestStruct { value: inp })
-    }
 
-    #[tulisp_fn(add_func = "ctx")]
-    fn make_any_res(inp: i64) -> Result<Rc<dyn Any>, Error> {
-        Ok(Rc::new(TestStruct { value: inp }))
-    }
+    ctx.add_special_form("make_any", |ctx, args| {
+        destruct_eval_bind!(ctx, (inp) = args);
+        let res: Rc<dyn Any> = Rc::new(TestStruct {
+            value: inp.try_into()?,
+        });
 
-    #[tulisp_fn(add_func = "ctx")]
-    fn get_int(inp: Rc<dyn Any>) -> Result<i64, Error> {
+        Ok(res.into())
+    });
+
+    ctx.add_special_form("get_int", |_ctx, args| {
+        destruct_eval_bind!(_ctx, (inp) = args);
+        let inp = inp.as_any()?;
+
         inp.downcast::<TestStruct>()
             .map(|vv| vv.value)
             .map_err(|_| {
@@ -1204,7 +1178,8 @@ fn test_any() -> Result<(), Error> {
                     "Not the any thing we wanted.".to_owned(),
                 )
             })
-    }
+            .map(TulispObject::from)
+    });
 
     tulisp_assert! {
         ctx: ctx,
@@ -1213,14 +1188,8 @@ fn test_any() -> Result<(), Error> {
     }
     tulisp_assert! {
         ctx: ctx,
-        program: "(get_int (make_any_res 55))",
-        result: "55",
-    }
-    tulisp_assert! {
-        ctx: ctx,
         program: "(get_int 55)",
         error: r#"ERR TypeMismatch: Expected Any(Rc<dyn Any>): 55
-<eval_string>:1.10-1.12:  at 55
 <eval_string>:1.10-1.12:  at 55
 <eval_string>:1.1-1.13:  at (get_int 55)
 "#

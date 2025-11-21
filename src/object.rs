@@ -1,5 +1,5 @@
 use crate::{
-    TulispValue,
+    ErrorKind, TulispValue,
     cons::{self, Cons},
     error::Error,
 };
@@ -49,6 +49,7 @@ impl std::fmt::Display for TulispObject {
 macro_rules! predicate_fn {
     ($visibility: vis, $name: ident $(, $doc: literal)?) => {
         $(#[doc=$doc])?
+        #[inline(always)]
         $visibility fn $name(&self) -> bool {
             self.rc.borrow().$name()
         }
@@ -58,6 +59,7 @@ macro_rules! predicate_fn {
 macro_rules! extractor_fn_with_err {
     ($retty: ty, $name: ident $(, $doc: literal)?) => {
         $(#[doc=$doc])?
+        #[inline(always)]
         pub fn $name(&self) -> Result<$retty, Error> {
             self.rc
                 .borrow()
@@ -154,7 +156,7 @@ impl TulispObject {
     /// let items = ctx.eval_string("'(10 20 30 40 -5)")?;
     ///
     /// let items_vec: Vec<i64> = items
-    ///     .iter::<i64>()
+    ///     .iter::<i64>()?
     ///     .map(|x| x.unwrap()) // works because there are only i64 values.
     ///     .collect();
     ///
@@ -163,8 +165,14 @@ impl TulispObject {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn iter<T: std::convert::TryFrom<TulispObject>>(&self) -> cons::Iter<T> {
-        cons::Iter::new(self.base_iter())
+    pub fn iter<T: std::convert::TryFrom<TulispObject>>(&self) -> Result<cons::Iter<T>, Error> {
+        if !self.listp() {
+            return Err(Error::new(
+                ErrorKind::TypeMismatch,
+                format!("Expected a list, got {}", self.fmt_string()),
+            ));
+        }
+        Ok(cons::Iter::new(self.base_iter()))
     }
 
     /// Adds the given value to the end of a list. Returns an Error if `self` is
@@ -281,7 +289,7 @@ with `as_any`, and downcast to desired types.
 
 ## Example
 ```rust
-# use tulisp::{TulispContext, tulisp_fn, Error};
+# use tulisp::{TulispContext, destruct_bind, Error};
 # use std::any::Any;
 # use std::rc::Rc;
 #
@@ -292,10 +300,14 @@ struct TestStruct {
     value: i64,
 }
 
-#[tulisp_fn(add_func = "ctx")]
-fn make_any(inp: i64) -> Rc<dyn Any> {
-    Rc::new(TestStruct { value: inp })
-}
+ctx.add_special_form("make_any", |_ctx, args| {
+    destruct_bind!((inp) = args);
+    let inp: i64 = inp.try_into()?;
+
+    let any_obj: Rc<dyn Any> = Rc::new(TestStruct { value: inp });
+
+    Ok(any_obj.into())
+});
 
 let out = ctx.eval_string("(make_any 25)")?;
 let ts = out.as_any()?.downcast::<TestStruct>().unwrap();

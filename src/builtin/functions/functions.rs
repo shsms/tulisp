@@ -3,6 +3,7 @@ use crate::TulispValue;
 use crate::cons::Cons;
 use crate::context::Scope;
 use crate::context::TulispContext;
+use crate::destruct_eval_bind;
 use crate::error::Error;
 use crate::error::ErrorKind;
 use crate::eval::DummyEval;
@@ -15,9 +16,6 @@ use crate::value::DefunParams;
 use crate::{destruct_bind, list};
 use std::convert::TryInto;
 use std::rc::Rc;
-
-use tulisp_proc_macros::crate_add_func;
-use tulisp_proc_macros::{crate_fn, crate_fn_no_eval};
 
 pub(super) fn reduce_with(
     ctx: &mut TulispContext,
@@ -60,20 +58,20 @@ fn mark_tail_calls(
     let new_tail = if tail_ident.eq(&name) {
         let ret_tail = TulispObject::nil().append(tail.cdr()?)?.to_owned();
         list!(,ctx.intern("list")
-              ,TulispValue::Bounce.into_ref(None)
-              ,@ret_tail)?
+            ,TulispValue::Bounce.into_ref(None)
+            ,@ret_tail)?
     } else if tail_name_str == "progn" || tail_name_str == "let" || tail_name_str == "let*" {
         list!(,tail_ident ,@mark_tail_calls(ctx, name, tail.cdr()?)?)?
     } else if tail_name_str == "if" {
         destruct_bind!((_if condition then_body &rest else_body) = tail);
         list!(,tail_ident
-              ,condition.clone()
-              ,mark_tail_calls(
-                  ctx,
-                  name.clone(),
-                  list!(,then_body)?
-              )?.car()?
-              ,@mark_tail_calls(ctx, name, else_body)?
+            ,condition.clone()
+            ,mark_tail_calls(
+                ctx,
+                name.clone(),
+                list!(,then_body)?
+            )?.car()?
+            ,@mark_tail_calls(ctx, name, else_body)?
         )?
     } else if tail_name_str == "cond" {
         destruct_bind!((_cond &rest conds) = tail);
@@ -81,8 +79,8 @@ fn mark_tail_calls(
         for cond in conds.base_iter() {
             destruct_bind!((condition &rest body) = cond);
             ret = list!(,@ret
-                        ,list!(,condition.clone()
-                               ,@mark_tail_calls(ctx, name.clone(), body)?)?)?;
+                ,list!(,condition.clone()
+                    ,@mark_tail_calls(ctx, name.clone(), body)?)?)?;
         }
         ret
     } else {
@@ -93,28 +91,29 @@ fn mark_tail_calls(
 }
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    #[crate_fn(add_func = "ctx")]
-    fn load(ctx: &mut TulispContext, filename: String) -> Result<TulispObject, Error> {
-        ctx.eval_file(&filename)
-    }
+    ctx.add_special_form("load", |ctx, args| {
+        destruct_eval_bind!(ctx, (filename) = args);
+        ctx.eval_file(&filename.as_string()?)
+    });
 
-    #[crate_fn(add_func = "ctx")]
-    fn intern(ctx: &mut TulispContext, name: String) -> Result<TulispObject, Error> {
-        Ok(ctx.intern(&name))
-    }
+    ctx.add_special_form("intern", |ctx, args| {
+        destruct_eval_bind!(ctx, (name) = args);
+        Ok(ctx.intern(&name.as_string()?))
+    });
 
-    #[crate_fn(add_func = "ctx", name = "make-symbol")]
     fn make_symbol(name: String) -> Result<TulispObject, Error> {
         let constant = name.starts_with(":");
         Ok(TulispObject::symbol(name, constant))
     }
 
-    #[crate_fn(add_func = "ctx")]
-    fn gensym(
-        ctx: &mut TulispContext,
-        prefix: Option<TulispObject>,
-    ) -> Result<TulispObject, Error> {
-        let prefix = if let Some(prefix) = prefix {
+    ctx.add_special_form("make-symbol", |ctx, args| {
+        destruct_eval_bind!(ctx, (name) = args);
+        make_symbol(name.as_string()?)
+    });
+
+    ctx.add_special_form("gensym", |ctx, args| {
+        destruct_eval_bind!(ctx, (&optional prefix) = args);
+        let prefix = if !prefix.null() {
             if prefix.stringp() {
                 prefix.as_string()?
             } else {
@@ -140,10 +139,10 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         counter.set(TulispObject::from(count + 1))?;
 
         make_symbol(format!("{prefix}{count}"))
-    }
+    });
 
-    #[crate_fn(add_func = "ctx")]
-    fn concat(rest: TulispObject) -> Result<TulispObject, Error> {
+    ctx.add_special_form("concat", |ctx, args| {
+        destruct_eval_bind!(ctx, (&rest rest) = args);
         let mut ret = String::new();
         for ele in rest.base_iter() {
             match ele.as_string() {
@@ -157,10 +156,10 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             }
         }
         Ok(TulispValue::from(ret).into_ref(rest.span()))
-    }
+    });
 
-    #[crate_fn(add_func = "ctx")]
-    fn format(input: TulispObject, rest: TulispObject) -> Result<TulispObject, Error> {
+    ctx.add_special_form("format", |ctx, args| {
+        destruct_eval_bind!(ctx, (input &rest rest) = args);
         let mut args = rest.base_iter();
         let mut output = String::new();
         let in_string = input.as_string().map_err(|e| e.with_trace(input.clone()))?;
@@ -200,37 +199,33 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             }
         }
         Ok(TulispObject::from(output).with_span(input.span()))
-    }
+    });
 
-    #[crate_fn(add_func = "ctx")]
-    fn print(val: TulispObject) -> Result<TulispObject, Error> {
+    ctx.add_special_form("print", |ctx, args| {
+        destruct_eval_bind!(ctx, (val) = args);
         println!("{}", val.fmt_string());
         Ok(val)
-    }
+    });
 
-    #[crate_fn(add_func = "ctx", name = "prin1-to-string")]
-    fn prin1_to_string(arg: TulispObject) -> Result<TulispObject, Error> {
+    ctx.add_special_form("prin1-to-string", |ctx, args| {
+        destruct_eval_bind!(ctx, (arg) = args);
         Ok(TulispValue::from(arg.fmt_string()).into_ref(arg.span()))
-    }
+    });
 
-    #[crate_fn(add_func = "ctx")]
-    fn princ(val: TulispObject) -> Result<TulispObject, Error> {
+    ctx.add_special_form("princ", |ctx, args| {
+        destruct_eval_bind!(ctx, (val) = args);
         println!("{}", val.fmt_string());
         Ok(val)
-    }
+    });
 
-    #[crate_fn_no_eval(add_func = "ctx", name = "while")]
-    fn impl_while(
-        ctx: &mut TulispContext,
-        condition: TulispObject,
-        rest: TulispObject,
-    ) -> Result<TulispObject, Error> {
+    ctx.add_special_form("while", |ctx, args| {
+        destruct_bind!((condition &rest rest) = args);
         let mut result = TulispObject::nil();
         while !eval_check_null(ctx, &condition)? {
             result = ctx.eval_progn(&rest)?;
         }
         Ok(result)
-    }
+    });
 
     fn setq(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
         let value = args.cdr_and_then(|args| {
@@ -280,12 +275,8 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     }
     intern_set_func!(ctx, set);
 
-    #[crate_fn_no_eval]
-    fn impl_let(
-        ctx: &mut TulispContext,
-        varlist: TulispObject,
-        rest: TulispObject,
-    ) -> Result<TulispObject, Error> {
+    fn impl_let(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+        destruct_bind!((varlist &rest rest) = args);
         if !rest.consp() {
             return Err(Error::new(
                 ErrorKind::TypeMismatch,
@@ -327,42 +318,36 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
         ret
     }
-    crate_add_func!(ctx, impl_let, "let");
-    crate_add_func!(ctx, impl_let, "let*");
+    ctx.add_special_form("let", impl_let);
+    ctx.add_special_form("let*", impl_let);
 
-    #[crate_fn_no_eval(add_func = "ctx")]
-    fn progn(ctx: &mut TulispContext, rest: TulispObject) -> Result<TulispObject, Error> {
-        ctx.eval_progn(&rest)
-    }
+    ctx.add_special_form("progn", |ctx, args| ctx.eval_progn(args));
 
-    #[crate_fn_no_eval(add_func = "ctx")]
-    fn defun(
-        ctx: &mut TulispContext,
-        name: TulispObject,
-        params: TulispObject,
-        rest: TulispObject,
-    ) -> Result<TulispObject, Error> {
-        let body = if rest.car()?.as_string().is_ok() {
-            rest.cdr()?
-        } else {
-            rest
-        };
-        let body = mark_tail_calls(ctx, name.clone(), body).map_err(|e| {
-            println!("mark_tail_calls error: {:?}", e);
-            e
-        })?;
-        name.set_global(
-            TulispValue::Lambda {
-                params: params.try_into()?,
-                body,
-            }
-            .into_ref(None),
-        )?;
-        Ok(TulispObject::nil())
-    }
+    ctx.add_special_form("defun", |ctx, args| {
+        destruct_bind!((name params &rest rest) = args);
+        {
+            let body = if rest.car()?.as_string().is_ok() {
+                rest.cdr()?
+            } else {
+                rest
+            };
+            let body = mark_tail_calls(ctx, name.clone(), body).map_err(|e| {
+                println!("mark_tail_calls error: {:?}", e);
+                e
+            })?;
+            name.set_global(
+                TulispValue::Lambda {
+                    params: params.try_into()?,
+                    body,
+                }
+                .into_ref(None),
+            )?;
+            Ok(TulispObject::nil())
+        }
+    });
 
-    #[crate_fn_no_eval(add_func = "ctx")]
-    fn lambda(params: TulispObject, rest: TulispObject) -> Result<TulispObject, Error> {
+    fn lambda(_ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+        destruct_bind!((params &rest rest) = args);
         let body = if rest.car()?.as_string().is_ok() {
             rest.cdr()?
         } else {
@@ -478,13 +463,10 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         let body = capture_variables(&mut vec![], &param_names, body)?;
         Ok(TulispValue::Lambda { params, body }.into_ref(None))
     }
+    ctx.add_special_form("lambda", lambda);
 
-    #[crate_fn_no_eval(add_func = "ctx")]
-    fn defmacro(
-        name: TulispObject,
-        params: TulispObject,
-        rest: TulispObject,
-    ) -> Result<TulispObject, Error> {
+    ctx.add_special_form("defmacro", |_ctx, args| {
+        destruct_bind!((name params &rest rest) = args);
         let body = if rest.car()?.as_string().is_ok() {
             rest.cdr()?
         } else {
@@ -498,24 +480,20 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             .into_ref(None),
         )?;
         Ok(TulispObject::nil())
-    }
+    });
 
-    #[crate_fn(add_func = "ctx")]
-    fn null(arg: TulispObject) -> bool {
-        arg.null()
-    }
+    ctx.add_special_form("null", |ctx, args| {
+        destruct_eval_bind!(ctx, (arg) = args);
+        Ok(arg.null().into())
+    });
 
-    #[crate_fn(add_func = "ctx", name = "eval")]
-    fn impl_eval(ctx: &mut TulispContext, arg: TulispObject) -> Result<TulispObject, Error> {
+    ctx.add_special_form("eval", |ctx, args| {
+        destruct_eval_bind!(ctx, (arg) = args);
         crate::eval::eval(ctx, &arg)
-    }
+    });
 
-    #[crate_fn_no_eval(add_func = "ctx", name = "funcall")]
-    fn funcall(
-        ctx: &mut TulispContext,
-        name: TulispObject,
-        rest: TulispObject,
-    ) -> Result<TulispObject, Error> {
+    ctx.add_special_form("funcall", |ctx, args| {
+        destruct_bind!((name &rest rest) = args);
         let name = eval(ctx, &name)?;
         let name = eval(ctx, &name)?;
         if matches!(&*name.inner_ref(), TulispValue::Lambda { .. }) {
@@ -523,15 +501,12 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         } else {
             crate::eval::funcall::<DummyEval>(ctx, &name, &rest)
         }
-    }
+    });
 
-    #[crate_fn(add_func = "ctx", name = "macroexpand")]
-    fn impl_macroexpand(
-        ctx: &mut TulispContext,
-        name: TulispObject,
-    ) -> Result<TulispObject, Error> {
+    ctx.add_special_form("macroexpand", |ctx, args| {
+        destruct_eval_bind!(ctx, (name) = args);
         crate::eval::macroexpand(ctx, name)
-    }
+    });
 
     // List functions
 
@@ -558,13 +533,13 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     }
     intern_set_func!(ctx, impl_cons, "cons");
 
-    #[crate_fn(add_func = "ctx")]
-    fn append(first: TulispObject, rest: TulispObject) -> Result<TulispObject, Error> {
+    ctx.add_special_form("append", |ctx, args| {
+        destruct_eval_bind!(ctx, (first &rest rest) = args);
         for ele in rest.base_iter() {
             first.append(ele.deep_copy()?)?;
         }
         Ok(first)
-    }
+    });
 
     fn dolist(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
         destruct_bind!((spec &rest body) = args);
@@ -614,41 +589,41 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     }
     intern_set_func!(ctx, list);
 
-    #[crate_fn(add_func = "ctx")]
-    fn mapcar(
-        ctx: &mut TulispContext,
-        func: TulispObject,
-        seq: TulispObject,
-    ) -> Result<TulispObject, Error> {
+    ctx.add_special_form("mapcar", |ctx, args| {
+        destruct_eval_bind!(ctx, (func seq) = args);
         ctx.map(&func, &seq)
-    }
+    });
 
-    #[crate_fn(add_func = "ctx")]
-    fn assoc(
-        ctx: &mut TulispContext,
-        key: TulispObject,
-        alist: TulispObject,
-        testfn: Option<TulispObject>,
-    ) -> Result<TulispObject, Error> {
-        lists::assoc(ctx, &key, &alist, testfn)
-    }
+    ctx.add_special_form("assoc", |ctx, args| {
+        destruct_eval_bind!(ctx, (key alist &optional testfn) = args);
+        lists::assoc(
+            ctx,
+            &key,
+            &alist,
+            if testfn.null() { None } else { Some(testfn) },
+        )
+    });
 
-    #[crate_fn(add_func = "ctx", name = "alist-get")]
-    fn alist_get(
-        ctx: &mut TulispContext,
-        key: TulispObject,
-        alist: TulispObject,
-        default_value: Option<TulispObject>,
-        remove: Option<TulispObject>, // TODO: implement after `setf`
-        testfn: Option<TulispObject>,
-    ) -> Result<TulispObject, Error> {
-        lists::alist_get(ctx, &key, &alist, default_value, remove, testfn)
-    }
+    ctx.add_special_form("alist-get", |ctx, args| {
+        destruct_eval_bind!(ctx, (key alist &optional default_value remove testfn) = args);
+        lists::alist_get(
+            ctx,
+            &key,
+            &alist,
+            if default_value.null() {
+                None
+            } else {
+                Some(default_value)
+            },
+            if remove.null() { None } else { Some(remove) }, // TODO: implement after setf
+            if testfn.null() { None } else { Some(testfn) },
+        )
+    });
 
-    #[crate_fn(add_func = "ctx", name = "plist-get")]
-    fn plist_get(plist: TulispObject, property: TulispObject) -> Result<TulispObject, Error> {
+    ctx.add_special_form("plist-get", |ctx, args| {
+        destruct_eval_bind!(ctx, (plist property) = args);
         lists::plist_get(&plist, &property)
-    }
+    });
 
     // predicates begin
     macro_rules! predicate_function {
@@ -682,11 +657,10 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     predicate_function!(symbolp);
     predicate_function!(boundp);
     predicate_function!(keywordp);
-
     // predicates end
 
-    #[crate_fn_no_eval(add_func = "ctx")]
-    fn declare(_rest: TulispObject) {
+    ctx.add_special_form("declare", |_ctx, _args| {
         // no-op
-    }
+        Ok(TulispObject::nil())
+    });
 }

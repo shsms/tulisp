@@ -1,8 +1,5 @@
+use crate::{Error, ErrorKind, TulispContext, TulispObject, destruct_eval_bind};
 use std::{any::Any, cell::RefCell, collections::HashMap, rc::Rc};
-
-use tulisp_proc_macros::crate_fn;
-
-use crate::{Error, TulispContext, TulispObject};
 
 struct TulispObjectEql(TulispObject);
 
@@ -32,13 +29,21 @@ impl From<TulispObject> for TulispObjectEql {
 }
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    #[crate_fn(add_func = "ctx", name = "make-hash-table")]
-    fn make_hash_table() -> Rc<dyn Any> {
-        Rc::new(RefCell::new(HashMap::<TulispObjectEql, TulispObject>::new()))
-    }
+    ctx.add_special_form("make-hash-table", |_ctx, args| {
+        if !args.null() {
+            return Err(Error::new(
+                ErrorKind::InvalidArgument,
+                "make-hash-table: expected no arguments.".to_string(),
+            )
+            .with_trace(args.clone()));
+        }
+        let table: Rc<dyn Any> =
+            Rc::new(RefCell::new(HashMap::<TulispObjectEql, TulispObject>::new()));
+        Ok(table.into())
+    });
 
-    #[crate_fn(add_func = "ctx", name = "gethash")]
-    fn gethash(key: TulispObject, table: TulispObject) -> Result<TulispObject, Error> {
+    ctx.add_special_form("gethash", |ctx, args| {
+        destruct_eval_bind!(ctx, (key table) = args);
         let binding = table.as_any()?;
         let table = binding
             .downcast_ref::<RefCell<HashMap<TulispObjectEql, TulispObject>>>()
@@ -50,14 +55,11 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             .unwrap_or(TulispObject::nil());
 
         Ok(value)
-    }
+    });
 
-    #[crate_fn(add_func = "ctx", name = "puthash")]
-    fn puthash(
-        key: TulispObject,
-        value: TulispObject,
-        table: TulispObject,
-    ) -> Result<TulispObject, Error> {
+    ctx.add_special_form("puthash", |ctx, args| {
+        destruct_eval_bind!(ctx, (key value table) = args);
+
         let binding = table.as_any()?;
         let table = binding
             .downcast_ref::<RefCell<HashMap<TulispObjectEql, TulispObject>>>()
@@ -65,5 +67,5 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         table.borrow_mut().insert(key.into(), value);
 
         Ok(TulispObject::nil())
-    }
+    });
 }

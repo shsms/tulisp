@@ -1,70 +1,76 @@
+use crate::{Error, ErrorKind, TulispContext, TulispObject, destruct_eval_bind};
 use std::time::Duration;
 
-use tulisp_proc_macros::crate_fn;
-
-use crate::{Error, ErrorKind, TulispContext, TulispObject};
-
 pub(crate) fn add(ctx: &mut TulispContext) {
-    #[crate_fn(add_func = "ctx", name = "current-time")]
-    fn current_time() -> TulispObject {
+    ctx.add_special_form("current-time", |_ctx, args| {
+        if !args.null() {
+            return Err(Error::new(
+                ErrorKind::SyntaxError,
+                "current-time takes no arguments".to_string(),
+            )
+            .with_trace(args.clone()));
+        }
         let usec_since_epoch = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos() as i64;
-        return TulispObject::cons(usec_since_epoch.into(), 1_000_000_000.into());
-    }
+        Ok(TulispObject::cons(
+            usec_since_epoch.into(),
+            1_000_000_000.into(),
+        ))
+    });
 
-    #[crate_fn(add_func = "ctx", name = "time-less-p")]
-    fn time_less_p(t1: TulispObject, t2: TulispObject) -> Result<TulispObject, Error> {
+    ctx.add_special_form("time-less-p", |ctx, args| {
+        destruct_eval_bind!(ctx, (t1 t2) = args);
         time_operation(t1, t2, |a, b, _| (a < b).into())
-    }
+    });
 
-    #[crate_fn(add_func = "ctx", name = "time-equal-p")]
-    fn time_equal_p(t1: TulispObject, t2: TulispObject) -> Result<TulispObject, Error> {
+    ctx.add_special_form("time-equal-p", |ctx, args| {
+        destruct_eval_bind!(ctx, (t1 t2) = args);
         time_operation(t1, t2, |a, b, _| (a == b).into())
-    }
+    });
 
-    #[crate_fn(add_func = "ctx", name = "time-subtract")]
-    fn time_subtract(t1: TulispObject, t2: TulispObject) -> Result<TulispObject, Error> {
+    ctx.add_special_form("time-subtract", |ctx, args| {
+        destruct_eval_bind!(ctx, (t1 t2) = args);
         time_operation(t1, t2, |a, b, hz| {
             TulispObject::cons((a - b).into(), hz.into())
         })
-    }
+    });
 
-    #[crate_fn(add_func = "ctx", name = "time-add")]
-    fn time_add(t1: TulispObject, t2: TulispObject) -> Result<TulispObject, Error> {
+    ctx.add_special_form("time-add", |ctx, args| {
+        destruct_eval_bind!(ctx, (t1 t2) = args);
         time_operation(t1, t2, |a, b, hz| {
             TulispObject::cons((a + b).into(), hz.into())
         })
-    }
+    });
 
     fn ticks_hz_from_obj(obj: &TulispObject) -> Result<(i64, i64), Error> {
         if obj.integerp() {
             if let Ok(ticks) = obj.as_int() {
-                return Ok((ticks, 1));
+                Ok((ticks, 1))
             } else {
-                return Err(
+                Err(
                     Error::new(ErrorKind::TypeMismatch, "expected integer".to_string())
                         .with_trace(obj.clone()),
-                );
+                )
             }
         } else if let Some(cons) = obj.as_list_cons() {
             if let (Ok(ticks), Ok(hz)) = (cons.car().as_int(), cons.cdr().as_int()) {
-                return Ok((ticks, hz));
+                Ok((ticks, hz))
             } else {
-                return Err(Error::new(
+                Err(Error::new(
                     ErrorKind::TypeMismatch,
                     "expected (ticks . hz) pair".to_string(),
                 )
-                .with_trace(obj.clone()));
+                .with_trace(obj.clone()))
             }
         } else {
-            return Err(Error::new(
+            Err(Error::new(
                 ErrorKind::TypeMismatch,
                 "expected integer or (ticks . hz) pair".to_string(),
             )
-            .with_trace(obj.clone()));
-        };
+            .with_trace(obj.clone()))
+        }
     }
 
     fn time_operation(
@@ -76,19 +82,18 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         let (ticks2, hz2) = ticks_hz_from_obj(&t2)?;
 
         if hz1 == hz2 {
-            return Ok(op(ticks1, ticks2, hz1));
+            Ok(op(ticks1, ticks2, hz1))
         } else if hz1 > hz2 {
             let factor = hz1 / hz2;
-            return Ok(op(ticks1, ticks2 * factor, hz1));
+            Ok(op(ticks1, ticks2 * factor, hz1))
         } else {
             let factor = hz2 / hz1;
-            return Ok(op(ticks1 * factor, ticks2, hz2));
+            Ok(op(ticks1 * factor, ticks2, hz2))
         }
     }
 
     // Formatting spec defined here:
     // https://www.gnu.org/software/emacs/manual/html_node/elisp/Time-Parsing.html#index-format_002dseconds
-    #[crate_fn(add_func = "ctx", name = "format-seconds")]
     fn format_seconds(
         format_string: TulispObject,
         seconds: TulispObject,
@@ -98,7 +103,6 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             (ticks / hz) as u64,
             ((ticks % hz) * 1_000_000_000 / hz) as u32,
         );
-        println!("duration secs: {}", duration.as_secs());
 
         let mut output = String::new();
 
@@ -115,11 +119,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             let mut prefix = String::new();
             let mut has_dot = false;
             let mut has_comma = false;
-            loop {
-                let ch = match format_chars.next() {
-                    Some(vv) => vv,
-                    None => break,
-                };
+            for ch in format_chars.by_ref() {
                 if ch == '%' {
                     output.push(ch);
                     break;
@@ -135,7 +135,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                         continue;
                     }
                     '.' => {
-                        if prefix.len() > 0 || has_comma || has_dot {
+                        if !prefix.is_empty() || has_comma || has_dot {
                             return Err(Error::new(
                                 ErrorKind::SyntaxError,
                                 "Invalid format operation: '.' allowed only in the first place."
@@ -147,7 +147,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                         continue;
                     }
                     ',' => {
-                        if prefix.len() > 0 || has_comma || has_dot {
+                        if !prefix.is_empty() || has_comma || has_dot {
                             return Err(Error::new(
                                 ErrorKind::SyntaxError,
                                 "Invalid format operation: ',' allowed only in the first place."
@@ -165,7 +165,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                         ));
                     }
                 };
-                let padding = if prefix.len() > 0 {
+                let padding = if !prefix.is_empty() {
                     prefix.parse::<usize>().map_err(|_| {
                         Error::new(
                             ErrorKind::SyntaxError,
@@ -187,23 +187,26 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                     }
                 }
                 output.push_str(&matched);
-                if ch == 's' || ch == 'S' {
-                    if has_comma && padding > 0 {
-                        output.push('.');
-                        output.push_str(
-                            duration
-                                .subsec_millis()
-                                .to_string()
-                                .get(0..padding)
-                                .unwrap_or(""),
-                        );
-                    }
+                if (ch == 's' || ch == 'S') && has_comma && padding > 0 {
+                    output.push('.');
+                    output.push_str(
+                        duration
+                            .subsec_millis()
+                            .to_string()
+                            .get(0..padding)
+                            .unwrap_or(""),
+                    );
                 }
                 break;
             }
         }
         Ok(output.into())
     }
+
+    ctx.add_special_form("format-seconds", |ctx, args| {
+        destruct_eval_bind!(ctx, (format_string seconds) = args);
+        format_seconds(format_string, seconds)
+    });
 }
 
 #[cfg(test)]

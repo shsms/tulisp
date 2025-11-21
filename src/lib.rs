@@ -17,17 +17,21 @@ It is very easy to get started.  Here's an example:
 
 /*!
   ```rust
-  use tulisp::{TulispContext, tulisp_fn, Error};
+  use tulisp::{TulispContext, TulispObject, Error, destruct_bind};
 
   fn main() -> Result<(), Error> {
       // Create a new Tulisp execution context.
       let mut ctx = TulispContext::new();
 
       // Add a function called `add_nums` to `ctx`.
-      #[tulisp_fn(add_func = "ctx")]
-      fn add_nums(num1: i64, num2: i64) -> i64 {
-          num1 + num2
-      }
+      ctx.add_special_form("add_nums", |_ctx, args| {
+          destruct_bind!((num1 num2) = args);
+
+          let num1: i64 = num1.try_into()?;
+          let num2: i64 = num2.try_into()?;
+
+          Ok(TulispObject::from(num1 + num2))
+      });
 
       // Write a lisp program that calls `add_nums`
       let program = "(add_nums 10 20)";
@@ -84,8 +88,6 @@ A list of currently available builtin functions can be found [here](builtin).
 mod eval;
 mod macros;
 mod parse;
-
-pub use tulisp_proc_macros::{tulisp_add_func, tulisp_add_macro, tulisp_fn, tulisp_fn_no_eval};
 
 pub mod builtin;
 
