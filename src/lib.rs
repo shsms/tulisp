@@ -89,8 +89,6 @@ mod eval;
 mod macros;
 mod parse;
 
-pub use tulisp_proc_macros::{tulisp_add_func, tulisp_add_macro, tulisp_fn, tulisp_fn_no_eval};
-
 pub mod builtin;
 
 mod cons;

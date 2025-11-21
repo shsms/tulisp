@@ -17,6 +17,3 @@ path = "src/bin/tulisp.rs"
 [lib]
 name = "tulisp"
 path = "src/lib.rs"
-
-[dependencies]
-tulisp-proc-macros = "0.4.1"
