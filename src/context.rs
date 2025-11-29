@@ -1,7 +1,10 @@
+mod add_function;
+
 use std::{collections::HashMap, fs, rc::Rc};
 
 use crate::{
     TulispObject, TulispValue, builtin,
+    context::add_function::TulispCallable,
     error::Error,
     eval::{DummyEval, eval, eval_and_then, eval_basic, funcall},
     list,
@@ -88,6 +91,32 @@ impl TulispContext {
         self.intern(name)
             .set_global(TulispValue::Func(Rc::new(func)).into_ref(None))
             .unwrap();
+    }
+
+    #[inline(always)]
+    pub fn add_function<
+        Args: 'static,
+        Output: 'static,
+        const NEEDS_CONTEXT: bool,
+        const NUM_ARGS: usize,
+        const NUM_OPTIONAL: usize,
+        const HAS_REST: bool,
+        const FALLIBLE: bool,
+    >(
+        &mut self,
+        name: &str,
+        func: impl TulispCallable<
+            Args,
+            Output,
+            NEEDS_CONTEXT,
+            NUM_ARGS,
+            NUM_OPTIONAL,
+            HAS_REST,
+            FALLIBLE,
+        > + 'static,
+    ) -> &mut Self {
+        func.add_to_context(self, name);
+        self
     }
 
     #[inline(always)]
@@ -220,5 +249,24 @@ impl TulispContext {
 
     pub(crate) fn get_filename(&self, file_id: usize) -> String {
         self.filenames[file_id].clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::TulispContext;
+
+    #[test]
+    fn test_add_function() {
+        let mut ctx = TulispContext::new();
+        ctx.add_function("sum", |x: f64, y: i64| x + y as f64);
+        ctx.add_function("add_one", |_ctx: &mut TulispContext, x: f64| x + 1.0);
+        ctx.add_function("four", || 4);
+
+        let result = ctx
+            .eval_string("(sum (add_one (four)) 12)")
+            .expect("Failed to evaluate expression");
+
+        assert_eq!(f64::try_from(result).unwrap(), 17.0);
     }
 }
