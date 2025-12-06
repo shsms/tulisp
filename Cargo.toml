@@ -17,3 +17,6 @@ path = "src/bin/tulisp.rs"
 [lib]
 name = "tulisp"
 path = "src/lib.rs"
+
+[features]
+big_functions = []

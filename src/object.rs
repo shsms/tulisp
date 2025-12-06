@@ -554,27 +554,6 @@ impl TryFrom<TulispObject> for Rc<dyn Any> {
     }
 }
 
-macro_rules! try_into_option {
-    ($ty: ty) => {
-        impl TryFrom<TulispObject> for Option<$ty> {
-            type Error = Error;
-
-            fn try_from(value: TulispObject) -> Result<Self, Self::Error> {
-                if value.null() {
-                    Ok(None)
-                } else {
-                    value.try_into().map(|x| Some(x))
-                }
-            }
-        }
-    };
-}
-
-try_into_option!(f64);
-try_into_option!(i64);
-try_into_option!(String);
-try_into_option!(Rc<dyn Any>);
-
 macro_rules! tulisp_object_from {
     ($ty: ty) => {
         impl From<$ty> for TulispObject {
