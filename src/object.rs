@@ -2,6 +2,7 @@ use crate::{
     ErrorKind, TulispValue,
     cons::{self, Cons},
     error::Error,
+    value::TulispAny,
 };
 use std::{
     any::Any,
@@ -289,8 +290,7 @@ with `as_any`, and downcast to desired types.
 
 ## Example
 ```rust
-# use tulisp::{TulispContext, destruct_bind, Error};
-# use std::any::Any;
+# use tulisp::{TulispContext, destruct_bind, Error, TulispAny};
 # use std::rc::Rc;
 #
 # fn main() -> Result<(), Error> {
@@ -300,11 +300,17 @@ struct TestStruct {
     value: i64,
 }
 
+impl std::fmt::Display for TestStruct {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "\"TestStruct {}\"", self.value)
+    }
+}
+
 ctx.add_special_form("make_any", |_ctx, args| {
     destruct_bind!((inp) = args);
     let inp: i64 = inp.try_into()?;
 
-    let any_obj: Rc<dyn Any> = Rc::new(TestStruct { value: inp });
+    let any_obj: Rc<dyn TulispAny> = Rc::new(TestStruct { value: inp });
 
     Ok(any_obj.into())
 });
@@ -569,7 +575,7 @@ tulisp_object_from!(f64);
 tulisp_object_from!(&str);
 tulisp_object_from!(String);
 tulisp_object_from!(bool);
-tulisp_object_from!(Rc<dyn Any>);
+tulisp_object_from!(Rc<dyn TulispAny>);
 
 impl FromIterator<TulispObject> for TulispObject {
     fn from_iter<T: IntoIterator<Item = TulispObject>>(iter: T) -> Self {

@@ -5,7 +5,12 @@ use crate::{
     error::{Error, ErrorKind},
     object::Span,
 };
-use std::{any::Any, convert::TryInto, fmt::Write, rc::Rc};
+use std::{
+    any::Any,
+    convert::TryInto,
+    fmt::{Display, Write},
+    rc::Rc,
+};
 
 #[doc(hidden)]
 #[derive(Debug, Clone)]
@@ -196,6 +201,9 @@ impl SymbolBindings {
     }
 }
 
+pub trait TulispAny: Any + Display {}
+impl<T: Any + Display> TulispAny for T {}
+
 #[doc(hidden)]
 #[derive(Clone)]
 pub enum TulispValue {
@@ -237,7 +245,7 @@ pub enum TulispValue {
     Splice {
         value: TulispObject,
     },
-    Any(Rc<dyn Any>),
+    Any(Rc<dyn TulispAny>),
     Func(Rc<TulispFn>),
     Macro(Rc<TulispFn>),
     Defmacro {
@@ -281,7 +289,7 @@ impl std::fmt::Debug for TulispValue {
             Self::Backquote { value } => f.debug_struct("Backquote").field("value", value).finish(),
             Self::Unquote { value } => f.debug_struct("Unquote").field("value", value).finish(),
             Self::Splice { value } => f.debug_struct("Splice").field("value", value).finish(),
-            Self::Any(arg0) => f.debug_tuple("Any").field(arg0).finish(),
+            Self::Any(arg0) => write!(f, "Any({:?} = {})", arg0.type_id(), arg0),
             Self::Func(_) => write!(f, "Func"),
             Self::Macro(_) => write!(f, "Macro"),
             Self::Defmacro { params, body } => f
@@ -849,8 +857,8 @@ impl From<bool> for TulispValue {
     }
 }
 
-impl From<Rc<dyn Any>> for TulispValue {
-    fn from(value: Rc<dyn Any>) -> Self {
+impl From<Rc<dyn TulispAny>> for TulispValue {
+    fn from(value: Rc<dyn TulispAny>) -> Self {
         TulispValue::Any(value)
     }
 }

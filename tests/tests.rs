@@ -1,5 +1,5 @@
-use std::{any::Any, rc::Rc};
-use tulisp::{Error, Iter, TulispContext, TulispObject, destruct_eval_bind};
+use std::{fmt::Display, rc::Rc};
+use tulisp::{Error, Iter, TulispAny, TulispContext, TulispObject, destruct_eval_bind};
 
 macro_rules! tulisp_assert {
     (@impl $ctx: expr, program:$input:expr, result:$result:expr $(,)?) => {
@@ -1155,11 +1155,17 @@ fn test_any() -> Result<(), Error> {
     struct TestStruct {
         value: i64,
     }
+    impl Display for TestStruct {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "TestStruct({})", self.value)
+        }
+    }
+
     let mut ctx = TulispContext::new();
 
     ctx.add_special_form("make_any", |ctx, args| {
         destruct_eval_bind!(ctx, (inp) = args);
-        let res: Rc<dyn Any> = Rc::new(TestStruct {
+        let res: Rc<dyn TulispAny> = Rc::new(TestStruct {
             value: inp.try_into()?,
         });
 

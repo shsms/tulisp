@@ -94,6 +94,7 @@ pub use error::{Error, ErrorKind};
 pub mod lists;
 
 mod value;
+pub use value::TulispAny;
 #[doc(hidden)]
 pub use value::TulispValue;
 
