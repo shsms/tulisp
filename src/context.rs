@@ -1,3 +1,5 @@
+mod add_function;
+
 mod rest;
 pub use rest::Rest;
 
@@ -5,6 +7,7 @@ use std::{collections::HashMap, fs, rc::Rc};
 
 use crate::{
     TulispObject, TulispValue, builtin,
+    context::add_function::TulispCallable,
     error::Error,
     eval::{DummyEval, eval, eval_and_then, eval_basic, funcall},
     list,
@@ -91,6 +94,34 @@ impl TulispContext {
         self.intern(name)
             .set_global(TulispValue::Func(Rc::new(func)).into_ref(None))
             .unwrap();
+    }
+
+    #[inline(always)]
+    pub fn add_function<
+        Args: 'static,
+        Output: 'static,
+        const NEEDS_CONTEXT: bool,
+        const NUM_ARGS: usize,
+        const NUM_OPTIONAL: usize,
+        const HAS_REST: bool,
+        const HAS_RETURN: bool,
+        const FALLIBLE: bool,
+    >(
+        &mut self,
+        name: &str,
+        func: impl TulispCallable<
+            Args,
+            Output,
+            NEEDS_CONTEXT,
+            NUM_ARGS,
+            NUM_OPTIONAL,
+            HAS_REST,
+            HAS_RETURN,
+            FALLIBLE,
+        > + 'static,
+    ) -> &mut Self {
+        func.add_to_context(self, name);
+        self
     }
 
     #[inline(always)]
