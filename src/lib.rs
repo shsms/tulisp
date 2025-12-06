@@ -108,9 +108,24 @@ pub use object::TulispObject;
 #[cfg(test)]
 mod test_utils {
     #[track_caller]
+    fn eval_string(ctx: &mut crate::TulispContext, s: &str) -> Result<crate::TulispObject, String> {
+        ctx.eval_string(s).map_err(|e| e.format(ctx))
+    }
+
+    #[track_caller]
+    fn must_eval_string(ctx: &mut crate::TulispContext, s: &str) -> crate::TulispObject {
+        match eval_string(ctx, s) {
+            Ok(t) => t,
+            Err(e) => {
+                panic!("{e}");
+            }
+        }
+    }
+
+    #[track_caller]
     pub(crate) fn eval_assert_equal(ctx: &mut crate::TulispContext, a: &str, b: &str) {
-        let av = ctx.eval_string(a).unwrap();
-        let bv = ctx.eval_string(b).unwrap();
+        let av = must_eval_string(ctx, a);
+        let bv = must_eval_string(ctx, b);
         assert!(
             crate::TulispObject::equal(&av, &bv),
             "{}(=> {}) != {}(=> {})",
@@ -123,13 +138,13 @@ mod test_utils {
 
     #[track_caller]
     pub(crate) fn eval_assert(ctx: &mut crate::TulispContext, a: &str) {
-        let av = ctx.eval_string(a).unwrap();
+        let av = must_eval_string(ctx, a);
         assert!(av.is_truthy(), "{}(=> {}) is not true", a, av);
     }
 
     #[track_caller]
     pub(crate) fn eval_assert_not(ctx: &mut crate::TulispContext, a: &str) {
-        let av = ctx.eval_string(a).unwrap();
+        let av = must_eval_string(ctx, a);
         assert!(av.null(), "{}(=> {}) is not nil", a, av);
     }
 }
