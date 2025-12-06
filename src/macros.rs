@@ -115,6 +115,11 @@ fn main() -> Result<(), Error> {
 #[macro_export]
 macro_rules! destruct_bind {
     (@reqr $vv:ident, $var:ident) => {
+        if !$vv.consp() {
+            return Err($crate::Error::new(
+                $crate::ErrorKind::TypeMismatch,"Too few arguments".to_string()
+            ));
+        }
         let $var = $vv.car()?;
         let $vv = $vv.cdr()?;
     };
@@ -170,6 +175,11 @@ macro_rules! destruct_bind {
 #[macro_export]
 macro_rules! destruct_eval_bind {
     (@reqr $ctx:ident, $vv:ident, $var:ident) => {
+        if !$vv.consp() {
+            return Err($crate::Error::new(
+                $crate::ErrorKind::TypeMismatch,"Too few arguments".to_string()
+            ));
+        }
         let $var = $vv.car_and_then(|x| $ctx.eval(x))?;
         let $vv = $vv.cdr()?;
     };

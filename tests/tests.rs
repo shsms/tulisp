@@ -979,9 +979,9 @@ fn test_sort() -> Result<(), Error> {
     }
     tulisp_assert! {
         program: "(sort '(20 10 30 15 45))",
-        error: r#"ERR Undefined: function is void: nil
+        error: r#"ERR TypeMismatch: Too few arguments
 <eval_string>:1.1-1.25:  at (sort '(20 10 30 15 45))
-"#
+"#,
     }
     tulisp_assert! {
         program: "(defun << (v1 v2) (> v1 v2)) (sort '(20 10 30 15 45) '<<)",
