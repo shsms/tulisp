@@ -568,6 +568,13 @@ mod tests {
             (a + b).round() as i64
         });
         eval_assert_equal(ctx, "(let ((a 3.5) (b 4.2))(add_round a b))", "8");
+        eval_assert_error(
+            ctx,
+            "(add_round 2)",
+            r#"ERR TypeMismatch: Too few arguments
+<eval_string>:1.1-1.14:  at (add_round 2)
+"#,
+        );
 
         ctx.add_function("greet", |name: String| format!("Hello, {}!", name));
         eval_assert_equal(ctx, r#"(greet "Alice")"#, r#""Hello, Alice!""#);
@@ -621,6 +628,13 @@ mod tests {
             "(power 2 3 4)",
             r#"ERR TypeMismatch: Too many arguments
 <eval_string>:1.1-1.14:  at (power 2 3 4)
+"#,
+        );
+        eval_assert_error(
+            ctx,
+            "(power)",
+            r#"ERR TypeMismatch: Too few arguments
+<eval_string>:1.1-1.8:  at (power)
 "#,
         );
         Ok(())
