@@ -91,7 +91,7 @@ mod cons;
 pub use cons::{BaseIter, Iter};
 
 mod context;
-pub use context::TulispContext;
+pub use context::{Rest, TulispContext};
 
 mod error;
 pub use error::{Error, ErrorKind};

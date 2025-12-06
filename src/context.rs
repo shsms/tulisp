@@ -1,3 +1,6 @@
+mod rest;
+pub use rest::Rest;
+
 use std::{collections::HashMap, fs, rc::Rc};
 
 use crate::{
