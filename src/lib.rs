@@ -24,17 +24,12 @@ It is very easy to get started.  Here's an example:
       let mut ctx = TulispContext::new();
 
       // Add a function called `add_nums` to `ctx`.
-      ctx.add_special_form("add_nums", |ctx, args| {
-          destruct_eval_bind!(ctx, (num1 num2) = args);
-
-          let num1: i64 = num1.try_into()?;
-          let num2: i64 = num2.try_into()?;
-
-          Ok(TulispObject::from(num1 + num2))
+      ctx.add_function("add_round", |a: f64, b: f64| -> i64 {
+          (a + b).round() as i64
       });
 
       // Write a lisp program that calls `add_nums`
-      let program = "(add_nums 10 20)";
+      let program = "(add_round 10.2 20.0)";
 
       // Evaluate the program, and save the result.
       let sum: i64 = ctx.eval_string(program)?.try_into()?;
