@@ -147,4 +147,14 @@ mod test_utils {
         let av = must_eval_string(ctx, a);
         assert!(av.null(), "{}(=> {}) is not nil", a, av);
     }
+
+    #[track_caller]
+    pub(crate) fn eval_assert_error(ctx: &mut crate::TulispContext, a: &str, msg: &str) {
+        match eval_string(ctx, a) {
+            Ok(v) => panic!("Expected error but got {} for {}", v, a),
+            Err(e) => {
+                assert_eq!(e.to_string(), msg, "Error message mismatch for {}", a);
+            }
+        }
+    }
 }
