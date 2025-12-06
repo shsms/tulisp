@@ -423,6 +423,60 @@ macro_rules! impl_tulisp_callable {
     };
 }
 
+#[cfg(feature = "big_functions")]
+mod upto_10_args {
+    use super::*;
+    impl_tulisp_callable!(args: 0: (), opts: 10: (A, B, C, D, E, F, G, H, I, J),);
+    impl_tulisp_callable!(args: 1: (A), opts: 9: (B, C, D, E, F, G, H, I, J),);
+    impl_tulisp_callable!(args: 2: (A, B), opts: 8: (C, D, E, F, G, H, I, J),);
+    impl_tulisp_callable!(args: 3: (A, B, C), opts: 7: (D, E, F, G, H, I, J),);
+    impl_tulisp_callable!(args: 4: (A, B, C, D), opts: 6: (E, F, G, H, I, J),);
+    impl_tulisp_callable!(args: 5: (A, B, C, D, E), opts: 5: (F, G, H, I, J),);
+    impl_tulisp_callable!(args: 6: (A, B, C, D, E, F), opts: 4: (G, H, I, J),);
+    impl_tulisp_callable!(args: 7: (A, B, C, D, E, F, G), opts: 3: (H, I, J),);
+    impl_tulisp_callable!(args: 8: (A, B, C, D, E, F, G, H), opts: 2: (I, J),);
+    impl_tulisp_callable!(args: 9: (A, B, C, D, E, F, G, H, I), opts: 1: (J),);
+    impl_tulisp_callable!(args: 10: (A, B, C, D, E, F, G, H, I, J), opts: 0: (),);
+
+    impl_tulisp_callable!(args: 0: (), opts: 9: (A, B, C, D, E, F, G, H, I),);
+    impl_tulisp_callable!(args: 1: (A), opts: 8: (B, C, D, E, F, G, H, I),);
+    impl_tulisp_callable!(args: 2: (A, B), opts: 7: (C, D, E, F, G, H, I),);
+    impl_tulisp_callable!(args: 3: (A, B, C), opts: 6: (D, E, F, G, H, I),);
+    impl_tulisp_callable!(args: 4: (A, B, C, D), opts: 5: (E, F, G, H, I),);
+    impl_tulisp_callable!(args: 5: (A, B, C, D, E), opts: 4: (F, G, H, I),);
+    impl_tulisp_callable!(args: 6: (A, B, C, D, E, F), opts: 3: (G, H, I),);
+    impl_tulisp_callable!(args: 7: (A, B, C, D, E, F, G), opts: 2: (H, I),);
+    impl_tulisp_callable!(args: 8: (A, B, C, D, E, F, G, H), opts: 1: (I),);
+    impl_tulisp_callable!(args: 9: (A, B, C, D, E, F, G, H, I), opts: 0: (),);
+
+    impl_tulisp_callable!(args: 0: (), opts: 8: (A, B, C, D, E, F, G, H),);
+    impl_tulisp_callable!(args: 1: (A), opts: 7: (B, C, D, E, F, G, H),);
+    impl_tulisp_callable!(args: 2: (A, B), opts: 6: (C, D, E, F, G, H),);
+    impl_tulisp_callable!(args: 3: (A, B, C), opts: 5: (D, E, F, G, H),);
+    impl_tulisp_callable!(args: 4: (A, B, C, D), opts: 4: (E, F, G, H),);
+    impl_tulisp_callable!(args: 5: (A, B, C, D, E), opts: 3: (F, G, H),);
+    impl_tulisp_callable!(args: 6: (A, B, C, D, E, F), opts: 2: (G, H),);
+    impl_tulisp_callable!(args: 7: (A, B, C, D, E, F, G), opts: 1: (H),);
+    impl_tulisp_callable!(args: 8: (A, B, C, D, E, F, G, H), opts: 0: (),);
+
+    impl_tulisp_callable!(args: 0: (), opts: 7: (A, B, C, D, E, F, G),);
+    impl_tulisp_callable!(args: 1: (A), opts: 6: (B, C, D, E, F, G),);
+    impl_tulisp_callable!(args: 2: (A, B), opts: 5: (C, D, E, F, G),);
+    impl_tulisp_callable!(args: 3: (A, B, C), opts: 4: (D, E, F, G),);
+    impl_tulisp_callable!(args: 4: (A, B, C, D), opts: 3: (E, F, G),);
+    impl_tulisp_callable!(args: 5: (A, B, C, D, E), opts: 2: (F, G),);
+    impl_tulisp_callable!(args: 6: (A, B, C, D, E, F), opts: 1: (G),);
+    impl_tulisp_callable!(args: 7: (A, B, C, D, E, F, G), opts: 0: (),);
+
+    impl_tulisp_callable!(args: 0: (), opts: 6: (A, B, C, D, E, F),);
+    impl_tulisp_callable!(args: 1: (A), opts: 5: (B, C, D, E, F),);
+    impl_tulisp_callable!(args: 2: (A, B), opts: 4: (C, D, E, F),);
+    impl_tulisp_callable!(args: 3: (A, B, C), opts: 3: (D, E, F),);
+    impl_tulisp_callable!(args: 4: (A, B, C, D), opts: 2: (E, F),);
+    impl_tulisp_callable!(args: 5: (A, B, C, D, E), opts: 1: (F),);
+    impl_tulisp_callable!(args: 6: (A, B, C, D, E, F), opts: 0: (),);
+}
+
 mod upto_5_args {
     use super::*;
 
