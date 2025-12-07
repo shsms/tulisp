@@ -17,7 +17,7 @@ It is very easy to get started.  Here's an example:
 
 /*!
   ```rust
-  use tulisp::{TulispContext, TulispObject, Error, destruct_eval_bind};
+  use tulisp::{TulispContext, Error};
 
   fn main() -> Result<(), Error> {
       // Create a new Tulisp execution context.
