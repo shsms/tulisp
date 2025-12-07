@@ -14,7 +14,7 @@ already familiar with Emacs Lisp, there's no need to learn an extra language.
 
 ## Getting started
 
-Tulisp requires `rustc` version 1.70 or higher.
+Tulisp requires `rustc` version 1.88 or higher.
 
 It is very easy to get started.  Here's an example:
 
