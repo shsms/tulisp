@@ -1195,7 +1195,7 @@ fn test_any() -> Result<(), Error> {
     tulisp_assert! {
         ctx: ctx,
         program: "(get_int 55)",
-        error: r#"ERR TypeMismatch: Expected Any(Rc<dyn Any>): 55
+        error: r#"ERR TypeMismatch: Expected Any(Rc<dyn TulispAny>), got: 55
 <eval_string>:1.10-1.11:  at 55
 <eval_string>:1.1-1.12:  at (get_int 55)
 "#

@@ -634,7 +634,7 @@ impl TulispValue {
             }
             _ => Err(Error::new(
                 ErrorKind::TypeMismatch,
-                format!("Expected symbol: {}", self),
+                format!("Expected symbol, got: {}", self),
             )),
         }
     }
@@ -645,7 +645,7 @@ impl TulispValue {
             TulispValue::Float { value, .. } => Ok(*value),
             t => Err(Error::new(
                 ErrorKind::TypeMismatch,
-                format!("Expected number, got: {:?}", t),
+                format!("Expected number, got: {}", t),
             )),
         }
     }
@@ -657,7 +657,7 @@ impl TulispValue {
             TulispValue::Int { value, .. } => Ok(*value as f64),
             t => Err(Error::new(
                 ErrorKind::TypeMismatch,
-                format!("Expected number, got: {:?}", t),
+                format!("Expected number, got: {}", t),
             )),
         }
     }
@@ -668,7 +668,7 @@ impl TulispValue {
             TulispValue::Int { value, .. } => Ok(*value),
             t => Err(Error::new(
                 ErrorKind::TypeMismatch,
-                format!("Expected integer: {:?}", t),
+                format!("Expected integer: {}", t),
             )),
         }
     }
@@ -680,7 +680,7 @@ impl TulispValue {
             TulispValue::Int { value, .. } => Ok(*value),
             t => Err(Error::new(
                 ErrorKind::TypeMismatch,
-                format!("Expected number, got {:?}", t),
+                format!("Expected number, got {}", t),
             )),
         }
     }
@@ -752,7 +752,7 @@ impl TulispValue {
             TulispValue::String { value, .. } => Ok(value.to_owned()),
             _ => Err(Error::new(
                 ErrorKind::TypeMismatch,
-                format!("Expected string: {}", self),
+                format!("Expected string, got: {}", self),
             )),
         }
     }
@@ -763,7 +763,7 @@ impl TulispValue {
             TulispValue::Any(value) => Ok(value.clone()),
             _ => Err(Error::new(
                 ErrorKind::TypeMismatch,
-                format!("Expected Any(Rc<dyn Any>): {}", self),
+                format!("Expected Any(Rc<dyn TulispAny>), got: {}", self),
             )),
         }
     }

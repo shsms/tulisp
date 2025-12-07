@@ -523,7 +523,7 @@ mod tests {
         eval_assert_error(
             ctx,
             r#"(sum "hh" 10)"#,
-            r#"ERR TypeMismatch: Expected number, got: String { value: "hh" }
+            r#"ERR TypeMismatch: Expected number, got: "hh"
 <eval_string>:1.7-1.9:  at "hh"
 <eval_string>:1.1-1.13:  at (sum "hh" 10)
 "#,
