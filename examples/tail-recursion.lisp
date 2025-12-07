@@ -2,4 +2,5 @@
   (if (equal counter 0) lis
       (build (- counter 1) (cons counter lis))))
 
-(princ (build 1000000 '()))
+(print (build 1000000 '()))
+

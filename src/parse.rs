@@ -1,8 +1,9 @@
 use std::{collections::HashMap, fmt::Write, iter::Peekable, str::Chars};
 
 use crate::{
-    Error, ErrorKind, TulispContext, TulispObject, TulispValue,
+    Error, ErrorKind, TulispContext, TulispObject, TulispValue, destruct_bind,
     eval::{eval, macroexpand},
+    list,
     object::Span,
 };
 
@@ -461,7 +462,10 @@ impl Parser<'_, '_> {
                     }
                 };
                 Ok(Some(
-                    TulispValue::Unquote { value: next }.into_ref(Some(span)),
+                    TulispValue::Unquote {
+                        value: macroexpand(self.ctx, next)?,
+                    }
+                    .into_ref(Some(span)),
                 ))
             }
             Token::Splice { span } => {
@@ -529,6 +533,63 @@ impl Parser<'_, '_> {
         }
         macroexpand(self.ctx, output)
     }
+}
+
+pub(crate) fn mark_tail_calls(
+    ctx: &mut TulispContext,
+    name: TulispObject,
+    body: TulispObject,
+) -> Result<TulispObject, Error> {
+    if !body.consp() {
+        return Ok(body);
+    }
+    let ret = TulispObject::nil();
+    let mut body_iter = body.base_iter();
+    let mut tail = body_iter.next().unwrap();
+    for next in body_iter {
+        ret.push(tail)?;
+        tail = next;
+    }
+    if !tail.consp() {
+        return Ok(body);
+    }
+    let span = tail.span();
+    let ctxobj = tail.ctxobj();
+    let tail_ident = tail.car()?;
+    let tail_name_str = tail_ident.as_symbol()?;
+    let new_tail = if tail_ident.eq(&name) {
+        let ret_tail = TulispObject::nil().append(tail.cdr()?)?.to_owned();
+        list!(,ctx.intern("list")
+              ,TulispValue::Bounce{ value: name }.into_ref(None)
+              ,@ret_tail)?
+    } else if tail_name_str == "progn" || tail_name_str == "let" || tail_name_str == "let*" {
+        list!(,tail_ident ,@mark_tail_calls(ctx, name, tail.cdr()?)?)?
+    } else if tail_name_str == "if" {
+        destruct_bind!((_if condition then_body &rest else_body) = tail);
+        list!(,tail_ident
+            ,condition.clone()
+            ,mark_tail_calls(
+                ctx,
+                name.clone(),
+                list!(,then_body)?
+            )?.car()?
+            ,@mark_tail_calls(ctx, name, else_body)?
+        )?
+    } else if tail_name_str == "cond" {
+        destruct_bind!((_cond &rest conds) = tail);
+        let mut ret = list!(,tail_ident)?;
+        for cond in conds.base_iter() {
+            destruct_bind!((condition &rest body) = cond);
+            ret = list!(,@ret
+                ,list!(,condition.clone()
+                    ,@mark_tail_calls(ctx, name.clone(), body)?)?)?;
+        }
+        ret
+    } else {
+        tail
+    };
+    ret.push(new_tail.with_ctxobj(ctxobj).with_span(span))?;
+    Ok(ret)
 }
 
 pub fn parse(

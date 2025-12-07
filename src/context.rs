@@ -3,16 +3,51 @@ mod add_function;
 mod rest;
 pub use rest::Rest;
 
-use std::{collections::HashMap, fs, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, fs, rc::Rc};
 
 use crate::{
     TulispObject, TulispValue, builtin,
+    bytecode::{self, Bytecode, Compiler, compile},
     context::add_function::TulispCallable,
     error::Error,
     eval::{DummyEval, eval, eval_and_then, eval_basic, funcall},
     list,
     parse::parse,
 };
+
+use crate::bytecode::VMCompilers;
+
+macro_rules! intern_from_obarray {
+    ($( #[$meta:meta] )*
+     $vis:vis struct $struct_name:ident {
+         $($name:ident : $symbol:literal),+ $(,)?
+     }) => {
+        $( #[$meta] )*
+        $vis struct $struct_name {
+            $(pub $name: $crate::TulispObject),+
+        }
+
+        impl $struct_name {
+            fn from_obarray(obarray: &mut std::collections::HashMap<String, $crate::TulispObject>) -> Self {
+                $struct_name {
+                    $($name: intern_from_obarray!(@intern obarray, $symbol)),+
+                }
+            }
+        }
+    };
+
+    (@intern $obarray:ident, $name:literal) => {
+        if let Some(sym) = $obarray.get($name) {
+            sym.clone_without_span()
+        } else {
+            let name = $name.to_string();
+            let constant = name.starts_with(':');
+            let sym = TulispObject::symbol(name.clone(), constant);
+            $obarray.insert(name, sym.clone());
+            sym
+        }
+    }
+}
 
 #[derive(Debug, Default, Clone)]
 pub(crate) struct Scope {
@@ -34,6 +69,15 @@ impl Scope {
     }
 }
 
+intern_from_obarray! {
+    #[derive(Clone)]
+    pub(crate) struct Keywords {
+        amp_optional: "&optional",
+        amp_rest: "&rest",
+        lambda: "lambda",
+    }
+}
+
 /// Represents an instance of the _Tulisp_ interpreter.
 ///
 /// Owns the
@@ -45,6 +89,9 @@ impl Scope {
 pub struct TulispContext {
     obarray: HashMap<String, TulispObject>,
     pub(crate) filenames: Vec<String>,
+    pub(crate) compiler: Option<Compiler>,
+    pub(crate) keywords: Keywords,
+    pub(crate) vm: Rc<RefCell<bytecode::Machine>>,
 }
 
 impl Default for TulispContext {
@@ -56,12 +103,19 @@ impl Default for TulispContext {
 impl TulispContext {
     /// Creates a TulispContext with an empty global scope.
     pub fn new() -> Self {
+        let mut obarray = HashMap::new();
+        let keywords = Keywords::from_obarray(&mut obarray);
         let mut ctx = Self {
-            obarray: HashMap::new(),
+            obarray,
             filenames: vec!["<eval_string>".to_string()],
+            compiler: None,
+            keywords,
+            vm: Rc::new(RefCell::new(bytecode::Machine::new())),
         };
         builtin::functions::add(&mut ctx);
         builtin::macros::add(&mut ctx);
+        let vm_compilers = VMCompilers::new(&mut ctx);
+        ctx.compiler = Some(Compiler::new(vm_compilers));
         ctx
     }
 
@@ -239,20 +293,74 @@ impl TulispContext {
     /// Parses and evaluates the contents of the given file and returns the
     /// value.
     pub fn eval_file(&mut self, filename: &str) -> Result<TulispObject, Error> {
+        let vv = self.parse_file(filename)?;
+        self.eval_progn(&vv)
+    }
+
+    pub fn vm_eval_string(&mut self, string: &str) -> Result<TulispObject, Error> {
+        let vv = parse(self, 0, string)?;
+        let bytecode = compile(self, &vv)?;
+        let vm = self.vm.clone();
+        let res = vm.borrow_mut().run(self, bytecode);
+        drop(vm);
+        res
+    }
+
+    pub fn vm_eval_file(&mut self, filename: &str) -> Result<TulispObject, Error> {
+        let start = std::time::Instant::now();
+        let vv = self.parse_file(filename)?;
+        println!("Parsing took: {:?}", start.elapsed());
+        let start = std::time::Instant::now();
+        let bytecode = compile(self, &vv)?;
+        println!("Compiling took: {:?}", start.elapsed());
+        // println!("{}", bytecode);
+        let start = std::time::Instant::now();
+        let vm = self.vm.clone();
+        let res = vm.borrow_mut().run(self, bytecode);
+        drop(vm);
+        println!("Running took: {:?}", start.elapsed());
+        res
+    }
+
+    pub(crate) fn get_filename(&self, file_id: usize) -> String {
+        self.filenames[file_id].clone()
+    }
+
+    pub(crate) fn parse_file(&mut self, filename: &str) -> Result<TulispObject, Error> {
         let contents = fs::read_to_string(filename).map_err(|e| {
             Error::new(
                 crate::ErrorKind::Undefined,
                 format!("Unable to read file: {filename}. Error: {e}"),
             )
         })?;
-        self.filenames.push(filename.to_owned());
+        let idx = if let Some(idx) = self.filenames.iter().position(|x| x == filename) {
+            idx
+        } else {
+            self.filenames.push(filename.to_owned());
+            self.filenames.len() - 1
+        };
 
         let string: &str = &contents;
-        let vv = parse(self, self.filenames.len() - 1, string)?;
-        self.eval_progn(&vv)
+        parse(self, idx, string)
     }
 
-    pub(crate) fn get_filename(&self, file_id: usize) -> String {
-        self.filenames[file_id].clone()
+    #[allow(dead_code)]
+    pub(crate) fn compile_string(
+        &mut self,
+        string: &str,
+        keep_result: bool,
+    ) -> Result<crate::bytecode::Bytecode, Error> {
+        let vv = parse(self, 0, string)?;
+        let compiler = self.compiler.as_mut().unwrap();
+        compiler.keep_result = keep_result;
+        compile(self, &vv)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn run_bytecode(&mut self, bytecode: Bytecode) -> Result<TulispObject, Error> {
+        let vm = self.vm.clone();
+        let res = vm.borrow_mut().run(self, bytecode);
+        drop(vm);
+        res
     }
 }

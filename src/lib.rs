@@ -76,6 +76,7 @@ A list of currently available builtin functions can be found [here](builtin).
    for executing _Tulisp_ programs.
 */
 
+pub(crate) mod bytecode;
 mod eval;
 mod macros;
 mod parse;

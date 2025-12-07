@@ -19,6 +19,23 @@ macro_rules! tulisp_assert {
         );
     };
 
+    (@impl_vm $ctx: expr, program:$input:expr, result:$result:expr $(,)?) => {
+        let output = $ctx.vm_eval_string($input).map_err(|err| {
+            panic!("{}:{}: execution failed: {}", file!(), line!(),err.format(&$ctx));
+
+        })?;
+        let expected = $ctx.vm_eval_string($result)?;
+        assert!(
+            output.equal(&expected),
+            "\n{}:{}: program: {}\n  vm output: {},\n  expected: {}\n",
+            file!(),
+            line!(),
+            $input,
+            output,
+            expected
+        );
+    };
+
     (@impl $ctx: expr, program:$input:expr, result_str:$result:expr $(,)?) => {
         let output = $ctx.eval_string($input).map_err(|err| {
             println!("{}:{}: execution failed: {}", file!(), line!(),err.format(&$ctx));
@@ -35,19 +52,50 @@ macro_rules! tulisp_assert {
         );
     };
 
+    (@impl_vm $ctx: expr, program:$input:expr, result_str:$result:expr $(,)?) => {
+        let output = $ctx.vm_eval_string($input).map_err(|err| {
+            println!("{}:{}: execution failed: {}", file!(), line!(),err.format(&$ctx));
+            err
+        })?;
+        let expected = $ctx.vm_eval_string($result)?;
+        assert_eq!(output.to_string(), expected.to_string(),
+            "\n{}:{}: program: {}\n  vm output: {},\n  expected: {}\n",
+            file!(),
+            line!(),
+            $input,
+            output,
+            expected
+        );
+    };
+
     (@impl $ctx: expr, program:$input:expr, error:$desc:expr $(,)?) => {
         let output = $ctx.eval_string($input);
         assert!(output.is_err());
         assert_eq!(output.unwrap_err().format(&$ctx), $desc);
     };
 
+    (@impl_vm $ctx: expr, program:$input:expr, error:$desc:expr $(,)?) => {
+        let output = $ctx.vm_eval_string($input);
+        assert!(output.is_err());
+        let output = output.unwrap_err().format(&$ctx);
+        assert!(
+            $desc.starts_with(&output),
+            "  vm output: {},\n  expected: {}\n",
+            &output,
+            $desc
+        );
+    };
+
     (ctx: $ctx: expr, program: $($tail:tt)+) => {
-        tulisp_assert!(@impl $ctx, program: $($tail)+)
+        tulisp_assert!(@impl $ctx, program: $($tail)+);
+        tulisp_assert!(@impl_vm $ctx, program: $($tail)+);
     };
 
     (program: $($tail:tt)+) => {
         let mut ctx = TulispContext::new();
-        tulisp_assert!(ctx: ctx, program: $($tail)+)
+        tulisp_assert!(@impl ctx, program: $($tail)+);
+        let mut ctx = TulispContext::new();
+        tulisp_assert!(@impl_vm ctx, program: $($tail)+);
     };
 }
 
@@ -474,10 +522,10 @@ fn test_eval() -> Result<(), Error> {
 "#
     }
     tulisp_assert! {
-        program: "(let ((j 10)) (+ j j))(+ j j)",
+        program: "(let ((j 10)) (+ j j))(+ j 1)",
         error: r#"ERR TypeMismatch: Variable definition is void: j
 <eval_string>:1.26-1.27:  at j
-<eval_string>:1.23-1.30:  at (+ j j)
+<eval_string>:1.23-1.30:  at (+ j 1)
 "#
     }
     Ok(())
@@ -707,6 +755,14 @@ fn test_backquotes() -> Result<(), Error> {
     }
 
     tulisp_assert! {
+        program: r#"
+        (let ((a 10))
+          (cdr `(a . ,a)))
+        "#,
+        result: r#"10"#,
+    }
+
+    tulisp_assert! {
         program: r#"`(1 2 '(+ 10 20)  ',(+ 10 20)  (quote ,(+ 20 20)))"#,
         result: r#"'(1 2 '(+ 10 20) '30 (quote 40))"#,
     }
@@ -824,6 +880,7 @@ fn test_let() -> Result<(), Error> {
     tulisp_assert! {
         program: "(let (18 (vv (+ 55 1)) (jj 20)) (+ vv jj 1))",
         error: r#"ERR SyntaxError: varitems inside a let-varlist should be a var or a binding: 18
+<eval_string>:1.7-1.9:  at 18
 <eval_string>:1.1-1.45:  at (let (18 (vv (+ 55 1)) (jj 20)) (+ vv jj 1))
 "#
     }
@@ -1209,7 +1266,7 @@ fn test_load() -> Result<(), Error> {
 
     tulisp_assert! {
         ctx: ctx,
-        program: r#"(load "tests/good-load.lisp")"#,
+        program: r#"(load "tests/good-load.lisp") (test)"#,
         result: "'(1 2 3)",
     }
 

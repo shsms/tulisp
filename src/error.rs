@@ -11,6 +11,7 @@ pub enum ErrorKind {
     SyntaxError,
     Throw(TulispObject),
     TypeMismatch,
+    ArityMismatch,
     Undefined,
     Uninitialized,
 }
@@ -27,6 +28,7 @@ impl std::fmt::Display for ErrorKind {
             ErrorKind::SyntaxError => f.write_str("SyntaxError"),
             ErrorKind::Throw(args) => write!(f, "Throw{}", args),
             ErrorKind::TypeMismatch => f.write_str("TypeMismatch"),
+            ErrorKind::ArityMismatch => f.write_str("ArityMismatch"),
             ErrorKind::Undefined => f.write_str("Undefined"),
             ErrorKind::Uninitialized => f.write_str("Uninitialized"),
         }
