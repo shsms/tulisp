@@ -524,8 +524,8 @@ mod tests {
             ctx,
             r#"(sum "hh" 10)"#,
             r#"ERR TypeMismatch: Expected number, got: String { value: "hh" }
-<eval_string>:1.7-1.10:  at "hh"
-<eval_string>:1.1-1.14:  at (sum "hh" 10)
+<eval_string>:1.7-1.9:  at "hh"
+<eval_string>:1.1-1.13:  at (sum "hh" 10)
 "#,
         );
 
@@ -552,8 +552,8 @@ mod tests {
             ctx,
             r#"(let ((horse "horse"))(cats horse))"#,
             r#"ERR InvalidArgument: No cats found
-<eval_string>:1.23-1.35:  at (cats horse)
-<eval_string>:1.1-1.36:  at (let ((horse "horse")) (cats horse))
+<eval_string>:1.23-1.34:  at (cats horse)
+<eval_string>:1.1-1.35:  at (let ((horse "horse")) (cats horse))
 "#,
         );
 
@@ -572,7 +572,7 @@ mod tests {
             ctx,
             "(add_round 2)",
             r#"ERR TypeMismatch: Too few arguments
-<eval_string>:1.1-1.14:  at (add_round 2)
+<eval_string>:1.1-1.13:  at (add_round 2)
 "#,
         );
 
@@ -582,7 +582,7 @@ mod tests {
             ctx,
             r#"(greet "Alice" "Peter")"#,
             r#"ERR TypeMismatch: Too many arguments
-<eval_string>:1.1-1.24:  at (greet "Alice" "Peter")
+<eval_string>:1.1-1.23:  at (greet "Alice" "Peter")
 "#,
         );
 
@@ -627,14 +627,14 @@ mod tests {
             ctx,
             "(power 2 3 4)",
             r#"ERR TypeMismatch: Too many arguments
-<eval_string>:1.1-1.14:  at (power 2 3 4)
+<eval_string>:1.1-1.13:  at (power 2 3 4)
 "#,
         );
         eval_assert_error(
             ctx,
             "(power)",
             r#"ERR TypeMismatch: Too few arguments
-<eval_string>:1.1-1.8:  at (power)
+<eval_string>:1.1-1.7:  at (power)
 "#,
         );
         Ok(())

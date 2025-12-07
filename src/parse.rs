@@ -61,7 +61,7 @@ impl Tokenizer<'_> {
             file_id,
             chars,
             line: 1,
-            pos: 1,
+            pos: 0,
         }
     }
 
@@ -73,7 +73,7 @@ impl Tokenizer<'_> {
         self.chars.next().inspect(|ch| {
             if *ch == '\n' {
                 self.line += 1;
-                self.pos = 1;
+                self.pos = 0;
             } else {
                 self.pos += 1;
             }
@@ -82,7 +82,7 @@ impl Tokenizer<'_> {
 
     fn read_string(&mut self) -> Option<Token> {
         assert_eq!(self.next_char()?, '"');
-        let start_pos = (self.line, self.pos);
+        let start_pos = (self.line, self.pos + 1);
         let mut output = String::new();
         while let Some(ch) = self.next_char() {
             match ch {
@@ -98,7 +98,7 @@ impl Tokenizer<'_> {
                                 format!("Unknown escape char {}", e),
                                 Span {
                                     file_id: self.file_id,
-                                    start: (self.line, self.pos - 1),
+                                    start: (self.line, self.pos),
                                     end: (self.line, self.pos),
                                 },
                             )));
@@ -131,7 +131,7 @@ impl Tokenizer<'_> {
     }
 
     fn read_num_ident(&mut self) -> Option<Token> {
-        let start_pos = (self.line, self.pos);
+        let start_pos = (self.line, self.pos + 1);
         let mut output = String::new();
         let mut first_char = true;
         let mut is_int = true;
@@ -206,51 +206,31 @@ impl Iterator for Tokenizer<'_> {
                 '(' => {
                     self.next_char()?;
                     return Some(Token::OpenParen {
-                        span: Span::new(
-                            self.file_id,
-                            (self.line, self.pos - 1),
-                            (self.line, self.pos),
-                        ),
+                        span: Span::new(self.file_id, (self.line, self.pos), (self.line, self.pos)),
                     });
                 }
                 ')' => {
                     self.next_char()?;
                     return Some(Token::CloseParen {
-                        span: Span::new(
-                            self.file_id,
-                            (self.line, self.pos - 1),
-                            (self.line, self.pos),
-                        ),
+                        span: Span::new(self.file_id, (self.line, self.pos), (self.line, self.pos)),
                     });
                 }
                 '\'' => {
                     self.next_char()?;
                     return Some(Token::Quote {
-                        span: Span::new(
-                            self.file_id,
-                            (self.line, self.pos - 1),
-                            (self.line, self.pos),
-                        ),
+                        span: Span::new(self.file_id, (self.line, self.pos), (self.line, self.pos)),
                     });
                 }
                 '`' => {
                     self.next_char()?;
                     return Some(Token::Backtick {
-                        span: Span::new(
-                            self.file_id,
-                            (self.line, self.pos - 1),
-                            (self.line, self.pos),
-                        ),
+                        span: Span::new(self.file_id, (self.line, self.pos), (self.line, self.pos)),
                     });
                 }
                 '.' => {
                     self.next_char()?;
                     return Some(Token::Dot {
-                        span: Span::new(
-                            self.file_id,
-                            (self.line, self.pos - 1),
-                            (self.line, self.pos),
-                        ),
+                        span: Span::new(self.file_id, (self.line, self.pos), (self.line, self.pos)),
                     });
                 }
                 '#' => {
@@ -260,18 +240,14 @@ impl Iterator for Tokenizer<'_> {
                         return Some(Token::SharpQuote {
                             span: Span::new(
                                 self.file_id,
-                                (self.line, self.pos - 2),
+                                (self.line, self.pos - 1),
                                 (self.line, self.pos),
                             ),
                         });
                     }
                     return Some(Token::ParserError(ParserError::syntax_error(
                         "Unknown token #.  Did you mean #' ?".to_string(),
-                        Span::new(
-                            self.file_id,
-                            (self.line, self.pos - 1),
-                            (self.line, self.pos),
-                        ),
+                        Span::new(self.file_id, (self.line, self.pos), (self.line, self.pos)),
                     )));
                 }
                 ',' => {
@@ -281,17 +257,13 @@ impl Iterator for Tokenizer<'_> {
                         return Some(Token::Splice {
                             span: Span::new(
                                 self.file_id,
-                                (self.line, self.pos - 2),
+                                (self.line, self.pos - 1),
                                 (self.line, self.pos),
                             ),
                         });
                     }
                     return Some(Token::Comma {
-                        span: Span::new(
-                            self.file_id,
-                            (self.line, self.pos - 1),
-                            (self.line, self.pos),
-                        ),
+                        span: Span::new(self.file_id, (self.line, self.pos), (self.line, self.pos)),
                     });
                 }
                 '"' => {

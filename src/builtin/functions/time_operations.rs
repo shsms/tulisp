@@ -296,8 +296,8 @@ mod tests {
                 .unwrap_err()
                 .format(ctx),
             r#"ERR TypeMismatch: expected (ticks . hz) pair
-<eval_string>:1.15-1.26:  at (test . 10)
-<eval_string>:1.1-1.38:  at (time-less-p '(test . 10) 1758549822)
+<eval_string>:1.15-1.25:  at (test . 10)
+<eval_string>:1.1-1.37:  at (time-less-p '(test . 10) 1758549822)
 "#
         );
 
@@ -306,8 +306,8 @@ mod tests {
                 .unwrap_err()
                 .format(ctx),
             r#"ERR TypeMismatch: expected integer or (ticks . hz) pair
-<eval_string>:1.15-1.19:  at test
-<eval_string>:1.1-1.31:  at (time-less-p 'test 1758549822)
+<eval_string>:1.15-1.18:  at test
+<eval_string>:1.1-1.30:  at (time-less-p 'test 1758549822)
 "#
         );
 

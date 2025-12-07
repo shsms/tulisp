@@ -52,8 +52,8 @@ mod tests {
         assert_eq!(
             ctx.eval_string("(sqrt -4.0)").unwrap_err().format(&ctx),
             r#"ERR TypeMismatch: sqrt: cannot compute square root of negative number: -4
-<eval_string>:1.7-1.11:  at -4
-<eval_string>:1.1-1.12:  at (sqrt -4)
+<eval_string>:1.7-1.10:  at -4
+<eval_string>:1.1-1.11:  at (sqrt -4)
 "#
         );
     }
@@ -74,9 +74,9 @@ mod tests {
         assert_eq!(
             ctx.eval_string("(expt 0 -2)").unwrap_err().format(&ctx),
             r#"ERR OutOfRange: expt: cannot compute with base 0 and negative exponent
-<eval_string>:1.7-1.8:  at 0
-<eval_string>:1.9-1.11:  at -2
-<eval_string>:1.1-1.12:  at (expt 0 -2)
+<eval_string>:1.7-1.7:  at 0
+<eval_string>:1.9-1.10:  at -2
+<eval_string>:1.1-1.11:  at (expt 0 -2)
 "#
         );
     }
