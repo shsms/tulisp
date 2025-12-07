@@ -4,7 +4,6 @@ use crate::TulispContext;
 use crate::TulispObject;
 use crate::TulispValue;
 use crate::error::Error;
-use crate::error::ErrorKind;
 use crate::eval::eval_basic;
 use crate::object::Span;
 
@@ -50,10 +49,7 @@ impl Cons {
             });
             last.with_span(span);
         } else {
-            return Err(Error::new(
-                ErrorKind::TypeMismatch,
-                "Cons: unable to push".to_string(),
-            ));
+            return Err(Error::type_mismatch("Cons: unable to push".to_string()));
         }
         Ok(())
     }
@@ -78,10 +74,7 @@ impl Cons {
                 self.cdr = val.deep_copy()?;
             }
         } else {
-            return Err(Error::new(
-                ErrorKind::TypeMismatch,
-                format!("Unable to append: {}", val),
-            ));
+            return Err(Error::type_mismatch(format!("Unable to append: {}", val)));
         }
         Ok(())
     }
@@ -184,10 +177,7 @@ impl<T: 'static + std::convert::TryFrom<TulispObject>> Iterator for Iter<T> {
         self.iter.next().map(|vv| {
             vv.clone().try_into().map_err(|_| {
                 let tid = std::any::type_name::<T>();
-                Error::new(
-                    ErrorKind::TypeMismatch,
-                    format!("Iter<{}> can't handle {}", tid, vv),
-                )
+                Error::type_mismatch(format!("Iter<{}> can't handle {}", tid, vv))
             })
         })
     }

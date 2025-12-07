@@ -2,7 +2,7 @@ use crate::{
     TulispContext, TulispObject,
     cons::{self, Cons},
     context::Scope,
-    error::{Error, ErrorKind},
+    error::Error,
     object::Span,
 };
 use std::{
@@ -51,8 +51,7 @@ impl TryFrom<TulispObject> for DefunParams {
 
     fn try_from(params: TulispObject) -> Result<Self, Self::Error> {
         if !params.listp() {
-            return Err(Error::new(
-                ErrorKind::SyntaxError,
+            return Err(Error::syntax_error(
                 "Parameter list needs to be a list".to_string(),
             ));
         }
@@ -78,8 +77,7 @@ impl TryFrom<TulispObject> for DefunParams {
             });
             if is_rest {
                 if params_iter.next().is_some() {
-                    return Err(Error::new(
-                        ErrorKind::TypeMismatch,
+                    return Err(Error::type_mismatch(
                         "Too many &rest parameters".to_string(),
                     ));
                 }
@@ -114,10 +112,10 @@ impl SymbolBindings {
     #[inline(always)]
     pub(crate) fn set(&mut self, to_set: TulispObject) -> Result<(), Error> {
         if self.constant {
-            return Err(Error::new(
-                ErrorKind::Undefined,
-                format!("Can't set constant symbol: {}", self.name),
-            ));
+            return Err(Error::undefined(format!(
+                "Can't set constant symbol: {}",
+                self.name
+            )));
         }
         if self.items.is_empty() {
             self.has_global = true;
@@ -131,10 +129,10 @@ impl SymbolBindings {
     #[inline(always)]
     pub(crate) fn set_global(&mut self, to_set: TulispObject) -> Result<(), Error> {
         if self.constant {
-            return Err(Error::new(
-                ErrorKind::Undefined,
-                format!("Can't set constant symbol: {}", self.name),
-            ));
+            return Err(Error::undefined(format!(
+                "Can't set constant symbol: {}",
+                self.name
+            )));
         }
         self.has_global = true;
         if self.items.is_empty() {
@@ -148,10 +146,10 @@ impl SymbolBindings {
     #[inline(always)]
     pub(crate) fn set_scope(&mut self, to_set: TulispObject) -> Result<(), Error> {
         if self.constant {
-            return Err(Error::new(
-                ErrorKind::Undefined,
-                format!("Can't set constant symbol: {}", self.name),
-            ));
+            return Err(Error::undefined(format!(
+                "Can't set constant symbol: {}",
+                self.name
+            )));
         }
         self.items.push(to_set);
         Ok(())
@@ -170,10 +168,10 @@ impl SymbolBindings {
     #[inline(always)]
     pub(crate) fn unset(&mut self) -> Result<(), Error> {
         if self.items.is_empty() {
-            return Err(Error::new(
-                ErrorKind::Uninitialized,
-                format!("Can't unbind from unassigned symbol: {}", self.name),
-            ));
+            return Err(Error::uninitialized(format!(
+                "Can't unbind from unassigned symbol: {}",
+                self.name
+            )));
         }
         self.items.pop();
         Ok(())
@@ -187,10 +185,10 @@ impl SymbolBindings {
     #[inline(always)]
     pub(crate) fn get(&self) -> Result<TulispObject, Error> {
         if self.items.is_empty() {
-            return Err(Error::new(
-                ErrorKind::TypeMismatch,
-                format!("Variable definition is void: {}", self.name),
-            ));
+            return Err(Error::type_mismatch(format!(
+                "Variable definition is void: {}",
+                self.name
+            )));
         }
         Ok(self.items.last().unwrap().clone())
     }
@@ -334,10 +332,7 @@ impl PartialEq for TulispValue {
 /// Formats tulisp lists non-recursively.
 fn fmt_list(mut vv: TulispObject, f: &mut std::fmt::Formatter<'_>) -> Result<(), Error> {
     if let Err(e) = f.write_char('(') {
-        return Err(Error::new(
-            ErrorKind::Undefined,
-            format!("When trying to 'fmt': {}", e),
-        ));
+        return Err(Error::undefined(format!("When trying to 'fmt': {}", e)));
     };
     let mut add_space = false;
     loop {
@@ -345,29 +340,21 @@ fn fmt_list(mut vv: TulispObject, f: &mut std::fmt::Formatter<'_>) -> Result<(),
         if !add_space {
             add_space = true;
         } else if let Err(e) = f.write_char(' ') {
-            return Err(Error::new(
-                ErrorKind::Undefined,
-                format!("When trying to 'fmt': {}", e),
-            ));
+            return Err(Error::undefined(format!("When trying to 'fmt': {}", e)));
         };
-        write!(f, "{}", vv.car()?).map_err(|e| {
-            Error::new(ErrorKind::Undefined, format!("When trying to 'fmt': {}", e))
-        })?;
+        write!(f, "{}", vv.car()?)
+            .map_err(|e| Error::undefined(format!("When trying to 'fmt': {}", e)))?;
         if rest.null() {
             break;
         } else if !rest.consp() {
-            write!(f, " . {}", rest).map_err(|e| {
-                Error::new(ErrorKind::Undefined, format!("When trying to 'fmt': {}", e))
-            })?;
+            write!(f, " . {}", rest)
+                .map_err(|e| Error::undefined(format!("When trying to 'fmt': {}", e)))?;
             break;
         };
         vv = rest;
     }
     if let Err(e) = f.write_char(')') {
-        return Err(Error::new(
-            ErrorKind::Undefined,
-            format!("When trying to 'fmt': {}", e),
-        ));
+        return Err(Error::undefined(format!("When trying to 'fmt': {}", e)));
     };
     Ok(())
 }
@@ -434,8 +421,7 @@ impl TulispValue {
         {
             value.set(to_set)
         } else {
-            Err(Error::new(
-                ErrorKind::TypeMismatch,
+            Err(Error::type_mismatch(
                 "Can bind values only to Symbols".to_string(),
             ))
         }
@@ -447,8 +433,7 @@ impl TulispValue {
         {
             value.set_global(to_set)
         } else {
-            Err(Error::new(
-                ErrorKind::TypeMismatch,
+            Err(Error::type_mismatch(
                 "Can bind values only to Symbols".to_string(),
             ))
         }
@@ -460,10 +445,9 @@ impl TulispValue {
         {
             value.set_scope(to_set)
         } else {
-            Err(Error::new(
-                ErrorKind::TypeMismatch,
-                format!("Expected Symbol: Can't assign to {self}"),
-            ))
+            Err(Error::type_mismatch(format!(
+                "Expected Symbol: Can't assign to {self}"
+            )))
         }
     }
 
@@ -486,8 +470,7 @@ impl TulispValue {
         {
             value.unset()
         } else {
-            Err(Error::new(
-                ErrorKind::TypeMismatch,
+            Err(Error::type_mismatch(
                 "Can unbind only from Symbols".to_string(),
             ))
         }
@@ -528,8 +511,7 @@ impl TulispValue {
             }
             value.get()
         } else {
-            Err(Error::new(
-                ErrorKind::TypeMismatch,
+            Err(Error::type_mismatch(
                 "Can get only from Symbols".to_string(),
             ))
         }
@@ -583,10 +565,7 @@ impl TulispValue {
             *self = TulispValue::List { cons, ctxobj };
             Ok(())
         } else {
-            Err(Error::new(
-                ErrorKind::TypeMismatch,
-                "unable to push".to_string(),
-            ))
+            Err(Error::type_mismatch("unable to push".to_string()))
         }
     }
 
@@ -606,10 +585,7 @@ impl TulispValue {
             }
             Ok(())
         } else {
-            Err(Error::new(
-                ErrorKind::TypeMismatch,
-                format!("unable to append: {}", val),
-            ))
+            Err(Error::type_mismatch(format!("unable to append: {}", val)))
         }
     }
 
@@ -632,10 +608,10 @@ impl TulispValue {
             TulispValue::Symbol { value } | TulispValue::LexicalBinding { value, .. } => {
                 Ok(value.name.to_string())
             }
-            _ => Err(Error::new(
-                ErrorKind::TypeMismatch,
-                format!("Expected symbol: {}", self),
-            )),
+            _ => Err(Error::type_mismatch(format!(
+                "Expected symbol, got: {}",
+                self
+            ))),
         }
     }
 
@@ -643,10 +619,7 @@ impl TulispValue {
     pub(crate) fn as_float(&self) -> Result<f64, Error> {
         match self {
             TulispValue::Float { value, .. } => Ok(*value),
-            t => Err(Error::new(
-                ErrorKind::TypeMismatch,
-                format!("Expected number, got: {:?}", t),
-            )),
+            t => Err(Error::type_mismatch(format!("Expected number, got: {}", t))),
         }
     }
 
@@ -655,10 +628,7 @@ impl TulispValue {
         match self {
             TulispValue::Float { value, .. } => Ok(*value),
             TulispValue::Int { value, .. } => Ok(*value as f64),
-            t => Err(Error::new(
-                ErrorKind::TypeMismatch,
-                format!("Expected number, got: {:?}", t),
-            )),
+            t => Err(Error::type_mismatch(format!("Expected number, got: {}", t))),
         }
     }
 
@@ -666,10 +636,7 @@ impl TulispValue {
     pub(crate) fn as_int(&self) -> Result<i64, Error> {
         match self {
             TulispValue::Int { value, .. } => Ok(*value),
-            t => Err(Error::new(
-                ErrorKind::TypeMismatch,
-                format!("Expected integer: {:?}", t),
-            )),
+            t => Err(Error::type_mismatch(format!("Expected integer: {}", t))),
         }
     }
 
@@ -678,10 +645,7 @@ impl TulispValue {
         match self {
             TulispValue::Float { value, .. } => Ok(value.trunc() as i64),
             TulispValue::Int { value, .. } => Ok(*value),
-            t => Err(Error::new(
-                ErrorKind::TypeMismatch,
-                format!("Expected number, got {:?}", t),
-            )),
+            t => Err(Error::type_mismatch(format!("Expected number, got {}", t))),
         }
     }
 
@@ -750,10 +714,10 @@ impl TulispValue {
     pub(crate) fn as_string(&self) -> Result<String, Error> {
         match self {
             TulispValue::String { value, .. } => Ok(value.to_owned()),
-            _ => Err(Error::new(
-                ErrorKind::TypeMismatch,
-                format!("Expected string: {}", self),
-            )),
+            _ => Err(Error::type_mismatch(format!(
+                "Expected string, got: {}",
+                self
+            ))),
         }
     }
 
@@ -761,10 +725,10 @@ impl TulispValue {
     pub(crate) fn as_any(&self) -> Result<Rc<dyn Any>, Error> {
         match self {
             TulispValue::Any(value) => Ok(value.clone()),
-            _ => Err(Error::new(
-                ErrorKind::TypeMismatch,
-                format!("Expected Any(Rc<dyn Any>): {}", self),
-            )),
+            _ => Err(Error::type_mismatch(format!(
+                "Expected Any(Rc<dyn TulispAny>), got: {}",
+                self
+            ))),
         }
     }
 
@@ -894,8 +858,8 @@ macro_rules! make_cxr_and_then {
             match self {
                 TulispValue::List { cons, .. } => cons.$($step)+(func),
                 TulispValue::Nil => Ok(Out::default()),
-                _ => Err(Error::new(
-                    ErrorKind::TypeMismatch,
+    _ => Err(Error::type_mismatch(
+
                     format!("cxr: Not a Cons: {}", self),
 
                 )),
@@ -914,10 +878,7 @@ impl TulispValue {
         match self {
             TulispValue::List { cons, .. } => step(cons),
             TulispValue::Nil => Ok(TulispObject::nil()),
-            _ => Err(Error::new(
-                ErrorKind::TypeMismatch,
-                format!("cxr: Not a Cons: {}", self),
-            )),
+            _ => Err(Error::type_mismatch(format!("cxr: Not a Cons: {}", self))),
         }
     }
 
@@ -963,10 +924,7 @@ impl TulispValue {
         match self {
             TulispValue::List { cons, .. } => func(cons.car()),
             TulispValue::Nil => Ok(Out::default()),
-            _ => Err(Error::new(
-                ErrorKind::TypeMismatch,
-                format!("cxr: Not a Cons: {}", self),
-            )),
+            _ => Err(Error::type_mismatch(format!("cxr: Not a Cons: {}", self))),
         }
     }
 
@@ -978,10 +936,7 @@ impl TulispValue {
         match self {
             TulispValue::List { cons, .. } => func(cons.cdr()),
             TulispValue::Nil => Ok(Out::default()),
-            _ => Err(Error::new(
-                ErrorKind::TypeMismatch,
-                format!("cxr: Not a Cons: {}", self),
-            )),
+            _ => Err(Error::type_mismatch(format!("cxr: Not a Cons: {}", self))),
         }
     }
 

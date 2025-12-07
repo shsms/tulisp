@@ -1,4 +1,4 @@
-use crate::{Error, ErrorKind, TulispAny, TulispContext, TulispObject, destruct_eval_bind};
+use crate::{Error, TulispAny, TulispContext, TulispObject, destruct_eval_bind};
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 struct TulispObjectEql(TulispObject);
@@ -41,8 +41,7 @@ impl std::fmt::Display for HashTable {
 pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.add_special_form("make-hash-table", |_ctx, args| {
         if !args.null() {
-            return Err(Error::new(
-                ErrorKind::InvalidArgument,
+            return Err(Error::invalid_argument(
                 "make-hash-table: expected no arguments.".to_string(),
             )
             .with_trace(args.clone()));

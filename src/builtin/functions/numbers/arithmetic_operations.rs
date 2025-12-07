@@ -1,6 +1,6 @@
 use crate::builtin::functions::functions::reduce_with;
+use crate::destruct_eval_bind;
 use crate::eval::eval;
-use crate::{ErrorKind, destruct_eval_bind};
 
 use crate::{Error, TulispContext, TulispObject, TulispValue};
 
@@ -21,8 +21,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 reduce_with(ctx, args, binary_ops!(std::ops::Sub::sub))
             }
         } else {
-            Err(Error::new(
-                ErrorKind::MissingArgument,
+            Err(Error::missing_argument(
                 "Call to `sub` without any arguments".to_string(),
             ))
         }
@@ -43,10 +42,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             if *ele.inner_ref() == TulispValue::from(0)
                 || *ele.inner_ref() == TulispValue::from(0.0)
             {
-                return Err(Error::new(
-                    ErrorKind::Undefined,
-                    "Division by zero".to_string(),
-                ));
+                return Err(Error::undefined("Division by zero".to_string()));
             }
         }
         reduce_with(ctx, rest, binary_ops!(std::ops::Div::div))
@@ -58,8 +54,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         match &*number.inner_ref() {
             TulispValue::Int { value } => Ok((*value + 1).into()),
             TulispValue::Float { value } => Ok((*value + 1.0).into()),
-            _ => Err(Error::new(
-                ErrorKind::TypeMismatch,
+            _ => Err(Error::type_mismatch(
                 "expected a number as argument.".to_string(),
             )),
         }
@@ -70,8 +65,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         match &*number.inner_ref() {
             TulispValue::Int { value } => Ok((*value - 1).into()),
             TulispValue::Float { value } => Ok((*value - 1.0).into()),
-            _ => Err(Error::new(
-                ErrorKind::TypeMismatch,
+            _ => Err(Error::type_mismatch(
                 "expected a number as argument.".to_string(),
             )),
         }

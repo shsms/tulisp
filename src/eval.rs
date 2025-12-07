@@ -1,9 +1,5 @@
 use crate::{
-    TulispObject, TulispValue,
-    context::TulispContext,
-    error::{Error, ErrorKind},
-    list,
-    value::DefunParams,
+    TulispObject, TulispValue, context::TulispContext, error::Error, list, value::DefunParams,
 };
 
 pub(crate) trait Evaluator {
@@ -63,18 +59,12 @@ fn zip_function_args<E: Evaluator>(
             E::eval(ctx, &vv, &mut eval_result)?;
             eval_result.take().unwrap_or(vv)
         } else {
-            return Err(Error::new(
-                ErrorKind::TypeMismatch,
-                "Too few arguments".to_string(),
-            ));
+            return Err(Error::type_mismatch("Too few arguments".to_string()));
         };
         param.param.set_scope(val)?;
     }
     if args_iter.next().is_some() {
-        return Err(Error::new(
-            ErrorKind::TypeMismatch,
-            "Too many arguments".to_string(),
-        ));
+        return Err(Error::type_mismatch("Too many arguments".to_string()));
     }
     Ok(())
 }
@@ -128,10 +118,7 @@ pub(crate) fn funcall<E: Evaluator>(
             let expanded = macroexpand(ctx, list!(func.clone() ,@args.clone())?)?;
             eval(ctx, &expanded)
         }
-        _ => Err(Error::new(
-            ErrorKind::Undefined,
-            format!("function is void: {}", func),
-        )),
+        _ => Err(Error::undefined(format!("function is void: {}", func))),
     }
 }
 
@@ -289,16 +276,12 @@ pub(crate) fn eval_basic<'a>(
                 Some(eval_back_quote(ctx, value.clone()).map_err(|e| e.with_trace(expr.clone()))?);
         }
         TulispValue::Unquote { .. } => {
-            return Err(Error::new(
-                ErrorKind::TypeMismatch,
+            return Err(Error::type_mismatch(
                 "Unquote without backquote".to_string(),
             ));
         }
         TulispValue::Splice { .. } => {
-            return Err(Error::new(
-                ErrorKind::TypeMismatch,
-                "Splice without backquote".to_string(),
-            ));
+            return Err(Error::type_mismatch("Splice without backquote".to_string()));
         }
         TulispValue::Sharpquote { value, .. } => {
             *result = Some(value.clone());
