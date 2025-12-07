@@ -550,6 +550,14 @@ mod tests {
         eval_assert_equal(ctx, r#"(let ((a "stop"))(cats "dog" a "cat"))"#, "nil");
         eval_assert_error(
             ctx,
+            r#"(cats 1 2 3)"#,
+            r#"ERR TypeMismatch: Expected string, got: 1
+<eval_string>:1.7-1.7:  at 1
+<eval_string>:1.1-1.12:  at (cats 1 2 3)
+"#,
+        );
+        eval_assert_error(
+            ctx,
             r#"(let ((horse "horse"))(cats horse))"#,
             r#"ERR InvalidArgument: No cats found
 <eval_string>:1.23-1.34:  at (cats horse)

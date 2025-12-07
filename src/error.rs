@@ -80,6 +80,9 @@ impl Error {
         }
     }
     pub fn with_trace(mut self, span: TulispObject) -> Self {
+        if self.backtrace.last().map_or(false, |last| last.eq(&span)) {
+            return self;
+        }
         self.backtrace.push(span);
         self
     }
