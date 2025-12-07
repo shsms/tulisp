@@ -34,7 +34,11 @@ mod tests {
     #[test]
     fn test_error_handling() {
         let mut ctx = TulispContext::new();
-        eval_assert_equal(&mut ctx, "(catch 'my-tag (throw 'my-tag 42))", "42");
+        eval_assert_equal(
+            &mut ctx,
+            "(catch 'my-tag (setq x 42) (throw 'my-tag x))",
+            "42",
+        );
         eval_assert_error(
             &mut ctx,
             "(catch 'my-tag (throw 'other-tag 42))",
