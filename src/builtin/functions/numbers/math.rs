@@ -7,13 +7,10 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         let val: f64 = arg.try_float()?;
         // TODO: switch to return NaN for negative inputs.
         if val < 0.0 {
-            return Err(crate::Error::new(
-                crate::ErrorKind::TypeMismatch,
-                format!(
-                    "sqrt: cannot compute square root of negative number: {}",
-                    val
-                ),
-            )
+            return Err(crate::Error::type_mismatch(format!(
+                "sqrt: cannot compute square root of negative number: {}",
+                val
+            ))
             .with_trace(arg));
         }
         Ok(val.sqrt().into())
@@ -27,8 +24,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
         // TODO: switch to return Inf for 0^negative.
         if base_val == 0.0 && exponent_val < 0.0 {
-            return Err(crate::Error::new(
-                crate::ErrorKind::OutOfRange,
+            return Err(crate::Error::out_of_range(
                 "expt: cannot compute with base 0 and negative exponent".to_string(),
             )
             .with_trace(base)

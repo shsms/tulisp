@@ -1,5 +1,5 @@
 use crate::{
-    Error, ErrorKind, TulispContext, TulispObject,
+    Error, TulispContext, TulispObject,
     eval::{DummyEval, eval, funcall},
     list,
 };
@@ -9,7 +9,7 @@ pub fn length(list: &TulispObject) -> Result<i64, Error> {
     list.base_iter()
         .count()
         .try_into()
-        .map_err(|e: _| Error::new(ErrorKind::OutOfRange, format!("{}", e)))
+        .map_err(|e: _| Error::out_of_range(format!("{}", e)))
 }
 
 /// Returns the last link in the given list.
@@ -18,10 +18,10 @@ pub fn last(list: &TulispObject, n: Option<i64>) -> Result<TulispObject, Error> 
         return Ok(list.clone());
     }
     if !list.consp() {
-        return Err(Error::new(
-            ErrorKind::TypeMismatch,
-            format!("expected list, got: {}", list),
-        ));
+        return Err(Error::type_mismatch(format!(
+            "expected list, got: {}",
+            list
+        )));
     }
 
     // TODO: emacs' implementation uses the `safe-length` function for this, but
@@ -30,10 +30,10 @@ pub fn last(list: &TulispObject, n: Option<i64>) -> Result<TulispObject, Error> 
     let len = length(list)?;
     if let Some(n) = n {
         if n < 0 {
-            return Err(Error::new(
-                ErrorKind::OutOfRange,
-                format!("n must be positive. got: {}", n),
-            ));
+            return Err(Error::out_of_range(format!(
+                "n must be positive. got: {}",
+                n
+            )));
         }
         if n < len {
             return nthcdr(len - n, list.clone());
@@ -93,10 +93,10 @@ pub fn assoc(
     testfn: Option<TulispObject>,
 ) -> Result<TulispObject, Error> {
     if !alist.listp() {
-        return Err(Error::new(
-            ErrorKind::TypeMismatch,
-            format!("expected alist. got: {}", alist),
-        ));
+        return Err(Error::type_mismatch(format!(
+            "expected alist. got: {}",
+            alist
+        )));
     }
     if let Some(testfn) = testfn {
         let pred = eval(ctx, &testfn)?;

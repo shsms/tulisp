@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use crate::{
-    Error, ErrorKind, TulispContext, TulispObject, TulispValue,
+    Error, TulispContext, TulispObject, TulispValue,
     builtin::functions::common::eval_1_arg_special_form, eval::eval_and_then,
 };
 
@@ -12,10 +12,10 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 if x.floatp() {
                     Ok(f64::round(x.as_float().unwrap()).into())
                 } else {
-                    Err(Error::new(
-                        ErrorKind::TypeMismatch,
-                        format!("Expected float for fround. Got: {}", x),
-                    ))
+                    Err(Error::type_mismatch(format!(
+                        "Expected float for fround. Got: {}",
+                        x
+                    )))
                 }
             })
         })
@@ -28,10 +28,10 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 if x.floatp() {
                     Ok(f64::trunc(x.as_float().unwrap()).into())
                 } else {
-                    Err(Error::new(
-                        ErrorKind::TypeMismatch,
-                        format!("Expected float for ftruncate. Got: {}", x),
-                    ))
+                    Err(Error::type_mismatch(format!(
+                        "Expected float for ftruncate. Got: {}",
+                        x
+                    )))
                 }
             })
         })

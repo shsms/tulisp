@@ -511,7 +511,7 @@ mod upto_5_args {
 #[cfg(test)]
 mod tests {
     use crate::test_utils::{eval_assert_equal, eval_assert_error};
-    use crate::{Error, ErrorKind, Rest, TulispContext, TulispObject};
+    use crate::{Error, Rest, TulispContext, TulispObject};
 
     #[test]
     fn test_add_functions_only_rest() -> Result<(), crate::Error> {
@@ -540,10 +540,7 @@ mod tests {
                         return Ok(false.into());
                     }
                 }
-                Err(crate::Error::new(
-                    ErrorKind::InvalidArgument,
-                    "No cats found".into(),
-                ))
+                Err(crate::Error::invalid_argument("No cats found"))
             },
         );
 

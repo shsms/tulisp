@@ -1,5 +1,5 @@
 use crate::{
-    Error, ErrorKind, TulispContext, TulispObject, TulispValue,
+    Error, TulispContext, TulispObject, TulispValue,
     builtin::functions::common::eval_2_arg_special_form,
     destruct_bind, destruct_eval_bind,
     eval::{eval_and_then, eval_basic},
@@ -49,8 +49,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     // Constructs for combining conditions
     fn not(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
         if args.cdr_and_then(|x| Ok(!x.null()))? {
-            return Err(Error::new(
-                ErrorKind::SyntaxError,
+            return Err(Error::syntax_error(
                 "not: expected one argument".to_string(),
             ));
         }
@@ -180,10 +179,10 @@ fn build_binding(
     };
 
     if length(&binding)? > 2 {
-        return Err(Error::new(
-            ErrorKind::SyntaxError,
-            format!("`let` bindings can have only one value-form {}", &binding),
-        ));
+        return Err(Error::syntax_error(format!(
+            "`let` bindings can have only one value-form {}",
+            &binding
+        )));
     }
 
     let var = binding.car()?;

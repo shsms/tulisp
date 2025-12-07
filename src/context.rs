@@ -240,10 +240,7 @@ impl TulispContext {
     /// value.
     pub fn eval_file(&mut self, filename: &str) -> Result<TulispObject, Error> {
         let contents = fs::read_to_string(filename).map_err(|e| {
-            Error::new(
-                crate::ErrorKind::Undefined,
-                format!("Unable to read file: {filename}. Error: {e}"),
-            )
+            Error::undefined(format!("Unable to read file: {filename}. Error: {e}"))
         })?;
         self.filenames.push(filename.to_owned());
 

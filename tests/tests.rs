@@ -1178,12 +1178,7 @@ fn test_any() -> Result<(), Error> {
 
         inp.downcast::<TestStruct>()
             .map(|vv| vv.value)
-            .map_err(|_| {
-                Error::new(
-                    tulisp::ErrorKind::TypeMismatch,
-                    "Not the any thing we wanted.".to_owned(),
-                )
-            })
+            .map_err(|_| Error::type_mismatch("Not the any thing we wanted.".to_owned()))
             .map(TulispObject::from)
     });
 

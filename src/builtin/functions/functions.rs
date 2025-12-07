@@ -5,7 +5,6 @@ use crate::context::Scope;
 use crate::context::TulispContext;
 use crate::destruct_eval_bind;
 use crate::error::Error;
-use crate::error::ErrorKind;
 use crate::eval::DummyEval;
 use crate::eval::Eval;
 use crate::eval::eval;
@@ -117,8 +116,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             if prefix.stringp() {
                 prefix.as_string()?
             } else {
-                return Err(Error::new(
-                    ErrorKind::TypeMismatch,
+                return Err(Error::type_mismatch(
                     "gensym: prefix must be a string".to_string(),
                 ));
             }
@@ -148,10 +146,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             match ele.as_string() {
                 Ok(ref s) => ret.push_str(s),
                 _ => {
-                    return Err(Error::new(
-                        ErrorKind::TypeMismatch,
-                        format!("Not a string: {}", ele),
-                    ));
+                    return Err(Error::type_mismatch(format!("Not a string: {}", ele)));
                 }
             }
         }
@@ -178,8 +173,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 continue;
             }
             let Some(next_arg) = args.next() else {
-                return Err(Error::new(
-                    ErrorKind::MissingArgument,
+                return Err(Error::missing_argument(
                     "format has missing args".to_string(),
                 ));
             };
@@ -191,10 +185,10 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 'd' => output.push_str(&next_arg.try_int()?.to_string()),
                 'f' => output.push_str(&next_arg.try_float()?.to_string()),
                 _ => {
-                    return Err(Error::new(
-                        ErrorKind::SyntaxError,
-                        format!("Invalid format operation: %{}", ch),
-                    ));
+                    return Err(Error::syntax_error(format!(
+                        "Invalid format operation: %{}",
+                        ch
+                    )));
                 }
             }
         }
@@ -230,15 +224,13 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     fn setq(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
         let value = args.cdr_and_then(|args| {
             if args.null() {
-                return Err(Error::new(
-                    ErrorKind::TypeMismatch,
+                return Err(Error::type_mismatch(
                     "setq requires exactly 2 arguments".to_string(),
                 ));
             }
             args.cdr_and_then(|x| {
                 if !x.null() {
-                    return Err(Error::new(
-                        ErrorKind::TypeMismatch,
+                    return Err(Error::type_mismatch(
                         "setq requires exactly 2 arguments".to_string(),
                     ));
                 }
@@ -253,15 +245,13 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     fn set(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
         let value = args.cdr_and_then(|args| {
             if args.null() {
-                return Err(Error::new(
-                    ErrorKind::TypeMismatch,
+                return Err(Error::type_mismatch(
                     "setq requires exactly 2 arguments".to_string(),
                 ));
             }
             args.cdr_and_then(|x| {
                 if !x.null() {
-                    return Err(Error::new(
-                        ErrorKind::TypeMismatch,
+                    return Err(Error::type_mismatch(
                         "setq requires exactly 2 arguments".to_string(),
                     ));
                 }
@@ -278,8 +268,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     fn impl_let(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
         destruct_bind!((varlist &rest rest) = args);
         if !rest.consp() {
-            return Err(Error::new(
-                ErrorKind::TypeMismatch,
+            return Err(Error::type_mismatch(
                 "let: expected varlist and body".to_string(),
             ));
         }
@@ -290,26 +279,19 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             } else if varitem.consp() {
                 destruct_bind!((&optional name value &rest rest) = varitem);
                 if name.null() {
-                    return Err(Error::new(
-                        ErrorKind::Undefined,
-                        "let varitem requires name".to_string(),
-                    ));
+                    return Err(Error::undefined("let varitem requires name".to_string()));
                 }
                 if !rest.null() {
-                    return Err(Error::new(
-                        ErrorKind::Undefined,
+                    return Err(Error::undefined(
                         "let varitem has too many values".to_string(),
                     ));
                 }
                 local.set(name, eval(ctx, &value)?)?;
             } else {
-                return Err(Error::new(
-                    ErrorKind::SyntaxError,
-                    format!(
-                        "varitems inside a let-varlist should be a var or a binding: {}",
-                        varitem
-                    ),
-                ));
+                return Err(Error::syntax_error(format!(
+                    "varitems inside a let-varlist should be a var or a binding: {}",
+                    varitem
+                )));
             };
         }
 
@@ -513,15 +495,13 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     fn impl_cons(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
         let cdr = args.cdr_and_then(|args| {
             if args.null() {
-                return Err(Error::new(
-                    ErrorKind::TypeMismatch,
+                return Err(Error::type_mismatch(
                     "cons requires exactly 2 arguments".to_string(),
                 ));
             }
             args.cdr_and_then(|x| {
                 if !x.null() {
-                    return Err(Error::new(
-                        ErrorKind::TypeMismatch,
+                    return Err(Error::type_mismatch(
                         "cons requires exactly 2 arguments".to_string(),
                     ));
                 }
@@ -632,14 +612,11 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 match args.cdr_and_then(|x| Ok(x.null())) {
                     Err(err) => return Err(err),
                     Ok(false) => {
-                        return Err(Error::new(
-                            ErrorKind::TypeMismatch,
-                            format!(
-                                "Expected exatly 1 argument for {}. Got args: {}",
-                                stringify!($name),
-                                args
-                            ),
-                        ))
+                        return Err(Error::type_mismatch(format!(
+                            "Expected exatly 1 argument for {}. Got args: {}",
+                            stringify!($name),
+                            args
+                        )))
                     }
                     Ok(true) => {}
                 }

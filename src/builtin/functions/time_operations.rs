@@ -1,14 +1,13 @@
-use crate::{Error, ErrorKind, TulispContext, TulispObject, destruct_eval_bind};
+use crate::{Error, TulispContext, TulispObject, destruct_eval_bind};
 use std::time::Duration;
 
 pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.add_special_form("current-time", |_ctx, args| {
         if !args.null() {
-            return Err(Error::new(
-                ErrorKind::SyntaxError,
-                "current-time takes no arguments".to_string(),
-            )
-            .with_trace(args.clone()));
+            return Err(
+                Error::syntax_error("current-time takes no arguments".to_string())
+                    .with_trace(args.clone()),
+            );
         }
         let usec_since_epoch = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -49,27 +48,22 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             if let Ok(ticks) = obj.as_int() {
                 Ok((ticks, 1))
             } else {
-                Err(
-                    Error::new(ErrorKind::TypeMismatch, "expected integer".to_string())
-                        .with_trace(obj.clone()),
-                )
+                Err(Error::type_mismatch("expected integer".to_string()).with_trace(obj.clone()))
             }
         } else if let Some(cons) = obj.as_list_cons() {
             if let (Ok(ticks), Ok(hz)) = (cons.car().as_int(), cons.cdr().as_int()) {
                 Ok((ticks, hz))
             } else {
-                Err(Error::new(
-                    ErrorKind::TypeMismatch,
-                    "expected (ticks . hz) pair".to_string(),
+                Err(
+                    Error::type_mismatch("expected (ticks . hz) pair".to_string())
+                        .with_trace(obj.clone()),
                 )
-                .with_trace(obj.clone()))
             }
         } else {
-            Err(Error::new(
-                ErrorKind::TypeMismatch,
-                "expected integer or (ticks . hz) pair".to_string(),
+            Err(
+                Error::type_mismatch("expected integer or (ticks . hz) pair".to_string())
+                    .with_trace(obj.clone()),
             )
-            .with_trace(obj.clone()))
         }
     }
 
@@ -136,8 +130,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                     }
                     '.' => {
                         if !prefix.is_empty() || has_comma || has_dot {
-                            return Err(Error::new(
-                                ErrorKind::SyntaxError,
+                            return Err(Error::syntax_error(
                                 "Invalid format operation: '.' allowed only in the first place."
                                     .to_string(),
                             )
@@ -148,8 +141,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                     }
                     ',' => {
                         if !prefix.is_empty() || has_comma || has_dot {
-                            return Err(Error::new(
-                                ErrorKind::SyntaxError,
+                            return Err(Error::syntax_error(
                                 "Invalid format operation: ',' allowed only in the first place."
                                     .to_string(),
                             )
@@ -159,19 +151,16 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                         continue;
                     }
                     _ => {
-                        return Err(Error::new(
-                            ErrorKind::SyntaxError,
-                            format!("Invalid format operation: %{}", ch),
-                        ));
+                        return Err(Error::syntax_error(format!(
+                            "Invalid format operation: %{}",
+                            ch
+                        )));
                     }
                 };
                 let padding = if !prefix.is_empty() {
                     prefix.parse::<usize>().map_err(|_| {
-                        Error::new(
-                            ErrorKind::SyntaxError,
-                            format!("Invalid padding number: {}", prefix),
-                        )
-                        .with_trace(format_string.clone())
+                        Error::syntax_error(format!("Invalid padding number: {}", prefix))
+                            .with_trace(format_string.clone())
                     })?
                 } else {
                     0

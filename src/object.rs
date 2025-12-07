@@ -1,5 +1,5 @@
 use crate::{
-    ErrorKind, TulispValue,
+    TulispValue,
     cons::{self, Cons},
     error::Error,
     value::TulispAny,
@@ -168,10 +168,10 @@ impl TulispObject {
     /// ```
     pub fn iter<T: std::convert::TryFrom<TulispObject>>(&self) -> Result<cons::Iter<T>, Error> {
         if !self.listp() {
-            return Err(Error::new(
-                ErrorKind::TypeMismatch,
-                format!("Expected a list, got {}", self.fmt_string()),
-            ));
+            return Err(Error::type_mismatch(format!(
+                "Expected a list, got {}",
+                self.fmt_string()
+            )));
         }
         Ok(cons::Iter::new(self.base_iter()))
     }

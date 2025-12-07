@@ -1,4 +1,4 @@
-use crate::{Error, ErrorKind, TulispContext, TulispObject, TulispValue, destruct_eval_bind};
+use crate::{Error, TulispContext, TulispObject, TulispValue, destruct_eval_bind};
 
 fn string_cmp(
     ctx: &mut TulispContext,
@@ -13,15 +13,15 @@ fn string_cmp(
         (TulispValue::String { value: string1 }, TulispValue::String { value: string2 }) => {
             Ok(oper(string1, string2).into())
         }
-        (_, _) => Err(Error::new(
-            ErrorKind::TypeMismatch,
-            "Both arguments need to be strings".to_string(),
-        )
-        .with_trace(if string1.stringp() {
-            args.cadr()?
-        } else {
-            args.car()?
-        })),
+        (_, _) => Err(
+            Error::type_mismatch("Both arguments need to be strings".to_string()).with_trace(
+                if string1.stringp() {
+                    args.cadr()?
+                } else {
+                    args.car()?
+                },
+            ),
+        ),
     }
 }
 
