@@ -171,6 +171,14 @@ the unix epoch.
 | `sqrt`      | ☑️      |        |
 | `abs`       | ☑️      |        |
 
+## Error handling
+
+| Name                                                                                                   | Status | Details |
+|--------------------------------------------------------------------------------------------------------|--------|---------|
+| [`error`](https://www.gnu.org/software/emacs/manual/html_node/elisp/Signaling-Errors.html#index-error) | ☑️      |         |
+| [`throw`](https://www.gnu.org/software/emacs/manual/html_node/elisp/Catch-and-Throw.html#index-throw)  | ☑️      |         |
+| [`catch`](https://www.gnu.org/software/emacs/manual/html_node/elisp/Catch-and-Throw.html#index-catch)  | ☑️      |         |
+
 ## Others
 
 These functions need to be organized into categories.  They are grouped here for now.
