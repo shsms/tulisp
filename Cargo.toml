@@ -1,10 +1,10 @@
 [package]
 name = "tulisp"
 description = "An embeddable lisp interpreter."
-version = "0.17.0"
+version = "0.23.0"
 repository = "https://github.com/shsms/tulisp"
 license = "GPL-3.0"
-edition = "2021"
+edition = "2024"
 keywords = ["lisp", "scripting", "emacs-lisp"]
 categories = ["compilers", "config"]
 
@@ -18,5 +18,5 @@ path = "src/bin/tulisp.rs"
 name = "tulisp"
 path = "src/lib.rs"
 
-[dependencies]
-tulisp-proc-macros = "0.4.1"
+[features]
+big_functions = []

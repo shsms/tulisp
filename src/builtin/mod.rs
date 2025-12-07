@@ -39,17 +39,18 @@ Click  [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Conditio
 
 Click [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Comparison-of-Numbers.html) for the Emacs lisp manual page for comparison of numbers.
 
-| Name  | Status | Details                                             |
-|-------|--------|-----------------------------------------------------|
-| `>`   | ☑️      |                                                    |
-| `<`   | ☑️      |                                                    |
-| `>=`  | ☑️      |                                                    |
-| `<=`  | ☑️      |                                                    |
-| `=`   | 🔳     |                                                    |
-| `eql` | 🔳     |                                                     |
-| `/=`  | 🔳     |                                                     |
-| `max` | ☑️      |                                                     |
-| `min` | ☑️      |                                                     |
+| Name  | Status | Details |
+|-------|--------|---------|
+| `>`   | ☑️      |         |
+| `<`   | ☑️      |         |
+| `>=`  | ☑️      |         |
+| `<=`  | ☑️      |         |
+| `=`   | 🔳     |         |
+| `eql` | ☑️     |         |
+| `/=`  | 🔳     |         |
+| `max` | ☑️      |         |
+| `min` | ☑️      |         |
+| `abs` | ☑️      |         |
 
 
 ## Comparison of Strings
@@ -140,6 +141,36 @@ Click [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Hash-Tabl
 | `puthash`          | ☑️     |         |
 | `gethash`          | ☑️     |         |
 
+## Time Calculations
+
+These functions are described in the [time of
+ day](https://www.gnu.org/software/emacs/manual/html_node/elisp/Time-of-Day.html)
+ and [time
+ calculations](https://www.gnu.org/software/emacs/manual/html_node/elisp/Time-Calculations.html)
+ Emacs lisp manual pages.
+
+`time-less-p`, `time-equal-p`, `test-subtract`, `test-add` all take two arguments.  The
+arguments can be integers representing a number of seconds since the Unix epoch,
+or they can be `(ticks . hz)` values, representing `ticks/hz` values seconds since
+the unix epoch.
+
+| Name             | Status | Details                                                                                                           |
+|------------------|--------|-------------------------------------------------------------------------------------------------------------------|
+| `current-time`   | ☑️      | Returns a `(ticks . hz)` value, usually with a hz value of 1000000000, corresponding to a nano-second resolution. |
+| `time-less-p`    | ☑️      |                                                                                                                   |
+| `time-equal-p`   | ☑️      |                                                                                                                   |
+| `test-subtract`  | ☑️      |                                                                                                                   |
+| `test-add`       | ☑️      |                                                                                                                   |
+| `format-seconds` | ☑️      |                                                                                                                   |
+
+## Math Functions
+
+| Name        | Status | Details |
+|-------------|--------|---------|
+| `expt`      | ☑️      |        |
+| `sqrt`      | ☑️      |        |
+| `abs`       | ☑️      |        |
+
 ## Others
 
 These functions need to be organized into categories.  They are grouped here for now.
@@ -174,7 +205,6 @@ These functions need to be organized into categories.  They are grouped here for
 | `set`                                                                                                   | ☑️      |                                                   |
 | `setq`                                                                                                  | ☑️      |                                                   |
 | `concat`                                                                                                | ☑️      | for strings                                       |
-| `expt`                                                                                                  | ☑️      |                                                   |
 | `load`                                                                                                  | ☑️      |                                                   |
 | `intern`                                                                                                | ☑️      | no optional obarray param, always uses default.   |
 | `make-symbol`                                                                                           | ☑️      |                                                   |

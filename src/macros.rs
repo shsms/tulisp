@@ -115,6 +115,11 @@ fn main() -> Result<(), Error> {
 #[macro_export]
 macro_rules! destruct_bind {
     (@reqr $vv:ident, $var:ident) => {
+        if !$vv.consp() {
+            return Err($crate::Error::new(
+                $crate::ErrorKind::TypeMismatch,"Too few arguments".to_string()
+            ));
+        }
         let $var = $vv.car()?;
         let $vv = $vv.cdr()?;
     };
@@ -125,7 +130,9 @@ macro_rules! destruct_bind {
     (@reqr $vv:ident,) => {};
     (@no-rest $vv:ident) => {
         if !$vv.null() {
-            return Err(Error::new(ErrorKind::TypeMismatch,"Too many arguments".to_string()));
+            return Err($crate::Error::new(
+                $crate::ErrorKind::TypeMismatch,"Too many arguments".to_string()
+            ));
         }
     };
     (@rest $rest:ident $vv:ident) => {
@@ -165,6 +172,66 @@ macro_rules! destruct_bind {
     };
 }
 
+#[macro_export]
+macro_rules! destruct_eval_bind {
+    (@reqr $ctx:ident, $vv:ident, $var:ident) => {
+        if !$vv.consp() {
+            return Err($crate::Error::new(
+                $crate::ErrorKind::TypeMismatch,"Too few arguments".to_string()
+            ));
+        }
+        let $var = $vv.car_and_then(|x| $ctx.eval(x))?;
+        let $vv = $vv.cdr()?;
+    };
+    (@reqr $ctx:ident, $vv:ident, $var:ident $($vars:tt)+) => {
+        destruct_eval_bind!(@reqr $ctx, $vv, $var);
+        destruct_eval_bind!(@reqr $ctx, $vv, $($vars)+);
+    };
+    (@reqr $ctx:ident, $vv:ident,) => {};
+    (@no-rest $ctx:ident, $vv:ident) => {
+        if !$vv.null() {
+            return Err($crate::Error::new(
+                $crate::ErrorKind::TypeMismatch,"Too many arguments".to_string()
+            ));
+        }
+    };
+    (@rest $ctx:ident, $rest:ident $vv:ident) => {
+        let $rest = $ctx.eval_each(&$vv)?;
+    };
+    (@optvar $ctx:ident, $vv:ident, $var:ident) => {
+        let ($var, $vv) = if !$vv.null() {
+            ($vv.car_and_then(|x| $ctx.eval(x))?, $vv.cdr()?)
+        } else {
+            (TulispObject::nil(), TulispObject::nil())
+        };
+    };
+    (@optvar $ctx:ident, $vv:ident, $var:ident $($vars:ident)+) => {
+        destruct_eval_bind!(@optvar $ctx, $vv, $var);
+        destruct_eval_bind!(@optvar $ctx, $vv, $($vars)+)
+    };
+    (@impl $ctx:ident, ($($vars:ident)+) = $vv:ident) => {
+        destruct_eval_bind!(@reqr $ctx, $vv, $($vars)+);
+        destruct_eval_bind!(@no-rest $ctx, $vv);
+    };
+    (@impl $ctx:ident, ($($vars:ident)* &optional $($optvars:ident)+) = $vv:ident) => {
+	destruct_eval_bind!(@reqr $ctx, $vv, $($vars)*);
+        destruct_eval_bind!(@optvar $ctx, $vv, $($optvars)+);
+        destruct_eval_bind!(@no-rest $ctx, $vv);
+    };
+    (@impl $ctx:ident, ($($vars:ident)* &rest $rest:ident) = $vv:ident) => {
+	destruct_eval_bind!(@reqr $ctx, $vv, $($vars)*);
+        destruct_eval_bind!(@rest $ctx, $rest $vv);
+    };
+    (@impl $ctx:ident, ($($vars:ident)* &optional $($optvars:ident)+ &rest $rest:ident) = $vv:ident) => {
+	destruct_eval_bind!(@reqr $ctx, $vv, $($vars)*);
+        destruct_eval_bind!(@optvar $ctx, $vv, $($optvars)+);
+        destruct_eval_bind!(@rest $ctx, $rest $vv);
+    };
+    ($ctx:ident, ($($rest:tt)*) = $vv:ident) => {
+        destruct_eval_bind!(@impl $ctx, ($($rest)*) = $vv);
+    };
+}
+
 /**
 Creates a struct that holds interned symbols.
 
@@ -182,15 +249,14 @@ intern!{
     }
 }
 
-fn main() {
-    let ctx = &mut TulispContext::new();
 
-    let kw = Keywords::new(ctx);
+let ctx = &mut TulispContext::new();
 
-    assert!(kw.name.eq(&ctx.intern(":name")));
-    assert!(kw.scale.eq(&ctx.intern(":scale")));
-    assert!(kw.pos.eq(&ctx.intern(":pos")));
-}
+let kw = Keywords::new(ctx);
+
+assert!(kw.name.eq(&ctx.intern(":name")));
+assert!(kw.scale.eq(&ctx.intern(":scale")));
+assert!(kw.pos.eq(&ctx.intern(":pos")));
 ```
 
 It can also be used to create an instance of the struct directly:
@@ -198,19 +264,17 @@ It can also be used to create an instance of the struct directly:
 ```rust
 use tulisp::{TulispContext, intern};
 
-fn main() {
-    let ctx = &mut TulispContext::new();
+let ctx = &mut TulispContext::new();
 
-    let kw = intern!(ctx => {
-        name: ":name",
-        scale: ":scale",
-        pos: ":pos",
-    });
+let kw = intern!(ctx => {
+    name: ":name",
+    scale: ":scale",
+    pos: ":pos",
+});
 
-    assert!(kw.name.eq(&ctx.intern(":name")));
-    assert!(kw.scale.eq(&ctx.intern(":scale")));
-    assert!(kw.pos.eq(&ctx.intern(":pos")));
-}
+assert!(kw.name.eq(&ctx.intern(":name")));
+assert!(kw.scale.eq(&ctx.intern(":scale")));
+assert!(kw.pos.eq(&ctx.intern(":pos")));
 ```
 */
 #[macro_export]

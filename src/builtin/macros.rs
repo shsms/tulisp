@@ -1,10 +1,8 @@
-use std::rc::Rc;
-
-use crate::context::TulispContext;
-use crate::error::Error;
 use crate::ErrorKind;
 use crate::TulispObject;
 use crate::TulispValue;
+use crate::context::TulispContext;
+use crate::error::Error;
 use crate::{destruct_bind, list};
 
 fn thread_first(_ctx: &mut TulispContext, vv: &TulispObject) -> Result<TulispObject, Error> {
@@ -60,19 +58,9 @@ fn quote(_ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, 
 }
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    ctx.intern("->")
-        .set(TulispValue::Macro(Rc::new(thread_first)).into_ref(None))
-        .unwrap();
-    ctx.intern("thread-first")
-        .set(TulispValue::Macro(Rc::new(thread_first)).into_ref(None))
-        .unwrap();
-    ctx.intern("->>")
-        .set(TulispValue::Macro(Rc::new(thread_last)).into_ref(None))
-        .unwrap();
-    ctx.intern("thread-last")
-        .set(TulispValue::Macro(Rc::new(thread_last)).into_ref(None))
-        .unwrap();
-    ctx.intern("quote")
-        .set(TulispValue::Macro(Rc::new(quote)).into_ref(None))
-        .unwrap();
+    ctx.add_macro("->", thread_first);
+    ctx.add_macro("thread-first", thread_first);
+    ctx.add_macro("->>", thread_last);
+    ctx.add_macro("thread-last", thread_last);
+    ctx.add_macro("quote", quote);
 }

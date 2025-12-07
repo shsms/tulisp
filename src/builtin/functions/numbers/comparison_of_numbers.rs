@@ -1,5 +1,6 @@
 use crate::{
-    builtin::functions::functions::reduce_with, Error, TulispContext, TulispObject, TulispValue,
+    Error, TulispContext, TulispObject, TulispValue, builtin::functions::functions::reduce_with,
+    destruct_eval_bind,
 };
 use std::rc::Rc;
 
@@ -25,36 +26,46 @@ macro_rules! compare_ops {
 
 macro_rules! compare_impl {
     ($name:ident, $symbol:literal) => {
-        fn $name(ctx: &mut TulispContext, rest: &TulispObject) -> Result<TulispObject, Error> {
-            let items: Vec<TulispObject> = rest.base_iter().collect();
-            if items.len() < 2 {
+        fn $name(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+            if args.null() || args.cdr_and_then(|x| Ok(x.null()))? {
                 return Err(Error::new(
                     crate::ErrorKind::OutOfRange,
                     format!("{} requires at least 2 arguments", $symbol),
                 ));
             }
-            for items in items.windows(2) {
-                let a = ctx.eval(&items[0])?;
-                let b = ctx.eval(&items[1])?;
-                if !a.numberp() {
-                    return Err(Error::new(
-                        crate::ErrorKind::TypeMismatch,
-                        format!("Expected number, found: {a}"),
-                    )
-                    .with_trace(items[0].clone()));
-                }
-                if !b.numberp() {
-                    return Err(Error::new(
-                        crate::ErrorKind::TypeMismatch,
-                        format!("Expected number, found: {b}"),
-                    )
-                    .with_trace(items[1].clone()));
-                }
-                if !compare_ops!(std::cmp::PartialOrd::$name)(&a, &b)? {
-                    return Ok(TulispObject::nil());
-                }
-            }
-            Ok(TulispObject::t())
+            args.car_and_then(|x| {
+                ctx.eval_and_then(x, |ctx, first| {
+                    if !first.numberp() {
+                        return Err(Error::new(
+                            crate::ErrorKind::TypeMismatch,
+                            format!("Expected number, found: {first}"),
+                        )
+                        .with_trace(args.car()?));
+                    }
+                    args.cadr_and_then(|x| {
+                        ctx.eval_and_then(x, |ctx, second| {
+                            if !second.numberp() {
+                                return Err(Error::new(
+                                    crate::ErrorKind::TypeMismatch,
+                                    format!("Expected number, found: {second}"),
+                                )
+                                .with_trace(args.cadr()?));
+                            }
+                            if compare_ops!(std::cmp::PartialOrd::$name)(first, second)? {
+                                args.cdr_and_then(|cdr| {
+                                    if cdr.cdr_and_then(|x| Ok(x.null()))? {
+                                        Ok(TulispObject::t())
+                                    } else {
+                                        $name(ctx, &cdr)
+                                    }
+                                })
+                            } else {
+                                Ok(TulispObject::nil())
+                            }
+                        })
+                    })
+                })
+            })
         }
     };
 }
@@ -81,4 +92,27 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         reduce_with(ctx, rest, max_min_ops!(min))
     }
     intern_set_func!(ctx, min, "min");
+
+    ctx.add_special_form("abs", |ctx, args| {
+        destruct_eval_bind!(ctx, (number) = args);
+
+        Ok(number.try_float()?.abs().into())
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{TulispContext, test_utils::eval_assert_equal};
+
+    #[test]
+    fn test_abs() {
+        let ctx = &mut TulispContext::new();
+
+        eval_assert_equal(ctx, "(abs -4.0)", "4.0");
+        eval_assert_equal(ctx, "(abs 0.0)", "0.0");
+        eval_assert_equal(ctx, "(abs 2.25)", "2.25");
+        eval_assert_equal(ctx, "(abs -3)", "3.0");
+        eval_assert_equal(ctx, "(abs 0)", "0.0");
+        eval_assert_equal(ctx, "(abs 5)", "5.0");
+    }
 }

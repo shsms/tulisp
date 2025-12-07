@@ -1,14 +1,14 @@
 use std::rc::Rc;
 
 use crate::{
-    builtin::functions::common::eval_1_arg_special_form, eval::eval_and_then, Error, ErrorKind,
-    TulispContext, TulispObject, TulispValue,
+    Error, ErrorKind, TulispContext, TulispObject, TulispValue,
+    builtin::functions::common::eval_1_arg_special_form, eval::eval_and_then,
 };
 
 pub(crate) fn add(ctx: &mut TulispContext) {
     fn fround(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
         eval_1_arg_special_form(ctx, "fround", args, false, |ctx, arg1, _| {
-            eval_and_then(ctx, arg1, |x| {
+            eval_and_then(ctx, arg1, |_, x| {
                 if x.floatp() {
                     Ok(f64::round(x.as_float().unwrap()).into())
                 } else {
@@ -24,7 +24,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     fn ftruncate(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
         eval_1_arg_special_form(ctx, "ftruncate", args, false, |ctx, arg1, _| {
-            eval_and_then(ctx, arg1, |x| {
+            eval_and_then(ctx, arg1, |_, x| {
                 if x.floatp() {
                     Ok(f64::trunc(x.as_float().unwrap()).into())
                 } else {

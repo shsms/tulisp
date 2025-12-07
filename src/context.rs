@@ -1,13 +1,18 @@
+mod add_function;
+
+mod rest;
+pub use rest::Rest;
+
 use std::{cell::RefCell, collections::HashMap, fs, rc::Rc};
 
 use crate::{
-    builtin,
-    bytecode::{self, compile, Bytecode, Compiler},
+    TulispObject, TulispValue, builtin,
+    bytecode::{self, Bytecode, Compiler, compile},
+    context::add_function::TulispCallable,
     error::Error,
-    eval::{eval, eval_and_then, eval_basic, funcall, DummyEval},
+    eval::{DummyEval, eval, eval_and_then, eval_basic, funcall},
     list,
     parse::parse,
-    TulispObject, TulispValue,
 };
 
 use crate::bytecode::VMCompilers;
@@ -146,6 +151,34 @@ impl TulispContext {
     }
 
     #[inline(always)]
+    pub fn add_function<
+        Args: 'static,
+        Output: 'static,
+        const NEEDS_CONTEXT: bool,
+        const NUM_ARGS: usize,
+        const NUM_OPTIONAL: usize,
+        const HAS_REST: bool,
+        const HAS_RETURN: bool,
+        const FALLIBLE: bool,
+    >(
+        &mut self,
+        name: &str,
+        func: impl TulispCallable<
+            Args,
+            Output,
+            NEEDS_CONTEXT,
+            NUM_ARGS,
+            NUM_OPTIONAL,
+            HAS_REST,
+            HAS_RETURN,
+            FALLIBLE,
+        > + 'static,
+    ) -> &mut Self {
+        func.add_to_context(self, name);
+        self
+    }
+
+    #[inline(always)]
     pub fn add_macro(
         &mut self,
         name: &str,
@@ -157,16 +190,18 @@ impl TulispContext {
     }
 
     /// Evaluates the given value and returns the result.
+    #[inline(always)]
     pub fn eval(&mut self, value: &TulispObject) -> Result<TulispObject, Error> {
         eval(self, value)
     }
 
     /// Evaluates the given value, run the given function on the result of the
     /// evaluation, and returns the result of the function.
+    #[inline(always)]
     pub fn eval_and_then<T>(
         &mut self,
         expr: &TulispObject,
-        f: impl FnOnce(&TulispObject) -> Result<T, Error>,
+        f: impl FnOnce(&mut TulispContext, &TulispObject) -> Result<T, Error>,
     ) -> Result<T, Error> {
         eval_and_then(self, expr, f)
     }
@@ -233,6 +268,7 @@ impl TulispContext {
 
     /// Evaluates each item in the given sequence, and returns the value of the
     /// last one.
+    #[inline(always)]
     pub fn eval_progn(&mut self, seq: &TulispObject) -> Result<TulispObject, Error> {
         let mut ret = None;
         let mut result = None;
@@ -245,6 +281,7 @@ impl TulispContext {
 
     /// Evaluates each item in the given sequence, and returns the value of
     /// each.
+    #[inline(always)]
     pub fn eval_each(&mut self, seq: &TulispObject) -> Result<TulispObject, Error> {
         let ret = TulispObject::nil();
         for val in seq.base_iter() {

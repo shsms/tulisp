@@ -1,7 +1,8 @@
 use crate::{
+    ErrorKind, TulispValue,
     cons::{self, Cons},
     error::Error,
-    TulispValue,
+    value::TulispAny,
 };
 use std::{
     any::Any,
@@ -34,6 +35,7 @@ pub struct TulispObject {
 }
 
 impl Default for TulispObject {
+    #[inline(always)]
     fn default() -> Self {
         TulispObject::nil()
     }
@@ -48,6 +50,7 @@ impl std::fmt::Display for TulispObject {
 macro_rules! predicate_fn {
     ($visibility: vis, $name: ident $(, $doc: literal)?) => {
         $(#[doc=$doc])?
+        #[inline(always)]
         $visibility fn $name(&self) -> bool {
             self.rc.borrow().$name()
         }
@@ -57,6 +60,7 @@ macro_rules! predicate_fn {
 macro_rules! extractor_fn_with_err {
     ($retty: ty, $name: ident $(, $doc: literal)?) => {
         $(#[doc=$doc])?
+        #[inline(always)]
         pub fn $name(&self) -> Result<$retty, Error> {
             self.rc
                 .borrow()
@@ -76,6 +80,7 @@ impl TulispObject {
     ///
     /// Read more about `nil` in Emacs Lisp
     /// [here](https://www.gnu.org/software/emacs/manual/html_node/eintr/nil-explained.html).
+    #[inline(always)]
     pub fn nil() -> TulispObject {
         TulispValue::Nil.into_ref(None)
     }
@@ -84,11 +89,13 @@ impl TulispObject {
     ///
     /// Any value that is not `nil` is considered `True`.  `t` may be used as a
     /// way to explicitly specify `True`.
+    #[inline(always)]
     pub fn t() -> TulispObject {
         TulispValue::T.into_ref(None)
     }
 
     /// Make a cons cell with the given car and cdr values.
+    #[inline(always)]
     pub fn cons(car: TulispObject, cdr: TulispObject) -> TulispObject {
         TulispValue::List {
             cons: Cons::new(car, cdr),
@@ -150,7 +157,7 @@ impl TulispObject {
     /// let items = ctx.eval_string("'(10 20 30 40 -5)")?;
     ///
     /// let items_vec: Vec<i64> = items
-    ///     .iter::<i64>()
+    ///     .iter::<i64>()?
     ///     .map(|x| x.unwrap()) // works because there are only i64 values.
     ///     .collect();
     ///
@@ -159,8 +166,14 @@ impl TulispObject {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn iter<T: std::convert::TryFrom<TulispObject>>(&self) -> cons::Iter<T> {
-        cons::Iter::new(self.base_iter())
+    pub fn iter<T: std::convert::TryFrom<TulispObject>>(&self) -> Result<cons::Iter<T>, Error> {
+        if !self.listp() {
+            return Err(Error::new(
+                ErrorKind::TypeMismatch,
+                format!("Expected a list, got {}", self.fmt_string()),
+            ));
+        }
+        Ok(cons::Iter::new(self.base_iter()))
     }
 
     /// Adds the given value to the end of a list. Returns an Error if `self` is
@@ -277,8 +290,7 @@ with `as_any`, and downcast to desired types.
 
 ## Example
 ```rust
-# use tulisp::{TulispContext, tulisp_fn, Error};
-# use std::any::Any;
+# use tulisp::{TulispContext, destruct_bind, Error, TulispAny};
 # use std::rc::Rc;
 #
 # fn main() -> Result<(), Error> {
@@ -288,10 +300,20 @@ struct TestStruct {
     value: i64,
 }
 
-#[tulisp_fn(add_func = "ctx")]
-fn make_any(inp: i64) -> Rc<dyn Any> {
-    Rc::new(TestStruct { value: inp })
+impl std::fmt::Display for TestStruct {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "\"TestStruct {}\"", self.value)
+    }
 }
+
+ctx.add_special_form("make_any", |_ctx, args| {
+    destruct_bind!((inp) = args);
+    let inp: i64 = inp.try_into()?;
+
+    let any_obj: Rc<dyn TulispAny> = Rc::new(TestStruct { value: inp });
+
+    Ok(any_obj.into())
+});
 
 let out = ctx.eval_string("(make_any 25)")?;
 let ts = out.as_any()?.downcast::<TestStruct>().unwrap();
@@ -369,10 +391,12 @@ impl TulispObject {
         self.rc.borrow().is_lexically_bound()
     }
 
+    #[inline(always)]
     pub(crate) fn eq_ptr(&self, other: &TulispObject) -> bool {
         Rc::ptr_eq(&self.rc, &other.rc)
     }
 
+    #[inline(always)]
     pub(crate) fn eq_val(&self, other: &TulispObject) -> bool {
         self.inner_ref().eq(&other.inner_ref())
     }
@@ -388,9 +412,12 @@ impl TulispObject {
         }
     }
 
+    #[inline(always)]
     pub(crate) fn strong_count(&self) -> usize {
         Rc::strong_count(&self.rc)
     }
+
+    #[inline(always)]
     pub(crate) fn assign(&self, vv: TulispValue) {
         *self.rc.borrow_mut() = vv
     }
@@ -399,6 +426,7 @@ impl TulispObject {
         self.rc.borrow().clone()
     }
 
+    #[inline(always)]
     pub(crate) fn inner_ref(&self) -> Ref<'_, TulispValue> {
         self.rc.borrow()
     }
@@ -434,6 +462,7 @@ impl TulispObject {
     }
 
     #[doc(hidden)]
+    #[inline(always)]
     pub fn span(&self) -> Option<Span> {
         self.span.get()
     }
@@ -537,27 +566,6 @@ impl TryFrom<TulispObject> for Rc<dyn Any> {
     }
 }
 
-macro_rules! try_into_option {
-    ($ty: ty) => {
-        impl TryFrom<TulispObject> for Option<$ty> {
-            type Error = Error;
-
-            fn try_from(value: TulispObject) -> Result<Self, Self::Error> {
-                if value.null() {
-                    Ok(None)
-                } else {
-                    value.try_into().map(|x| Some(x))
-                }
-            }
-        }
-    };
-}
-
-try_into_option!(f64);
-try_into_option!(i64);
-try_into_option!(String);
-try_into_option!(Rc<dyn Any>);
-
 macro_rules! tulisp_object_from {
     ($ty: ty) => {
         impl From<$ty> for TulispObject {
@@ -573,7 +581,7 @@ tulisp_object_from!(f64);
 tulisp_object_from!(&str);
 tulisp_object_from!(String);
 tulisp_object_from!(bool);
-tulisp_object_from!(Rc<dyn Any>);
+tulisp_object_from!(Rc<dyn TulispAny>);
 
 impl FromIterator<TulispObject> for TulispObject {
     fn from_iter<T: IntoIterator<Item = TulispObject>>(iter: T) -> Self {
@@ -584,6 +592,7 @@ impl FromIterator<TulispObject> for TulispObject {
 macro_rules! extractor_cxr_fn {
     ($name: ident, $doc: literal) => {
         #[doc=concat!("Returns the ", $doc, " of `self` if it is a list, and an Error otherwise.")]
+        #[inline(always)]
         pub fn $name(&self) -> Result<TulispObject, Error> {
             self.rc
                 .borrow()
@@ -593,6 +602,7 @@ macro_rules! extractor_cxr_fn {
     };
     ($name: ident) => {
         #[doc(hidden)]
+        #[inline(always)]
         pub fn $name(&self) -> Result<TulispObject, Error> {
             self.rc
                 .borrow()
@@ -607,6 +617,7 @@ macro_rules! extractor_cxr_and_then_fn {
         #[doc=concat!(
             "Executes the given function on the ", $doc, " of `self` and returns the result."
         )]
+        #[inline(always)]
         pub fn $name<Out: Default>(
             &self,
             f: impl FnOnce(&TulispObject) -> Result<Out, Error>,
@@ -619,6 +630,7 @@ macro_rules! extractor_cxr_and_then_fn {
     };
     ($name: ident) => {
         #[doc(hidden)]
+        #[inline(always)]
         pub fn $name<Out: Default>(
             &self,
             f: impl FnOnce(&TulispObject) -> Result<Out, Error>,

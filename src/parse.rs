@@ -1,11 +1,10 @@
 use std::{collections::HashMap, fmt::Write, iter::Peekable, str::Chars};
 
 use crate::{
-    destruct_bind,
+    Error, ErrorKind, TulispContext, TulispObject, TulispValue, destruct_bind,
     eval::{eval, macroexpand},
     list,
     object::Span,
-    Error, ErrorKind, TulispContext, TulispObject, TulispValue,
 };
 
 struct Tokenizer<'a> {
@@ -72,14 +71,13 @@ impl Tokenizer<'_> {
     }
 
     fn next_char(&mut self) -> Option<char> {
-        self.chars.next().map(|ch| {
-            if ch == '\n' {
+        self.chars.next().inspect(|ch| {
+            if *ch == '\n' {
                 self.line += 1;
                 self.pos = 1;
             } else {
                 self.pos += 1;
             }
-            ch
         })
     }
 
@@ -104,7 +102,7 @@ impl Tokenizer<'_> {
                                     start: (self.line, self.pos - 1),
                                     end: (self.line, self.pos),
                                 },
-                            )))
+                            )));
                         }
                     };
                     output.write_char(out_ch).unwrap();
@@ -117,7 +115,7 @@ impl Tokenizer<'_> {
                             end: (self.line, self.pos),
                         },
                         value: output,
-                    })
+                    });
                 }
                 ch => output.write_char(ch).unwrap(),
             }
@@ -425,7 +423,7 @@ impl Parser<'_, '_> {
                             ErrorKind::ParsingError,
                             "Unexpected EOF".to_string(),
                         )
-                        .with_trace(TulispValue::Nil.into_ref(Some(span))))
+                        .with_trace(TulispValue::Nil.into_ref(Some(span))));
                     }
                 };
                 Ok(Some(
@@ -440,7 +438,7 @@ impl Parser<'_, '_> {
                             ErrorKind::ParsingError,
                             "Unexpected EOF".to_string(),
                         )
-                        .with_trace(TulispValue::Nil.into_ref(Some(span))))
+                        .with_trace(TulispValue::Nil.into_ref(Some(span))));
                     }
                 };
                 Ok(Some(
@@ -460,7 +458,7 @@ impl Parser<'_, '_> {
                             ErrorKind::ParsingError,
                             "Unexpected EOF".to_string(),
                         )
-                        .with_trace(TulispValue::Nil.into_ref(Some(span))))
+                        .with_trace(TulispValue::Nil.into_ref(Some(span))));
                     }
                 };
                 Ok(Some(
@@ -478,7 +476,7 @@ impl Parser<'_, '_> {
                             ErrorKind::ParsingError,
                             "Unexpected EOF".to_string(),
                         )
-                        .with_trace(TulispValue::Nil.into_ref(Some(span))))
+                        .with_trace(TulispValue::Nil.into_ref(Some(span))));
                     }
                 };
                 Ok(Some(
@@ -569,26 +567,22 @@ pub(crate) fn mark_tail_calls(
     } else if tail_name_str == "if" {
         destruct_bind!((_if condition then_body &rest else_body) = tail);
         list!(,tail_ident
-              ,condition.clone()
-              ,mark_tail_calls(
-                  ctx,
-                  name.clone(),
-                  list!(,then_body)?
-              )?.car()?
-              ,@mark_tail_calls(ctx, name, else_body)?
+            ,condition.clone()
+            ,mark_tail_calls(
+                ctx,
+                name.clone(),
+                list!(,then_body)?
+            )?.car()?
+            ,@mark_tail_calls(ctx, name, else_body)?
         )?
     } else if tail_name_str == "cond" {
         destruct_bind!((_cond &rest conds) = tail);
         let mut ret = list!(,tail_ident)?;
         for cond in conds.base_iter() {
-            if cond.consp() {
-                destruct_bind!((condition &rest body) = cond);
-                ret = list!(,@ret
-                        ,list!(,condition.clone()
-                               ,@mark_tail_calls(ctx, name.clone(), body)?)?)?;
-            } else {
-                ret = list!(,@ret ,cond)?;
-            }
+            destruct_bind!((condition &rest body) = cond);
+            ret = list!(,@ret
+                ,list!(,condition.clone()
+                    ,@mark_tail_calls(ctx, name.clone(), body)?)?)?;
         }
         ret
     } else {

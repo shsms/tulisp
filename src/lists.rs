@@ -1,6 +1,7 @@
 use crate::{
-    eval::{eval, funcall, DummyEval},
-    list, Error, ErrorKind, TulispContext, TulispObject,
+    Error, ErrorKind, TulispContext, TulispObject,
+    eval::{DummyEval, eval, funcall},
+    list,
 };
 
 /// Returns the number of elements in the given list.
@@ -137,7 +138,7 @@ fn assoc_find(
     alist: &TulispObject,
     mut testfn: impl FnMut(&TulispObject, &TulispObject) -> Result<bool, Error>,
 ) -> Result<TulispObject, Error> {
-    if alist.caar_and_then(|caar| testfn(&caar, key))? {
+    if alist.caar_and_then(|caar| testfn(caar, key))? {
         return alist.car();
     }
     if alist.consp() {
@@ -163,7 +164,7 @@ pub fn plist_get(plist: &TulispObject, property: &TulispObject) -> Result<Tulisp
 
 #[cfg(test)]
 mod tests {
-    use crate::lists::{alist_from, alist_get, plist_from, plist_get, Error, TulispContext};
+    use crate::lists::{Error, TulispContext, alist_from, alist_get, plist_from, plist_get};
 
     #[test]
     fn test_alist() -> Result<(), Error> {

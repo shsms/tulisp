@@ -17,20 +17,19 @@ It is very easy to get started.  Here's an example:
 
 /*!
   ```rust
-  use tulisp::{TulispContext, tulisp_fn, Error};
+  use tulisp::{TulispContext, TulispObject, Error, destruct_eval_bind};
 
   fn main() -> Result<(), Error> {
       // Create a new Tulisp execution context.
       let mut ctx = TulispContext::new();
 
       // Add a function called `add_nums` to `ctx`.
-      #[tulisp_fn(add_func = "ctx")]
-      fn add_nums(num1: i64, num2: i64) -> i64 {
-          num1 + num2
-      }
+      ctx.add_function("add_round", |a: f64, b: f64| -> i64 {
+          (a + b).round() as i64
+      });
 
       // Write a lisp program that calls `add_nums`
-      let program = "(add_nums 10 20)";
+      let program = "(add_round 10.2 20.0)";
 
       // Evaluate the program, and save the result.
       let sum: i64 = ctx.eval_string(program)?.try_into()?;
@@ -75,10 +74,6 @@ A list of currently available builtin functions can be found [here](builtin).
 
 1. [`TulispContext`] tracks the state of the interpreter and provides methods
    for executing _Tulisp_ programs.
-
-1. [`#[tulisp_fn]`](tulisp_fn) and [`#[tulisp_fn_no_eval]`](tulisp_fn_no_eval)
-   are flexible attribute macros for adding many different kinds of functions to
-   a `TulispContext` object, so that they can be called from lisp code.
 */
 
 pub(crate) mod bytecode;
@@ -86,15 +81,13 @@ mod eval;
 mod macros;
 mod parse;
 
-pub use tulisp_proc_macros::{tulisp_add_func, tulisp_add_macro, tulisp_fn, tulisp_fn_no_eval};
-
 pub mod builtin;
 
 mod cons;
 pub use cons::{BaseIter, Iter};
 
 mod context;
-pub use context::TulispContext;
+pub use context::{Rest, TulispContext};
 
 mod error;
 pub use error::{Error, ErrorKind};
@@ -102,8 +95,63 @@ pub use error::{Error, ErrorKind};
 pub mod lists;
 
 mod value;
+pub use value::TulispAny;
 #[doc(hidden)]
 pub use value::TulispValue;
 
 mod object;
 pub use object::TulispObject;
+
+#[cfg(test)]
+mod test_utils {
+    #[track_caller]
+    fn eval_string(ctx: &mut crate::TulispContext, s: &str) -> Result<crate::TulispObject, String> {
+        ctx.eval_string(s).map_err(|e| e.format(ctx))
+    }
+
+    #[track_caller]
+    fn must_eval_string(ctx: &mut crate::TulispContext, s: &str) -> crate::TulispObject {
+        match eval_string(ctx, s) {
+            Ok(t) => t,
+            Err(e) => {
+                panic!("{e}");
+            }
+        }
+    }
+
+    #[track_caller]
+    pub(crate) fn eval_assert_equal(ctx: &mut crate::TulispContext, a: &str, b: &str) {
+        let av = must_eval_string(ctx, a);
+        let bv = must_eval_string(ctx, b);
+        assert!(
+            crate::TulispObject::equal(&av, &bv),
+            "{}(=> {}) != {}(=> {})",
+            a,
+            av,
+            b,
+            bv
+        );
+    }
+
+    #[track_caller]
+    pub(crate) fn eval_assert(ctx: &mut crate::TulispContext, a: &str) {
+        let av = must_eval_string(ctx, a);
+        assert!(av.is_truthy(), "{}(=> {}) is not true", a, av);
+    }
+
+    #[track_caller]
+    pub(crate) fn eval_assert_not(ctx: &mut crate::TulispContext, a: &str) {
+        let av = must_eval_string(ctx, a);
+        assert!(av.null(), "{}(=> {}) is not nil", a, av);
+    }
+
+    #[track_caller]
+    pub(crate) fn eval_assert_error(ctx: &mut crate::TulispContext, a: &str, msg: &str) {
+        match eval_string(ctx, a) {
+            Ok(v) => panic!("Expected error but got {} for {}", v, a),
+            Err(e) => {
+                assert_eq!(e.to_string(), msg, "Error message mismatch for {}", a);
+            }
+        }
+    }
+}

@@ -19,20 +19,19 @@ Tulisp requires `rustc` version 1.70 or higher.
 It is very easy to get started.  Here's an example:
 
   ```rust
-  use tulisp::{TulispContext, tulisp_fn, Error};
+  use tulisp::{TulispContext, TulispObject, Error, destruct_eval_bind};
 
   fn main() -> Result<(), Error> {
       // Create a new Tulisp execution context.
       let mut ctx = TulispContext::new();
 
       // Add a function called `add_nums` to `ctx`.
-      #[tulisp_fn(add_func = "ctx")]
-      fn add_nums(num1: i64, num2: i64) -> i64 {
-          num1 + num2
-      }
+      ctx.add_function("add_round", |a: f64, b: f64| -> i64 {
+          (a + b).round() as i64
+      });
 
       // Write a lisp program that calls `add_nums`
-      let program = "(add_nums 10 20)";
+      let program = "(add_round 10.2 20.0)";
 
       // Evaluate the program, and save the result.
       let sum: i64 = ctx.eval_string(program)?.try_into()?;
