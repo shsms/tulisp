@@ -25,3 +25,30 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Err(Error::throw(ctx.eval(&tag)?, ctx.eval(&value)?))
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::TulispContext;
+    use crate::test_utils::{eval_assert_equal, eval_assert_error};
+
+    #[test]
+    fn test_error_handling() {
+        let mut ctx = TulispContext::new();
+        eval_assert_equal(&mut ctx, "(catch 'my-tag (throw 'my-tag 42))", "42");
+        eval_assert_error(
+            &mut ctx,
+            "(catch 'my-tag (throw 'other-tag 42))",
+            r#"ERR Throw((other-tag . 42)):
+<eval_string>:1.16-1.36:  at (throw 'other-tag 42)
+<eval_string>:1.1-1.37:  at (catch 'my-tag (throw 'other-tag 42))
+"#,
+        );
+        eval_assert_error(
+            &mut ctx,
+            r#"(error "Something went wrong!")"#,
+            r#"ERR LispError: Something went wrong!
+<eval_string>:1.1-1.31:  at (error "Something went wrong!")
+"#,
+        );
+    }
+}

@@ -108,7 +108,15 @@ impl Error {
 
     /// Formats the error into a human-readable string, including backtrace information.
     pub fn format(&self, ctx: &TulispContext) -> String {
-        let mut span_str = format!("ERR {}: {}", self.kind, self.desc);
+        let mut span_str = format!(
+            "ERR {}:{}",
+            self.kind,
+            if self.desc.is_empty() {
+                String::new()
+            } else {
+                format!(" {}", self.desc)
+            }
+        );
         for span in &self.backtrace {
             let prefix = self.format_span(ctx, span);
             if prefix.is_empty() {
