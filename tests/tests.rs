@@ -778,13 +778,13 @@ fn test_rounding_operations() -> Result<(), Error> {
 
     tulisp_assert! {
         program: "(fround)",
-        error: r#"ERR MissingArgument: fround: expected 1 argument.
+        error: r#"ERR TypeMismatch: Too few arguments
 <eval_string>:1.1-1.8:  at (fround)
 "#,
     }
     tulisp_assert! {
         program: "(fround 3.14 3.14)",
-        error: r#"ERR MissingArgument: fround: expected only 1 argument.
+        error: r#"ERR TypeMismatch: Too many arguments
 <eval_string>:1.1-1.18:  at (fround 3.14 3.14)
 "#,
     }

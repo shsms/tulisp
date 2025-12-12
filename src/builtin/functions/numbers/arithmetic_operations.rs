@@ -4,13 +4,11 @@ use crate::eval::eval;
 
 use crate::{Error, TulispContext, TulispObject, TulispValue};
 
-use std::rc::Rc;
-
 pub(crate) fn add(ctx: &mut TulispContext) {
     fn add(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
         reduce_with(ctx, args, binary_ops!(std::ops::Add::add))
     }
-    intern_set_func!(ctx, add, "+");
+    ctx.add_special_form("+", add);
 
     fn sub(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
         if let Some(cons) = args.as_list_cons() {
@@ -26,12 +24,12 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             ))
         }
     }
-    intern_set_func!(ctx, sub, "-");
+    ctx.add_special_form("-", sub);
 
     fn mul(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
         reduce_with(ctx, args, binary_ops!(std::ops::Mul::mul))
     }
-    intern_set_func!(ctx, mul, "*");
+    ctx.add_special_form("*", mul);
 
     fn div(ctx: &mut TulispContext, rest: &TulispObject) -> Result<TulispObject, Error> {
         let mut iter = rest.base_iter();
@@ -47,7 +45,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         }
         reduce_with(ctx, rest, binary_ops!(std::ops::Div::div))
     }
-    intern_set_func!(ctx, div, "/");
+    ctx.add_special_form("/", div);
 
     ctx.add_special_form("1+", |ctx, args| {
         destruct_eval_bind!(ctx, (number) = args);

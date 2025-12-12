@@ -14,7 +14,6 @@ use crate::lists;
 use crate::value::DefunParams;
 use crate::{destruct_bind, list};
 use std::convert::TryInto;
-use std::rc::Rc;
 
 pub(super) fn reduce_with(
     ctx: &mut TulispContext,
@@ -221,7 +220,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(result)
     });
 
-    fn setq(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+    ctx.add_special_form("setq", |ctx, args| {
         let value = args.cdr_and_then(|args| {
             if args.null() {
                 return Err(Error::type_mismatch(
@@ -239,20 +238,19 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         })?;
         args.car_and_then(|name| name.set(value.clone()))?;
         Ok(value)
-    }
-    intern_set_func!(ctx, setq);
+    });
 
-    fn set(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+    ctx.add_special_form("set", |ctx, args| {
         let value = args.cdr_and_then(|args| {
             if args.null() {
                 return Err(Error::type_mismatch(
-                    "setq requires exactly 2 arguments".to_string(),
+                    "set requires exactly 2 arguments".to_string(),
                 ));
             }
             args.cdr_and_then(|x| {
                 if !x.null() {
                     return Err(Error::type_mismatch(
-                        "setq requires exactly 2 arguments".to_string(),
+                        "set requires exactly 2 arguments".to_string(),
                     ));
                 }
                 args.car_and_then(|arg| ctx.eval(arg))
@@ -262,8 +260,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             ctx.eval_and_then(name_sym, |_, name| name.set(value.clone()))
         })?;
         Ok(value)
-    }
-    intern_set_func!(ctx, set);
+    });
 
     fn impl_let(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
         destruct_bind!((varlist &rest rest) = args);
@@ -492,7 +489,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     // List functions
 
-    fn impl_cons(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+    ctx.add_special_form("cons", |ctx, args| {
         let cdr = args.cdr_and_then(|args| {
             if args.null() {
                 return Err(Error::type_mismatch(
@@ -510,8 +507,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         })?;
         let car = args.car_and_then(|arg| ctx.eval(arg))?;
         Ok(TulispObject::cons(car, cdr))
-    }
-    intern_set_func!(ctx, impl_cons, "cons");
+    });
 
     ctx.add_special_form("append", |ctx, args| {
         destruct_eval_bind!(ctx, (first &rest rest) = args);
@@ -521,7 +517,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(first)
     });
 
-    fn dolist(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+    ctx.add_special_form("dolist", |ctx, args| {
         destruct_bind!((spec &rest body) = args);
         destruct_bind!((var list &optional result) = spec);
         let mut list = ctx.eval(&list)?;
@@ -534,10 +530,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         }
         var.unset()?;
         ctx.eval(&result)
-    }
-    intern_set_func!(ctx, dolist);
+    });
 
-    fn dotimes(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+    ctx.add_special_form("dotimes", |ctx, args| {
         destruct_bind!((spec &rest body) = args);
         destruct_bind!((var count &optional result) = spec);
         var.set_scope(TulispObject::from(0))?;
@@ -548,10 +543,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         }
         var.unset()?;
         ctx.eval(&result)
-    }
-    intern_set_func!(ctx, dotimes);
+    });
 
-    fn list(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+    ctx.add_special_form("list", |ctx, args| {
         let (ctxobj, span) = (args.ctxobj(), args.span());
         let mut cons: Option<Cons> = None;
         for ele in args.base_iter() {
@@ -566,8 +560,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             Some(cons) => Ok(TulispValue::List { cons, ctxobj }.into_ref(span)),
             None => Ok(TulispObject::nil()),
         }
-    }
-    intern_set_func!(ctx, list);
+    });
 
     ctx.add_special_form("mapcar", |ctx, args| {
         destruct_eval_bind!(ctx, (func seq) = args);
@@ -622,7 +615,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 }
                 args.car_and_then(|arg| eval_and_then(ctx, &arg, |_, x| Ok(x.$name().into())))
             }
-            intern_set_func!(ctx, $name);
+            ctx.add_special_form(stringify!($name), $name);
         };
     }
     predicate_function!(consp);
