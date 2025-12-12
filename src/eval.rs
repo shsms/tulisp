@@ -215,8 +215,8 @@ pub(crate) fn eval(ctx: &mut TulispContext, expr: &TulispObject) -> Result<Tulis
 
 #[inline(always)]
 pub(crate) fn eval_check_null(ctx: &mut TulispContext, expr: &TulispObject) -> Result<bool, Error> {
-    let mut result = None;
-    eval_basic(ctx, expr, &mut result)?;
+    let result = &mut None;
+    eval_basic(ctx, expr, result)?;
     if let Some(result) = result {
         Ok(result.null())
     } else {
@@ -230,10 +230,10 @@ pub(crate) fn eval_and_then<T>(
     expr: &TulispObject,
     func: impl FnOnce(&mut TulispContext, &TulispObject) -> Result<T, Error>,
 ) -> Result<T, Error> {
-    let mut result = None;
-    eval_basic(ctx, expr, &mut result)?;
+    let result = &mut None;
+    eval_basic(ctx, expr, result)?;
     if let Some(result) = result {
-        func(ctx, &result)
+        func(ctx, result)
     } else {
         func(ctx, expr)
     }
