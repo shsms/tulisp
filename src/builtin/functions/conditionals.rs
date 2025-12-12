@@ -1,7 +1,5 @@
 use crate::{
-    Error, TulispContext, TulispObject, TulispValue,
-    builtin::functions::common::eval_2_arg_special_form,
-    destruct_bind, destruct_eval_bind,
+    Error, TulispContext, TulispObject, TulispValue, destruct_bind, destruct_eval_bind,
     eval::{eval_and_then, eval_basic},
     list,
     lists::{last, length},
@@ -9,16 +7,14 @@ use crate::{
 use std::rc::Rc;
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    fn impl_if(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
-        eval_2_arg_special_form(ctx, "if", args, true, |ctx, cond, then, else_body| {
-            if eval_and_then(ctx, cond, |_, x| Ok(x.is_truthy()))? {
-                ctx.eval(then)
-            } else {
-                ctx.eval_progn(else_body)
-            }
-        })
-    }
-    intern_set_func!(ctx, impl_if, "if");
+    ctx.add_special_form("if", |ctx, args| {
+        destruct_bind!((cond then &rest body) = args);
+        if ctx.eval_and_then(&cond, |_, x| Ok(x.is_truthy()))? {
+            ctx.eval(&then)
+        } else {
+            ctx.eval_progn(&body)
+        }
+    });
 
     fn when(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
         destruct_bind!((cond &rest body) = args);
