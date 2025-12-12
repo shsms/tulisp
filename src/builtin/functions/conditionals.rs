@@ -1,10 +1,9 @@
 use crate::{
-    Error, TulispContext, TulispObject, TulispValue, destruct_bind, destruct_eval_bind,
+    Error, TulispContext, TulispObject, destruct_bind, destruct_eval_bind,
     eval::{eval_and_then, eval_basic},
     list,
     lists::{last, length},
 };
-use std::rc::Rc;
 
 pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.add_special_form("if", |ctx, args| {
@@ -32,15 +31,14 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     }
     ctx.add_macro("unless", unless);
 
-    fn cond(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+    ctx.add_special_form("cond", |ctx, args| {
         for item in args.base_iter() {
             if item.car_and_then(|x| eval_and_then(ctx, x, |_, x| Ok(x.is_truthy())))? {
                 return item.cdr_and_then(|x| ctx.eval_progn(x));
             }
         }
         Ok(TulispObject::nil())
-    }
-    intern_set_func!(ctx, cond, "cond");
+    });
 
     // Constructs for combining conditions
     fn not(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {

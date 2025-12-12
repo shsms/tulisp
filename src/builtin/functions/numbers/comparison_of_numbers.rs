@@ -1,8 +1,7 @@
 use crate::{
-    Error, TulispContext, TulispObject, TulispValue, builtin::functions::functions::reduce_with,
+    Error, TulispContext, TulispObject, builtin::functions::functions::reduce_with,
     destruct_eval_bind,
 };
-use std::rc::Rc;
 
 macro_rules! compare_ops {
     ($oper:expr) => {{
@@ -70,26 +69,26 @@ macro_rules! compare_impl {
 
 pub(crate) fn add(ctx: &mut TulispContext) {
     compare_impl!(gt, ">");
-    intern_set_func!(ctx, gt, ">");
+    ctx.add_special_form(">", gt);
 
     compare_impl!(ge, ">=");
-    intern_set_func!(ctx, ge, ">=");
+    ctx.add_special_form(">=", ge);
 
     compare_impl!(lt, "<");
-    intern_set_func!(ctx, lt, "<");
+    ctx.add_special_form("<", lt);
 
     compare_impl!(le, "<=");
-    intern_set_func!(ctx, le, "<=");
+    ctx.add_special_form("<=", le);
 
     fn max(ctx: &mut TulispContext, rest: &TulispObject) -> Result<TulispObject, Error> {
         reduce_with(ctx, rest, max_min_ops!(max))
     }
-    intern_set_func!(ctx, max, "max");
+    ctx.add_special_form("max", max);
 
     fn min(ctx: &mut TulispContext, rest: &TulispObject) -> Result<TulispObject, Error> {
         reduce_with(ctx, rest, max_min_ops!(min))
     }
-    intern_set_func!(ctx, min, "min");
+    ctx.add_special_form("min", min);
 
     ctx.add_special_form("abs", |ctx, args| {
         destruct_eval_bind!(ctx, (number) = args);
