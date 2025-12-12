@@ -53,7 +53,6 @@ macro_rules! intern_set_func {
     };
 }
 
-pub(crate) mod common;
 mod comparison_of_strings;
 mod conditionals;
 mod equality_predicates;
