@@ -20,4 +20,8 @@ name = "tulisp"
 path = "src/lib.rs"
 
 [features]
+default = ["sync_send"]
 big_functions = []
+# This enables an `Arc<RwLock<...>>` implementation of `TulispObject`
+# which enables the objects to be shared across threads.
+sync_send = []
