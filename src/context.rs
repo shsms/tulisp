@@ -11,6 +11,7 @@ use crate::{
     error::Error,
     eval::{DummyEval, eval, eval_and_then, eval_basic, funcall},
     list,
+    object::wrappers::generic::TulispFn,
     parse::parse,
 };
 
@@ -86,11 +87,7 @@ impl TulispContext {
     }
 
     #[inline(always)]
-    pub fn add_special_form(
-        &mut self,
-        name: &str,
-        func: impl Fn(&mut TulispContext, &TulispObject) -> Result<TulispObject, Error> + 'static,
-    ) {
+    pub fn add_special_form(&mut self, name: &str, func: impl TulispFn) {
         self.intern(name)
             .set_global(TulispValue::Func(Rc::new(func)).into_ref(None))
             .unwrap();
@@ -125,11 +122,7 @@ impl TulispContext {
     }
 
     #[inline(always)]
-    pub fn add_macro(
-        &mut self,
-        name: &str,
-        func: impl Fn(&mut TulispContext, &TulispObject) -> Result<TulispObject, Error> + 'static,
-    ) {
+    pub fn add_macro(&mut self, name: &str, func: impl TulispFn) {
         self.intern(name)
             .set_global(TulispValue::Macro(Rc::new(func)).into_ref(None))
             .unwrap();

@@ -1,9 +1,9 @@
 use crate::{
-    TulispContext, TulispObject,
+    TulispObject,
     cons::{self, Cons},
     context::Scope,
     error::Error,
-    object::Span,
+    object::{Span, wrappers::generic::TulispFn},
 };
 use std::{
     any::Any,
@@ -97,8 +97,6 @@ impl DefunParams {
         self.scope.remove_all()
     }
 }
-
-type TulispFn = dyn Fn(&mut TulispContext, &TulispObject) -> Result<TulispObject, Error>;
 
 #[derive(Default, Clone, Debug)]
 pub struct SymbolBindings {
@@ -244,8 +242,8 @@ pub enum TulispValue {
         value: TulispObject,
     },
     Any(Rc<dyn TulispAny>),
-    Func(Rc<TulispFn>),
-    Macro(Rc<TulispFn>),
+    Func(Rc<dyn TulispFn>),
+    Macro(Rc<dyn TulispFn>),
     Defmacro {
         params: DefunParams,
         body: TulispObject,
