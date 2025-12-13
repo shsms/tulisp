@@ -6,7 +6,7 @@ use crate::{
 };
 use std::{
     any::Any,
-    cell::{Cell, Ref, RefCell},
+    cell::{Ref, RefCell},
     rc::Rc,
 };
 
@@ -31,7 +31,7 @@ impl Span {
 #[derive(Debug, Clone)]
 pub struct TulispObject {
     rc: Rc<RefCell<TulispValue>>,
-    span: Rc<Cell<Option<Span>>>,
+    span: Rc<RefCell<Option<Span>>>,
 }
 
 impl Default for TulispObject {
@@ -373,7 +373,7 @@ impl TulispObject {
     pub(crate) fn new(vv: TulispValue, span: Option<Span>) -> TulispObject {
         Self {
             rc: Rc::new(RefCell::new(vv)),
-            span: Rc::new(Cell::new(span)),
+            span: Rc::new(RefCell::new(span)),
         }
     }
 
@@ -411,7 +411,7 @@ impl TulispObject {
     pub(crate) fn clone_without_span(&self) -> Self {
         Self {
             rc: Rc::clone(&self.rc),
-            span: Rc::new(Cell::new(None)),
+            span: Rc::new(RefCell::new(None)),
         }
     }
 
@@ -448,7 +448,7 @@ impl TulispObject {
     }
 
     pub(crate) fn with_span(&self, in_span: Option<Span>) -> Self {
-        self.span.set(in_span);
+        *self.span.borrow_mut() = in_span;
         self.clone()
     }
     pub(crate) fn take(&self) -> TulispValue {
@@ -458,7 +458,7 @@ impl TulispObject {
     #[doc(hidden)]
     #[inline(always)]
     pub fn span(&self) -> Option<Span> {
-        self.span.get()
+        self.span.borrow().clone()
     }
 
     #[doc(hidden)]
