@@ -3,13 +3,15 @@ use crate::{
     cons::{self, Cons},
     context::Scope,
     error::Error,
-    object::{Span, wrappers::generic::TulispFn},
+    object::{
+        Span,
+        wrappers::generic::{Shared, TulispFn},
+    },
 };
 use std::{
     any::Any,
     convert::TryInto,
     fmt::{Display, Write},
-    rc::Rc,
 };
 
 #[doc(hidden)]
@@ -198,6 +200,13 @@ impl SymbolBindings {
 }
 
 pub trait TulispAny: Any + Display {}
+
+impl std::fmt::Debug for dyn TulispAny {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "TulispAny({})", self)
+    }
+}
+
 impl<T: Any + Display> TulispAny for T {}
 
 #[doc(hidden)]
@@ -241,9 +250,9 @@ pub enum TulispValue {
     Splice {
         value: TulispObject,
     },
-    Any(Rc<dyn TulispAny>),
-    Func(Rc<dyn TulispFn>),
-    Macro(Rc<dyn TulispFn>),
+    Any(Shared<dyn TulispAny>),
+    Func(Shared<dyn TulispFn>),
+    Macro(Shared<dyn TulispFn>),
     Defmacro {
         params: DefunParams,
         body: TulispObject,
@@ -720,11 +729,11 @@ impl TulispValue {
     }
 
     #[inline(always)]
-    pub(crate) fn as_any(&self) -> Result<Rc<dyn Any>, Error> {
+    pub(crate) fn as_any(&self) -> Result<Shared<dyn TulispAny>, Error> {
         match self {
             TulispValue::Any(value) => Ok(value.clone()),
             _ => Err(Error::type_mismatch(format!(
-                "Expected Any(Rc<dyn TulispAny>), got: {}",
+                "Expected Any(Shared<dyn TulispAny>), got: {}",
                 self
             ))),
         }
@@ -819,8 +828,8 @@ impl From<bool> for TulispValue {
     }
 }
 
-impl From<Rc<dyn TulispAny>> for TulispValue {
-    fn from(value: Rc<dyn TulispAny>) -> Self {
+impl From<Shared<dyn TulispAny>> for TulispValue {
+    fn from(value: Shared<dyn TulispAny>) -> Self {
         TulispValue::Any(value)
     }
 }

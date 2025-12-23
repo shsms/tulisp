@@ -1,5 +1,5 @@
-use std::{fmt::Display, rc::Rc};
-use tulisp::{Error, Iter, TulispAny, TulispContext, TulispObject, destruct_eval_bind};
+use std::fmt::Display;
+use tulisp::{Error, Iter, Shared, TulispAny, TulispContext, TulispObject, destruct_eval_bind};
 
 macro_rules! tulisp_assert {
     (@impl $ctx: expr, program:$input:expr, result:$result:expr $(,)?) => {
@@ -1165,7 +1165,7 @@ fn test_any() -> Result<(), Error> {
 
     ctx.add_special_form("make_any", |ctx, args| {
         destruct_eval_bind!(ctx, (inp) = args);
-        let res: Rc<dyn TulispAny> = Rc::new(TestStruct {
+        let res: Shared<dyn TulispAny> = Shared::new_any(TestStruct {
             value: inp.try_into()?,
         });
 
@@ -1190,7 +1190,7 @@ fn test_any() -> Result<(), Error> {
     tulisp_assert! {
         ctx: ctx,
         program: "(get_int 55)",
-        error: r#"ERR TypeMismatch: Expected Any(Rc<dyn TulispAny>), got: 55
+        error: r#"ERR TypeMismatch: Expected Any(Shared<dyn TulispAny>), got: 55
 <eval_string>:1.10-1.11:  at 55
 <eval_string>:1.1-1.12:  at (get_int 55)
 "#

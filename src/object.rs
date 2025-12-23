@@ -1,16 +1,13 @@
-pub(crate) mod wrappers;
+pub mod wrappers;
 
 use crate::{
     TulispValue,
     cons::{self, Cons},
     error::Error,
+    object::wrappers::generic::{Shared, SharedMut},
     value::TulispAny,
 };
-use std::{
-    any::Any,
-    cell::{Ref, RefCell},
-    rc::Rc,
-};
+use std::cell::Ref;
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
 pub struct Span {
@@ -32,8 +29,8 @@ impl Span {
 /// A type for representing tulisp objects.
 #[derive(Debug, Clone)]
 pub struct TulispObject {
-    rc: Rc<RefCell<TulispValue>>,
-    span: Rc<RefCell<Option<Span>>>,
+    rc: SharedMut<TulispValue>,
+    span: SharedMut<Option<Span>>,
 }
 
 impl Default for TulispObject {
@@ -283,7 +280,7 @@ impl TulispObject {
         "Returns a string if `self` contains a string, and an Error otherwise."
     );
     extractor_fn_with_err!(
-        Rc<dyn Any>,
+        Shared<dyn TulispAny>,
         as_any,
         r#"Returns a boxed value if `self` contains a boxed value, and an Error otherwise.
 
@@ -292,8 +289,7 @@ with `as_any`, and downcast to desired types.
 
 ## Example
 ```rust
-# use tulisp::{TulispContext, destruct_bind, Error, TulispAny};
-# use std::rc::Rc;
+# use tulisp::{TulispContext, destruct_bind, Error, TulispAny, Shared};
 #
 # fn main() -> Result<(), Error> {
 let mut ctx = TulispContext::new();
@@ -312,7 +308,7 @@ ctx.add_special_form("make_any", |_ctx, args| {
     destruct_bind!((inp) = args);
     let inp: i64 = inp.try_into()?;
 
-    let any_obj: Rc<dyn TulispAny> = Rc::new(TestStruct { value: inp });
+    let any_obj = Shared::new_any(TestStruct { value: inp });
 
     Ok(any_obj.into())
 });
@@ -374,8 +370,8 @@ impl TulispObject {
 
     pub(crate) fn new(vv: TulispValue, span: Option<Span>) -> TulispObject {
         Self {
-            rc: Rc::new(RefCell::new(vv)),
-            span: Rc::new(RefCell::new(span)),
+            rc: SharedMut::new(vv),
+            span: SharedMut::new(span),
         }
     }
 
@@ -398,7 +394,7 @@ impl TulispObject {
 
     #[inline(always)]
     pub(crate) fn eq_ptr(&self, other: &TulispObject) -> bool {
-        Rc::ptr_eq(&self.rc, &other.rc)
+        self.rc.ptr_eq(&other.rc)
     }
 
     #[inline(always)]
@@ -412,14 +408,14 @@ impl TulispObject {
 
     pub(crate) fn clone_without_span(&self) -> Self {
         Self {
-            rc: Rc::clone(&self.rc),
-            span: Rc::new(RefCell::new(None)),
+            rc: self.rc.clone(),
+            span: SharedMut::new(None),
         }
     }
 
     #[inline(always)]
     pub(crate) fn strong_count(&self) -> usize {
-        Rc::strong_count(&self.rc)
+        self.rc.strong_count()
     }
 
     #[inline(always)]
@@ -554,7 +550,7 @@ impl From<TulispObject> for bool {
     }
 }
 
-impl TryFrom<TulispObject> for Rc<dyn Any> {
+impl TryFrom<TulispObject> for Shared<dyn TulispAny> {
     type Error = Error;
 
     fn try_from(value: TulispObject) -> Result<Self, Self::Error> {
@@ -577,7 +573,7 @@ tulisp_object_from!(f64);
 tulisp_object_from!(&str);
 tulisp_object_from!(String);
 tulisp_object_from!(bool);
-tulisp_object_from!(Rc<dyn TulispAny>);
+tulisp_object_from!(Shared<dyn TulispAny>);
 
 impl FromIterator<TulispObject> for TulispObject {
     fn from_iter<T: IntoIterator<Item = TulispObject>>(iter: T) -> Self {
