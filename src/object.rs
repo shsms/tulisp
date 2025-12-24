@@ -403,7 +403,7 @@ impl TulispObject {
     }
 
     pub(crate) fn addr_as_usize(&self) -> usize {
-        self.rc.as_ptr() as usize
+        self.rc.addr_as_usize()
     }
 
     pub(crate) fn clone_without_span(&self) -> Self {

@@ -89,8 +89,8 @@ pub mod generic {
             self.0.borrow_mut()
         }
 
-        pub fn as_ptr(&self) -> *const T {
-            self.0.as_ptr()
+        pub fn addr_as_usize(&self) -> usize {
+            self.0.as_ptr() as usize
         }
 
         pub fn strong_count(&self) -> usize {
