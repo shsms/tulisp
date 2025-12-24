@@ -4,10 +4,9 @@ use crate::{
     TulispValue,
     cons::{self, Cons},
     error::Error,
-    object::wrappers::generic::{Shared, SharedMut},
+    object::wrappers::generic::{Shared, SharedMut, SharedRef},
     value::TulispAny,
 };
-use std::cell::Ref;
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
 pub struct Span {
@@ -428,7 +427,7 @@ impl TulispObject {
     }
 
     #[inline(always)]
-    pub(crate) fn inner_ref(&self) -> Ref<'_, TulispValue> {
+    pub(crate) fn inner_ref(&self) -> SharedRef<'_, TulispValue> {
         self.rc.borrow()
     }
 

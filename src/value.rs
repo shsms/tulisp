@@ -5,7 +5,7 @@ use crate::{
     error::Error,
     object::{
         Span,
-        wrappers::generic::{Shared, TulispFn},
+        wrappers::generic::{Shared, SyncSend, TulispFn},
     },
 };
 use std::{
@@ -199,7 +199,7 @@ impl SymbolBindings {
     }
 }
 
-pub trait TulispAny: Any + Display {}
+pub trait TulispAny: Any + Display + SyncSend {}
 
 impl std::fmt::Debug for dyn TulispAny {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -207,7 +207,7 @@ impl std::fmt::Debug for dyn TulispAny {
     }
 }
 
-impl<T: Any + Display> TulispAny for T {}
+impl<T: Any + Display + SyncSend> TulispAny for T {}
 
 #[doc(hidden)]
 #[derive(Clone)]
