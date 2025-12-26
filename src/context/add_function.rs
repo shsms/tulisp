@@ -1,3 +1,4 @@
+use crate::object::wrappers::generic::SyncSend;
 use crate::{Error, Rest, TulispContext, TulispObject, destruct_bind, destruct_eval_bind};
 
 pub trait TulispCallable<
@@ -25,7 +26,7 @@ macro_rules! impl_tulisp_callable {
         impl<OutT, FnT, $($arg,)* $($opt,)*>
         TulispCallable<($($arg,)* $($opt,)*) , OutT, false, $args_count, $opts_count, false, true, false> for FnT
         where
-        FnT: Fn($($arg,)* $(Option<$opt>),*) -> OutT + 'static,
+        FnT: Fn($($arg,)* $(Option<$opt>),*) -> OutT + 'static + SyncSend,
         $($arg: TryFrom<TulispObject, Error = Error> + 'static,)*
         $($opt: TryFrom<TulispObject, Error = Error> + 'static,)*
         OutT: Into<TulispObject> + 'static,
@@ -51,7 +52,7 @@ macro_rules! impl_tulisp_callable {
         impl<FnT, $($arg,)* $($opt,)*>
         TulispCallable<($($arg,)* $($opt,)*) , (), false, $args_count, $opts_count, false, false, false> for FnT
         where
-        FnT: Fn($($arg,)* $(Option<$opt>),*) + 'static,
+        FnT: Fn($($arg,)* $(Option<$opt>),*) + 'static + SyncSend,
         $($arg: TryFrom<TulispObject, Error = Error> + 'static,)*
         $($opt: TryFrom<TulispObject, Error = Error> + 'static,)*
         {
@@ -76,7 +77,7 @@ macro_rules! impl_tulisp_callable {
         impl<OutT, FnT, $($arg,)* $($opt,)*>
         TulispCallable<($($arg,)* $($opt,)*) , OutT, true, $args_count, $opts_count, false, true,false> for FnT
         where
-        FnT: Fn(&mut TulispContext, $($arg,)* $(Option<$opt>),*) -> OutT + 'static,
+        FnT: Fn(&mut TulispContext, $($arg,)* $(Option<$opt>),*) -> OutT + 'static + SyncSend,
         $($arg: TryFrom<TulispObject, Error = Error> + 'static,)*
         $($opt: TryFrom<TulispObject, Error = Error> + 'static,)*
         OutT: Into<TulispObject> + 'static,
@@ -102,7 +103,7 @@ macro_rules! impl_tulisp_callable {
         impl<FnT, $($arg,)* $($opt,)*>
         TulispCallable<($($arg,)* $($opt,)*), (), true, $args_count, $opts_count, false, false,false> for FnT
         where
-        FnT: Fn(&mut TulispContext, $($arg,)* $(Option<$opt>),*) + 'static,
+        FnT: Fn(&mut TulispContext, $($arg,)* $(Option<$opt>),*) + 'static + SyncSend,
         $($arg: TryFrom<TulispObject, Error = Error> + 'static,)*
         $($opt: TryFrom<TulispObject, Error = Error> + 'static,)*
         {
@@ -127,7 +128,7 @@ macro_rules! impl_tulisp_callable {
         impl<OutT, FnT, $($arg,)* $($opt,)*>
         TulispCallable<($($arg,)* $($opt,)*) , OutT, false, $args_count, $opts_count, false, true, true> for FnT
         where
-        FnT: Fn($($arg,)* $(Option<$opt>),*) -> Result<OutT, Error> + 'static,
+        FnT: Fn($($arg,)* $(Option<$opt>),*) -> Result<OutT, Error> + 'static + SyncSend,
         $($arg: TryFrom<TulispObject, Error = Error> + 'static,)*
         $($opt: TryFrom<TulispObject, Error = Error> + 'static,)*
         OutT: Into<TulispObject> + 'static,
@@ -153,7 +154,7 @@ macro_rules! impl_tulisp_callable {
         impl<OutT, FnT, $($arg,)* $($opt,)*>
         TulispCallable<($($arg,)* $($opt,)*) , OutT, true, $args_count, $opts_count, false, true, true> for FnT
         where
-        FnT: Fn(&mut TulispContext, $($arg,)* $(Option<$opt>),*) -> Result<OutT, Error> + 'static,
+        FnT: Fn(&mut TulispContext, $($arg,)* $(Option<$opt>),*) -> Result<OutT, Error> + 'static + SyncSend,
         $($arg: TryFrom<TulispObject, Error = Error> + 'static,)*
         $($opt: TryFrom<TulispObject, Error = Error> + 'static,)*
         OutT: Into<TulispObject> + 'static,
@@ -179,7 +180,7 @@ macro_rules! impl_tulisp_callable {
         impl<RestT, OutT, FnT, $($arg,)* $($opt,)*>
         TulispCallable<($($arg,)* $($opt,)* RestT,), OutT, false, $args_count, $opts_count, true, true, false> for FnT
         where
-        FnT: Fn($($arg,)* $(Option<$opt>,)* Rest<RestT>) -> OutT + 'static,
+        FnT: Fn($($arg,)* $(Option<$opt>,)* Rest<RestT>) -> OutT + 'static + SyncSend,
         $($arg: TryFrom<TulispObject, Error = Error> + 'static,)*
         $($opt: TryFrom<TulispObject, Error = Error> + 'static,)*
         RestT: TryFrom<TulispObject, Error = Error> + Into<TulispObject> + 'static,
@@ -216,7 +217,7 @@ macro_rules! impl_tulisp_callable {
         impl<RestT, FnT, $($arg,)* $($opt,)*>
         TulispCallable<($($arg,)* $($opt,)* RestT,), (), false, $args_count, $opts_count, true, false, false> for FnT
         where
-        FnT: Fn($($arg,)* $(Option<$opt>,)* Rest<RestT>) + 'static,
+        FnT: Fn($($arg,)* $(Option<$opt>,)* Rest<RestT>) + 'static + SyncSend,
         $($arg: TryFrom<TulispObject, Error = Error> + 'static,)*
         $($opt: TryFrom<TulispObject, Error = Error> + 'static,)*
         RestT: TryFrom<TulispObject, Error = Error> + Into<TulispObject> + 'static,
@@ -252,7 +253,7 @@ macro_rules! impl_tulisp_callable {
         impl<RestT, OutT, FnT, $($arg,)* $($opt,)*>
         TulispCallable<($($arg,)* $($opt,)* RestT,), OutT, true, $args_count, $opts_count, true, true, false> for FnT
         where
-        FnT: Fn(&mut TulispContext, $($arg,)* $(Option<$opt>,)* Rest<RestT>) -> OutT + 'static,
+        FnT: Fn(&mut TulispContext, $($arg,)* $(Option<$opt>,)* Rest<RestT>) -> OutT + 'static + SyncSend,
         $($arg: TryFrom<TulispObject, Error = Error> + 'static,)*
         $($opt: TryFrom<TulispObject, Error = Error> + 'static,)*
         RestT: TryFrom<TulispObject, Error = Error> + Into<TulispObject> + 'static,
@@ -290,7 +291,7 @@ macro_rules! impl_tulisp_callable {
         impl<RestT, FnT, $($arg,)* $($opt,)*>
         TulispCallable<($($arg,)* $($opt,)* RestT,), (), true, $args_count, $opts_count, true, false, false> for FnT
         where
-        FnT: Fn(&mut TulispContext, $($arg,)* $(Option<$opt>,)* Rest<RestT>) + 'static,
+        FnT: Fn(&mut TulispContext, $($arg,)* $(Option<$opt>,)* Rest<RestT>) + 'static + SyncSend,
         $($arg: TryFrom<TulispObject, Error = Error> + 'static,)*
         $($opt: TryFrom<TulispObject, Error = Error> + 'static,)*
         RestT: TryFrom<TulispObject, Error = Error> + Into<TulispObject> + 'static,
@@ -327,7 +328,7 @@ macro_rules! impl_tulisp_callable {
         impl<RestT, OutT, FnT, $($arg,)* $($opt,)*>
         TulispCallable<($($arg,)* $($opt,)* RestT,), OutT, false, $args_count, $opts_count, true, true, true> for FnT
         where
-        FnT: Fn($($arg,)* $(Option<$opt>,)* Rest<RestT>) -> Result<OutT, Error> + 'static,
+        FnT: Fn($($arg,)* $(Option<$opt>,)* Rest<RestT>) -> Result<OutT, Error> + 'static + SyncSend,
         $($arg: TryFrom<TulispObject, Error = Error> + 'static,)*
         $($opt: TryFrom<TulispObject, Error = Error> + 'static,)*
         RestT: TryFrom<TulispObject, Error = Error> + Into<TulispObject> + 'static,
@@ -364,7 +365,7 @@ macro_rules! impl_tulisp_callable {
         impl<RestT, OutT, FnT, $($arg,)* $($opt,)*>
         TulispCallable<($($arg,)* $($opt,)* RestT,), OutT, true, $args_count, $opts_count, true, true, true> for FnT
         where
-        FnT: Fn(&mut TulispContext, $($arg,)* $(Option<$opt>,)* Rest<RestT>) -> Result<OutT, Error> + 'static,
+        FnT: Fn(&mut TulispContext, $($arg,)* $(Option<$opt>,)* Rest<RestT>) -> Result<OutT, Error> + 'static + SyncSend,
         $($arg: TryFrom<TulispObject, Error = Error> + 'static,)*
         $($opt: TryFrom<TulispObject, Error = Error> + 'static,)*
         RestT: TryFrom<TulispObject, Error = Error> + Into<TulispObject> + 'static,

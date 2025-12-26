@@ -3,7 +3,7 @@ mod add_function;
 mod rest;
 pub use rest::Rest;
 
-use std::{collections::HashMap, fs, rc::Rc};
+use std::{collections::HashMap, fs};
 
 use crate::{
     TulispObject, TulispValue, builtin,
@@ -11,6 +11,7 @@ use crate::{
     error::Error,
     eval::{DummyEval, eval, eval_and_then, eval_basic, funcall},
     list,
+    object::wrappers::generic::{Shared, TulispFn},
     parse::parse,
 };
 
@@ -86,13 +87,9 @@ impl TulispContext {
     }
 
     #[inline(always)]
-    pub fn add_special_form(
-        &mut self,
-        name: &str,
-        func: impl Fn(&mut TulispContext, &TulispObject) -> Result<TulispObject, Error> + 'static,
-    ) {
+    pub fn add_special_form(&mut self, name: &str, func: impl TulispFn + std::any::Any) {
         self.intern(name)
-            .set_global(TulispValue::Func(Rc::new(func)).into_ref(None))
+            .set_global(TulispValue::Func(Shared::new_tulisp_fn(func)).into_ref(None))
             .unwrap();
     }
 
@@ -125,13 +122,9 @@ impl TulispContext {
     }
 
     #[inline(always)]
-    pub fn add_macro(
-        &mut self,
-        name: &str,
-        func: impl Fn(&mut TulispContext, &TulispObject) -> Result<TulispObject, Error> + 'static,
-    ) {
+    pub fn add_macro(&mut self, name: &str, func: impl TulispFn) {
         self.intern(name)
-            .set_global(TulispValue::Macro(Rc::new(func)).into_ref(None))
+            .set_global(TulispValue::Macro(Shared::new_tulisp_fn(func)).into_ref(None))
             .unwrap();
     }
 

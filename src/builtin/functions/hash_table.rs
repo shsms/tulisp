@@ -1,5 +1,8 @@
-use crate::{Error, TulispAny, TulispContext, TulispObject, destruct_eval_bind};
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use crate::{
+    Error, TulispContext, TulispObject, destruct_eval_bind,
+    object::wrappers::generic::{Shared, SharedMut},
+};
+use std::collections::HashMap;
 
 struct TulispObjectEql(TulispObject);
 
@@ -29,7 +32,7 @@ impl From<TulispObject> for TulispObjectEql {
 }
 
 pub(crate) struct HashTable {
-    inner: RefCell<HashMap<TulispObjectEql, TulispObject>>,
+    inner: SharedMut<HashMap<TulispObjectEql, TulispObject>>,
 }
 
 impl std::fmt::Display for HashTable {
@@ -46,8 +49,8 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             )
             .with_trace(args.clone()));
         }
-        let table: Rc<dyn TulispAny> = Rc::new(HashTable {
-            inner: RefCell::new(HashMap::new()),
+        let table = Shared::new_any(HashTable {
+            inner: SharedMut::new(HashMap::new()),
         });
         Ok(table.into())
     });

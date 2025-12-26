@@ -20,4 +20,5 @@ name = "tulisp"
 path = "src/lib.rs"
 
 [features]
+sync = []
 big_functions = []
