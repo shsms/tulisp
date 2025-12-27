@@ -307,7 +307,7 @@ ctx.add_special_form("make_any", |_ctx, args| {
     destruct_bind!((inp) = args);
     let inp: i64 = inp.try_into()?;
 
-    let any_obj = Shared::new_any(TestStruct { value: inp });
+    let any_obj = Shared::new(TestStruct { value: inp });
 
     Ok(any_obj.into())
 });

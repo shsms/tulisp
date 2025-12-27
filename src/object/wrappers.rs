@@ -30,11 +30,11 @@ pub mod generic {
     }
 
     impl Shared<dyn TulispAny> {
-        pub fn new_tulisp_fn(val: impl TulispFn) -> Shared<dyn TulispFn> {
+        pub(crate) fn new_tulisp_fn(val: impl TulispFn) -> Shared<dyn TulispFn> {
             Shared(std::rc::Rc::new(val))
         }
 
-        pub fn new_any(val: impl TulispAny) -> Shared<dyn TulispAny> {
+        pub fn new(val: impl TulispAny) -> Shared<dyn TulispAny> {
             Shared(std::rc::Rc::new(val))
         }
 
@@ -51,27 +51,11 @@ pub mod generic {
         }
     }
 
-    impl<T> Shared<T> {
-        pub fn new(val: T) -> Self {
-            Shared(std::rc::Rc::new(val))
-        }
-
-        pub fn ptr_eq(&self, other: &Self) -> bool {
-            std::rc::Rc::ptr_eq(&self.0, &other.0)
-        }
-    }
-
     impl<T: ?Sized> Deref for Shared<T> {
         type Target = T;
 
         fn deref(&self) -> &Self::Target {
             &self.0
-        }
-    }
-
-    impl<T: ?Sized> std::ops::DerefMut for Shared<T> {
-        fn deref_mut(&mut self) -> &mut Self::Target {
-            std::rc::Rc::get_mut(&mut self.0).expect("Multiple references exist")
         }
     }
 
@@ -101,14 +85,6 @@ pub mod generic {
 
         pub fn strong_count(&self) -> usize {
             std::rc::Rc::strong_count(&self.0)
-        }
-    }
-
-    impl<T> Deref for SharedMut<T> {
-        type Target = T;
-
-        fn deref(&self) -> &Self::Target {
-            todo!()
         }
     }
 
@@ -152,11 +128,11 @@ pub mod generic {
     }
 
     impl Shared<dyn TulispAny> {
-        pub fn new_tulisp_fn(val: impl TulispFn) -> Shared<dyn TulispFn> {
+        pub(crate) fn new_tulisp_fn(val: impl TulispFn) -> Shared<dyn TulispFn> {
             Shared(std::sync::Arc::new(val))
         }
 
-        pub fn new_any(val: impl TulispAny) -> Shared<dyn TulispAny> {
+        pub fn new(val: impl TulispAny) -> Shared<dyn TulispAny> {
             Shared(std::sync::Arc::new(val))
         }
 
@@ -170,16 +146,6 @@ pub mod generic {
                 Ok(v) => Ok(Shared(v)),
                 Err(_) => Err(Shared(self.0)),
             }
-        }
-    }
-
-    impl<T> Shared<T> {
-        pub fn new(val: T) -> Self {
-            Shared(std::sync::Arc::new(val))
-        }
-
-        pub fn ptr_eq(&self, other: &Self) -> bool {
-            std::sync::Arc::ptr_eq(&self.0, &other.0)
         }
     }
 

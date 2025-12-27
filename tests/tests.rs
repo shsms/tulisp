@@ -1165,7 +1165,7 @@ fn test_any() -> Result<(), Error> {
 
     ctx.add_special_form("make_any", |ctx, args| {
         destruct_eval_bind!(ctx, (inp) = args);
-        let res: Shared<dyn TulispAny> = Shared::new_any(TestStruct {
+        let res: Shared<dyn TulispAny> = Shared::new(TestStruct {
             value: inp.try_into()?,
         });
 
