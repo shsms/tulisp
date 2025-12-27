@@ -59,12 +59,6 @@ pub mod generic {
         }
     }
 
-    impl<T: ?Sized> std::ops::DerefMut for Shared<T> {
-        fn deref_mut(&mut self) -> &mut Self::Target {
-            std::rc::Rc::get_mut(&mut self.0).expect("Multiple references exist")
-        }
-    }
-
     #[repr(transparent)]
     #[derive(Clone, Debug)]
     pub struct SharedMut<T>(std::rc::Rc<std::cell::RefCell<T>>);
@@ -91,14 +85,6 @@ pub mod generic {
 
         pub fn strong_count(&self) -> usize {
             std::rc::Rc::strong_count(&self.0)
-        }
-    }
-
-    impl<T> Deref for SharedMut<T> {
-        type Target = T;
-
-        fn deref(&self) -> &Self::Target {
-            todo!()
         }
     }
 
