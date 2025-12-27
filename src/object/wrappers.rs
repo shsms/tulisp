@@ -51,16 +51,6 @@ pub mod generic {
         }
     }
 
-    impl<T> Shared<T> {
-        pub fn new(val: T) -> Self {
-            Shared(std::rc::Rc::new(val))
-        }
-
-        pub fn ptr_eq(&self, other: &Self) -> bool {
-            std::rc::Rc::ptr_eq(&self.0, &other.0)
-        }
-    }
-
     impl<T: ?Sized> Deref for Shared<T> {
         type Target = T;
 
@@ -170,16 +160,6 @@ pub mod generic {
                 Ok(v) => Ok(Shared(v)),
                 Err(_) => Err(Shared(self.0)),
             }
-        }
-    }
-
-    impl<T> Shared<T> {
-        pub fn new(val: T) -> Self {
-            Shared(std::sync::Arc::new(val))
-        }
-
-        pub fn ptr_eq(&self, other: &Self) -> bool {
-            std::sync::Arc::ptr_eq(&self.0, &other.0)
         }
     }
 
