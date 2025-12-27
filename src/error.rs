@@ -136,7 +136,7 @@ impl Error {
 impl Error {
     /// Adds a trace span to the error's backtrace.
     pub fn with_trace(mut self, span: TulispObject) -> Self {
-        if self.backtrace.last().map_or(false, |last| last.eq(&span)) {
+        if self.backtrace.last().is_some_and(|last| last.eq(&span)) {
             return self;
         }
         self.backtrace.push(span);

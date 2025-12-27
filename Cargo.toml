@@ -19,6 +19,9 @@ path = "src/bin/tulisp.rs"
 name = "tulisp"
 path = "src/lib.rs"
 
+[profile.release]
+lto = true
+
 [features]
 sync = []
 big_functions = []
