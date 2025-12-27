@@ -30,7 +30,7 @@ pub mod generic {
     }
 
     impl Shared<dyn TulispAny> {
-        pub fn new_tulisp_fn(val: impl TulispFn) -> Shared<dyn TulispFn> {
+        pub(crate) fn new_tulisp_fn(val: impl TulispFn) -> Shared<dyn TulispFn> {
             Shared(std::rc::Rc::new(val))
         }
 
@@ -142,7 +142,7 @@ pub mod generic {
     }
 
     impl Shared<dyn TulispAny> {
-        pub fn new_tulisp_fn(val: impl TulispFn) -> Shared<dyn TulispFn> {
+        pub(crate) fn new_tulisp_fn(val: impl TulispFn) -> Shared<dyn TulispFn> {
             Shared(std::sync::Arc::new(val))
         }
 
