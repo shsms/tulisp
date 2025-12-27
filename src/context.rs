@@ -210,10 +210,16 @@ impl TulispContext {
     #[inline(always)]
     pub fn eval_progn(&mut self, seq: &TulispObject) -> Result<TulispObject, Error> {
         let mut ret = None;
-        let mut result = None;
+
         for val in seq.base_iter() {
-            eval_basic(self, &val, &mut result)?;
-            ret = Some(result.take().unwrap_or(val))
+            match eval_basic(self, &val)? {
+                std::borrow::Cow::Borrowed(_) => {
+                    ret = Some(val);
+                }
+                std::borrow::Cow::Owned(o) => {
+                    ret = Some(o);
+                }
+            };
         }
         Ok(ret.unwrap_or_else(TulispObject::nil))
     }

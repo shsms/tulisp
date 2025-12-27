@@ -4,6 +4,7 @@ use crate::{
     list,
     lists::{last, length},
 };
+use std::borrow::Cow;
 
 pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.add_special_form("if", |ctx, args| {
@@ -55,19 +56,14 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     fn and(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
         let mut ret = TulispObject::nil();
         for item in args.base_iter() {
-            let mut result = None;
-            eval_basic(ctx, &item, &mut result)?;
-            if let Some(result) = result {
-                if result.null() {
-                    return Ok(result);
-                }
-                ret = result;
-            } else {
-                if item.null() {
-                    return Ok(item);
-                }
-                ret = item;
+            let result = eval_basic(ctx, &item)?;
+            if result.null() {
+                return Ok(result.into_owned());
             }
+            ret = match result {
+                Cow::Borrowed(_) => item,
+                Cow::Owned(o) => o,
+            };
         }
         Ok(ret)
     }
@@ -75,14 +71,18 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     fn or(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
         for item in args.base_iter() {
-            let mut result = None;
-            eval_basic(ctx, &item, &mut result)?;
-            if let Some(result) = result {
-                if !result.null() {
-                    return Ok(result);
+            let result = eval_basic(ctx, &item)?;
+            match result {
+                Cow::Borrowed(_) => {
+                    if !item.null() {
+                        return Ok(item);
+                    }
                 }
-            } else if !item.null() {
-                return Ok(item);
+                Cow::Owned(o) => {
+                    if !o.null() {
+                        return Ok(o);
+                    }
+                }
             }
         }
         Ok(TulispObject::nil())

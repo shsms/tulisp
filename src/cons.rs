@@ -4,7 +4,6 @@ use crate::TulispContext;
 use crate::TulispObject;
 use crate::TulispValue;
 use crate::error::Error;
-use crate::eval::eval_basic;
 use crate::object::Span;
 
 #[derive(Debug, Clone)]
@@ -137,19 +136,14 @@ impl BaseIter {
         if let Some(ref next) = self.next {
             let Cons { car, cdr } = next;
             let new_car = {
-                let mut result = None;
-                if let Err(e) = eval_basic(ctx, car, &mut result) {
-                    return Some(Err(e));
-                };
-                if let Some(result) = result {
-                    Ok(result)
-                } else {
-                    Ok(next.car.clone())
+                match ctx.eval(car) {
+                    Ok(v) => v,
+                    Err(e) => return Some(Err(e)),
                 }
             };
 
             self.next = cdr.as_list_cons();
-            Some(new_car)
+            Some(Ok(new_car))
         } else {
             None
         }
