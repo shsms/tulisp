@@ -49,7 +49,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             )
             .with_trace(args.clone()));
         }
-        let table = Shared::new_any(HashTable {
+        let table = Shared::new(HashTable {
             inner: SharedMut::new(HashMap::new()),
         });
         Ok(table.into())

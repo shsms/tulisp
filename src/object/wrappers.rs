@@ -34,7 +34,7 @@ pub mod generic {
             Shared(std::rc::Rc::new(val))
         }
 
-        pub fn new_any(val: impl TulispAny) -> Shared<dyn TulispAny> {
+        pub fn new(val: impl TulispAny) -> Shared<dyn TulispAny> {
             Shared(std::rc::Rc::new(val))
         }
 
@@ -132,7 +132,7 @@ pub mod generic {
             Shared(std::sync::Arc::new(val))
         }
 
-        pub fn new_any(val: impl TulispAny) -> Shared<dyn TulispAny> {
+        pub fn new(val: impl TulispAny) -> Shared<dyn TulispAny> {
             Shared(std::sync::Arc::new(val))
         }
 
