@@ -410,13 +410,6 @@ impl TulispObject {
         self.rc.addr_as_usize()
     }
 
-    pub(crate) fn clone_without_span(&self) -> Self {
-        // FIXME: broken span removal
-        Self {
-            rc: self.rc.clone(),
-        }
-    }
-
     #[inline(always)]
     pub(crate) fn strong_count(&self) -> usize {
         self.rc.strong_count()

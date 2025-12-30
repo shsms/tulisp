@@ -60,10 +60,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 )
             }
         } else {
-            Err(
-                Error::type_mismatch("expected integer or (ticks . hz) pair".to_string())
-                    .with_trace(obj.clone()),
-            )
+            Err(Error::type_mismatch(format!(
+                "expected integer or (ticks . hz) pair. found: {obj}"
+            )))
         }
     }
 
@@ -294,8 +293,7 @@ mod tests {
             ctx.eval_string("(time-less-p 'test 1758549822)")
                 .unwrap_err()
                 .format(ctx),
-            r#"ERR TypeMismatch: expected integer or (ticks . hz) pair
-<eval_string>:1.15-1.18:  at test
+            r#"ERR TypeMismatch: expected integer or (ticks . hz) pair. found: test
 <eval_string>:1.1-1.30:  at (time-less-p 'test 1758549822)
 "#
         );

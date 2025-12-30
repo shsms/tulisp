@@ -26,9 +26,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         if base_val == 0.0 && exponent_val < 0.0 {
             return Err(crate::Error::out_of_range(
                 "expt: cannot compute with base 0 and negative exponent".to_string(),
-            )
-            .with_trace(base)
-            .with_trace(exponent));
+            ));
         }
 
         Ok(base_val.powf(exponent_val).into())
@@ -48,7 +46,6 @@ mod tests {
         assert_eq!(
             ctx.eval_string("(sqrt -4.0)").unwrap_err().format(&ctx),
             r#"ERR TypeMismatch: sqrt: cannot compute square root of negative number: -4
-<eval_string>:1.7-1.10:  at -4
 <eval_string>:1.1-1.11:  at (sqrt -4)
 "#
         );
@@ -70,8 +67,6 @@ mod tests {
         assert_eq!(
             ctx.eval_string("(expt 0 -2)").unwrap_err().format(&ctx),
             r#"ERR OutOfRange: expt: cannot compute with base 0 and negative exponent
-<eval_string>:1.7-1.7:  at 0
-<eval_string>:1.9-1.10:  at -2
 <eval_string>:1.1-1.11:  at (expt 0 -2)
 "#
         );

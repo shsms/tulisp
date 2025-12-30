@@ -122,6 +122,9 @@ impl Error {
             if prefix.is_empty() {
                 continue;
             }
+            if span.numberp() || span.symbolp() || span.stringp() {
+                continue;
+            }
             let string = span.to_string().replace("\n", "\\n");
             if string.len() > 80 {
                 span_str.push_str(&format!("\n{}  at {:.80}...", prefix, string));
