@@ -9,13 +9,13 @@ fn string_cmp(
     destruct_eval_bind!(ctx, (string1 string2) = args_other);
     let string1 = string1.inner_ref();
     let string2 = string2.inner_ref();
-    match (&*string1, &*string2) {
+    match (&string1.0, &string2.0) {
         (TulispValue::String { value: string1 }, TulispValue::String { value: string2 }) => {
             Ok(oper(string1, string2).into())
         }
         (_, _) => Err(
             Error::type_mismatch("Both arguments need to be strings".to_string()).with_trace(
-                if string1.stringp() {
+                if string1.0.stringp() {
                     args.cadr()?
                 } else {
                     args.car()?

@@ -341,7 +341,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             value: TulispObject,
         ) -> Result<TulispObject, Error> {
             let inner_ref = value.inner_ref();
-            let res = match &*inner_ref {
+            let res = match &inner_ref.0 {
                 TulispValue::Backquote { value } => TulispValue::Backquote {
                     value: capture_variables(captured_vars, exclude, value.clone())?,
                 }
@@ -475,7 +475,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         destruct_bind!((name &rest rest) = args);
         let name = eval(ctx, &name)?;
         let name = eval(ctx, &name)?;
-        if matches!(&*name.inner_ref(), TulispValue::Lambda { .. }) {
+        if matches!(&name.inner_ref().0, TulispValue::Lambda { .. }) {
             crate::eval::funcall::<Eval>(ctx, &name, &rest)
         } else {
             crate::eval::funcall::<DummyEval>(ctx, &name, &rest)

@@ -37,8 +37,8 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         iter.next();
         while let Some(ele) = iter.eval_next(ctx) {
             let ele = ele?;
-            if *ele.inner_ref() == TulispValue::from(0)
-                || *ele.inner_ref() == TulispValue::from(0.0)
+            if ele.inner_ref().0 == TulispValue::from(0)
+                || ele.inner_ref().0 == TulispValue::from(0.0)
             {
                 return Err(Error::undefined("Division by zero".to_string()));
             }
@@ -49,7 +49,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     ctx.add_special_form("1+", |ctx, args| {
         destruct_eval_bind!(ctx, (number) = args);
-        match &*number.inner_ref() {
+        match &number.inner_ref().0 {
             TulispValue::Int { value } => Ok((*value + 1).into()),
             TulispValue::Float { value } => Ok((*value + 1.0).into()),
             _ => Err(Error::type_mismatch(
@@ -60,7 +60,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     ctx.add_special_form("1-", |ctx, args| {
         destruct_eval_bind!(ctx, (number) = args);
-        match &*number.inner_ref() {
+        match &number.inner_ref().0 {
             TulispValue::Int { value } => Ok((*value - 1).into()),
             TulispValue::Float { value } => Ok((*value - 1.0).into()),
             _ => Err(Error::type_mismatch(

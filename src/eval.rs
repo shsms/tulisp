@@ -113,7 +113,7 @@ pub(crate) fn funcall<E: Evaluator>(
     func: &TulispObject,
     args: &TulispObject,
 ) -> Result<TulispObject, Error> {
-    match &*func.inner_ref() {
+    match &func.inner_ref().0 {
         TulispValue::Func(func) => func(ctx, args),
         TulispValue::Lambda { params, body } => eval_lambda::<E>(ctx, params, body, args),
         TulispValue::Macro(_) | TulispValue::Defmacro { .. } => {
@@ -139,17 +139,17 @@ pub(crate) fn eval_form<E: Evaluator>(
 fn eval_back_quote(ctx: &mut TulispContext, mut vv: TulispObject) -> Result<TulispObject, Error> {
     if !vv.consp() {
         let inner = vv.inner_ref();
-        if let TulispValue::Unquote { value } = &*inner {
+        if let TulispValue::Unquote { value } = &inner.0 {
             return eval(ctx, value)
                 .map_err(|e| e.with_trace(vv.clone()))
                 .map(|x| x.with_span(value.span()));
-        } else if let TulispValue::Splice { value } = &*inner {
+        } else if let TulispValue::Splice { value } = &inner.0 {
             return eval(ctx, value)
                 .map_err(|e| e.with_trace(vv.clone()))?
                 .deep_copy()
                 .map_err(|e| e.with_trace(vv.clone()))
                 .map(|value| value.with_span(value.span()));
-        } else if let TulispValue::Quote { value } = &*inner {
+        } else if let TulispValue::Quote { value } = &inner.0 {
             return Ok(TulispValue::Quote {
                 value: eval_back_quote(ctx, value.clone())?,
             }
@@ -163,7 +163,7 @@ fn eval_back_quote(ctx: &mut TulispContext, mut vv: TulispObject) -> Result<Tuli
     let ret = TulispObject::nil().with_span(vv.span());
     loop {
         vv.car_and_then(|first| {
-            let first_inner = &*first.inner_ref();
+            let first_inner = &first.inner_ref().0;
             if let TulispValue::Unquote { value } = first_inner {
                 ret.push(
                     eval(ctx, value)
@@ -187,7 +187,7 @@ fn eval_back_quote(ctx: &mut TulispContext, mut vv: TulispObject) -> Result<Tuli
         })?;
         // TODO: is Nil check necessary
         let rest = vv.cdr()?;
-        if let TulispValue::Unquote { value } = &*rest.inner_ref() {
+        if let TulispValue::Unquote { value } = &rest.inner_ref().0 {
             ret.append(
                 eval(ctx, value)
                     .map_err(|e| e.with_trace(rest.clone()))?
@@ -229,7 +229,7 @@ pub(crate) fn eval_basic<'a>(
     ctx: &mut TulispContext,
     expr: &'a TulispObject,
 ) -> Result<Cow<'a, TulispObject>, Error> {
-    match &*expr.inner_ref() {
+    match &expr.inner_ref().0 {
         TulispValue::List { .. } => Ok(Cow::Owned(
             eval_form::<Eval>(ctx, expr).map_err(|e| e.with_trace(expr.clone()))?,
         )),
@@ -280,7 +280,7 @@ pub fn macroexpand(ctx: &mut TulispContext, inp: TulispObject) -> Result<TulispO
         Ok(val) => val,
         Err(_) => exp_car,
     };
-    let mut x = match &*value.inner_ref() {
+    let mut x = match &value.inner_ref().0 {
         TulispValue::Macro(func) => {
             let expansion = func(ctx, &expr.cdr()?).map_err(|e| e.with_trace(inp))?;
             macroexpand(ctx, expansion)?

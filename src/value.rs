@@ -500,7 +500,7 @@ impl TulispValue {
         let TulispValue::LexicalBinding { symbol, .. } = self else {
             return false;
         };
-        if let TulispValue::LexicalBinding { symbol: other, .. } = &*other.inner_ref() {
+        if let TulispValue::LexicalBinding { symbol: other, .. } = &other.inner_ref().0 {
             symbol.eq(other)
         } else {
             symbol.eq(other)
