@@ -1,22 +1,22 @@
 use crate::builtin::functions::functions::reduce_with;
-use crate::destruct_eval_bind;
 use crate::eval::eval;
+use crate::{Number, destruct_eval_bind};
 
 use crate::{Error, TulispContext, TulispObject, TulispValue};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
     fn add(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
-        reduce_with(ctx, args, binary_ops!(std::ops::Add::add))
+        reduce_with(ctx, args, |a, b| a + b)
     }
     ctx.add_special_form("+", add);
 
     fn sub(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
         if let Some(cons) = args.as_list_cons() {
             if cons.cdr().null() {
-                let vv = binary_ops!(std::ops::Sub::sub)(&0.into(), &eval(ctx, cons.car())?)?;
-                Ok(vv)
+                let vv = Number::from(0) - eval(ctx, cons.car())?.as_number()?;
+                Ok(vv.into())
             } else {
-                reduce_with(ctx, args, binary_ops!(std::ops::Sub::sub))
+                reduce_with(ctx, args, |a, b| a - b)
             }
         } else {
             Err(Error::missing_argument(
@@ -27,7 +27,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.add_special_form("-", sub);
 
     fn mul(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
-        reduce_with(ctx, args, binary_ops!(std::ops::Mul::mul))
+        reduce_with(ctx, args, |a, b| a * b)
     }
     ctx.add_special_form("*", mul);
 
@@ -43,7 +43,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 return Err(Error::undefined("Division by zero".to_string()));
             }
         }
-        reduce_with(ctx, rest, binary_ops!(std::ops::Div::div))
+        reduce_with(ctx, rest, |a, b| a / b)
     }
     ctx.add_special_form("/", div);
 
@@ -69,8 +69,5 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         }
     });
 
-    ctx.add_special_form("mod", |ctx, args| {
-        destruct_eval_bind!(ctx, (dividend divisor) = args);
-        binary_ops!(std::ops::Rem::rem)(&dividend, &divisor)
-    });
+    ctx.add_function("mod", |a: Number, b: Number| a % b);
 }

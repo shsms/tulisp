@@ -1,3 +1,4 @@
+use crate::Number;
 use crate::TulispObject;
 use crate::TulispValue;
 use crate::cons::Cons;
@@ -18,17 +19,17 @@ use std::convert::TryInto;
 pub(super) fn reduce_with(
     ctx: &mut TulispContext,
     list: &TulispObject,
-    method: fn(&TulispObject, &TulispObject) -> Result<TulispObject, Error>,
+    method: fn(Number, Number) -> Number,
 ) -> Result<TulispObject, Error> {
-    let mut first = list.car_and_then(|x| eval(ctx, x))?;
+    let mut first = list.car_and_then(|x| eval(ctx, x))?.as_number()?;
     let mut rest = list.cdr()?;
     while rest.is_truthy() {
-        let next = rest.car_and_then(|x| eval(ctx, x))?;
-        first = method(&first, &next)?;
+        let next = rest.car_and_then(|x| eval(ctx, x))?.as_number()?;
+        first = method(first, next);
         rest = rest.cdr()?;
     }
 
-    Ok(first)
+    Ok(first.into())
 }
 
 fn mark_tail_calls(
