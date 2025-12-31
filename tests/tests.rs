@@ -72,7 +72,7 @@ fn test_comparison_of_numbers() -> Result<(), Error> {
     }
     tulisp_assert! {
         program: r#"(> 10 "hello")"#,
-        error: r#"ERR TypeMismatch: Expected number, found: "hello"
+        error: r#"ERR TypeMismatch: Expected number, got: "hello"
 <eval_string>:1.1-1.14:  at (> 10 "hello")
 "#
     }
@@ -951,7 +951,7 @@ fn test_sort() -> Result<(), Error> {
     }
     tulisp_assert! {
         program: r#"(sort '("sort" "hello" "a" "world") '>)"#,
-        error: r#"ERR TypeMismatch: Expected number, found: "world"
+        error: r#"ERR TypeMismatch: Expected number, got: "world"
 <eval_string>:1.1-1.39:  at (sort '("sort" "hello" "a" "world") '>)
 "#,
     }

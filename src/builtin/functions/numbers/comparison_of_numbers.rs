@@ -3,26 +3,6 @@ use crate::{
     destruct_eval_bind,
 };
 
-macro_rules! compare_ops {
-    ($oper:expr) => {{
-        |selfobj: &TulispObject, other: &TulispObject| -> Result<bool, Error> {
-            if selfobj.floatp() {
-                let s: f64 = selfobj.as_float().unwrap();
-                let o: f64 = other.try_into()?;
-                Ok($oper(&s, &o))
-            } else if other.floatp() {
-                let o: f64 = other.as_float().unwrap();
-                let s: f64 = selfobj.try_into()?;
-                Ok($oper(&s, &o))
-            } else {
-                let s: i64 = selfobj.try_into()?;
-                let o: i64 = other.try_into()?;
-                Ok($oper(&s, &o))
-            }
-        }
-    }};
-}
-
 macro_rules! compare_impl {
     ($name:ident, $symbol:literal) => {
         fn $name(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
@@ -34,21 +14,11 @@ macro_rules! compare_impl {
             }
             args.car_and_then(|x| {
                 ctx.eval_and_then(x, |ctx, first| {
-                    if !first.numberp() {
-                        return Err(Error::type_mismatch(format!(
-                            "Expected number, found: {first}"
-                        ))
-                        .with_trace(args.car()?));
-                    }
+                    let first = first.as_number()?;
                     args.cadr_and_then(|x| {
                         ctx.eval_and_then(x, |ctx, second| {
-                            if !second.numberp() {
-                                return Err(Error::type_mismatch(format!(
-                                    "Expected number, found: {second}"
-                                ))
-                                .with_trace(args.cadr()?));
-                            }
-                            if compare_ops!(std::cmp::PartialOrd::$name)(first, second)? {
+                            let second = second.as_number()?;
+                            if std::cmp::PartialOrd::$name(&first, &second) {
                                 args.cdr_and_then(|cdr| {
                                     if cdr.cdr_and_then(|x| Ok(x.null()))? {
                                         Ok(TulispObject::t())
