@@ -51,12 +51,12 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.add_special_form("<=", le);
 
     fn max(ctx: &mut TulispContext, rest: &TulispObject) -> Result<TulispObject, Error> {
-        reduce_with(ctx, rest, |a, b| if a > b { a } else { b })
+        reduce_with(ctx, rest, |a, b| Ok(if a > b { a } else { b }))
     }
     ctx.add_special_form("max", max);
 
     fn min(ctx: &mut TulispContext, rest: &TulispObject) -> Result<TulispObject, Error> {
-        reduce_with(ctx, rest, |a, b| if a < b { a } else { b })
+        reduce_with(ctx, rest, |a, b| Ok(if a < b { a } else { b }))
     }
     ctx.add_special_form("min", min);
 

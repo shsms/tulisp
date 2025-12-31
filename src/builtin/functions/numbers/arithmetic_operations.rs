@@ -6,7 +6,7 @@ use crate::{Error, TulispContext, TulispObject, TulispValue};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
     fn add(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
-        reduce_with(ctx, args, |a, b| a + b)
+        reduce_with(ctx, args, |a, b| Ok(a + b))
     }
     ctx.add_special_form("+", add);
 
@@ -16,7 +16,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 let vv = Number::from(0) - eval(ctx, cons.car())?.as_number()?;
                 Ok(vv.into())
             } else {
-                reduce_with(ctx, args, |a, b| a - b)
+                reduce_with(ctx, args, |a, b| Ok(a - b))
             }
         } else {
             Err(Error::missing_argument(
@@ -27,23 +27,18 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.add_special_form("-", sub);
 
     fn mul(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
-        reduce_with(ctx, args, |a, b| a * b)
+        reduce_with(ctx, args, |a, b| Ok(a * b))
     }
     ctx.add_special_form("*", mul);
 
     fn div(ctx: &mut TulispContext, rest: &TulispObject) -> Result<TulispObject, Error> {
-        let mut iter = rest.base_iter();
-        // Skip the first element, that can be zero.
-        iter.next();
-        while let Some(ele) = iter.eval_next(ctx) {
-            let ele = ele?;
-            if ele.inner_ref().0 == TulispValue::from(0)
-                || ele.inner_ref().0 == TulispValue::from(0.0)
-            {
-                return Err(Error::undefined("Division by zero".to_string()));
+        reduce_with(ctx, rest, |a, b| {
+            if b == 0 {
+                Err(Error::undefined("Division by zero".to_string()))
+            } else {
+                Ok(a / b)
             }
-        }
-        reduce_with(ctx, rest, |a, b| a / b)
+        })
     }
     ctx.add_special_form("/", div);
 

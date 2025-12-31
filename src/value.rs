@@ -445,6 +445,24 @@ impl PartialEq for Number {
     }
 }
 
+impl PartialEq<i64> for Number {
+    fn eq(&self, other: &i64) -> bool {
+        match self {
+            Number::Int(l) => l == other,
+            Number::Float(l) => *l == (*other as f64),
+        }
+    }
+}
+
+impl PartialEq<f64> for Number {
+    fn eq(&self, other: &f64) -> bool {
+        match self {
+            Number::Int(l) => (*l as f64) == *other,
+            Number::Float(l) => l == other,
+        }
+    }
+}
+
 impl PartialOrd for Number {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         match (self, other) {
@@ -452,6 +470,24 @@ impl PartialOrd for Number {
             (Number::Int(l), Number::Float(r)) => (*l as f64).partial_cmp(r),
             (Number::Float(l), Number::Int(r)) => l.partial_cmp(&(*r as f64)),
             (Number::Float(l), Number::Float(r)) => l.partial_cmp(r),
+        }
+    }
+}
+
+impl PartialOrd<i64> for Number {
+    fn partial_cmp(&self, other: &i64) -> Option<std::cmp::Ordering> {
+        match self {
+            Number::Int(l) => l.partial_cmp(other),
+            Number::Float(l) => l.partial_cmp(&(*other as f64)),
+        }
+    }
+}
+
+impl PartialOrd<f64> for Number {
+    fn partial_cmp(&self, other: &f64) -> Option<std::cmp::Ordering> {
+        match self {
+            Number::Int(l) => (*l as f64).partial_cmp(other),
+            Number::Float(l) => l.partial_cmp(other),
         }
     }
 }

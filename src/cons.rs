@@ -1,6 +1,5 @@
 use std::marker::PhantomData;
 
-use crate::TulispContext;
 use crate::TulispObject;
 use crate::TulispValue;
 use crate::error::Error;
@@ -124,28 +123,6 @@ impl Iterator for BaseIter {
                 Some(car)
             }
             _ => None,
-        }
-    }
-}
-
-impl BaseIter {
-    pub(crate) fn eval_next(
-        &mut self,
-        ctx: &mut TulispContext,
-    ) -> Option<Result<TulispObject, Error>> {
-        if let Some(ref next) = self.next {
-            let Cons { car, cdr } = next;
-            let new_car = {
-                match ctx.eval(car) {
-                    Ok(v) => v,
-                    Err(e) => return Some(Err(e)),
-                }
-            };
-
-            self.next = cdr.as_list_cons();
-            Some(Ok(new_car))
-        } else {
-            None
         }
     }
 }
