@@ -19,7 +19,7 @@ use std::convert::TryInto;
 pub(super) fn reduce_with(
     ctx: &mut TulispContext,
     list: &TulispObject,
-    method: fn(Number, Number) -> Result<Number, Error>,
+    method: impl Fn(Number, Number) -> Result<Number, Error>,
 ) -> Result<TulispObject, Error> {
     let mut first = list.car_and_then(|x| eval(ctx, x))?.as_number()?;
     let mut rest = list.cdr()?;
