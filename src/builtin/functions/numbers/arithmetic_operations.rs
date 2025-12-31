@@ -1,8 +1,7 @@
+use crate::Number;
 use crate::builtin::functions::functions::reduce_with;
 use crate::eval::eval;
-use crate::{Number, destruct_eval_bind};
-
-use crate::{Error, TulispContext, TulispObject, TulispValue};
+use crate::{Error, TulispContext, TulispObject};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
     fn add(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
@@ -42,25 +41,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     }
     ctx.add_special_form("/", div);
 
-    ctx.add_special_form("1+", |ctx, args| {
-        destruct_eval_bind!(ctx, (number) = args);
-        match &number.inner_ref().0 {
-            TulispValue::Number { value } => Ok((*value + 1).into()),
-            _ => Err(Error::type_mismatch(
-                "expected a number as argument.".to_string(),
-            )),
-        }
-    });
-
-    ctx.add_special_form("1-", |ctx, args| {
-        destruct_eval_bind!(ctx, (number) = args);
-        match &number.inner_ref().0 {
-            TulispValue::Number { value } => Ok((*value - 1).into()),
-            _ => Err(Error::type_mismatch(
-                "expected a number as argument.".to_string(),
-            )),
-        }
-    });
-
+    ctx.add_function("1+", |a: Number| a + 1);
+    ctx.add_function("1-", |a: Number| a - 1);
     ctx.add_function("mod", |a: Number, b: Number| a % b);
 }
