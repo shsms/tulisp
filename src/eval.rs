@@ -244,8 +244,7 @@ pub(crate) fn eval_basic<'a>(
         TulispValue::LexicalBinding { value, .. } => Ok(Cow::Owned(
             value.get().map_err(|e| e.with_trace(expr.clone()))?,
         )),
-        TulispValue::Int { .. }
-        | TulispValue::Float { .. }
+        TulispValue::Number { .. }
         | TulispValue::String { .. }
         | TulispValue::Lambda { .. }
         | TulispValue::Func(_)

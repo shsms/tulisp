@@ -50,8 +50,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.add_special_form("1+", |ctx, args| {
         destruct_eval_bind!(ctx, (number) = args);
         match &number.inner_ref().0 {
-            TulispValue::Int { value } => Ok((*value + 1).into()),
-            TulispValue::Float { value } => Ok((*value + 1.0).into()),
+            TulispValue::Number { value } => Ok((*value + 1).into()),
             _ => Err(Error::type_mismatch(
                 "expected a number as argument.".to_string(),
             )),
@@ -61,8 +60,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.add_special_form("1-", |ctx, args| {
         destruct_eval_bind!(ctx, (number) = args);
         match &number.inner_ref().0 {
-            TulispValue::Int { value } => Ok((*value - 1).into()),
-            TulispValue::Float { value } => Ok((*value - 1.0).into()),
+            TulispValue::Number { value } => Ok((*value - 1).into()),
             _ => Err(Error::type_mismatch(
                 "expected a number as argument.".to_string(),
             )),

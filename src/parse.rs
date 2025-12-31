@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fmt::Write, iter::Peekable, str::Chars};
 
 use crate::{
-    Error, TulispContext, TulispObject, TulispValue,
+    Error, Number, TulispContext, TulispObject, TulispValue,
     eval::{eval, macroexpand},
     object::Span,
 };
@@ -447,14 +447,20 @@ impl Parser<'_, '_> {
             Token::Integer { span, value } => Ok(Some(match self.ints.get(&value) {
                 Some(vv) => vv.with_span(Some(span)),
                 None => {
-                    let vv = TulispValue::Int { value }.into_ref(Some(span));
+                    let vv = TulispValue::Number {
+                        value: Number::Int(value),
+                    }
+                    .into_ref(Some(span));
                     self.ints.insert(value, vv.clone());
                     vv
                 }
             })),
-            Token::Float { span, value } => {
-                Ok(Some(TulispValue::Float { value }.into_ref(Some(span))))
-            }
+            Token::Float { span, value } => Ok(Some(
+                TulispValue::Number {
+                    value: Number::Float(value),
+                }
+                .into_ref(Some(span)),
+            )),
             Token::Ident { span, value } => Ok(Some(match self.ctx.intern_soft(&value) {
                 Some(vv) => vv.with_span(Some(span)),
                 None => {
