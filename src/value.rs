@@ -209,6 +209,144 @@ impl std::fmt::Debug for dyn TulispAny {
 
 impl<T: Any + Display + SyncSend> TulispAny for T {}
 
+#[derive(Debug, Clone, Copy)]
+pub enum Number {
+    Int(i64),
+    Float(f64),
+}
+
+impl From<i64> for Number {
+    fn from(value: i64) -> Self {
+        Number::Int(value)
+    }
+}
+
+impl From<f64> for Number {
+    fn from(value: f64) -> Self {
+        Number::Float(value)
+    }
+}
+
+impl TryFrom<TulispObject> for Number {
+    type Error = Error;
+
+    fn try_from(value: TulispObject) -> Result<Self, Self::Error> {
+        match &value.inner_ref().0 {
+            TulispValue::Int { value: v } => Ok(Number::Int(*v)),
+            TulispValue::Float { value: v } => Ok(Number::Float(*v)),
+            _ => Err(Error::type_mismatch(format!(
+                "Expected number, got: {}",
+                value
+            ))),
+        }
+    }
+}
+
+impl From<Number> for TulispObject {
+    fn from(value: Number) -> Self {
+        match value {
+            Number::Int(v) => v.into(),
+            Number::Float(v) => v.into(),
+        }
+    }
+}
+
+impl Display for Number {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Number::Int(v) => write!(f, "{}", v),
+            Number::Float(v) => write!(f, "{}", v),
+        }
+    }
+}
+
+impl std::ops::Add for Number {
+    type Output = Number;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (Number::Int(l), Number::Int(r)) => Number::Int(l + r),
+            (Number::Int(l), Number::Float(r)) => Number::Float(l as f64 + r),
+            (Number::Float(l), Number::Int(r)) => Number::Float(l + r as f64),
+            (Number::Float(l), Number::Float(r)) => Number::Float(l + r),
+        }
+    }
+}
+
+impl std::ops::Sub for Number {
+    type Output = Number;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (Number::Int(l), Number::Int(r)) => Number::Int(l - r),
+            (Number::Int(l), Number::Float(r)) => Number::Float(l as f64 - r),
+            (Number::Float(l), Number::Int(r)) => Number::Float(l - r as f64),
+            (Number::Float(l), Number::Float(r)) => Number::Float(l - r),
+        }
+    }
+}
+
+impl std::ops::Mul for Number {
+    type Output = Number;
+
+    fn mul(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (Number::Int(l), Number::Int(r)) => Number::Int(l * r),
+            (Number::Int(l), Number::Float(r)) => Number::Float(l as f64 * r),
+            (Number::Float(l), Number::Int(r)) => Number::Float(l * r as f64),
+            (Number::Float(l), Number::Float(r)) => Number::Float(l * r),
+        }
+    }
+}
+
+impl std::ops::Div for Number {
+    type Output = Number;
+
+    fn div(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (Number::Int(l), Number::Int(r)) => Number::Float(l as f64 / r as f64),
+            (Number::Int(l), Number::Float(r)) => Number::Float(l as f64 / r),
+            (Number::Float(l), Number::Int(r)) => Number::Float(l / r as f64),
+            (Number::Float(l), Number::Float(r)) => Number::Float(l / r),
+        }
+    }
+}
+
+impl std::ops::Rem for Number {
+    type Output = Number;
+
+    fn rem(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (Number::Int(l), Number::Int(r)) => Number::Int(l % r),
+            (Number::Int(l), Number::Float(r)) => Number::Float(l as f64 % r),
+            (Number::Float(l), Number::Int(r)) => Number::Float(l % r as f64),
+            (Number::Float(l), Number::Float(r)) => Number::Float(l % r),
+        }
+    }
+}
+
+impl PartialEq for Number {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Number::Int(l), Number::Int(r)) => l == r,
+            (Number::Int(l), Number::Float(r)) => (*l as f64) == *r,
+            (Number::Float(l), Number::Int(r)) => *l == (*r as f64),
+            (Number::Float(l), Number::Float(r)) => l == r,
+        }
+    }
+}
+
+impl PartialOrd for Number {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        match (self, other) {
+            (Number::Int(l), Number::Int(r)) => l.partial_cmp(r),
+            (Number::Int(l), Number::Float(r)) => (*l as f64).partial_cmp(r),
+            (Number::Float(l), Number::Int(r)) => l.partial_cmp(&(*r as f64)),
+            (Number::Float(l), Number::Float(r)) => l.partial_cmp(r),
+        }
+    }
+}
+
 #[doc(hidden)]
 #[derive(Clone)]
 pub enum TulispValue {
@@ -653,6 +791,15 @@ impl TulispValue {
             TulispValue::Float { value, .. } => Ok(value.trunc() as i64),
             TulispValue::Int { value, .. } => Ok(*value),
             t => Err(Error::type_mismatch(format!("Expected number, got {}", t))),
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn as_number(&self) -> Result<Number, Error> {
+        match self {
+            TulispValue::Float { value, .. } => Ok(Number::Float(*value)),
+            TulispValue::Int { value, .. } => Ok(Number::Int(*value)),
+            t => Err(Error::type_mismatch(format!("Expected number, got: {}", t))),
         }
     }
 

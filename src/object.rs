@@ -5,7 +5,7 @@ use crate::{
     cons::{self, Cons},
     error::Error,
     object::wrappers::generic::{Shared, SharedMut, SharedRef},
-    value::TulispAny,
+    value::{Number, TulispAny},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
@@ -273,6 +273,11 @@ impl TulispObject {
         i64,
         as_int,
         "Returns an int is `self` holds an int, and an Error otherwise."
+    );
+    extractor_fn_with_err!(
+        Number,
+        as_number,
+        "Returns a Number (int or float) if `self` holds a number, and an Error otherwise."
     );
     extractor_fn_with_err!(
         String,
