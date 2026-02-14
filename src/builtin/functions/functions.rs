@@ -90,9 +90,19 @@ fn mark_tail_calls(
 }
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    ctx.add_special_form("load", |ctx, args| {
-        destruct_eval_bind!(ctx, (filename) = args);
-        ctx.eval_file(&filename.as_string()?)
+    ctx.add_function("load", |ctx: &mut TulispContext, filename: String| {
+        let full_path = if let Some(ref load_path) = ctx.load_path {
+            load_path.join(&filename)
+        } else {
+            std::path::PathBuf::from(&filename)
+        };
+        let Some(full_path) = full_path.to_str() else {
+            return Err(Error::invalid_argument(format!(
+                "load: Invalid path: {}",
+                full_path.to_string_lossy()
+            )));
+        };
+        ctx.eval_file(full_path)
     });
 
     ctx.add_special_form("intern", |ctx, args| {

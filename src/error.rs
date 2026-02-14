@@ -64,6 +64,7 @@ ErrorKind!(
     (LispError,       pub lisp_error),
     (NotImplemented,  pub not_implemented),
     (OutOfRange,      pub out_of_range),
+    (OSError,         pub os_error),
     (TypeMismatch,    pub type_mismatch),
     (MissingArgument, pub(crate) missing_argument),
     (Undefined,       pub(crate) undefined),

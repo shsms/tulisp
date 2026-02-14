@@ -1208,6 +1208,13 @@ tests/bad-load.lisp:1.9-1.9:  at nil
 "#
     }
 
+    ctx.set_load_path(Some("tests/"))?;
+    tulisp_assert! {
+        ctx: ctx,
+        program: r#"(load "good-load.lisp")"#,
+        result: "'(1 2 3)",
+    }
+
     Ok(())
 }
 
