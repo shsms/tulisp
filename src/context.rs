@@ -3,7 +3,11 @@ mod add_function;
 mod rest;
 pub use rest::Rest;
 
-use std::{collections::HashMap, fs};
+use std::{
+    collections::HashMap,
+    fs,
+    path::{Path, PathBuf},
+};
 
 use crate::{
     TulispObject, TulispValue, builtin,
@@ -46,6 +50,7 @@ impl Scope {
 pub struct TulispContext {
     obarray: HashMap<String, TulispObject>,
     pub(crate) filenames: Vec<String>,
+    pub(crate) load_path: Option<PathBuf>,
 }
 
 impl Default for TulispContext {
@@ -60,6 +65,7 @@ impl TulispContext {
         let mut ctx = Self {
             obarray: HashMap::new(),
             filenames: vec!["<eval_string>".to_string()],
+            load_path: None,
         };
         builtin::functions::add(&mut ctx);
         builtin::macros::add(&mut ctx);
@@ -72,7 +78,7 @@ impl TulispContext {
     /// [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Creating-Symbols.html).
     pub fn intern(&mut self, name: &str) -> TulispObject {
         if let Some(sym) = self.obarray.get(name) {
-            sym.clone_without_span()
+            sym.clone()
         } else {
             let name = name.to_string();
             let constant = name.starts_with(':');
@@ -83,7 +89,7 @@ impl TulispContext {
     }
 
     pub(crate) fn intern_soft(&mut self, name: &str) -> Option<TulispObject> {
-        self.obarray.get(name).map(|x| x.clone_without_span())
+        self.obarray.get(name).map(|x| x.clone())
     }
 
     #[inline(always)]
@@ -126,6 +132,17 @@ impl TulispContext {
         self.intern(name)
             .set_global(TulispValue::Macro(Shared::new_tulisp_fn(func)).into_ref(None))
             .unwrap();
+    }
+
+    pub fn set_load_path<P: AsRef<Path>>(&mut self, path: Option<P>) -> Result<(), Error> {
+        self.load_path = match path {
+            Some(path) => Some(
+                std::fs::canonicalize(path)
+                    .map_err(|e| Error::os_error(format!("Unable to set load path: {e}")))?,
+            ),
+            None => None,
+        };
+        Ok(())
     }
 
     /// Evaluates the given value and returns the result.

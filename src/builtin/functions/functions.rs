@@ -1,3 +1,4 @@
+use crate::Number;
 use crate::TulispObject;
 use crate::TulispValue;
 use crate::cons::Cons;
@@ -18,17 +19,17 @@ use std::convert::TryInto;
 pub(super) fn reduce_with(
     ctx: &mut TulispContext,
     list: &TulispObject,
-    method: fn(&TulispObject, &TulispObject) -> Result<TulispObject, Error>,
+    method: impl Fn(Number, Number) -> Result<Number, Error>,
 ) -> Result<TulispObject, Error> {
-    let mut first = list.car_and_then(|x| eval(ctx, x))?;
+    let mut first = list.car_and_then(|x| eval(ctx, x))?.as_number()?;
     let mut rest = list.cdr()?;
     while rest.is_truthy() {
-        let next = rest.car_and_then(|x| eval(ctx, x))?;
-        first = method(&first, &next)?;
+        let next = rest.car_and_then(|x| eval(ctx, x))?.as_number()?;
+        first = method(first, next)?;
         rest = rest.cdr()?;
     }
 
-    Ok(first)
+    Ok(first.into())
 }
 
 fn mark_tail_calls(
@@ -89,9 +90,19 @@ fn mark_tail_calls(
 }
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    ctx.add_special_form("load", |ctx, args| {
-        destruct_eval_bind!(ctx, (filename) = args);
-        ctx.eval_file(&filename.as_string()?)
+    ctx.add_function("load", |ctx: &mut TulispContext, filename: String| {
+        let full_path = if let Some(ref load_path) = ctx.load_path {
+            load_path.join(&filename)
+        } else {
+            std::path::PathBuf::from(&filename)
+        };
+        let Some(full_path) = full_path.to_str() else {
+            return Err(Error::invalid_argument(format!(
+                "load: Invalid path: {}",
+                full_path.to_string_lossy()
+            )));
+        };
+        ctx.eval_file(full_path)
     });
 
     ctx.add_special_form("intern", |ctx, args| {
@@ -341,7 +352,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             value: TulispObject,
         ) -> Result<TulispObject, Error> {
             let inner_ref = value.inner_ref();
-            let res = match &*inner_ref {
+            let res = match &inner_ref.0 {
                 TulispValue::Backquote { value } => TulispValue::Backquote {
                     value: capture_variables(captured_vars, exclude, value.clone())?,
                 }
@@ -475,7 +486,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         destruct_bind!((name &rest rest) = args);
         let name = eval(ctx, &name)?;
         let name = eval(ctx, &name)?;
-        if matches!(&*name.inner_ref(), TulispValue::Lambda { .. }) {
+        if matches!(&name.inner_ref().0, TulispValue::Lambda { .. }) {
             crate::eval::funcall::<Eval>(ctx, &name, &rest)
         } else {
             crate::eval::funcall::<DummyEval>(ctx, &name, &rest)

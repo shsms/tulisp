@@ -64,6 +64,7 @@ ErrorKind!(
     (LispError,       pub lisp_error),
     (NotImplemented,  pub not_implemented),
     (OutOfRange,      pub out_of_range),
+    (OSError,         pub os_error),
     (TypeMismatch,    pub type_mismatch),
     (MissingArgument, pub(crate) missing_argument),
     (Undefined,       pub(crate) undefined),
@@ -120,6 +121,9 @@ impl Error {
         for span in &self.backtrace {
             let prefix = self.format_span(ctx, span);
             if prefix.is_empty() {
+                continue;
+            }
+            if span.numberp() || span.symbolp() || span.stringp() {
                 continue;
             }
             let string = span.to_string().replace("\n", "\\n");

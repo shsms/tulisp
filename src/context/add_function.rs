@@ -525,7 +525,6 @@ mod tests {
             ctx,
             r#"(sum "hh" 10)"#,
             r#"ERR TypeMismatch: Expected number, got: "hh"
-<eval_string>:1.7-1.9:  at "hh"
 <eval_string>:1.1-1.13:  at (sum "hh" 10)
 "#,
         );
@@ -550,7 +549,6 @@ mod tests {
             ctx,
             r#"(cats 1 2 3)"#,
             r#"ERR TypeMismatch: Expected string, got: 1
-<eval_string>:1.7-1.7:  at 1
 <eval_string>:1.1-1.12:  at (cats 1 2 3)
 "#,
         );

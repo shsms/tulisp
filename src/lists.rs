@@ -138,11 +138,12 @@ fn assoc_find(
     alist: &TulispObject,
     mut testfn: impl FnMut(&TulispObject, &TulispObject) -> Result<bool, Error>,
 ) -> Result<TulispObject, Error> {
-    if alist.caar_and_then(|caar| testfn(caar, key))? {
-        return alist.car();
-    }
-    if alist.consp() {
-        return alist.cdr_and_then(|cdr| assoc_find(key, cdr, testfn));
+    let mut cur = alist.clone();
+    while cur.consp() {
+        if cur.caar_and_then(|caar| testfn(caar, key))? {
+            return cur.car();
+        }
+        cur = cur.cdr()?;
     }
     Ok(TulispObject::nil())
 }
@@ -153,11 +154,12 @@ fn assoc_find(
 /// Read more about `plist`s
 /// [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Property-Lists.html).
 pub fn plist_get(plist: &TulispObject, property: &TulispObject) -> Result<TulispObject, Error> {
-    if plist.car_and_then(|car| Ok(car.eq(property)))? {
-        return plist.cadr();
-    };
-    if plist.consp() {
-        return plist.cddr_and_then(|cddr| plist_get(cddr, property));
+    let mut cur = plist.clone();
+    while cur.consp() {
+        if cur.car_and_then(|car| Ok(car.eq(property)))? {
+            return cur.cadr();
+        }
+        cur = cur.cddr()?;
     }
     Ok(TulispObject::nil())
 }

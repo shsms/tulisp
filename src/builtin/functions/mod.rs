@@ -1,47 +1,5 @@
 use crate::TulispContext;
 
-// These macros are used by multiple submodules, so they are defined here.
-
-macro_rules! max_min_ops {
-    ($oper:tt) => {{
-        |selfobj: &TulispObject, other: &TulispObject| -> Result<TulispObject, Error> {
-            if selfobj.floatp() {
-                let s: f64 = selfobj.as_float().unwrap();
-                let o: f64 = other.try_into()?;
-                Ok(f64::$oper(s, o).into())
-            } else if other.floatp() {
-                let o: f64 = other.as_float().unwrap();
-                let s: f64 = selfobj.try_into()?;
-                Ok(f64::$oper(s, o).into())
-            } else {
-                let s: i64 = selfobj.try_into()?;
-                let o: i64 = other.try_into()?;
-                Ok(std::cmp::$oper(s, o).into())
-            }
-        }
-    }};
-}
-
-macro_rules! binary_ops {
-    ($oper:expr) => {{
-        |selfobj: &TulispObject, other: &TulispObject| -> Result<TulispObject, Error> {
-            if selfobj.floatp() {
-                let s: f64 = selfobj.as_float().unwrap();
-                let o: f64 = other.try_into()?;
-                Ok($oper(&s, &o).into())
-            } else if other.floatp() {
-                let o: f64 = other.as_float().unwrap();
-                let s: f64 = selfobj.try_into()?;
-                Ok($oper(&s, &o).into())
-            } else {
-                let s: i64 = selfobj.try_into()?;
-                let o: i64 = other.try_into()?;
-                Ok($oper(&s, &o).into())
-            }
-        }
-    }};
-}
-
 mod comparison_of_strings;
 mod conditionals;
 mod equality_predicates;
