@@ -458,7 +458,7 @@ impl TulispObject {
     #[doc(hidden)]
     #[inline(always)]
     pub fn span(&self) -> Option<Span> {
-        self.rc.borrow().1.clone()
+        self.rc.borrow().1
     }
 
     #[doc(hidden)]

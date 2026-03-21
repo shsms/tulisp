@@ -89,7 +89,7 @@ impl TulispContext {
     }
 
     pub(crate) fn intern_soft(&mut self, name: &str) -> Option<TulispObject> {
-        self.obarray.get(name).map(|x| x.clone())
+        self.obarray.get(name).cloned()
     }
 
     #[inline(always)]
