@@ -1,5 +1,5 @@
 use std::fmt::Display;
-use tulisp::{Error, Iter, Shared, TulispAny, TulispContext, TulispObject, destruct_eval_bind};
+use tulisp::{Error, Iter, Shared, TulispContext, TulispObject, destruct_eval_bind};
 
 macro_rules! tulisp_assert {
     (@impl $ctx: expr, program:$input:expr, result:$result:expr $(,)?) => {
@@ -1144,35 +1144,41 @@ fn test_typed_iter() -> Result<(), Error> {
 
 #[test]
 fn test_any() -> Result<(), Error> {
+    #[derive(Clone)]
     struct TestStruct {
         value: i64,
     }
     impl Display for TestStruct {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "TestStruct({})", self.value)
+            write!(f, "(TestStruct {})", self.value)
+        }
+    }
+
+    impl From<TestStruct> for TulispObject {
+        fn from(value: TestStruct) -> Self {
+            Shared::new(value).into()
+        }
+    }
+
+    impl TryFrom<TulispObject> for TestStruct {
+        type Error = Error;
+
+        fn try_from(value: TulispObject) -> Result<Self, Self::Error> {
+            match value.as_any() {
+                Ok(value) => match value.downcast_ref::<TestStruct>() {
+                    Some(v) => Ok(v.clone()),
+                    None => Err(Error::type_mismatch("Expected TestStruct".to_string())),
+                },
+                Err(_) => Err(Error::type_mismatch("Expected TestStruct".to_string())),
+            }
         }
     }
 
     let mut ctx = TulispContext::new();
 
-    ctx.add_special_form("make_any", |ctx, args| {
-        destruct_eval_bind!(ctx, (inp) = args);
-        let res: Shared<dyn TulispAny> = Shared::new(TestStruct {
-            value: inp.try_into()?,
-        });
+    ctx.add_function("make_any", |value: i64| TestStruct { value });
 
-        Ok(res.into())
-    });
-
-    ctx.add_special_form("get_int", |_ctx, args| {
-        destruct_eval_bind!(_ctx, (inp) = args);
-        let inp = inp.as_any()?;
-
-        inp.downcast::<TestStruct>()
-            .map(|vv| vv.value)
-            .map_err(|_| Error::type_mismatch("Not the any thing we wanted.".to_owned()))
-            .map(TulispObject::from)
-    });
+    ctx.add_function("get_int", |value: TestStruct| value.value);
 
     tulisp_assert! {
         ctx: ctx,
@@ -1181,8 +1187,13 @@ fn test_any() -> Result<(), Error> {
     }
     tulisp_assert! {
         ctx: ctx,
+        program: "(make_any 55)",
+        result_str: "'(TestStruct 55)",
+    }
+    tulisp_assert! {
+        ctx: ctx,
         program: "(get_int 55)",
-        error: r#"ERR TypeMismatch: Expected Any(Shared<dyn TulispAny>), got: 55
+        error: r#"ERR TypeMismatch: Expected TestStruct
 <eval_string>:1.1-1.12:  at (get_int 55)
 "#
     }
