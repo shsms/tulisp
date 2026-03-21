@@ -19,7 +19,7 @@ pub mod generic {
 
     impl<T: ?Sized + std::fmt::Display> std::fmt::Display for Shared<T> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "Shared({})", self.0)
+            write!(f, "{}", self.0)
         }
     }
 
@@ -117,7 +117,7 @@ pub mod generic {
 
     impl<T: ?Sized + std::fmt::Display> std::fmt::Display for Shared<T> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "Shared({})", self.0)
+            write!(f, "{}", self.0)
         }
     }
 

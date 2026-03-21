@@ -1150,7 +1150,7 @@ fn test_any() -> Result<(), Error> {
     }
     impl Display for TestStruct {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "TestStruct({})", self.value)
+            write!(f, "(TestStruct {})", self.value)
         }
     }
 
@@ -1184,6 +1184,11 @@ fn test_any() -> Result<(), Error> {
         ctx: ctx,
         program: "(get_int (make_any 22))",
         result: "22",
+    }
+    tulisp_assert! {
+        ctx: ctx,
+        program: "(make_any 55)",
+        result_str: "'(TestStruct 55)",
     }
     tulisp_assert! {
         ctx: ctx,

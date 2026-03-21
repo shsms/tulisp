@@ -659,7 +659,7 @@ impl std::fmt::Display for TulispValue {
             TulispValue::Unquote { value, .. } => f.write_fmt(format_args!(",{}", value)),
             TulispValue::Splice { value, .. } => f.write_fmt(format_args!(",@{}", value)),
             TulispValue::Sharpquote { value, .. } => f.write_fmt(format_args!("#'{}", value)),
-            TulispValue::Any(_) => f.write_str("BoxedValue"),
+            TulispValue::Any(value) => f.write_fmt(format_args!("{}", value)),
             TulispValue::T => f.write_str("t"),
             TulispValue::Func(_) => f.write_str("Func"),
             TulispValue::Macro(_) => f.write_str("Macro"),
