@@ -548,8 +548,22 @@ impl TryFrom<TulispObject> for String {
     }
 }
 
+impl TryFrom<&TulispObject> for String {
+    type Error = Error;
+
+    fn try_from(value: &TulispObject) -> Result<Self, Self::Error> {
+        value.as_string().map_err(|e| e.with_trace(value.clone()))
+    }
+}
+
 impl From<TulispObject> for bool {
     fn from(value: TulispObject) -> Self {
+        value.is_truthy()
+    }
+}
+
+impl From<&TulispObject> for bool {
+    fn from(value: &TulispObject) -> Self {
         value.is_truthy()
     }
 }
@@ -559,6 +573,14 @@ impl TryFrom<TulispObject> for Shared<dyn TulispAny> {
 
     fn try_from(value: TulispObject) -> Result<Self, Self::Error> {
         value.as_any().map_err(|e| e.with_trace(value))
+    }
+}
+
+impl TryFrom<&TulispObject> for Shared<dyn TulispAny> {
+    type Error = Error;
+
+    fn try_from(value: &TulispObject) -> Result<Self, Self::Error> {
+        value.as_any().map_err(|e| e.with_trace(value.clone()))
     }
 }
 
