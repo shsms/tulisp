@@ -548,8 +548,22 @@ impl TryFrom<TulispObject> for String {
     }
 }
 
+impl TryFrom<&TulispObject> for String {
+    type Error = Error;
+
+    fn try_from(value: &TulispObject) -> Result<Self, Self::Error> {
+        value.as_string().map_err(|e| e.with_trace(value.clone()))
+    }
+}
+
 impl From<TulispObject> for bool {
     fn from(value: TulispObject) -> Self {
+        value.is_truthy()
+    }
+}
+
+impl From<&TulispObject> for bool {
+    fn from(value: &TulispObject) -> Self {
         value.is_truthy()
     }
 }
@@ -559,6 +573,44 @@ impl TryFrom<TulispObject> for Shared<dyn TulispAny> {
 
     fn try_from(value: TulispObject) -> Result<Self, Self::Error> {
         value.as_any().map_err(|e| e.with_trace(value))
+    }
+}
+
+impl TryFrom<&TulispObject> for Shared<dyn TulispAny> {
+    type Error = Error;
+
+    fn try_from(value: &TulispObject) -> Result<Self, Self::Error> {
+        value.as_any().map_err(|e| e.with_trace(value.clone()))
+    }
+}
+
+impl<T> TryFrom<TulispObject> for Vec<T>
+where
+    T: TryFrom<TulispObject, Error = Error>,
+{
+    type Error = Error;
+
+    fn try_from(value: TulispObject) -> Result<Self, Self::Error> {
+        value
+            .base_iter()
+            .map(|item| item.try_into())
+            .collect::<Result<Vec<T>, Error>>()
+            .map_err(|e| e.with_trace(value))
+    }
+}
+
+impl<T> TryFrom<&TulispObject> for Vec<T>
+where
+    T: TryFrom<TulispObject, Error = Error>,
+{
+    type Error = Error;
+
+    fn try_from(value: &TulispObject) -> Result<Self, Self::Error> {
+        value
+            .base_iter()
+            .map(|item| item.try_into())
+            .collect::<Result<Vec<T>, Error>>()
+            .map_err(|e| e.with_trace(value.clone()))
     }
 }
 
@@ -582,6 +634,15 @@ tulisp_object_from!(Shared<dyn TulispAny>);
 impl FromIterator<TulispObject> for TulispObject {
     fn from_iter<T: IntoIterator<Item = TulispObject>>(iter: T) -> Self {
         TulispValue::from_iter(iter).into_ref(None)
+    }
+}
+
+impl<T> From<Vec<T>> for TulispObject
+where
+    T: Into<TulispObject>,
+{
+    fn from(vec: Vec<T>) -> Self {
+        vec.into_iter().map(Into::into).collect()
     }
 }
 

@@ -66,6 +66,7 @@ ErrorKind!(
     (OutOfRange,      pub out_of_range),
     (OSError,         pub os_error),
     (TypeMismatch,    pub type_mismatch),
+    (PlistError,      pub plist_error),
     (MissingArgument, pub(crate) missing_argument),
     (Undefined,       pub(crate) undefined),
     (Uninitialized,   pub(crate) uninitialized),

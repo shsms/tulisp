@@ -7,6 +7,7 @@ pub trait TulispCallable<
     const NEEDS_CONTEXT: bool,
     const NUM_ARGS: usize,
     const NUM_OPTIONAL: usize,
+    const HAS_PLIST: bool,
     const HAS_REST: bool,
     const HAS_RETURN: bool,
     const FALLIBLE: bool,
@@ -24,7 +25,7 @@ macro_rules! impl_tulisp_callable {
         // Without context, infallible, no rest
         #[allow(nonstandard_style)]
         impl<OutT, FnT, $($arg,)* $($opt,)*>
-        TulispCallable<($($arg,)* $($opt,)*) , OutT, false, $args_count, $opts_count, false, true, false> for FnT
+        TulispCallable<($($arg,)* $($opt,)*) , OutT, false, $args_count, $opts_count, false, false, true, false> for FnT
         where
         FnT: Fn($($arg,)* $(Option<$opt>),*) -> OutT + 'static + SyncSend,
         $($arg: TryFrom<TulispObject, Error = Error> + 'static,)*
@@ -50,7 +51,7 @@ macro_rules! impl_tulisp_callable {
         // Without context, no return, no rest
         #[allow(nonstandard_style)]
         impl<FnT, $($arg,)* $($opt,)*>
-        TulispCallable<($($arg,)* $($opt,)*) , (), false, $args_count, $opts_count, false, false, false> for FnT
+        TulispCallable<($($arg,)* $($opt,)*) , (), false, $args_count, $opts_count, false, false, false, false> for FnT
         where
         FnT: Fn($($arg,)* $(Option<$opt>),*) + 'static + SyncSend,
         $($arg: TryFrom<TulispObject, Error = Error> + 'static,)*
@@ -75,7 +76,7 @@ macro_rules! impl_tulisp_callable {
         // With context, infallible, no rest
         #[allow(nonstandard_style)]
         impl<OutT, FnT, $($arg,)* $($opt,)*>
-        TulispCallable<($($arg,)* $($opt,)*) , OutT, true, $args_count, $opts_count, false, true,false> for FnT
+        TulispCallable<($($arg,)* $($opt,)*) , OutT, true, $args_count, $opts_count, false, false, true,false> for FnT
         where
         FnT: Fn(&mut TulispContext, $($arg,)* $(Option<$opt>),*) -> OutT + 'static + SyncSend,
         $($arg: TryFrom<TulispObject, Error = Error> + 'static,)*
@@ -101,7 +102,7 @@ macro_rules! impl_tulisp_callable {
         // With context, no return, no rest
         #[allow(nonstandard_style)]
         impl<FnT, $($arg,)* $($opt,)*>
-        TulispCallable<($($arg,)* $($opt,)*), (), true, $args_count, $opts_count, false, false,false> for FnT
+        TulispCallable<($($arg,)* $($opt,)*), (), true, $args_count, $opts_count, false, false, false,false> for FnT
         where
         FnT: Fn(&mut TulispContext, $($arg,)* $(Option<$opt>),*) + 'static + SyncSend,
         $($arg: TryFrom<TulispObject, Error = Error> + 'static,)*
@@ -126,7 +127,7 @@ macro_rules! impl_tulisp_callable {
         // Without context, fallible, no rest
         #[allow(nonstandard_style)]
         impl<OutT, FnT, $($arg,)* $($opt,)*>
-        TulispCallable<($($arg,)* $($opt,)*) , OutT, false, $args_count, $opts_count, false, true, true> for FnT
+        TulispCallable<($($arg,)* $($opt,)*) , OutT, false, $args_count, $opts_count, false, false, true, true> for FnT
         where
         FnT: Fn($($arg,)* $(Option<$opt>),*) -> Result<OutT, Error> + 'static + SyncSend,
         $($arg: TryFrom<TulispObject, Error = Error> + 'static,)*
@@ -152,7 +153,7 @@ macro_rules! impl_tulisp_callable {
         // With context, fallible, no rest
         #[allow(nonstandard_style)]
         impl<OutT, FnT, $($arg,)* $($opt,)*>
-        TulispCallable<($($arg,)* $($opt,)*) , OutT, true, $args_count, $opts_count, false, true, true> for FnT
+        TulispCallable<($($arg,)* $($opt,)*) , OutT, true, $args_count, $opts_count, false, false, true, true> for FnT
         where
         FnT: Fn(&mut TulispContext, $($arg,)* $(Option<$opt>),*) -> Result<OutT, Error> + 'static + SyncSend,
         $($arg: TryFrom<TulispObject, Error = Error> + 'static,)*
@@ -178,7 +179,7 @@ macro_rules! impl_tulisp_callable {
         // Without context, infallible, with rest
         #[allow(nonstandard_style)]
         impl<RestT, OutT, FnT, $($arg,)* $($opt,)*>
-        TulispCallable<($($arg,)* $($opt,)* RestT,), OutT, false, $args_count, $opts_count, true, true, false> for FnT
+        TulispCallable<($($arg,)* $($opt,)* RestT,), OutT, false, $args_count, $opts_count, false, true, true, false> for FnT
         where
         FnT: Fn($($arg,)* $(Option<$opt>,)* Rest<RestT>) -> OutT + 'static + SyncSend,
         $($arg: TryFrom<TulispObject, Error = Error> + 'static,)*
@@ -215,7 +216,7 @@ macro_rules! impl_tulisp_callable {
         // Without context, no return, with rest
         #[allow(nonstandard_style)]
         impl<RestT, FnT, $($arg,)* $($opt,)*>
-        TulispCallable<($($arg,)* $($opt,)* RestT,), (), false, $args_count, $opts_count, true, false, false> for FnT
+        TulispCallable<($($arg,)* $($opt,)* RestT,), (), false, $args_count, $opts_count, false, true, false, false> for FnT
         where
         FnT: Fn($($arg,)* $(Option<$opt>,)* Rest<RestT>) + 'static + SyncSend,
         $($arg: TryFrom<TulispObject, Error = Error> + 'static,)*
@@ -251,7 +252,7 @@ macro_rules! impl_tulisp_callable {
         // With context, infallible, with rest
         #[allow(nonstandard_style)]
         impl<RestT, OutT, FnT, $($arg,)* $($opt,)*>
-        TulispCallable<($($arg,)* $($opt,)* RestT,), OutT, true, $args_count, $opts_count, true, true, false> for FnT
+        TulispCallable<($($arg,)* $($opt,)* RestT,), OutT, true, $args_count, $opts_count, false, true, true, false> for FnT
         where
         FnT: Fn(&mut TulispContext, $($arg,)* $(Option<$opt>,)* Rest<RestT>) -> OutT + 'static + SyncSend,
         $($arg: TryFrom<TulispObject, Error = Error> + 'static,)*
@@ -289,7 +290,7 @@ macro_rules! impl_tulisp_callable {
         // With context, no return, with rest
         #[allow(nonstandard_style)]
         impl<RestT, FnT, $($arg,)* $($opt,)*>
-        TulispCallable<($($arg,)* $($opt,)* RestT,), (), true, $args_count, $opts_count, true, false, false> for FnT
+        TulispCallable<($($arg,)* $($opt,)* RestT,), (), true, $args_count, $opts_count, false, true, false, false> for FnT
         where
         FnT: Fn(&mut TulispContext, $($arg,)* $(Option<$opt>,)* Rest<RestT>) + 'static + SyncSend,
         $($arg: TryFrom<TulispObject, Error = Error> + 'static,)*
@@ -326,7 +327,7 @@ macro_rules! impl_tulisp_callable {
         // Without context, fallible, with rest
         #[allow(nonstandard_style)]
         impl<RestT, OutT, FnT, $($arg,)* $($opt,)*>
-        TulispCallable<($($arg,)* $($opt,)* RestT,), OutT, false, $args_count, $opts_count, true, true, true> for FnT
+        TulispCallable<($($arg,)* $($opt,)* RestT,), OutT, false, $args_count, $opts_count, false, true, true, true> for FnT
         where
         FnT: Fn($($arg,)* $(Option<$opt>,)* Rest<RestT>) -> Result<OutT, Error> + 'static + SyncSend,
         $($arg: TryFrom<TulispObject, Error = Error> + 'static,)*
@@ -363,7 +364,7 @@ macro_rules! impl_tulisp_callable {
         // With context, fallible, with rest
         #[allow(nonstandard_style)]
         impl<RestT, OutT, FnT, $($arg,)* $($opt,)*>
-        TulispCallable<($($arg,)* $($opt,)* RestT,), OutT, true, $args_count, $opts_count, true, true, true> for FnT
+        TulispCallable<($($arg,)* $($opt,)* RestT,), OutT, true, $args_count, $opts_count, false, true, true, true> for FnT
         where
         FnT: Fn(&mut TulispContext, $($arg,)* $(Option<$opt>,)* Rest<RestT>) -> Result<OutT, Error> + 'static + SyncSend,
         $($arg: TryFrom<TulispObject, Error = Error> + 'static,)*
@@ -507,6 +508,108 @@ mod upto_5_args {
     impl_tulisp_callable!(args: 1: (A), opts: 0: (),);
 
     impl_tulisp_callable!(args: 0: (), opts: 0: (),);
+}
+
+mod plist_args {
+    use crate::{FromPlist, Plist};
+
+    use super::*;
+
+    #[allow(nonstandard_style)]
+    impl<PlistT, OutT, FnT> TulispCallable<(PlistT,), OutT, false, 0, 0, true, false, true, false>
+        for FnT
+    where
+        FnT: Fn(Plist<PlistT>) -> OutT + 'static + SyncSend,
+        PlistT: FromPlist + 'static,
+        OutT: Into<TulispObject> + 'static,
+    {
+        fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
+            ctx.add_special_form(name, move |ctx, _args| {
+                destruct_bind!((&rest rest) = _args);
+                let res = (self)(Plist::new(ctx, rest)?);
+                Ok(res.into())
+            });
+        }
+    }
+    #[allow(nonstandard_style)]
+    impl<PlistT, FnT> TulispCallable<(PlistT,), (), false, 0, 0, true, false, true, false> for FnT
+    where
+        FnT: Fn(Plist<PlistT>) + 'static + SyncSend,
+        PlistT: FromPlist + 'static,
+    {
+        fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
+            ctx.add_special_form(name, move |ctx, _args| {
+                destruct_bind!((&rest rest) = _args);
+                (self)(Plist::new(ctx, rest)?);
+                Ok(TulispObject::nil())
+            });
+        }
+    }
+    #[allow(nonstandard_style)]
+    impl<PlistT, OutT, FnT> TulispCallable<(PlistT,), OutT, true, 0, 0, true, false, true, false>
+        for FnT
+    where
+        FnT: Fn(&mut TulispContext, Plist<PlistT>) -> OutT + 'static + SyncSend,
+        PlistT: FromPlist + 'static,
+        OutT: Into<TulispObject> + 'static,
+    {
+        fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
+            ctx.add_special_form(name, move |ctx, _args| {
+                destruct_bind!((&rest rest) = _args);
+                let plist = Plist::new(ctx, rest)?;
+                let res = (self)(ctx, plist);
+                Ok(res.into())
+            });
+        }
+    }
+    #[allow(nonstandard_style)]
+    impl<PlistT, FnT> TulispCallable<(PlistT,), (), true, 0, 0, true, false, false, false> for FnT
+    where
+        FnT: Fn(&mut TulispContext, Plist<PlistT>) + 'static + SyncSend,
+        PlistT: FromPlist + 'static,
+    {
+        fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
+            ctx.add_special_form(name, move |ctx, _args| {
+                destruct_bind!((&rest rest) = _args);
+                let plist = Plist::new(ctx, rest)?;
+                (self)(ctx, plist);
+                Ok(TulispObject::nil())
+            });
+        }
+    }
+    #[allow(nonstandard_style)]
+    impl<PlistT, OutT, FnT> TulispCallable<(PlistT,), OutT, false, 0, 0, true, false, true, true>
+        for FnT
+    where
+        FnT: Fn(Plist<PlistT>) -> Result<OutT, Error> + 'static + SyncSend,
+        PlistT: FromPlist + 'static,
+        OutT: Into<TulispObject> + 'static,
+    {
+        fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
+            ctx.add_special_form(name, move |ctx, _args| {
+                destruct_bind!((&rest rest) = _args);
+                let plist = Plist::new(ctx, rest)?;
+                let res = (self)(plist);
+                res.map(|x| x.into())
+            });
+        }
+    }
+    #[allow(nonstandard_style)]
+    impl<PlistT, OutT, FnT> TulispCallable<(PlistT,), OutT, true, 0, 0, true, false, true, true> for FnT
+    where
+        FnT: Fn(&mut TulispContext, Plist<PlistT>) -> Result<OutT, Error> + 'static + SyncSend,
+        PlistT: FromPlist + 'static,
+        OutT: Into<TulispObject> + 'static,
+    {
+        fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
+            ctx.add_special_form(name, move |ctx, _args| {
+                destruct_bind!((&rest rest) = _args);
+                let plist = Plist::new(ctx, rest)?;
+                let res = (self)(ctx, plist);
+                res.map(|x| x.into())
+            });
+        }
+    }
 }
 
 #[cfg(test)]

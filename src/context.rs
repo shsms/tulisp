@@ -3,6 +3,9 @@ mod add_function;
 mod rest;
 pub use rest::Rest;
 
+mod plist;
+pub use plist::{FromPlist, Plist};
+
 use std::{
     collections::HashMap,
     fs,
@@ -106,6 +109,7 @@ impl TulispContext {
         const NEEDS_CONTEXT: bool,
         const NUM_ARGS: usize,
         const NUM_OPTIONAL: usize,
+        const HAS_PLIST: bool,
         const HAS_REST: bool,
         const HAS_RETURN: bool,
         const FALLIBLE: bool,
@@ -118,6 +122,7 @@ impl TulispContext {
             NEEDS_CONTEXT,
             NUM_ARGS,
             NUM_OPTIONAL,
+            HAS_PLIST,
             HAS_REST,
             HAS_RETURN,
             FALLIBLE,

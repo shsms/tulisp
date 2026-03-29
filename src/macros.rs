@@ -281,7 +281,7 @@ assert!(kw.pos.eq(&ctx.intern(":pos")));
 macro_rules! intern {
     ($( #[$meta:meta] )*
      $vis:vis struct $struct_name:ident {
-         $($name:ident : $symbol:literal),+ $(,)?
+         $($name:ident : $symbol:expr),+ $(,)?
      }) => {
         $( #[$meta] )*
         $vis struct $struct_name {
@@ -298,8 +298,8 @@ macro_rules! intern {
         }
     };
 
-    ($ctx: ident => {$($name:ident : $symbol:literal),+ $(,)?}) => {{
-        intern!(pub(crate) struct Keywords {$($name : $symbol),+});
+    ($ctx: ident => {$($name:ident : $symbol:expr),+ $(,)?}) => {{
+        $crate::intern!(pub(crate) struct Keywords {$($name : $symbol),+});
         Keywords::new($ctx)
     }};
 }
