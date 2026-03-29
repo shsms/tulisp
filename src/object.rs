@@ -584,6 +584,36 @@ impl TryFrom<&TulispObject> for Shared<dyn TulispAny> {
     }
 }
 
+impl<T> TryFrom<TulispObject> for Vec<T>
+where
+    T: TryFrom<TulispObject, Error = Error>,
+{
+    type Error = Error;
+
+    fn try_from(value: TulispObject) -> Result<Self, Self::Error> {
+        value
+            .base_iter()
+            .map(|item| item.try_into())
+            .collect::<Result<Vec<T>, Error>>()
+            .map_err(|e| e.with_trace(value))
+    }
+}
+
+impl<T> TryFrom<&TulispObject> for Vec<T>
+where
+    T: TryFrom<TulispObject, Error = Error>,
+{
+    type Error = Error;
+
+    fn try_from(value: &TulispObject) -> Result<Self, Self::Error> {
+        value
+            .base_iter()
+            .map(|item| item.try_into())
+            .collect::<Result<Vec<T>, Error>>()
+            .map_err(|e| e.with_trace(value.clone()))
+    }
+}
+
 macro_rules! tulisp_object_from {
     ($ty: ty) => {
         impl From<$ty> for TulispObject {
@@ -604,6 +634,15 @@ tulisp_object_from!(Shared<dyn TulispAny>);
 impl FromIterator<TulispObject> for TulispObject {
     fn from_iter<T: IntoIterator<Item = TulispObject>>(iter: T) -> Self {
         TulispValue::from_iter(iter).into_ref(None)
+    }
+}
+
+impl<T> From<Vec<T>> for TulispObject
+where
+    T: Into<TulispObject>,
+{
+    fn from(vec: Vec<T>) -> Self {
+        vec.into_iter().map(Into::into).collect()
     }
 }
 
