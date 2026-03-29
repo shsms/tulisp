@@ -3,6 +3,9 @@ mod add_function;
 mod rest;
 pub use rest::Rest;
 
+mod plist;
+pub use plist::{FromPlist, Plist};
+
 use std::{
     collections::HashMap,
     fs,
