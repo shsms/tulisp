@@ -2,13 +2,13 @@ use std::ops::Deref;
 
 use crate::{Error, TulispContext, TulispObject};
 
-pub struct Plist<T: FromPlist> {
+pub struct Plist<T: Plistable> {
     plist: T,
 }
 
 impl<T> Plist<T>
 where
-    T: FromPlist,
+    T: Plistable,
 {
     pub(crate) fn new(ctx: &mut TulispContext, obj: &TulispObject) -> Result<Self, Error> {
         Ok(Self {
@@ -23,7 +23,7 @@ where
 
 impl<T> Deref for Plist<T>
 where
-    T: FromPlist,
+    T: Plistable,
 {
     type Target = T;
 
@@ -32,7 +32,7 @@ where
     }
 }
 
-pub trait FromPlist {
+pub trait Plistable {
     fn from_plist(ctx: &mut TulispContext, obj: &TulispObject) -> Result<Self, Error>
     where
         Self: Sized;
@@ -88,7 +88,7 @@ macro_rules! AsPlist {
             $($( #[$($field_meta)+] )* $field_vis $field: $type),+
         }
 
-        impl $crate::FromPlist for $struct_name {
+        impl $crate::Plistable for $struct_name {
             fn from_plist(
                 ctx: &mut TulispContext, plist: &$crate::TulispObject
             ) -> Result<Self, $crate::Error> {
