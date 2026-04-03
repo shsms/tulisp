@@ -650,6 +650,18 @@ where
     }
 }
 
+impl<T> From<Option<T>> for TulispObject
+where
+    T: Into<TulispObject>,
+{
+    fn from(opt: Option<T>) -> Self {
+        match opt {
+            Some(v) => v.into(),
+            None => TulispObject::nil(),
+        }
+    }
+}
+
 macro_rules! extractor_cxr_fn {
     ($name: ident, $doc: literal) => {
         #[doc=concat!("Returns the ", $doc, " of `self` if it is a list, and an Error otherwise.")]
