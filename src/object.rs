@@ -556,15 +556,19 @@ impl TryFrom<&TulispObject> for String {
     }
 }
 
-impl From<TulispObject> for bool {
-    fn from(value: TulispObject) -> Self {
-        value.is_truthy()
+impl TryFrom<TulispObject> for bool {
+    type Error = Error;
+
+    fn try_from(value: TulispObject) -> Result<Self, Self::Error> {
+        Ok(value.is_truthy())
     }
 }
 
-impl From<&TulispObject> for bool {
-    fn from(value: &TulispObject) -> Self {
-        value.is_truthy()
+impl TryFrom<&TulispObject> for bool {
+    type Error = Error;
+
+    fn try_from(value: &TulispObject) -> Result<Self, Self::Error> {
+        Ok(value.is_truthy())
     }
 }
 
