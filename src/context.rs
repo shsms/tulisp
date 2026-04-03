@@ -4,7 +4,7 @@ mod rest;
 pub use rest::Rest;
 
 mod plist;
-pub use plist::{FromPlist, Plist};
+pub use plist::{Plist, Plistable};
 
 use std::{
     collections::HashMap,

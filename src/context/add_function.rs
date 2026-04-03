@@ -511,7 +511,7 @@ mod upto_5_args {
 }
 
 mod plist_args {
-    use crate::{FromPlist, Plist};
+    use crate::{Plist, Plistable};
 
     use super::*;
 
@@ -520,7 +520,7 @@ mod plist_args {
         for FnT
     where
         FnT: Fn(Plist<PlistT>) -> OutT + 'static + SyncSend,
-        PlistT: FromPlist + 'static,
+        PlistT: Plistable + 'static,
         OutT: Into<TulispObject> + 'static,
     {
         fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
@@ -535,7 +535,7 @@ mod plist_args {
     impl<PlistT, FnT> TulispCallable<(PlistT,), (), false, 0, 0, true, false, true, false> for FnT
     where
         FnT: Fn(Plist<PlistT>) + 'static + SyncSend,
-        PlistT: FromPlist + 'static,
+        PlistT: Plistable + 'static,
     {
         fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
             ctx.add_special_form(name, move |ctx, _args| {
@@ -550,7 +550,7 @@ mod plist_args {
         for FnT
     where
         FnT: Fn(&mut TulispContext, Plist<PlistT>) -> OutT + 'static + SyncSend,
-        PlistT: FromPlist + 'static,
+        PlistT: Plistable + 'static,
         OutT: Into<TulispObject> + 'static,
     {
         fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
@@ -566,7 +566,7 @@ mod plist_args {
     impl<PlistT, FnT> TulispCallable<(PlistT,), (), true, 0, 0, true, false, false, false> for FnT
     where
         FnT: Fn(&mut TulispContext, Plist<PlistT>) + 'static + SyncSend,
-        PlistT: FromPlist + 'static,
+        PlistT: Plistable + 'static,
     {
         fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
             ctx.add_special_form(name, move |ctx, _args| {
@@ -582,7 +582,7 @@ mod plist_args {
         for FnT
     where
         FnT: Fn(Plist<PlistT>) -> Result<OutT, Error> + 'static + SyncSend,
-        PlistT: FromPlist + 'static,
+        PlistT: Plistable + 'static,
         OutT: Into<TulispObject> + 'static,
     {
         fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
@@ -598,7 +598,7 @@ mod plist_args {
     impl<PlistT, OutT, FnT> TulispCallable<(PlistT,), OutT, true, 0, 0, true, false, true, true> for FnT
     where
         FnT: Fn(&mut TulispContext, Plist<PlistT>) -> Result<OutT, Error> + 'static + SyncSend,
-        PlistT: FromPlist + 'static,
+        PlistT: Plistable + 'static,
         OutT: Into<TulispObject> + 'static,
     {
         fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
