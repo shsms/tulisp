@@ -36,6 +36,8 @@ pub trait Plistable {
     fn from_plist(ctx: &mut TulispContext, obj: &TulispObject) -> Result<Self, Error>
     where
         Self: Sized;
+
+    fn into_plist(self, ctx: &mut TulispContext) -> TulispObject;
 }
 
 #[macro_export]
@@ -138,6 +140,16 @@ macro_rules! AsPlist {
                 }
 
                 builder.build()
+            }
+
+            fn into_plist(self, ctx: &mut TulispContext) -> $crate::TulispObject {
+                let symbols = $crate::intern!(ctx => {
+                    $($field: $crate::AsPlist!(@key-name $field $(<$field_key>)?)),+
+                });
+
+                $crate::lists::plist_from([
+                    $((symbols.$field.clone(), self.$field.into())),+
+                ])
             }
         }
      };
