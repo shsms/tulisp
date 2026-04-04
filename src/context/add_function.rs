@@ -32,6 +32,7 @@ macro_rules! impl_tulisp_callable {
         $($opt: TryFrom<TulispObject, Error = Error> + 'static,)*
         OutT: Into<TulispObject> + 'static,
         {
+            #[track_caller]
             fn add_to_context(
                 self,
                 ctx: &mut TulispContext,
@@ -57,6 +58,7 @@ macro_rules! impl_tulisp_callable {
         $($arg: TryFrom<TulispObject, Error = Error> + 'static,)*
         $($opt: TryFrom<TulispObject, Error = Error> + 'static,)*
         {
+            #[track_caller]
             fn add_to_context(
                 self,
                 ctx: &mut TulispContext,
@@ -83,6 +85,7 @@ macro_rules! impl_tulisp_callable {
         $($opt: TryFrom<TulispObject, Error = Error> + 'static,)*
         OutT: Into<TulispObject> + 'static,
         {
+            #[track_caller]
             fn add_to_context(
                 self,
                 ctx: &mut TulispContext,
@@ -108,6 +111,7 @@ macro_rules! impl_tulisp_callable {
         $($arg: TryFrom<TulispObject, Error = Error> + 'static,)*
         $($opt: TryFrom<TulispObject, Error = Error> + 'static,)*
         {
+            #[track_caller]
             fn add_to_context(
                 self,
                 ctx: &mut TulispContext,
@@ -134,6 +138,7 @@ macro_rules! impl_tulisp_callable {
         $($opt: TryFrom<TulispObject, Error = Error> + 'static,)*
         OutT: Into<TulispObject> + 'static,
         {
+            #[track_caller]
             fn add_to_context(
                 self,
                 ctx: &mut TulispContext,
@@ -160,6 +165,7 @@ macro_rules! impl_tulisp_callable {
         $($opt: TryFrom<TulispObject, Error = Error> + 'static,)*
         OutT: Into<TulispObject> + 'static,
         {
+            #[track_caller]
             fn add_to_context(
                 self,
                 ctx: &mut TulispContext,
@@ -187,6 +193,7 @@ macro_rules! impl_tulisp_callable {
         RestT: TryFrom<TulispObject, Error = Error> + Into<TulispObject> + 'static,
         OutT: Into<TulispObject> + 'static,
         {
+            #[track_caller]
             fn add_to_context(
                 self,
                 ctx: &mut TulispContext,
@@ -223,6 +230,7 @@ macro_rules! impl_tulisp_callable {
         $($opt: TryFrom<TulispObject, Error = Error> + 'static,)*
         RestT: TryFrom<TulispObject, Error = Error> + Into<TulispObject> + 'static,
         {
+            #[track_caller]
             fn add_to_context(
                 self,
                 ctx: &mut TulispContext,
@@ -260,6 +268,7 @@ macro_rules! impl_tulisp_callable {
         RestT: TryFrom<TulispObject, Error = Error> + Into<TulispObject> + 'static,
         OutT: Into<TulispObject> + 'static,
         {
+            #[track_caller]
             fn add_to_context(
                 self,
                 ctx: &mut TulispContext,
@@ -297,6 +306,7 @@ macro_rules! impl_tulisp_callable {
         $($opt: TryFrom<TulispObject, Error = Error> + 'static,)*
         RestT: TryFrom<TulispObject, Error = Error> + Into<TulispObject> + 'static,
         {
+            #[track_caller]
             fn add_to_context(
                 self,
                 ctx: &mut TulispContext,
@@ -335,6 +345,7 @@ macro_rules! impl_tulisp_callable {
         RestT: TryFrom<TulispObject, Error = Error> + Into<TulispObject> + 'static,
         OutT: Into<TulispObject> + 'static,
         {
+            #[track_caller]
             fn add_to_context(
                 self,
                 ctx: &mut TulispContext,
@@ -372,6 +383,7 @@ macro_rules! impl_tulisp_callable {
         RestT: TryFrom<TulispObject, Error = Error> + Into<TulispObject> + 'static,
         OutT: Into<TulispObject> + 'static,
         {
+            #[track_caller]
             fn add_to_context(
                 self,
                 ctx: &mut TulispContext,
@@ -523,6 +535,7 @@ mod plist_args {
         PlistT: Plistable + 'static,
         OutT: Into<TulispObject> + 'static,
     {
+        #[track_caller]
         fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
             ctx.add_special_form(name, move |ctx, _args| {
                 destruct_bind!((&rest rest) = _args);
@@ -537,6 +550,7 @@ mod plist_args {
         FnT: Fn(Plist<PlistT>) + 'static + SyncSend,
         PlistT: Plistable + 'static,
     {
+        #[track_caller]
         fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
             ctx.add_special_form(name, move |ctx, _args| {
                 destruct_bind!((&rest rest) = _args);
@@ -553,6 +567,7 @@ mod plist_args {
         PlistT: Plistable + 'static,
         OutT: Into<TulispObject> + 'static,
     {
+        #[track_caller]
         fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
             ctx.add_special_form(name, move |ctx, _args| {
                 destruct_bind!((&rest rest) = _args);
@@ -568,6 +583,7 @@ mod plist_args {
         FnT: Fn(&mut TulispContext, Plist<PlistT>) + 'static + SyncSend,
         PlistT: Plistable + 'static,
     {
+        #[track_caller]
         fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
             ctx.add_special_form(name, move |ctx, _args| {
                 destruct_bind!((&rest rest) = _args);
@@ -585,6 +601,7 @@ mod plist_args {
         PlistT: Plistable + 'static,
         OutT: Into<TulispObject> + 'static,
     {
+        #[track_caller]
         fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
             ctx.add_special_form(name, move |ctx, _args| {
                 destruct_bind!((&rest rest) = _args);
@@ -601,6 +618,7 @@ mod plist_args {
         PlistT: Plistable + 'static,
         OutT: Into<TulispObject> + 'static,
     {
+        #[track_caller]
         fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
             ctx.add_special_form(name, move |ctx, _args| {
                 destruct_bind!((&rest rest) = _args);

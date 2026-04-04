@@ -25,3 +25,4 @@ lto = true
 [features]
 sync = []
 big_functions = []
+etags = []

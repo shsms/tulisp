@@ -54,6 +54,8 @@ pub struct TulispContext {
     obarray: HashMap<String, TulispObject>,
     pub(crate) filenames: Vec<String>,
     pub(crate) load_path: Option<PathBuf>,
+    #[cfg(feature = "etags")]
+    pub(crate) tag_table: HashMap<String, HashMap<String, usize>>,
 }
 
 impl Default for TulispContext {
@@ -69,6 +71,8 @@ impl TulispContext {
             obarray: HashMap::new(),
             filenames: vec!["<eval_string>".to_string()],
             load_path: None,
+            #[cfg(feature = "etags")]
+            tag_table: HashMap::new(),
         };
         builtin::functions::add(&mut ctx);
         builtin::macros::add(&mut ctx);
@@ -95,14 +99,64 @@ impl TulispContext {
         self.obarray.get(name).cloned()
     }
 
+    #[cfg(feature = "etags")]
+    pub fn tag_table(&self) -> Result<String, Error> {
+        let mut ret = String::new();
+        for (filename, tags) in &self.tag_table {
+            let file = std::fs::read_to_string(filename)
+                .map_err(|e| {
+                    Error::os_error(format!(
+                        "Unable to read file for tag table: {filename}. Error: {e}"
+                    ))
+                })?
+                .split('\n')
+                .map(|line| line.to_string())
+                .collect::<Vec<_>>();
+
+            let tags = tags
+                .iter()
+                .map(|(name, loc)| {
+                    format!(
+                        "{}{name}{},{}",
+                        file[*loc - 1],
+                        loc,
+                        file[0..*loc - 2]
+                            .iter()
+                            .fold(1, |acc, line| acc + line.len() + 1)
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            ret.push_str("\n");
+            ret.push_str(filename);
+            ret.push_str(&format!(",{}\n", tags.len()));
+            ret.push_str(&tags);
+            ret.push('\n');
+        }
+        Ok(ret)
+    }
+
     #[inline(always)]
+    #[track_caller]
     pub fn add_special_form(&mut self, name: &str, func: impl TulispFn + std::any::Any) {
+        #[cfg(feature = "etags")]
+        {
+            let caller = std::panic::Location::caller();
+
+            self.tag_table
+                .entry(caller.file().to_owned())
+                .or_default()
+                .insert(name.to_owned(), caller.line() as usize);
+        }
+
         self.intern(name)
             .set_global(TulispValue::Func(Shared::new_tulisp_fn(func)).into_ref(None))
             .unwrap();
     }
 
     #[inline(always)]
+    #[track_caller]
     pub fn add_function<
         Args: 'static,
         Output: 'static,
@@ -133,7 +187,18 @@ impl TulispContext {
     }
 
     #[inline(always)]
+    #[track_caller]
     pub fn add_macro(&mut self, name: &str, func: impl TulispFn) {
+        #[cfg(feature = "etags")]
+        {
+            let caller = std::panic::Location::caller();
+
+            self.tag_table
+                .entry(caller.file().to_owned())
+                .or_default()
+                .insert(name.to_owned(), caller.line() as usize);
+        }
+
         self.intern(name)
             .set_global(TulispValue::Macro(Shared::new_tulisp_fn(func)).into_ref(None))
             .unwrap();
