@@ -359,6 +359,18 @@ impl Parser<'_, '_> {
         }
 
         if let Ok("defun" | "defmacro") = inner.car()?.as_symbol().as_ref().map(|x| x.as_str()) {
+            #[cfg(feature = "etags")]
+            {
+                let name = inner.cadr()?.as_symbol()?.clone();
+                if let Some(span) = inner.span() {
+                    self.ctx
+                        .tag_table
+                        .entry(self.ctx.filenames[self.file_id].clone())
+                        .or_default()
+                        .insert(name, span.start.0);
+                }
+            }
+
             inner = macroexpand(self.ctx, inner)?;
             eval(self.ctx, &inner)?;
             // recursively update ctx obj in case it is a recursive function.
