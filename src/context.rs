@@ -55,7 +55,7 @@ pub struct TulispContext {
     pub(crate) filenames: Vec<String>,
     pub(crate) load_path: Option<PathBuf>,
     #[cfg(feature = "etags")]
-    pub(crate) tag_table: HashMap<String, HashMap<String, usize>>,
+    pub(crate) tags_table: HashMap<String, HashMap<String, usize>>,
 }
 
 impl Default for TulispContext {
@@ -72,7 +72,7 @@ impl TulispContext {
             filenames: vec!["<eval_string>".to_string()],
             load_path: None,
             #[cfg(feature = "etags")]
-            tag_table: HashMap::new(),
+            tags_table: HashMap::new(),
         };
         builtin::functions::add(&mut ctx);
         builtin::macros::add(&mut ctx);
@@ -100,9 +100,22 @@ impl TulispContext {
     }
 
     #[cfg(feature = "etags")]
-    pub fn tag_table(&self) -> Result<String, Error> {
+    pub fn tags_table(&mut self, files: Option<&[&str]>) -> Result<String, Error> {
+        if let Some(files) = files {
+            for filename in files {
+                let contents = fs::read_to_string(filename).map_err(|e| {
+                    Error::undefined(format!("Unable to read file: {filename}. Error: {e}"))
+                })?;
+                self.filenames.push(filename.to_string());
+                // Parse the file to populate the tags table, but ignore the
+                // result since we only care about the side effect of populating
+                // the tags table.
+                let _ = parse(self, self.filenames.len() - 1, contents.as_str(), true);
+            }
+        }
+
         let mut ret = String::new();
-        for (filename, tags) in &self.tag_table {
+        for (filename, tags) in &self.tags_table {
             let file = std::fs::read_to_string(filename)
                 .map_err(|e| {
                     Error::os_error(format!(
@@ -144,7 +157,7 @@ impl TulispContext {
         {
             let caller = std::panic::Location::caller();
 
-            self.tag_table
+            self.tags_table
                 .entry(caller.file().to_owned())
                 .or_default()
                 .insert(name.to_owned(), caller.line() as usize);
@@ -193,7 +206,7 @@ impl TulispContext {
         {
             let caller = std::panic::Location::caller();
 
-            self.tag_table
+            self.tags_table
                 .entry(caller.file().to_owned())
                 .or_default()
                 .insert(name.to_owned(), caller.line() as usize);
@@ -289,7 +302,7 @@ impl TulispContext {
 
     /// Parses and evaluates the given string, and returns the result.
     pub fn eval_string(&mut self, string: &str) -> Result<TulispObject, Error> {
-        let vv = parse(self, 0, string)?;
+        let vv = parse(self, 0, string, false)?;
         self.eval_progn(&vv)
     }
 
@@ -332,7 +345,7 @@ impl TulispContext {
         self.filenames.push(filename.to_owned());
 
         let string: &str = &contents;
-        let vv = parse(self, self.filenames.len() - 1, string)?;
+        let vv = parse(self, self.filenames.len() - 1, string, false)?;
         self.eval_progn(&vv)
     }
 
