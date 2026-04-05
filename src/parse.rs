@@ -1,9 +1,7 @@
 use std::{collections::HashMap, fmt::Write, iter::Peekable, str::Chars};
 
 use crate::{
-    Error, Number, TulispContext, TulispObject, TulispValue,
-    eval::{eval, macroexpand},
-    object::Span,
+    Error, Number, TulispContext, TulispObject, TulispValue, eval::macroexpand, object::Span,
 };
 
 struct Tokenizer<'a> {
@@ -290,7 +288,7 @@ fn recursive_update_ctxobj(ctx: &mut TulispContext, body: &TulispObject) -> Resu
     }
     let name = body.car()?;
     if name.symbolp() && body.ctxobj().is_none() {
-        let ctxobj = eval(ctx, &name).ok();
+        let ctxobj = ctx.eval(&name).ok();
         body.with_ctxobj(ctxobj);
     }
     for item in body.base_iter() {
@@ -372,13 +370,13 @@ impl Parser<'_, '_> {
             }
 
             inner = macroexpand(self.ctx, inner)?;
-            eval(self.ctx, &inner)?;
+            self.ctx.eval(&inner)?;
             // recursively update ctx obj in case it is a recursive function.
             recursive_update_ctxobj(self.ctx, &inner)?;
         }
         if inner.consp() {
             let name = inner.car()?;
-            let ctxobj = eval(self.ctx, &name).ok();
+            let ctxobj = self.ctx.eval(&name).ok();
             inner.with_ctxobj(ctxobj);
         }
         Ok(inner)

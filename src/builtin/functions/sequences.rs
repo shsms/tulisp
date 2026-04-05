@@ -1,6 +1,6 @@
 use crate::{
     TulispContext, TulispObject, destruct_eval_bind,
-    eval::{DummyEval, eval, funcall},
+    eval::{DummyEval, funcall},
     list, lists,
 };
 use std::cmp::Ordering;
@@ -28,7 +28,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     ctx.add_special_form("seq-find", |ctx, args| {
         destruct_eval_bind!(ctx, (func seq &optional default) = args);
-        let func = eval(ctx, &func)?;
+        let func = ctx.eval(&func)?;
         for item in seq.base_iter() {
             if funcall::<DummyEval>(ctx, &func, &list!(item.clone())?)?.is_truthy() {
                 return Ok(item);
@@ -39,7 +39,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     ctx.add_special_form("sort", |ctx, args| {
         destruct_eval_bind!(ctx, (seq pred) = args);
-        let pred = eval(ctx, &pred)?;
+        let pred = ctx.eval(&pred)?;
         let mut vec: Vec<_> = seq.base_iter().collect();
         let mut err = None;
         vec.sort_by(|v1, v2| {

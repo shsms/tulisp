@@ -118,7 +118,7 @@ pub(crate) fn funcall<E: Evaluator>(
         TulispValue::Lambda { params, body } => eval_lambda::<E>(ctx, params, body, args),
         TulispValue::Macro(_) | TulispValue::Defmacro { .. } => {
             let expanded = macroexpand(ctx, list!(func.clone() ,@args.clone())?)?;
-            eval(ctx, &expanded)
+            ctx.eval(&expanded)
         }
         _ => Err(Error::undefined(format!("function is void: {}", func))),
     }
@@ -131,7 +131,7 @@ pub(crate) fn eval_form<E: Evaluator>(
 ) -> Result<TulispObject, Error> {
     let func = match val.ctxobj() {
         Some(func) => func,
-        None => val.car_and_then(|name| eval(ctx, name))?,
+        None => val.car_and_then(|name| ctx.eval(name))?,
     };
     funcall::<E>(ctx, &func, &val.cdr()?)
 }
@@ -140,11 +140,13 @@ fn eval_back_quote(ctx: &mut TulispContext, mut vv: TulispObject) -> Result<Tuli
     if !vv.consp() {
         let inner = vv.inner_ref();
         if let TulispValue::Unquote { value } = &inner.0 {
-            return eval(ctx, value)
+            return ctx
+                .eval(value)
                 .map_err(|e| e.with_trace(vv.clone()))
                 .map(|x| x.with_span(value.span()));
         } else if let TulispValue::Splice { value } = &inner.0 {
-            return eval(ctx, value)
+            return ctx
+                .eval(value)
                 .map_err(|e| e.with_trace(vv.clone()))?
                 .deep_copy()
                 .map_err(|e| e.with_trace(vv.clone()))
@@ -166,14 +168,14 @@ fn eval_back_quote(ctx: &mut TulispContext, mut vv: TulispObject) -> Result<Tuli
             let first_inner = &first.inner_ref().0;
             if let TulispValue::Unquote { value } = first_inner {
                 ret.push(
-                    eval(ctx, value)
+                    ctx.eval(value)
                         .map_err(|e| e.with_trace(first.clone()))?
                         .with_span(value.span()),
                 )
                 .map_err(|e| e.with_trace(first.clone()))?;
             } else if let TulispValue::Splice { value } = first_inner {
                 ret.append(
-                    eval(ctx, value)
+                    ctx.eval(value)
                         .map_err(|e| e.with_trace(first.clone()))?
                         .deep_copy()
                         .map_err(|e| e.with_trace(first.clone()))?
@@ -189,7 +191,7 @@ fn eval_back_quote(ctx: &mut TulispContext, mut vv: TulispObject) -> Result<Tuli
         let rest = vv.cdr()?;
         if let TulispValue::Unquote { value } = &rest.inner_ref().0 {
             ret.append(
-                eval(ctx, value)
+                ctx.eval(value)
                     .map_err(|e| e.with_trace(rest.clone()))?
                     .with_span(value.span()),
             )
@@ -202,11 +204,6 @@ fn eval_back_quote(ctx: &mut TulispContext, mut vv: TulispObject) -> Result<Tuli
         }
         vv = rest;
     }
-}
-
-#[inline(always)]
-pub(crate) fn eval(ctx: &mut TulispContext, expr: &TulispObject) -> Result<TulispObject, Error> {
-    eval_basic(ctx, expr).map(|x| x.into_owned())
 }
 
 #[inline(always)]

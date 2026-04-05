@@ -16,7 +16,7 @@ use crate::{
     TulispObject, TulispValue, builtin,
     context::add_function::TulispCallable,
     error::Error,
-    eval::{DummyEval, eval, eval_basic, funcall},
+    eval::{DummyEval, eval_basic, funcall},
     list,
     object::wrappers::generic::{Shared, TulispFn},
     parse::parse,
@@ -218,7 +218,7 @@ impl TulispContext {
     /// Evaluates the given value and returns the result.
     #[inline(always)]
     pub fn eval(&mut self, value: &TulispObject) -> Result<TulispObject, Error> {
-        eval(self, value)
+        eval_basic(self, value).map(|x| x.into_owned())
     }
 
     /// Evaluates the given value, run the given function on the result of the
@@ -318,7 +318,7 @@ impl TulispContext {
     pub fn eval_each(&mut self, seq: &TulispObject) -> Result<TulispObject, Error> {
         let ret = TulispObject::nil();
         for val in seq.base_iter() {
-            ret.push(eval(self, &val)?)?;
+            ret.push(self.eval(&val)?)?;
         }
         Ok(ret)
     }

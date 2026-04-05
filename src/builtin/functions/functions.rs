@@ -8,7 +8,6 @@ use crate::destruct_eval_bind;
 use crate::error::Error;
 use crate::eval::DummyEval;
 use crate::eval::Eval;
-use crate::eval::eval;
 use crate::eval::eval_basic;
 use crate::lists;
 use crate::value::DefunParams;
@@ -20,10 +19,10 @@ pub(super) fn reduce_with(
     list: &TulispObject,
     method: impl Fn(Number, Number) -> Result<Number, Error>,
 ) -> Result<TulispObject, Error> {
-    let mut first = list.car_and_then(|x| eval(ctx, x))?.as_number()?;
+    let mut first = list.car_and_then(|x| ctx.eval(x))?.as_number()?;
     let mut rest = list.cdr()?;
     while rest.is_truthy() {
-        let next = rest.car_and_then(|x| eval(ctx, x))?.as_number()?;
+        let next = rest.car_and_then(|x| ctx.eval(x))?.as_number()?;
         first = method(first, next)?;
         rest = rest.cdr()?;
     }
@@ -293,7 +292,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                         "let varitem has too many values".to_string(),
                     ));
                 }
-                local.set(name, eval(ctx, &value)?)?;
+                local.set(name, ctx.eval(&value)?)?;
             } else {
                 return Err(Error::syntax_error(format!(
                     "varitems inside a let-varlist should be a var or a binding: {}",
@@ -478,13 +477,13 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     ctx.add_special_form("eval", |ctx, args| {
         destruct_eval_bind!(ctx, (arg) = args);
-        crate::eval::eval(ctx, &arg)
+        ctx.eval(&arg)
     });
 
     ctx.add_special_form("funcall", |ctx, args| {
         destruct_bind!((name &rest rest) = args);
-        let name = eval(ctx, &name)?;
-        let name = eval(ctx, &name)?;
+        let name = ctx.eval(&name)?;
+        let name = ctx.eval(&name)?;
         if matches!(&name.inner_ref().0, TulispValue::Lambda { .. }) {
             crate::eval::funcall::<Eval>(ctx, &name, &rest)
         } else {
@@ -561,9 +560,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         for ele in args.base_iter() {
             match cons {
                 Some(ref mut cons) => {
-                    cons.push(eval(ctx, &ele)?)?;
+                    cons.push(ctx.eval(&ele)?)?;
                 }
-                None => cons = Some(Cons::new(eval(ctx, &ele)?, TulispObject::nil())),
+                None => cons = Some(Cons::new(ctx.eval(&ele)?, TulispObject::nil())),
             }
         }
         match cons {
