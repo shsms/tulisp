@@ -210,11 +210,6 @@ pub(crate) fn eval(ctx: &mut TulispContext, expr: &TulispObject) -> Result<Tulis
 }
 
 #[inline(always)]
-pub(crate) fn eval_check_null(ctx: &mut TulispContext, expr: &TulispObject) -> Result<bool, Error> {
-    eval_basic(ctx, expr).map(|x| x.null())
-}
-
-#[inline(always)]
 pub(crate) fn eval_basic<'a>(
     ctx: &mut TulispContext,
     expr: &'a TulispObject,
