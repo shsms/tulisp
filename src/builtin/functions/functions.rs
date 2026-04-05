@@ -613,16 +613,12 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     macro_rules! predicate_function {
         ($name: ident) => {
             fn $name(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
-                match args.cdr_and_then(|x| Ok(x.null())) {
-                    Err(err) => return Err(err),
-                    Ok(false) => {
-                        return Err(Error::type_mismatch(format!(
-                            "Expected exatly 1 argument for {}. Got args: {}",
-                            stringify!($name),
-                            args
-                        )))
-                    }
-                    Ok(true) => {}
+                if args.cdr_and_then(|x| Ok(x.is_truthy()))? {
+                    return Err(Error::type_mismatch(format!(
+                        "Expected exatly 1 argument for {}. Got args: {}",
+                        stringify!($name),
+                        args
+                    )));
                 }
                 args.car_and_then(|arg| eval_and_then(ctx, &arg, |_, x| Ok(x.$name().into())))
             }
