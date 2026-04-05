@@ -16,7 +16,7 @@ use crate::{
     TulispObject, TulispValue, builtin,
     context::add_function::TulispCallable,
     error::Error,
-    eval::{DummyEval, eval, eval_and_then, eval_basic, funcall},
+    eval::{DummyEval, eval, eval_basic, funcall},
     list,
     object::wrappers::generic::{Shared, TulispFn},
     parse::parse,
@@ -229,7 +229,8 @@ impl TulispContext {
         expr: &TulispObject,
         f: impl FnOnce(&mut TulispContext, &TulispObject) -> Result<T, Error>,
     ) -> Result<T, Error> {
-        eval_and_then(self, expr, f)
+        let val = eval_basic(self, expr)?;
+        f(self, &val)
     }
 
     /// Calls the given function with the given arguments, and returns the

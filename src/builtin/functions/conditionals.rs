@@ -1,6 +1,6 @@
 use crate::{
     Error, TulispContext, TulispObject, destruct_bind, destruct_eval_bind,
-    eval::{eval_and_then, eval_basic},
+    eval::eval_basic,
     list,
     lists::{last, length},
 };
@@ -32,7 +32,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     ctx.add_special_form("cond", |ctx, args| {
         for item in args.base_iter() {
-            if item.car_and_then(|x| eval_and_then(ctx, x, |_, x| Ok(x.is_truthy())))? {
+            if item.car_and_then(|x| ctx.eval_and_then(x, |_, x| Ok(x.is_truthy())))? {
                 return item.cdr_and_then(|x| ctx.eval_progn(x));
             }
         }

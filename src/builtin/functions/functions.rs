@@ -9,7 +9,6 @@ use crate::error::Error;
 use crate::eval::DummyEval;
 use crate::eval::Eval;
 use crate::eval::eval;
-use crate::eval::eval_and_then;
 use crate::eval::eval_check_null;
 use crate::lists;
 use crate::value::DefunParams;
@@ -620,7 +619,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                         args
                     )));
                 }
-                args.car_and_then(|arg| eval_and_then(ctx, &arg, |_, x| Ok(x.$name().into())))
+                args.car_and_then(|arg| ctx.eval_and_then(&arg, |_, x| Ok(x.$name().into())))
             }
             ctx.add_special_form(stringify!($name), $name);
         };

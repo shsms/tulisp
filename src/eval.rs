@@ -215,16 +215,6 @@ pub(crate) fn eval_check_null(ctx: &mut TulispContext, expr: &TulispObject) -> R
 }
 
 #[inline(always)]
-pub(crate) fn eval_and_then<T>(
-    ctx: &mut TulispContext,
-    expr: &TulispObject,
-    func: impl FnOnce(&mut TulispContext, &TulispObject) -> Result<T, Error>,
-) -> Result<T, Error> {
-    let val = eval_basic(ctx, expr)?;
-    func(ctx, &val)
-}
-
-#[inline(always)]
 pub(crate) fn eval_basic<'a>(
     ctx: &mut TulispContext,
     expr: &'a TulispObject,
