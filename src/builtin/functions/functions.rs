@@ -8,9 +8,7 @@ use crate::destruct_eval_bind;
 use crate::error::Error;
 use crate::eval::DummyEval;
 use crate::eval::Eval;
-use crate::eval::eval;
-use crate::eval::eval_and_then;
-use crate::eval::eval_check_null;
+use crate::eval::eval_basic;
 use crate::lists;
 use crate::value::DefunParams;
 use crate::{destruct_bind, list};
@@ -21,10 +19,10 @@ pub(super) fn reduce_with(
     list: &TulispObject,
     method: impl Fn(Number, Number) -> Result<Number, Error>,
 ) -> Result<TulispObject, Error> {
-    let mut first = list.car_and_then(|x| eval(ctx, x))?.as_number()?;
+    let mut first = list.car_and_then(|x| ctx.eval(x))?.as_number()?;
     let mut rest = list.cdr()?;
     while rest.is_truthy() {
-        let next = rest.car_and_then(|x| eval(ctx, x))?.as_number()?;
+        let next = rest.car_and_then(|x| ctx.eval(x))?.as_number()?;
         first = method(first, next)?;
         rest = rest.cdr()?;
     }
@@ -225,7 +223,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.add_special_form("while", |ctx, args| {
         destruct_bind!((condition &rest rest) = args);
         let mut result = TulispObject::nil();
-        while !eval_check_null(ctx, &condition)? {
+        while eval_basic(ctx, &condition).map(|x| x.is_truthy())? {
             result = ctx.eval_progn(&rest)?;
         }
         Ok(result)
@@ -294,7 +292,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                         "let varitem has too many values".to_string(),
                     ));
                 }
-                local.set(name, eval(ctx, &value)?)?;
+                local.set(name, ctx.eval(&value)?)?;
             } else {
                 return Err(Error::syntax_error(format!(
                     "varitems inside a let-varlist should be a var or a binding: {}",
@@ -479,13 +477,13 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     ctx.add_special_form("eval", |ctx, args| {
         destruct_eval_bind!(ctx, (arg) = args);
-        crate::eval::eval(ctx, &arg)
+        ctx.eval(&arg)
     });
 
     ctx.add_special_form("funcall", |ctx, args| {
         destruct_bind!((name &rest rest) = args);
-        let name = eval(ctx, &name)?;
-        let name = eval(ctx, &name)?;
+        let name = ctx.eval(&name)?;
+        let name = ctx.eval(&name)?;
         if matches!(&name.inner_ref().0, TulispValue::Lambda { .. }) {
             crate::eval::funcall::<Eval>(ctx, &name, &rest)
         } else {
@@ -562,9 +560,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         for ele in args.base_iter() {
             match cons {
                 Some(ref mut cons) => {
-                    cons.push(eval(ctx, &ele)?)?;
+                    cons.push(ctx.eval(&ele)?)?;
                 }
-                None => cons = Some(Cons::new(eval(ctx, &ele)?, TulispObject::nil())),
+                None => cons = Some(Cons::new(ctx.eval(&ele)?, TulispObject::nil())),
             }
         }
         match cons {
@@ -613,18 +611,14 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     macro_rules! predicate_function {
         ($name: ident) => {
             fn $name(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
-                match args.cdr_and_then(|x| Ok(x.null())) {
-                    Err(err) => return Err(err),
-                    Ok(false) => {
-                        return Err(Error::type_mismatch(format!(
-                            "Expected exatly 1 argument for {}. Got args: {}",
-                            stringify!($name),
-                            args
-                        )))
-                    }
-                    Ok(true) => {}
+                if args.cdr_and_then(|x| Ok(x.is_truthy()))? {
+                    return Err(Error::type_mismatch(format!(
+                        "Expected exatly 1 argument for {}. Got args: {}",
+                        stringify!($name),
+                        args
+                    )));
                 }
-                args.car_and_then(|arg| eval_and_then(ctx, &arg, |_, x| Ok(x.$name().into())))
+                args.car_and_then(|arg| ctx.eval_and_then(&arg, |_, x| Ok(x.$name().into())))
             }
             ctx.add_special_form(stringify!($name), $name);
         };

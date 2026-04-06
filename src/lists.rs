@@ -1,6 +1,6 @@
 use crate::{
     Error, TulispContext, TulispObject,
-    eval::{DummyEval, eval, funcall},
+    eval::{DummyEval, funcall},
     list,
 };
 
@@ -99,7 +99,7 @@ pub fn assoc(
         )));
     }
     if let Some(testfn) = testfn {
-        let pred = eval(ctx, &testfn)?;
+        let pred = ctx.eval(&testfn)?;
 
         let testfn = |_1: &TulispObject, _2: &TulispObject| -> Result<bool, Error> {
             funcall::<DummyEval>(ctx, &pred, &list!(,_1.clone() ,_2.clone()).unwrap())

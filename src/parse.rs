@@ -1,9 +1,7 @@
 use std::{collections::HashMap, fmt::Write, iter::Peekable, str::Chars};
 
 use crate::{
-    Error, Number, TulispContext, TulispObject, TulispValue,
-    eval::{eval, macroexpand},
-    object::Span,
+    Error, Number, TulispContext, TulispObject, TulispValue, eval::macroexpand, object::Span,
 };
 
 struct Tokenizer<'a> {
@@ -282,6 +280,7 @@ struct Parser<'a, 'b> {
     ctx: &'b mut TulispContext,
     ints: HashMap<i64, TulispObject>,
     strings: HashMap<String, TulispObject>,
+    follow_load_files: bool,
 }
 
 fn recursive_update_ctxobj(ctx: &mut TulispContext, body: &TulispObject) -> Result<(), Error> {
@@ -290,7 +289,7 @@ fn recursive_update_ctxobj(ctx: &mut TulispContext, body: &TulispObject) -> Resu
     }
     let name = body.car()?;
     if name.symbolp() && body.ctxobj().is_none() {
-        let ctxobj = eval(ctx, &name).ok();
+        let ctxobj = ctx.eval(&name).ok();
         body.with_ctxobj(ctxobj);
     }
     for item in body.base_iter() {
@@ -300,13 +299,19 @@ fn recursive_update_ctxobj(ctx: &mut TulispContext, body: &TulispObject) -> Resu
 }
 
 impl Parser<'_, '_> {
-    fn new<'b, 'a>(ctx: &'b mut TulispContext, file_id: usize, program: &'a str) -> Parser<'a, 'b> {
+    fn new<'b, 'a>(
+        ctx: &'b mut TulispContext,
+        file_id: usize,
+        program: &'a str,
+        follow_load_files: bool,
+    ) -> Parser<'a, 'b> {
         Parser {
             file_id,
             tokenizer: Tokenizer::new(file_id, program).peekable(),
             ctx,
             ints: Default::default(),
             strings: Default::default(),
+            follow_load_files,
         }
     }
 
@@ -358,13 +363,33 @@ impl Parser<'_, '_> {
             inner.append(next)?;
         }
 
+        #[cfg(feature = "etags")]
+        if self.follow_load_files
+            && let Ok("load") = inner.car()?.as_symbol().as_ref().map(|x| x.as_str())
+        {
+            let filename = inner.cadr()?.as_string()?;
+            let contents = std::fs::read_to_string(&filename).map_err(|e| {
+                Error::undefined(format!("Unable to read file: {filename}. Error: {e}"))
+            })?;
+            self.ctx.filenames.push(filename.to_string());
+            // Parse the file to populate the tags table, but ignore the
+            // result since we only care about the side effect of populating
+            // the tags table.
+            let _ = parse(
+                self.ctx,
+                self.ctx.filenames.len() - 1,
+                contents.as_str(),
+                self.follow_load_files,
+            );
+        }
+
         if let Ok("defun" | "defmacro") = inner.car()?.as_symbol().as_ref().map(|x| x.as_str()) {
             #[cfg(feature = "etags")]
             {
                 let name = inner.cadr()?.as_symbol()?.clone();
                 if let Some(span) = inner.span() {
                     self.ctx
-                        .tag_table
+                        .tags_table
                         .entry(self.ctx.filenames[self.file_id].clone())
                         .or_default()
                         .insert(name, span.start.0);
@@ -372,13 +397,13 @@ impl Parser<'_, '_> {
             }
 
             inner = macroexpand(self.ctx, inner)?;
-            eval(self.ctx, &inner)?;
+            self.ctx.eval(&inner)?;
             // recursively update ctx obj in case it is a recursive function.
             recursive_update_ctxobj(self.ctx, &inner)?;
         }
         if inner.consp() {
             let name = inner.car()?;
-            let ctxobj = eval(self.ctx, &name).ok();
+            let ctxobj = self.ctx.eval(&name).ok();
             inner.with_ctxobj(ctxobj);
         }
         Ok(inner)
@@ -505,6 +530,7 @@ pub fn parse(
     ctx: &mut TulispContext,
     file_id: usize,
     program: &str,
+    follow_load_files: bool,
 ) -> Result<TulispObject, Error> {
-    Parser::new(ctx, file_id, program).parse()
+    Parser::new(ctx, file_id, program, follow_load_files).parse()
 }

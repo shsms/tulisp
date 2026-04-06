@@ -1,6 +1,5 @@
 use crate::Number;
 use crate::builtin::functions::functions::reduce_with;
-use crate::eval::eval;
 use crate::{Error, TulispContext, TulispObject};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
@@ -12,7 +11,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     fn sub(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
         if let Some(cons) = args.as_list_cons() {
             if cons.cdr().null() {
-                let vv = Number::from(0) - eval(ctx, cons.car())?.as_number()?;
+                let vv = Number::from(0) - ctx.eval(cons.car())?.as_number()?;
                 Ok(vv.into())
             } else {
                 reduce_with(ctx, args, |a, b| Ok(a - b))
