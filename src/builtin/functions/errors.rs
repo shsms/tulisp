@@ -1,9 +1,8 @@
-use crate::{Error, ErrorKind, TulispContext, destruct_bind};
+use crate::{Error, ErrorKind, TulispContext, TulispObject, destruct_bind};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    ctx.add_special_form("error", |ctx, args| {
-        destruct_bind!((msg) = args);
-        Err(Error::lisp_error(ctx.eval(&msg)?.as_string()?))
+    ctx.add_function("error", |msg: String| -> Result<TulispObject, Error> {
+        Err(Error::lisp_error(msg))
     });
 
     ctx.add_special_form("catch", |ctx, args| {
@@ -20,10 +19,12 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         res
     });
 
-    ctx.add_special_form("throw", |ctx, args| {
-        destruct_bind!((tag value) = args);
-        Err(Error::throw(ctx.eval(&tag)?, ctx.eval(&value)?))
-    });
+    ctx.add_function(
+        "throw",
+        |tag: TulispObject, value: TulispObject| -> Result<TulispObject, Error> {
+            Err(Error::throw(tag, value))
+        },
+    );
 }
 
 #[cfg(test)]
