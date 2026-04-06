@@ -5,7 +5,10 @@ use crate::{
     error::Error,
     object::{
         Span,
-        wrappers::generic::{Shared, SyncSend, TulispFn},
+        wrappers::{
+            TulispFn,
+            generic::{Shared, SyncSend},
+        },
     },
 };
 use std::{
