@@ -719,7 +719,7 @@ impl TulispValue {
 
     #[inline(always)]
     pub(crate) fn numberp(&self) -> bool {
-        self.integerp() || self.floatp()
+        matches!(self, TulispValue::Number { .. })
     }
 
     #[inline(always)]
