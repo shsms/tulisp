@@ -93,14 +93,18 @@ pub use error::{Error, ErrorKind};
 
 pub mod lists;
 
+mod number;
+pub use number::Number;
+
 mod value;
-pub use value::Number;
 pub use value::TulispAny;
 #[doc(hidden)]
 pub use value::TulispValue;
 
 mod object;
-pub use {object::TulispObject, object::wrappers::generic::Shared};
+pub use {
+    object::TulispObject, object::conversions::TulispConvertible, object::wrappers::generic::Shared,
+};
 
 #[cfg(test)]
 mod test_utils {

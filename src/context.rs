@@ -18,7 +18,7 @@ use crate::{
     error::Error,
     eval::{DummyEval, eval_basic, funcall},
     list,
-    object::wrappers::generic::{Shared, TulispFn},
+    object::wrappers::{TulispFn, generic::Shared},
     parse::parse,
 };
 

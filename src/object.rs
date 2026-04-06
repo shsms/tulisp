@@ -1,11 +1,12 @@
+pub(crate) mod conversions;
 pub mod wrappers;
 
 use crate::{
-    TulispValue,
+    Number, TulispValue,
     cons::{self, Cons},
     error::Error,
     object::wrappers::generic::{Shared, SharedMut, SharedRef},
-    value::{Number, TulispAny},
+    value::TulispAny,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]

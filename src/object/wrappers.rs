@@ -1,5 +1,16 @@
 use crate::{Error, TulispContext, TulispObject};
 
+pub trait TulispFn:
+    Fn(&mut TulispContext, &TulispObject) -> Result<TulispObject, Error> + generic::SyncSend + 'static
+{
+}
+impl<T> TulispFn for T where
+    T: Fn(&mut TulispContext, &TulispObject) -> Result<TulispObject, Error>
+        + generic::SyncSend
+        + 'static
+{
+}
+
 #[cfg(not(feature = "sync"))]
 pub mod generic {
     use std::ops::Deref;
@@ -86,15 +97,6 @@ pub mod generic {
         pub fn strong_count(&self) -> usize {
             std::rc::Rc::strong_count(&self.0)
         }
-    }
-
-    pub trait TulispFn:
-        Fn(&mut TulispContext, &TulispObject) -> Result<TulispObject, Error> + 'static
-    {
-    }
-    impl<T> TulispFn for T where
-        T: Fn(&mut TulispContext, &TulispObject) -> Result<TulispObject, Error> + 'static
-    {
     }
 }
 
@@ -183,15 +185,5 @@ pub mod generic {
         pub fn strong_count(&self) -> usize {
             std::sync::Arc::strong_count(&self.0)
         }
-    }
-    pub trait TulispFn:
-        Fn(&mut TulispContext, &TulispObject) -> Result<TulispObject, Error> + SyncSend + 'static
-    {
-    }
-    impl<T> TulispFn for T where
-        T: Fn(&mut TulispContext, &TulispObject) -> Result<TulispObject, Error>
-            + SyncSend
-            + 'static
-    {
     }
 }

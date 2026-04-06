@@ -1,4 +1,4 @@
-use crate::{TulispObject, cons};
+use crate::{TulispConvertible, TulispObject, cons};
 
 pub struct Rest<T> {
     values: RestEnum<T>,
@@ -22,11 +22,11 @@ impl From<Rest<TulispObject>> for TulispObject {
 
 impl<T> FromIterator<T> for Rest<T>
 where
-    T: Into<TulispObject> + 'static,
+    T: TulispConvertible + 'static,
 {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         if std::any::TypeId::of::<T>() == std::any::TypeId::of::<TulispObject>() {
-            let obj: TulispObject = iter.into_iter().map(|t| t.into()).collect();
+            let obj: TulispObject = iter.into_iter().map(|t| t.into_tulisp()).collect();
             Rest {
                 values: RestEnum::Boxed(obj, std::marker::PhantomData),
             }
@@ -46,23 +46,23 @@ pub enum RestEnumIter<T> {
 
 impl<T> Iterator for RestEnumIter<T>
 where
-    T: TryFrom<TulispObject>,
+    T: TulispConvertible,
 {
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self {
             RestEnumIter::Typed(iter) => iter.next(),
-            RestEnumIter::Boxed(base_iter, _) => {
-                base_iter.next().and_then(|obj| T::try_from(obj).ok())
-            }
+            RestEnumIter::Boxed(base_iter, _) => base_iter
+                .next()
+                .and_then(|obj| TulispConvertible::from_tulisp(&obj).ok()),
         }
     }
 }
 
 impl<T> IntoIterator for Rest<T>
 where
-    T: TryFrom<TulispObject>,
+    T: TulispConvertible,
 {
     type Item = T;
     type IntoIter = RestEnumIter<T>;

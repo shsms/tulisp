@@ -28,9 +28,9 @@ macro_rules! impl_tulisp_callable {
         TulispCallable<($($arg,)* $($opt,)*) , OutT, false, $args_count, $opts_count, false, false, true, false> for FnT
         where
         FnT: Fn($($arg,)* $(Option<$opt>),*) -> OutT + 'static + SyncSend,
-        $($arg: TryFrom<TulispObject, Error = Error> + 'static,)*
-        $($opt: TryFrom<TulispObject, Error = Error> + 'static,)*
-        OutT: Into<TulispObject> + 'static,
+        $($arg: $crate::TulispConvertible + 'static,)*
+        $($opt: $crate::TulispConvertible + 'static,)*
+        OutT: $crate::TulispConvertible + 'static,
         {
             #[track_caller]
             fn add_to_context(
@@ -42,8 +42,8 @@ macro_rules! impl_tulisp_callable {
                     name,
                     move |_ctx, _args| {
                         impl_tulisp_callable!(@deb _ctx, $($arg)* &optional $($opt)*, _args);
-                        let res = (self)($($arg.try_into()?,)* $(if $opt.null() {None} else {Some($opt.try_into()?)}),*);
-                        Ok(res.into())
+                        let res = (self)($($crate::TulispConvertible::from_tulisp(&$arg)?,)* $(if $opt.null() {None} else {Some($crate::TulispConvertible::from_tulisp(&$opt)?)}),*);
+                        Ok($crate::TulispConvertible::into_tulisp(res))
                     }
                 );
             }
@@ -55,8 +55,8 @@ macro_rules! impl_tulisp_callable {
         TulispCallable<($($arg,)* $($opt,)*) , (), false, $args_count, $opts_count, false, false, false, false> for FnT
         where
         FnT: Fn($($arg,)* $(Option<$opt>),*) + 'static + SyncSend,
-        $($arg: TryFrom<TulispObject, Error = Error> + 'static,)*
-        $($opt: TryFrom<TulispObject, Error = Error> + 'static,)*
+        $($arg: $crate::TulispConvertible + 'static,)*
+        $($opt: $crate::TulispConvertible + 'static,)*
         {
             #[track_caller]
             fn add_to_context(
@@ -68,7 +68,7 @@ macro_rules! impl_tulisp_callable {
                     name,
                     move |_ctx, _args| {
                         impl_tulisp_callable!(@deb _ctx, $($arg)* &optional $($opt)*, _args);
-                        (self)($($arg.try_into()?,)* $(if $opt.null() {None} else {Some($opt.try_into()?)}),*);
+                        (self)($($crate::TulispConvertible::from_tulisp(&$arg)?,)* $(if $opt.null() {None} else {Some($crate::TulispConvertible::from_tulisp(&$opt)?)}),*);
                         Ok(TulispObject::nil())
                     }
                 );
@@ -81,9 +81,9 @@ macro_rules! impl_tulisp_callable {
         TulispCallable<($($arg,)* $($opt,)*) , OutT, true, $args_count, $opts_count, false, false, true,false> for FnT
         where
         FnT: Fn(&mut TulispContext, $($arg,)* $(Option<$opt>),*) -> OutT + 'static + SyncSend,
-        $($arg: TryFrom<TulispObject, Error = Error> + 'static,)*
-        $($opt: TryFrom<TulispObject, Error = Error> + 'static,)*
-        OutT: Into<TulispObject> + 'static,
+        $($arg: $crate::TulispConvertible + 'static,)*
+        $($opt: $crate::TulispConvertible + 'static,)*
+        OutT: $crate::TulispConvertible + 'static,
         {
             #[track_caller]
             fn add_to_context(
@@ -95,8 +95,8 @@ macro_rules! impl_tulisp_callable {
                     name,
                     move |ctx, _args| {
                         impl_tulisp_callable!(@deb ctx, $($arg)* &optional $($opt)*, _args);
-                        let res = (self)(ctx, $($arg.try_into()?,)* $(if $opt.null() {None} else {Some($opt.try_into()?)}),*);
-                        Ok(res.into())
+                        let res = (self)(ctx, $($crate::TulispConvertible::from_tulisp(&$arg)?,)* $(if $opt.null() {None} else {Some($crate::TulispConvertible::from_tulisp(&$opt)?)}),*);
+                        Ok($crate::TulispConvertible::into_tulisp(res))
                     }
                 );
             }
@@ -108,8 +108,8 @@ macro_rules! impl_tulisp_callable {
         TulispCallable<($($arg,)* $($opt,)*), (), true, $args_count, $opts_count, false, false, false,false> for FnT
         where
         FnT: Fn(&mut TulispContext, $($arg,)* $(Option<$opt>),*) + 'static + SyncSend,
-        $($arg: TryFrom<TulispObject, Error = Error> + 'static,)*
-        $($opt: TryFrom<TulispObject, Error = Error> + 'static,)*
+        $($arg: $crate::TulispConvertible + 'static,)*
+        $($opt: $crate::TulispConvertible + 'static,)*
         {
             #[track_caller]
             fn add_to_context(
@@ -121,7 +121,7 @@ macro_rules! impl_tulisp_callable {
                     name,
                     move |ctx, _args| {
                         impl_tulisp_callable!(@deb ctx, $($arg)* &optional $($opt)*, _args);
-                        (self)(ctx, $($arg.try_into()?,)* $(if $opt.null() {None} else {Some($opt.try_into()?)}),*);
+                        (self)(ctx, $($crate::TulispConvertible::from_tulisp(&$arg)?,)* $(if $opt.null() {None} else {Some($crate::TulispConvertible::from_tulisp(&$opt)?)}),*);
                         Ok(TulispObject::nil())
                     }
                 );
@@ -134,9 +134,9 @@ macro_rules! impl_tulisp_callable {
         TulispCallable<($($arg,)* $($opt,)*) , OutT, false, $args_count, $opts_count, false, false, true, true> for FnT
         where
         FnT: Fn($($arg,)* $(Option<$opt>),*) -> Result<OutT, Error> + 'static + SyncSend,
-        $($arg: TryFrom<TulispObject, Error = Error> + 'static,)*
-        $($opt: TryFrom<TulispObject, Error = Error> + 'static,)*
-        OutT: Into<TulispObject> + 'static,
+        $($arg: $crate::TulispConvertible + 'static,)*
+        $($opt: $crate::TulispConvertible + 'static,)*
+        OutT: $crate::TulispConvertible + 'static,
         {
             #[track_caller]
             fn add_to_context(
@@ -148,8 +148,8 @@ macro_rules! impl_tulisp_callable {
                     name,
                     move |_ctx, _args| {
                         impl_tulisp_callable!(@deb _ctx, $($arg)* &optional $($opt)*, _args);
-                        let res = (self)($($arg.try_into()?,)* $(if $opt.null() {None} else {Some($opt.try_into()?)}),*)?;
-                        Ok(res.into())
+                        let res = (self)($($crate::TulispConvertible::from_tulisp(&$arg)?,)* $(if $opt.null() {None} else {Some($crate::TulispConvertible::from_tulisp(&$opt)?)}),*)?;
+                        Ok($crate::TulispConvertible::into_tulisp(res))
                     }
                 );
             }
@@ -161,9 +161,9 @@ macro_rules! impl_tulisp_callable {
         TulispCallable<($($arg,)* $($opt,)*) , OutT, true, $args_count, $opts_count, false, false, true, true> for FnT
         where
         FnT: Fn(&mut TulispContext, $($arg,)* $(Option<$opt>),*) -> Result<OutT, Error> + 'static + SyncSend,
-        $($arg: TryFrom<TulispObject, Error = Error> + 'static,)*
-        $($opt: TryFrom<TulispObject, Error = Error> + 'static,)*
-        OutT: Into<TulispObject> + 'static,
+        $($arg: $crate::TulispConvertible + 'static,)*
+        $($opt: $crate::TulispConvertible + 'static,)*
+        OutT: $crate::TulispConvertible + 'static,
         {
             #[track_caller]
             fn add_to_context(
@@ -175,8 +175,8 @@ macro_rules! impl_tulisp_callable {
                     name,
                     move |ctx, _args| {
                         impl_tulisp_callable!(@deb ctx, $($arg)* &optional $($opt)*, _args);
-                        let res = (self)(ctx, $($arg.try_into()?,)* $(if $opt.null() {None} else {Some($opt.try_into()?)}),*)?;
-                        Ok(res.into())
+                        let res = (self)(ctx, $($crate::TulispConvertible::from_tulisp(&$arg)?,)* $(if $opt.null() {None} else {Some($crate::TulispConvertible::from_tulisp(&$opt)?)}),*)?;
+                        Ok($crate::TulispConvertible::into_tulisp(res))
                     }
                 );
             }
@@ -188,10 +188,10 @@ macro_rules! impl_tulisp_callable {
         TulispCallable<($($arg,)* $($opt,)* RestT,), OutT, false, $args_count, $opts_count, false, true, true, false> for FnT
         where
         FnT: Fn($($arg,)* $(Option<$opt>,)* Rest<RestT>) -> OutT + 'static + SyncSend,
-        $($arg: TryFrom<TulispObject, Error = Error> + 'static,)*
-        $($opt: TryFrom<TulispObject, Error = Error> + 'static,)*
-        RestT: TryFrom<TulispObject, Error = Error> + Into<TulispObject> + 'static,
-        OutT: Into<TulispObject> + 'static,
+        $($arg: $crate::TulispConvertible + 'static,)*
+        $($opt: $crate::TulispConvertible + 'static,)*
+        RestT: $crate::TulispConvertible + 'static,
+        OutT: $crate::TulispConvertible + 'static,
         {
             #[track_caller]
             fn add_to_context(
@@ -207,14 +207,14 @@ macro_rules! impl_tulisp_callable {
                         $(let $opt = _ctx.eval(&$opt)?;)*
                         let rest = rest
                             .base_iter()
-                            .map(|arg| _ctx.eval(&arg)?.try_into())
+                            .map(|arg| $crate::TulispConvertible::from_tulisp(&_ctx.eval(&arg)?))
                             .collect::<Result<_, _>>()?;
                         let res = (self)(
-                            $($arg.try_into()?,)*
-                            $(if $opt.null() {None} else {Some($opt.try_into()?)},)*
+                            $($crate::TulispConvertible::from_tulisp(&$arg)?,)*
+                            $(if $opt.null() {None} else {Some($crate::TulispConvertible::from_tulisp(&$opt)?)},)*
                             rest
                         );
-                        Ok(res.into())
+                        Ok($crate::TulispConvertible::into_tulisp(res))
                     }
                 );
             }
@@ -226,9 +226,9 @@ macro_rules! impl_tulisp_callable {
         TulispCallable<($($arg,)* $($opt,)* RestT,), (), false, $args_count, $opts_count, false, true, false, false> for FnT
         where
         FnT: Fn($($arg,)* $(Option<$opt>,)* Rest<RestT>) + 'static + SyncSend,
-        $($arg: TryFrom<TulispObject, Error = Error> + 'static,)*
-        $($opt: TryFrom<TulispObject, Error = Error> + 'static,)*
-        RestT: TryFrom<TulispObject, Error = Error> + Into<TulispObject> + 'static,
+        $($arg: $crate::TulispConvertible + 'static,)*
+        $($opt: $crate::TulispConvertible + 'static,)*
+        RestT: $crate::TulispConvertible + 'static,
         {
             #[track_caller]
             fn add_to_context(
@@ -244,11 +244,11 @@ macro_rules! impl_tulisp_callable {
                         $(let $opt = _ctx.eval(&$opt)?;)*
                         let rest = rest
                             .base_iter()
-                            .map(|arg| _ctx.eval(&arg)?.try_into())
+                            .map(|arg| $crate::TulispConvertible::from_tulisp(&_ctx.eval(&arg)?))
                             .collect::<Result<_, _>>()?;
                         (self)(
-                            $($arg.try_into()?,)*
-                            $(if $opt.null() {None} else {Some($opt.try_into()?)},)*
+                            $($crate::TulispConvertible::from_tulisp(&$arg)?,)*
+                            $(if $opt.null() {None} else {Some($crate::TulispConvertible::from_tulisp(&$opt)?)},)*
                             rest
                         );
                         Ok(TulispObject::nil())
@@ -263,10 +263,10 @@ macro_rules! impl_tulisp_callable {
         TulispCallable<($($arg,)* $($opt,)* RestT,), OutT, true, $args_count, $opts_count, false, true, true, false> for FnT
         where
         FnT: Fn(&mut TulispContext, $($arg,)* $(Option<$opt>,)* Rest<RestT>) -> OutT + 'static + SyncSend,
-        $($arg: TryFrom<TulispObject, Error = Error> + 'static,)*
-        $($opt: TryFrom<TulispObject, Error = Error> + 'static,)*
-        RestT: TryFrom<TulispObject, Error = Error> + Into<TulispObject> + 'static,
-        OutT: Into<TulispObject> + 'static,
+        $($arg: $crate::TulispConvertible + 'static,)*
+        $($opt: $crate::TulispConvertible + 'static,)*
+        RestT: $crate::TulispConvertible + 'static,
+        OutT: $crate::TulispConvertible + 'static,
         {
             #[track_caller]
             fn add_to_context(
@@ -282,15 +282,15 @@ macro_rules! impl_tulisp_callable {
                         $(let $opt = ctx.eval(&$opt)?;)*
                         let rest = rest
                             .base_iter()
-                            .map(|arg| ctx.eval(&arg)?.try_into())
+                            .map(|arg| $crate::TulispConvertible::from_tulisp(&ctx.eval(&arg)?))
                             .collect::<Result<_, _>>()?;
                         let res = (self)(
                             ctx,
-                            $($arg.try_into()?,)*
-                            $(if $opt.null() {None} else {Some($opt.try_into()?)},)*
+                            $($crate::TulispConvertible::from_tulisp(&$arg)?,)*
+                            $(if $opt.null() {None} else {Some($crate::TulispConvertible::from_tulisp(&$opt)?)},)*
                             rest
                         );
-                        Ok(res.into())
+                        Ok($crate::TulispConvertible::into_tulisp(res))
                     }
                 );
             }
@@ -302,9 +302,9 @@ macro_rules! impl_tulisp_callable {
         TulispCallable<($($arg,)* $($opt,)* RestT,), (), true, $args_count, $opts_count, false, true, false, false> for FnT
         where
         FnT: Fn(&mut TulispContext, $($arg,)* $(Option<$opt>,)* Rest<RestT>) + 'static + SyncSend,
-        $($arg: TryFrom<TulispObject, Error = Error> + 'static,)*
-        $($opt: TryFrom<TulispObject, Error = Error> + 'static,)*
-        RestT: TryFrom<TulispObject, Error = Error> + Into<TulispObject> + 'static,
+        $($arg: $crate::TulispConvertible + 'static,)*
+        $($opt: $crate::TulispConvertible + 'static,)*
+        RestT: $crate::TulispConvertible + 'static,
         {
             #[track_caller]
             fn add_to_context(
@@ -320,12 +320,12 @@ macro_rules! impl_tulisp_callable {
                         $(let $opt = ctx.eval(&$opt)?;)*
                         let rest = rest
                             .base_iter()
-                            .map(|arg| ctx.eval(&arg)?.try_into())
+                            .map(|arg| $crate::TulispConvertible::from_tulisp(&ctx.eval(&arg)?))
                             .collect::<Result<_, _>>()?;
                         (self)(
                             ctx,
-                            $($arg.try_into()?,)*
-                            $(if $opt.null() {None} else {Some($opt.try_into()?)},)*
+                            $($crate::TulispConvertible::from_tulisp(&$arg)?,)*
+                            $(if $opt.null() {None} else {Some($crate::TulispConvertible::from_tulisp(&$opt)?)},)*
                             rest
                         );
                         Ok(TulispObject::nil())
@@ -340,10 +340,10 @@ macro_rules! impl_tulisp_callable {
         TulispCallable<($($arg,)* $($opt,)* RestT,), OutT, false, $args_count, $opts_count, false, true, true, true> for FnT
         where
         FnT: Fn($($arg,)* $(Option<$opt>,)* Rest<RestT>) -> Result<OutT, Error> + 'static + SyncSend,
-        $($arg: TryFrom<TulispObject, Error = Error> + 'static,)*
-        $($opt: TryFrom<TulispObject, Error = Error> + 'static,)*
-        RestT: TryFrom<TulispObject, Error = Error> + Into<TulispObject> + 'static,
-        OutT: Into<TulispObject> + 'static,
+        $($arg: $crate::TulispConvertible + 'static,)*
+        $($opt: $crate::TulispConvertible + 'static,)*
+        RestT: $crate::TulispConvertible + 'static,
+        OutT: $crate::TulispConvertible + 'static,
         {
             #[track_caller]
             fn add_to_context(
@@ -359,14 +359,14 @@ macro_rules! impl_tulisp_callable {
                         $(let $opt = _ctx.eval(&$opt)?;)*
                         let rest = rest
                             .base_iter()
-                            .map(|arg| _ctx.eval(&arg)?.try_into())
+                            .map(|arg| $crate::TulispConvertible::from_tulisp(&_ctx.eval(&arg)?))
                             .collect::<Result<_, _>>()?;
                         let res = (self)(
-                            $($arg.try_into()?,)*
-                            $(if $opt.null() {None} else {Some($opt.try_into()?)},)*
+                            $($crate::TulispConvertible::from_tulisp(&$arg)?,)*
+                            $(if $opt.null() {None} else {Some($crate::TulispConvertible::from_tulisp(&$opt)?)},)*
                             rest
                         )?;
-                        Ok(res.into())
+                        Ok($crate::TulispConvertible::into_tulisp(res))
                     }
                 );
             }
@@ -378,10 +378,10 @@ macro_rules! impl_tulisp_callable {
         TulispCallable<($($arg,)* $($opt,)* RestT,), OutT, true, $args_count, $opts_count, false, true, true, true> for FnT
         where
         FnT: Fn(&mut TulispContext, $($arg,)* $(Option<$opt>,)* Rest<RestT>) -> Result<OutT, Error> + 'static + SyncSend,
-        $($arg: TryFrom<TulispObject, Error = Error> + 'static,)*
-        $($opt: TryFrom<TulispObject, Error = Error> + 'static,)*
-        RestT: TryFrom<TulispObject, Error = Error> + Into<TulispObject> + 'static,
-        OutT: Into<TulispObject> + 'static,
+        $($arg: $crate::TulispConvertible + 'static,)*
+        $($opt: $crate::TulispConvertible + 'static,)*
+        RestT: $crate::TulispConvertible + 'static,
+        OutT: $crate::TulispConvertible + 'static,
         {
             #[track_caller]
             fn add_to_context(
@@ -397,15 +397,15 @@ macro_rules! impl_tulisp_callable {
                         $(let $opt = ctx.eval(&$opt)?;)*
                         let rest = rest
                             .base_iter()
-                            .map(|arg| ctx.eval(&arg)?.try_into())
+                            .map(|arg| $crate::TulispConvertible::from_tulisp(&ctx.eval(&arg)?))
                             .collect::<Result<_, _>>()?;
                         let res = (self)(
                             ctx,
-                            $($arg.try_into()?,)*
-                            $(if $opt.null() {None} else {Some($opt.try_into()?)},)*
+                            $($crate::TulispConvertible::from_tulisp(&$arg)?,)*
+                            $(if $opt.null() {None} else {Some($crate::TulispConvertible::from_tulisp(&$opt)?)},)*
                             rest
                         )?;
-                        Ok(res.into())
+                        Ok($crate::TulispConvertible::into_tulisp(res))
                     }
                 );
             }
@@ -533,14 +533,14 @@ mod plist_args {
     where
         FnT: Fn(Plist<PlistT>) -> OutT + 'static + SyncSend,
         PlistT: Plistable + 'static,
-        OutT: Into<TulispObject> + 'static,
+        OutT: crate::TulispConvertible + 'static,
     {
         #[track_caller]
         fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
             ctx.add_special_form(name, move |ctx, _args| {
                 destruct_bind!((&rest rest) = _args);
                 let res = (self)(Plist::new(ctx, rest)?);
-                Ok(res.into())
+                Ok(crate::TulispConvertible::into_tulisp(res))
             });
         }
     }
@@ -565,7 +565,7 @@ mod plist_args {
     where
         FnT: Fn(&mut TulispContext, Plist<PlistT>) -> OutT + 'static + SyncSend,
         PlistT: Plistable + 'static,
-        OutT: Into<TulispObject> + 'static,
+        OutT: crate::TulispConvertible + 'static,
     {
         #[track_caller]
         fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
@@ -573,7 +573,7 @@ mod plist_args {
                 destruct_bind!((&rest rest) = _args);
                 let plist = Plist::new(ctx, rest)?;
                 let res = (self)(ctx, plist);
-                Ok(res.into())
+                Ok(crate::TulispConvertible::into_tulisp(res))
             });
         }
     }
@@ -599,7 +599,7 @@ mod plist_args {
     where
         FnT: Fn(Plist<PlistT>) -> Result<OutT, Error> + 'static + SyncSend,
         PlistT: Plistable + 'static,
-        OutT: Into<TulispObject> + 'static,
+        OutT: crate::TulispConvertible + 'static,
     {
         #[track_caller]
         fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
@@ -607,7 +607,7 @@ mod plist_args {
                 destruct_bind!((&rest rest) = _args);
                 let plist = Plist::new(ctx, rest)?;
                 let res = (self)(plist);
-                res.map(|x| x.into())
+                res.map(|x| x.into_tulisp())
             });
         }
     }
@@ -616,7 +616,7 @@ mod plist_args {
     where
         FnT: Fn(&mut TulispContext, Plist<PlistT>) -> Result<OutT, Error> + 'static + SyncSend,
         PlistT: Plistable + 'static,
-        OutT: Into<TulispObject> + 'static,
+        OutT: crate::TulispConvertible + 'static,
     {
         #[track_caller]
         fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
@@ -624,7 +624,7 @@ mod plist_args {
                 destruct_bind!((&rest rest) = _args);
                 let plist = Plist::new(ctx, rest)?;
                 let res = (self)(ctx, plist);
-                res.map(|x| x.into())
+                res.map(|x| x.into_tulisp())
             });
         }
     }
