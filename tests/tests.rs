@@ -1,5 +1,7 @@
 use std::fmt::Display;
-use tulisp::{Error, Iter, Shared, TulispContext, TulispObject, destruct_eval_bind};
+use tulisp::{
+    Error, Iter, Shared, TulispContext, TulispConvertible, TulispObject, destruct_eval_bind,
+};
 
 macro_rules! tulisp_assert {
     (@impl $ctx: expr, program:$input:expr, result:$result:expr $(,)?) => {
@@ -1131,16 +1133,8 @@ fn test_any() -> Result<(), Error> {
         }
     }
 
-    impl From<TestStruct> for TulispObject {
-        fn from(value: TestStruct) -> Self {
-            Shared::new(value).into()
-        }
-    }
-
-    impl TryFrom<TulispObject> for TestStruct {
-        type Error = Error;
-
-        fn try_from(value: TulispObject) -> Result<Self, Self::Error> {
+    impl TulispConvertible for TestStruct {
+        fn from_tulisp(value: &TulispObject) -> Result<Self, Error> {
             match value.as_any() {
                 Ok(value) => match value.downcast_ref::<TestStruct>() {
                     Some(v) => Ok(v.clone()),
@@ -1149,6 +1143,9 @@ fn test_any() -> Result<(), Error> {
                 Err(_) => Err(Error::type_mismatch("Expected TestStruct".to_string())),
             }
         }
+        fn into_tulisp(self) -> TulispObject {
+            Shared::new(self).into()
+        }
     }
 
     let mut ctx = TulispContext::new();
@@ -1156,6 +1153,13 @@ fn test_any() -> Result<(), Error> {
     ctx.add_function("make_any", |value: i64| TestStruct { value });
 
     ctx.add_function("get_int", |value: TestStruct| value.value);
+
+    ctx.add_function("maybe_add", |value: i64, maybe_num: TulispObject| {
+        if maybe_num.null() {
+            return Ok(value);
+        }
+        return Ok(value + i64::try_from(maybe_num)?);
+    });
 
     tulisp_assert! {
         ctx: ctx,
@@ -1174,6 +1178,24 @@ fn test_any() -> Result<(), Error> {
 <eval_string>:1.1-1.12:  at (get_int 55)
 "#
     }
+    tulisp_assert! {
+        ctx: ctx,
+        program: "(maybe_add 10 5)",
+        result: "15",
+    }
+    tulisp_assert! {
+        ctx: ctx,
+        program: "(maybe_add 10 nil)",
+        result: "10",
+    }
+    tulisp_assert! {
+        ctx: ctx,
+        program: "(maybe_add 10)",
+        error: r#"ERR TypeMismatch: Too few arguments
+<eval_string>:1.1-1.14:  at (maybe_add 10)
+"#
+    }
+
     Ok(())
 }
 

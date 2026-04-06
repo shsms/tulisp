@@ -102,7 +102,9 @@ pub use value::TulispAny;
 pub use value::TulispValue;
 
 mod object;
-pub use {object::TulispObject, object::wrappers::generic::Shared};
+pub use {
+    object::TulispObject, object::conversions::TulispConvertible, object::wrappers::generic::Shared,
+};
 
 #[cfg(test)]
 mod test_utils {

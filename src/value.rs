@@ -862,6 +862,12 @@ impl From<bool> for TulispValue {
     }
 }
 
+impl From<Number> for TulispValue {
+    fn from(value: Number) -> Self {
+        TulispValue::Number { value }
+    }
+}
+
 impl From<Shared<dyn TulispAny>> for TulispValue {
     fn from(value: Shared<dyn TulispAny>) -> Self {
         TulispValue::Any(value)
