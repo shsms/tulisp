@@ -121,8 +121,6 @@ impl TulispObject {
     /// [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Equality-Predicates.html).
     pub fn eq(&self, other: &TulispObject) -> bool {
         self.eq_ptr(other)
-            || other.inner_ref().0.lex_symbol_eq(self)
-            || self.inner_ref().0.lex_symbol_eq(other)
     }
 
     /// Returns true if `self` and `other` are the same object, or are
