@@ -1,0 +1,286 @@
+use std::fmt::Display;
+
+use crate::{Error, TulispObject, TulispValue};
+
+#[derive(Debug, Clone, Copy)]
+pub enum Number {
+    Int(i64),
+    Float(f64),
+}
+
+impl From<i64> for Number {
+    fn from(value: i64) -> Self {
+        Number::Int(value)
+    }
+}
+
+impl From<f64> for Number {
+    fn from(value: f64) -> Self {
+        Number::Float(value)
+    }
+}
+
+impl TryFrom<TulispObject> for Number {
+    type Error = Error;
+
+    fn try_from(value: TulispObject) -> Result<Self, Self::Error> {
+        match &value.inner_ref().0 {
+            TulispValue::Number { value } => Ok(*value),
+            _ => Err(Error::type_mismatch(format!(
+                "Expected number, got: {}",
+                value
+            ))),
+        }
+    }
+}
+
+impl From<Number> for TulispObject {
+    fn from(value: Number) -> Self {
+        match value {
+            Number::Int(v) => v.into(),
+            Number::Float(v) => v.into(),
+        }
+    }
+}
+
+impl Display for Number {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Number::Int(v) => write!(f, "{}", v),
+            Number::Float(v) => write!(f, "{}", v),
+        }
+    }
+}
+
+impl std::ops::Add for Number {
+    type Output = Number;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (Number::Int(l), Number::Int(r)) => Number::Int(l + r),
+            (Number::Int(l), Number::Float(r)) => Number::Float(l as f64 + r),
+            (Number::Float(l), Number::Int(r)) => Number::Float(l + r as f64),
+            (Number::Float(l), Number::Float(r)) => Number::Float(l + r),
+        }
+    }
+}
+
+impl std::ops::Add<i64> for Number {
+    type Output = Number;
+
+    fn add(self, rhs: i64) -> Self::Output {
+        match self {
+            Number::Int(l) => Number::Int(l + rhs),
+            Number::Float(l) => Number::Float(l + rhs as f64),
+        }
+    }
+}
+
+impl std::ops::Add<f64> for Number {
+    type Output = Number;
+
+    fn add(self, rhs: f64) -> Self::Output {
+        match self {
+            Number::Int(l) => Number::Float(l as f64 + rhs),
+            Number::Float(l) => Number::Float(l + rhs),
+        }
+    }
+}
+
+impl std::ops::Sub for Number {
+    type Output = Number;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (Number::Int(l), Number::Int(r)) => Number::Int(l - r),
+            (Number::Int(l), Number::Float(r)) => Number::Float(l as f64 - r),
+            (Number::Float(l), Number::Int(r)) => Number::Float(l - r as f64),
+            (Number::Float(l), Number::Float(r)) => Number::Float(l - r),
+        }
+    }
+}
+
+impl std::ops::Sub<i64> for Number {
+    type Output = Number;
+
+    fn sub(self, rhs: i64) -> Self::Output {
+        match self {
+            Number::Int(l) => Number::Int(l - rhs),
+            Number::Float(l) => Number::Float(l - rhs as f64),
+        }
+    }
+}
+
+impl std::ops::Sub<f64> for Number {
+    type Output = Number;
+
+    fn sub(self, rhs: f64) -> Self::Output {
+        match self {
+            Number::Int(l) => Number::Float(l as f64 - rhs),
+            Number::Float(l) => Number::Float(l - rhs),
+        }
+    }
+}
+
+impl std::ops::Mul for Number {
+    type Output = Number;
+
+    fn mul(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (Number::Int(l), Number::Int(r)) => Number::Int(l * r),
+            (Number::Int(l), Number::Float(r)) => Number::Float(l as f64 * r),
+            (Number::Float(l), Number::Int(r)) => Number::Float(l * r as f64),
+            (Number::Float(l), Number::Float(r)) => Number::Float(l * r),
+        }
+    }
+}
+
+impl std::ops::Mul<i64> for Number {
+    type Output = Number;
+
+    fn mul(self, rhs: i64) -> Self::Output {
+        match self {
+            Number::Int(l) => Number::Int(l * rhs),
+            Number::Float(l) => Number::Float(l * rhs as f64),
+        }
+    }
+}
+
+impl std::ops::Mul<f64> for Number {
+    type Output = Number;
+
+    fn mul(self, rhs: f64) -> Self::Output {
+        match self {
+            Number::Int(l) => Number::Float(l as f64 * rhs),
+            Number::Float(l) => Number::Float(l * rhs),
+        }
+    }
+}
+
+impl std::ops::Div for Number {
+    type Output = Number;
+
+    fn div(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (Number::Int(l), Number::Int(r)) => Number::Float(l as f64 / r as f64),
+            (Number::Int(l), Number::Float(r)) => Number::Float(l as f64 / r),
+            (Number::Float(l), Number::Int(r)) => Number::Float(l / r as f64),
+            (Number::Float(l), Number::Float(r)) => Number::Float(l / r),
+        }
+    }
+}
+
+impl std::ops::Div<i64> for Number {
+    type Output = Number;
+
+    fn div(self, rhs: i64) -> Self::Output {
+        match self {
+            Number::Int(l) => Number::Float(l as f64 / rhs as f64),
+            Number::Float(l) => Number::Float(l / rhs as f64),
+        }
+    }
+}
+
+impl std::ops::Div<f64> for Number {
+    type Output = Number;
+
+    fn div(self, rhs: f64) -> Self::Output {
+        match self {
+            Number::Int(l) => Number::Float(l as f64 / rhs),
+            Number::Float(l) => Number::Float(l / rhs),
+        }
+    }
+}
+
+impl std::ops::Rem for Number {
+    type Output = Number;
+
+    fn rem(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (Number::Int(l), Number::Int(r)) => Number::Int(l % r),
+            (Number::Int(l), Number::Float(r)) => Number::Float(l as f64 % r),
+            (Number::Float(l), Number::Int(r)) => Number::Float(l % r as f64),
+            (Number::Float(l), Number::Float(r)) => Number::Float(l % r),
+        }
+    }
+}
+
+impl std::ops::Rem<i64> for Number {
+    type Output = Number;
+
+    fn rem(self, rhs: i64) -> Self::Output {
+        match self {
+            Number::Int(l) => Number::Int(l % rhs),
+            Number::Float(l) => Number::Float(l % rhs as f64),
+        }
+    }
+}
+
+impl std::ops::Rem<f64> for Number {
+    type Output = Number;
+
+    fn rem(self, rhs: f64) -> Self::Output {
+        match self {
+            Number::Int(l) => Number::Float(l as f64 % rhs),
+            Number::Float(l) => Number::Float(l % rhs),
+        }
+    }
+}
+
+impl PartialEq for Number {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Number::Int(l), Number::Int(r)) => l == r,
+            (Number::Int(l), Number::Float(r)) => (*l as f64) == *r,
+            (Number::Float(l), Number::Int(r)) => *l == (*r as f64),
+            (Number::Float(l), Number::Float(r)) => l == r,
+        }
+    }
+}
+
+impl PartialEq<i64> for Number {
+    fn eq(&self, other: &i64) -> bool {
+        match self {
+            Number::Int(l) => l == other,
+            Number::Float(l) => *l == (*other as f64),
+        }
+    }
+}
+
+impl PartialEq<f64> for Number {
+    fn eq(&self, other: &f64) -> bool {
+        match self {
+            Number::Int(l) => (*l as f64) == *other,
+            Number::Float(l) => l == other,
+        }
+    }
+}
+
+impl PartialOrd for Number {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        match (self, other) {
+            (Number::Int(l), Number::Int(r)) => l.partial_cmp(r),
+            (Number::Int(l), Number::Float(r)) => (*l as f64).partial_cmp(r),
+            (Number::Float(l), Number::Int(r)) => l.partial_cmp(&(*r as f64)),
+            (Number::Float(l), Number::Float(r)) => l.partial_cmp(r),
+        }
+    }
+}
+
+impl PartialOrd<i64> for Number {
+    fn partial_cmp(&self, other: &i64) -> Option<std::cmp::Ordering> {
+        match self {
+            Number::Int(l) => l.partial_cmp(other),
+            Number::Float(l) => l.partial_cmp(&(*other as f64)),
+        }
+    }
+}
+
+impl PartialOrd<f64> for Number {
+    fn partial_cmp(&self, other: &f64) -> Option<std::cmp::Ordering> {
+        match self {
+            Number::Int(l) => (*l as f64).partial_cmp(other),
+            Number::Float(l) => l.partial_cmp(other),
+        }
+    }
+}

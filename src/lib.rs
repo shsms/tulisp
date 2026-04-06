@@ -93,8 +93,10 @@ pub use error::{Error, ErrorKind};
 
 pub mod lists;
 
+mod number;
+pub use number::Number;
+
 mod value;
-pub use value::Number;
 pub use value::TulispAny;
 #[doc(hidden)]
 pub use value::TulispValue;
