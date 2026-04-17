@@ -627,7 +627,23 @@ macro_rules! tulisp_object_from {
     };
 }
 
-tulisp_object_from!(i64);
+impl From<i64> for TulispObject {
+    fn from(vv: i64) -> Self {
+        const CACHE_MIN: i64 = -128;
+        const CACHE_MAX: i64 = 128;
+        if vv >= CACHE_MIN && vv <= CACHE_MAX {
+            thread_local! {
+                static INT_CACHE: Vec<TulispObject> = (CACHE_MIN..=CACHE_MAX)
+                    .map(|i| TulispValue::from(i).into_ref(None))
+                    .collect();
+            }
+            INT_CACHE.with(|cache| cache[(vv - CACHE_MIN) as usize].clone())
+        } else {
+            TulispValue::from(vv).into_ref(None)
+        }
+    }
+}
+
 tulisp_object_from!(f64);
 tulisp_object_from!(&str);
 tulisp_object_from!(String);
