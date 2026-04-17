@@ -158,9 +158,9 @@ macro_rules! AsPlist {
 #[cfg(test)]
 mod tests {
     use crate::{
-        Error, Plist,
         context::TulispContext,
         test_utils::{eval_assert_equal, eval_assert_error},
+        Error, Plist,
     };
 
     AsPlist! {

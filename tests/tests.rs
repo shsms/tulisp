@@ -1,6 +1,6 @@
 use std::fmt::Display;
 use tulisp::{
-    Error, Iter, Shared, TulispContext, TulispConvertible, TulispObject, destruct_eval_bind,
+    destruct_eval_bind, Error, Iter, Shared, TulispContext, TulispConvertible, TulispObject,
 };
 
 macro_rules! tulisp_assert {

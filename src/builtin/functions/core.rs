@@ -1,16 +1,16 @@
-use crate::Number;
-use crate::TulispObject;
-use crate::TulispValue;
 use crate::cons::Cons;
 use crate::context::Scope;
 use crate::context::TulispContext;
 use crate::destruct_eval_bind;
 use crate::error::Error;
+use crate::eval::eval_basic;
 use crate::eval::DummyEval;
 use crate::eval::Eval;
-use crate::eval::eval_basic;
 use crate::lists;
 use crate::value::DefunParams;
+use crate::Number;
+use crate::TulispObject;
+use crate::TulispValue;
 use crate::{destruct_bind, list};
 use std::convert::TryInto;
 

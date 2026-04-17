@@ -1,5 +1,5 @@
 use crate::object::wrappers::generic::SyncSend;
-use crate::{Error, Rest, TulispContext, TulispObject, destruct_bind, destruct_eval_bind};
+use crate::{destruct_bind, destruct_eval_bind, Error, Rest, TulispContext, TulispObject};
 
 pub trait TulispCallable<
     Args: 'static,

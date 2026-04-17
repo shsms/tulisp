@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 
 use crate::{
-    TulispObject, TulispValue, context::TulispContext, error::Error, list, value::DefunParams,
+    context::TulispContext, error::Error, list, value::DefunParams, TulispObject, TulispValue,
 };
 
 pub(crate) trait Evaluator {

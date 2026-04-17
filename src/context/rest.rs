@@ -1,4 +1,4 @@
-use crate::{TulispConvertible, TulispObject, cons};
+use crate::{cons, TulispConvertible, TulispObject};
 
 pub struct Rest<T> {
     values: RestEnum<T>,

@@ -13,13 +13,14 @@ use std::{
 };
 
 use crate::{
-    TulispObject, TulispValue, builtin,
+    builtin,
     context::add_function::TulispCallable,
     error::Error,
-    eval::{DummyEval, eval_basic, funcall},
+    eval::{eval_basic, funcall, DummyEval},
     list,
-    object::wrappers::{TulispFn, generic::Shared},
+    object::wrappers::{generic::Shared, TulispFn},
     parse::parse,
+    TulispObject, TulispValue,
 };
 
 #[derive(Debug, Default, Clone)]
@@ -184,16 +185,16 @@ impl TulispContext {
         &mut self,
         name: &str,
         func: impl TulispCallable<
-            Args,
-            Output,
-            NEEDS_CONTEXT,
-            NUM_ARGS,
-            NUM_OPTIONAL,
-            HAS_PLIST,
-            HAS_REST,
-            HAS_RETURN,
-            FALLIBLE,
-        > + 'static,
+                Args,
+                Output,
+                NEEDS_CONTEXT,
+                NUM_ARGS,
+                NUM_OPTIONAL,
+                HAS_PLIST,
+                HAS_REST,
+                HAS_RETURN,
+                FALLIBLE,
+            > + 'static,
     ) -> &mut Self {
         func.add_to_context(self, name);
         self

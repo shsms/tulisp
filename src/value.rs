@@ -1,15 +1,15 @@
 use crate::{
-    Number, TulispObject,
     cons::{self, Cons},
     context::Scope,
     error::Error,
     object::{
-        Span,
         wrappers::{
-            TulispFn,
             generic::{Shared, SyncSend},
+            TulispFn,
         },
+        Span,
     },
+    Number, TulispObject,
 };
 use std::{
     any::Any,
