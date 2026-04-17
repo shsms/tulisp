@@ -325,13 +325,13 @@ fn test_defun() -> Result<(), Error> {
         }
     tulisp_assert! {
         program: "(defun add (x y) (+ x y)) (add 10)",
-        error: r#"ERR TypeMismatch: Too few arguments
+        error: r#"ERR MissingArgument: Too few arguments
 <eval_string>:1.27-1.34:  at (add 10)
 "#
     }
     tulisp_assert! {
         program: "(defun add (x y) (+ x y)) (add 10 20 30)",
-        error: r#"ERR TypeMismatch: Too many arguments
+        error: r#"ERR InvalidArgument: Too many arguments
 <eval_string>:1.27-1.40:  at (add 10 20 30)
 "#
     }
@@ -355,13 +355,13 @@ fn test_defun() -> Result<(), Error> {
     }
     tulisp_assert! {
         program: "(defmacro inc (var)  (list 'setq var (list '+ 1 var))) (let ((x 4)) (inc))",
-        error: r#"ERR TypeMismatch: Too few arguments
+        error: r#"ERR MissingArgument: Too few arguments
 <eval_string>:1.69-1.73:  at (inc)
 "#
     }
     tulisp_assert! {
         program: "(defmacro inc (var)  (list 'setq var (list '+ 1 var))) (let ((x 4)) (inc 4 5))",
-        error: r#"ERR TypeMismatch: Too many arguments
+        error: r#"ERR InvalidArgument: Too many arguments
 <eval_string>:1.69-1.77:  at (inc 4 5)
 "#
     }
@@ -446,13 +446,13 @@ fn test_eval() -> Result<(), Error> {
     }
     tulisp_assert! {
         program: "(let ((y j) (j 10)) (funcall j))",
-        error: r#"ERR TypeMismatch: Variable definition is void: j
+        error: r#"ERR Uninitialized: Variable definition is void: j
 <eval_string>:1.1-1.32:  at (let ((y j) (j 10)) (funcall j))
 "#
     }
     tulisp_assert! {
         program: "(let ((j 10)) (+ j j))(+ j j)",
-        error: r#"ERR TypeMismatch: Variable definition is void: j
+        error: r#"ERR Uninitialized: Variable definition is void: j
 <eval_string>:1.23-1.29:  at (+ j j)
 "#
     }
@@ -587,7 +587,7 @@ fn test_lists() -> Result<(), Error> {
         (setq items
               (append items '(10)))
         "#,
-        error: r#"ERR TypeMismatch: Variable definition is void: items
+        error: r#"ERR Uninitialized: Variable definition is void: items
 <eval_string>:3.15-3.34:  at (append items '(10))
 <eval_string>:2.9-3.35:  at (setq items (append items '(10)))
 "#
@@ -688,7 +688,7 @@ fn test_backquotes() -> Result<(), Error> {
 
     tulisp_assert! {
         program: r#"`(1 2 ,,(+ 10 20))"#,
-        error: r#"ERR TypeMismatch: Unquote without backquote
+        error: r#"ERR SyntaxError: Unquote without backquote
 <eval_string>:1.7-1.7:  at ,,(+ 10 20)
 <eval_string>:1.1-1.1:  at `(1 2 ,,(+ 10 20))
 "#,
@@ -701,7 +701,7 @@ fn test_backquotes() -> Result<(), Error> {
 fn test_math() -> Result<(), Error> {
     tulisp_assert! {
         program: "(/ 10 0)",
-        error: r#"ERR Undefined: Division by zero
+        error: r#"ERR OutOfRange: Division by zero
 <eval_string>:1.1-1.8:  at (/ 10 0)
 "#,
     }
@@ -711,7 +711,7 @@ fn test_math() -> Result<(), Error> {
     }
     tulisp_assert! {
         program: "(let ((a 10) (b 0)) (/ a b))",
-        error: r#"ERR Undefined: Division by zero
+        error: r#"ERR OutOfRange: Division by zero
 <eval_string>:1.21-1.27:  at (/ a b)
 <eval_string>:1.1-1.28:  at (let ((a 10) (b 0)) (/ a b))
 "#,
@@ -753,13 +753,13 @@ fn test_rounding_operations() -> Result<(), Error> {
 
     tulisp_assert! {
         program: "(fround)",
-        error: r#"ERR TypeMismatch: Too few arguments
+        error: r#"ERR MissingArgument: Too few arguments
 <eval_string>:1.1-1.8:  at (fround)
 "#,
     }
     tulisp_assert! {
         program: "(fround 3.14 3.14)",
-        error: r#"ERR TypeMismatch: Too many arguments
+        error: r#"ERR InvalidArgument: Too many arguments
 <eval_string>:1.1-1.18:  at (fround 3.14 3.14)
 "#,
     }
@@ -783,7 +783,7 @@ fn test_let() -> Result<(), Error> {
               (jj 20))
           (append kk (+ vv jj 1)))
         "#,
-        error: r#"ERR TypeMismatch: Variable definition is void: kk
+        error: r#"ERR Uninitialized: Variable definition is void: kk
 <eval_string>:4.11-4.33:  at (append kk (+ vv jj 1))
 <eval_string>:2.9-4.34:  at (let ((vv (+ 55 1)) (jj 20)) (append kk (+ vv jj 1)))
 "#
@@ -944,13 +944,13 @@ fn test_sort() -> Result<(), Error> {
     }
     tulisp_assert! {
         program: "(sort '(20 10 30 15 45) '<<)",
-        error: r#"ERR TypeMismatch: Variable definition is void: <<
+        error: r#"ERR Uninitialized: Variable definition is void: <<
 <eval_string>:1.1-1.28:  at (sort '(20 10 30 15 45) '<<)
 "#
     }
     tulisp_assert! {
         program: "(sort '(20 10 30 15 45))",
-        error: r#"ERR TypeMismatch: Too few arguments
+        error: r#"ERR MissingArgument: Too few arguments
 <eval_string>:1.1-1.24:  at (sort '(20 10 30 15 45))
 "#,
     }
@@ -1191,7 +1191,7 @@ fn test_any() -> Result<(), Error> {
     tulisp_assert! {
         ctx: ctx,
         program: "(maybe_add 10)",
-        error: r#"ERR TypeMismatch: Too few arguments
+        error: r#"ERR MissingArgument: Too few arguments
 <eval_string>:1.1-1.14:  at (maybe_add 10)
 "#
     }

@@ -105,7 +105,7 @@ impl TulispContext {
         if let Some(files) = files {
             for filename in files {
                 let contents = fs::read_to_string(filename).map_err(|e| {
-                    Error::undefined(format!("Unable to read file: {filename}. Error: {e}"))
+                    Error::os_error(format!("Unable to read file: {filename}. Error: {e}"))
                 })?;
                 self.filenames.push(filename.to_string());
                 // Parse the file to populate the tags table, but ignore the
@@ -346,9 +346,8 @@ impl TulispContext {
     /// Parses and evaluates the contents of the given file and returns the
     /// value.
     pub fn eval_file(&mut self, filename: &str) -> Result<TulispObject, Error> {
-        let contents = fs::read_to_string(filename).map_err(|e| {
-            Error::undefined(format!("Unable to read file: {filename}. Error: {e}"))
-        })?;
+        let contents = fs::read_to_string(filename)
+            .map_err(|e| Error::os_error(format!("Unable to read file: {filename}. Error: {e}")))?;
         self.filenames.push(filename.to_owned());
 
         let string: &str = &contents;

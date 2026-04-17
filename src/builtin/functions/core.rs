@@ -285,10 +285,10 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             } else if varitem.consp() {
                 destruct_bind!((&optional name value &rest rest) = varitem);
                 if name.null() {
-                    return Err(Error::undefined("let varitem requires name".to_string()));
+                    return Err(Error::syntax_error("let varitem requires name".to_string()));
                 }
                 if !rest.null() {
-                    return Err(Error::undefined(
+                    return Err(Error::syntax_error(
                         "let varitem has too many values".to_string(),
                     ));
                 }

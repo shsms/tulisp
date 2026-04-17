@@ -188,7 +188,7 @@ impl SymbolBindings {
     #[inline(always)]
     pub(crate) fn get(&self) -> Result<TulispObject, Error> {
         if self.items.is_empty() {
-            return Err(Error::type_mismatch(format!(
+            return Err(Error::uninitialized(format!(
                 "Variable definition is void: {}",
                 self.name
             )));
@@ -334,7 +334,7 @@ impl PartialEq for TulispValue {
 /// Formats tulisp lists non-recursively.
 fn fmt_list(mut vv: TulispObject, f: &mut std::fmt::Formatter<'_>) -> Result<(), Error> {
     if let Err(e) = f.write_char('(') {
-        return Err(Error::undefined(format!("When trying to 'fmt': {}", e)));
+        return Err(Error::type_mismatch(format!("When trying to 'fmt': {}", e)));
     };
     let mut add_space = false;
     loop {
@@ -342,21 +342,21 @@ fn fmt_list(mut vv: TulispObject, f: &mut std::fmt::Formatter<'_>) -> Result<(),
         if !add_space {
             add_space = true;
         } else if let Err(e) = f.write_char(' ') {
-            return Err(Error::undefined(format!("When trying to 'fmt': {}", e)));
+            return Err(Error::type_mismatch(format!("When trying to 'fmt': {}", e)));
         };
         write!(f, "{}", vv.car()?)
-            .map_err(|e| Error::undefined(format!("When trying to 'fmt': {}", e)))?;
+            .map_err(|e| Error::type_mismatch(format!("When trying to 'fmt': {}", e)))?;
         if rest.null() {
             break;
         } else if !rest.consp() {
             write!(f, " . {}", rest)
-                .map_err(|e| Error::undefined(format!("When trying to 'fmt': {}", e)))?;
+                .map_err(|e| Error::type_mismatch(format!("When trying to 'fmt': {}", e)))?;
             break;
         };
         vv = rest;
     }
     if let Err(e) = f.write_char(')') {
-        return Err(Error::undefined(format!("When trying to 'fmt': {}", e)));
+        return Err(Error::type_mismatch(format!("When trying to 'fmt': {}", e)));
     };
     Ok(())
 }

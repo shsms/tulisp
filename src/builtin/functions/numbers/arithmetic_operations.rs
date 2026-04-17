@@ -32,7 +32,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     fn div(ctx: &mut TulispContext, rest: &TulispObject) -> Result<TulispObject, Error> {
         reduce_with(ctx, rest, |a, b| {
             if b == 0 {
-                Err(Error::undefined("Division by zero".to_string()))
+                Err(Error::out_of_range("Division by zero".to_string()))
             } else {
                 Ok(a / b)
             }

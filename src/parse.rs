@@ -371,7 +371,7 @@ impl Parser<'_, '_> {
         {
             let filename = inner.cadr()?.as_string()?;
             let contents = std::fs::read_to_string(&filename).map_err(|e| {
-                Error::undefined(format!("Unable to read file: {filename}. Error: {e}"))
+                Error::os_error(format!("Unable to read file: {filename}. Error: {e}"))
             })?;
             self.ctx.filenames.push(filename.to_string());
             // Parse the file to populate the tags table, but ignore the
