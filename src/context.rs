@@ -133,7 +133,7 @@ impl TulispContext {
                         "{}{name}{},{}",
                         file[*loc - 1],
                         loc,
-                        file[0..*loc - 2]
+                        file[0..loc.saturating_sub(2)]
                             .iter()
                             .fold(1, |acc, line| acc + line.len() + 1)
                     )
