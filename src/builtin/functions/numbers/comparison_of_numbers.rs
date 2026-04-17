@@ -1,6 +1,5 @@
 use crate::{
-    Error, TulispContext, TulispObject, builtin::functions::functions::reduce_with,
-    destruct_eval_bind,
+    builtin::functions::core::reduce_with, destruct_eval_bind, Error, TulispContext, TulispObject,
 };
 
 macro_rules! compare_impl {

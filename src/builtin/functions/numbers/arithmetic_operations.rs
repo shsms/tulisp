@@ -1,5 +1,5 @@
+use crate::builtin::functions::core::reduce_with;
 use crate::Number;
-use crate::builtin::functions::functions::reduce_with;
 use crate::{Error, TulispContext, TulispObject};
 
 pub(crate) fn add(ctx: &mut TulispContext) {

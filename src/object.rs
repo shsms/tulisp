@@ -119,6 +119,7 @@ impl TulispObject {
     ///
     /// Read more about Emacs equality predicates
     /// [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Equality-Predicates.html).
+    #[allow(clippy::should_implement_trait)]
     pub fn eq(&self, other: &TulispObject) -> bool {
         self.eq_ptr(other)
     }
@@ -631,7 +632,7 @@ impl From<i64> for TulispObject {
     fn from(vv: i64) -> Self {
         const CACHE_MIN: i64 = -128;
         const CACHE_MAX: i64 = 128;
-        if vv >= CACHE_MIN && vv <= CACHE_MAX {
+        if (CACHE_MIN..=CACHE_MAX).contains(&vv) {
             thread_local! {
                 static INT_CACHE: Vec<TulispObject> = (CACHE_MIN..=CACHE_MAX)
                     .map(|i| TulispValue::from(i).into_ref(None))
