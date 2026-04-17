@@ -280,6 +280,7 @@ struct Parser<'a, 'b> {
     ctx: &'b mut TulispContext,
     ints: HashMap<i64, TulispObject>,
     strings: HashMap<String, TulispObject>,
+    #[cfg(feature = "etags")]
     follow_load_files: bool,
 }
 
@@ -303,7 +304,7 @@ impl Parser<'_, '_> {
         ctx: &'b mut TulispContext,
         file_id: usize,
         program: &'a str,
-        follow_load_files: bool,
+        #[cfg(feature = "etags")] follow_load_files: bool,
     ) -> Parser<'a, 'b> {
         Parser {
             file_id,
@@ -311,6 +312,7 @@ impl Parser<'_, '_> {
             ctx,
             ints: Default::default(),
             strings: Default::default(),
+            #[cfg(feature = "etags")]
             follow_load_files,
         }
     }
@@ -530,7 +532,14 @@ pub fn parse(
     ctx: &mut TulispContext,
     file_id: usize,
     program: &str,
-    follow_load_files: bool,
+    #[cfg(feature = "etags")] follow_load_files: bool,
 ) -> Result<TulispObject, Error> {
-    Parser::new(ctx, file_id, program, follow_load_files).parse()
+    Parser::new(
+        ctx,
+        file_id,
+        program,
+        #[cfg(feature = "etags")]
+        follow_load_files,
+    )
+    .parse()
 }

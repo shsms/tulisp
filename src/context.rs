@@ -302,7 +302,13 @@ impl TulispContext {
 
     /// Parses and evaluates the given string, and returns the result.
     pub fn eval_string(&mut self, string: &str) -> Result<TulispObject, Error> {
-        let vv = parse(self, 0, string, false)?;
+        let vv = parse(
+            self,
+            0,
+            string,
+            #[cfg(feature = "etags")]
+            false,
+        )?;
         self.eval_progn(&vv)
     }
 
@@ -345,7 +351,13 @@ impl TulispContext {
         self.filenames.push(filename.to_owned());
 
         let string: &str = &contents;
-        let vv = parse(self, self.filenames.len() - 1, string, false)?;
+        let vv = parse(
+            self,
+            self.filenames.len() - 1,
+            string,
+            #[cfg(feature = "etags")]
+            false,
+        )?;
         self.eval_progn(&vv)
     }
 
