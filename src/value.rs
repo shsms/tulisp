@@ -1,15 +1,15 @@
 use crate::{
+    Number, TulispObject,
     cons::{self, Cons},
     context::Scope,
     error::Error,
     object::{
-        wrappers::{
-            generic::{Shared, SyncSend},
-            TulispFn,
-        },
         Span,
+        wrappers::{
+            TulispFn,
+            generic::{Shared, SyncSend},
+        },
     },
-    Number, TulispObject,
 };
 use std::{
     any::Any,
@@ -194,6 +194,18 @@ impl SymbolBindings {
             )));
         }
         Ok(self.items.last().unwrap().clone())
+    }
+
+    /// Gets the number value directly from the binding without cloning a TulispObject.
+    #[inline(always)]
+    pub(crate) fn get_as_number(&self) -> Result<crate::Number, Error> {
+        let Some(item) = self.items.last() else {
+            return Err(Error::type_mismatch(format!(
+                "Variable definition is void: {}",
+                self.name
+            )));
+        };
+        item.as_number()
     }
 
     #[inline(always)]

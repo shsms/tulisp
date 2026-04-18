@@ -1,6 +1,6 @@
 use std::fmt::Display;
 use tulisp::{
-    destruct_eval_bind, Error, Iter, Shared, TulispContext, TulispConvertible, TulispObject,
+    Error, Iter, Shared, TulispContext, TulispConvertible, TulispObject, destruct_eval_bind,
 };
 
 macro_rules! tulisp_assert {
@@ -452,7 +452,7 @@ fn test_eval() -> Result<(), Error> {
     }
     tulisp_assert! {
         program: "(let ((j 10)) (+ j j))(+ j j)",
-        error: r#"ERR Uninitialized: Variable definition is void: j
+        error: r#"ERR TypeMismatch: Variable definition is void: j
 <eval_string>:1.23-1.29:  at (+ j j)
 "#
     }

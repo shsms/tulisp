@@ -1,35 +1,30 @@
 use crate::{
-    builtin::functions::core::reduce_with, destruct_eval_bind, Error, TulispContext, TulispObject,
+    Error, Number, TulispContext, TulispObject, builtin::functions::core::reduce_with,
+    destruct_eval_bind, eval::EvalInto,
 };
 
 macro_rules! compare_impl {
     ($name:ident, $symbol:literal) => {
         fn $name(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
-            if args.null() || args.cdr_and_then(|x| Ok(x.null()))? {
+            if args.cdr_and_then(|x| Ok(x.null()))? || args.null() {
                 return Err(Error::out_of_range(format!(
                     "{} requires at least 2 arguments",
                     $symbol
                 )));
             }
             args.car_and_then(|x| {
-                ctx.eval_and_then(x, |ctx, first| {
-                    let first = first.as_number()?;
-                    args.cadr_and_then(|x| {
-                        ctx.eval_and_then(x, |ctx, second| {
-                            let second = second.as_number()?;
-                            if std::cmp::PartialOrd::$name(&first, &second) {
-                                args.cdr_and_then(|cdr| {
-                                    if cdr.cdr_and_then(|x| Ok(x.null()))? {
-                                        Ok(TulispObject::t())
-                                    } else {
-                                        $name(ctx, &cdr)
-                                    }
-                                })
-                            } else {
-                                Ok(TulispObject::nil())
-                            }
-                        })
-                    })
+                let first: Number = x.eval_into(ctx)?;
+                args.cadr_and_then(|x| {
+                    let second: Number = x.eval_into(ctx)?;
+                    if std::cmp::PartialOrd::$name(&first, &second) {
+                        if args.cddr_and_then(|x| Ok(x.null()))? {
+                            Ok(TulispObject::t())
+                        } else {
+                            $name(ctx, &args.cdr()?)
+                        }
+                    } else {
+                        Ok(TulispObject::nil())
+                    }
                 })
             })
         }

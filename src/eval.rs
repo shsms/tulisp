@@ -1,7 +1,10 @@
+mod eval_into;
+pub(crate) use eval_into::EvalInto;
+
 use std::borrow::Cow;
 
 use crate::{
-    context::TulispContext, error::Error, list, value::DefunParams, TulispObject, TulispValue,
+    TulispObject, TulispValue, context::TulispContext, error::Error, list, value::DefunParams,
 };
 
 pub(crate) trait Evaluator {

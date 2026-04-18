@@ -1,16 +1,17 @@
+use crate::Number;
+use crate::TulispObject;
+use crate::TulispValue;
 use crate::cons::Cons;
 use crate::context::Scope;
 use crate::context::TulispContext;
 use crate::destruct_eval_bind;
 use crate::error::Error;
-use crate::eval::eval_basic;
 use crate::eval::DummyEval;
 use crate::eval::Eval;
+use crate::eval::EvalInto;
+use crate::eval::eval_basic;
 use crate::lists;
 use crate::value::DefunParams;
-use crate::Number;
-use crate::TulispObject;
-use crate::TulispValue;
 use crate::{destruct_bind, list};
 use std::convert::TryInto;
 
@@ -19,10 +20,10 @@ pub(super) fn reduce_with(
     list: &TulispObject,
     method: impl Fn(Number, Number) -> Result<Number, Error>,
 ) -> Result<TulispObject, Error> {
-    let mut first = list.car_and_then(|x| ctx.eval(x))?.as_number()?;
+    let mut first = list.car_and_then(|x| x.eval_into(ctx))?;
     let mut rest = list.cdr()?;
     while rest.is_truthy() {
-        let next = rest.car_and_then(|x| ctx.eval(x))?.as_number()?;
+        let next = rest.car_and_then(|x| x.eval_into(ctx))?;
         first = method(first, next)?;
         rest = rest.cdr()?;
     }
