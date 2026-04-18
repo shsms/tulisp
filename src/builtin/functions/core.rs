@@ -19,9 +19,14 @@ pub(super) fn reduce_with(
     list: &TulispObject,
     method: impl Fn(Number, Number) -> Result<Number, Error>,
 ) -> Result<TulispObject, Error> {
+    if !list.consp() {
+        return Err(Error::out_of_range(
+            "reduce requires at least 1 argument".to_string(),
+        ));
+    }
     let mut first = list.car_and_then(|x| x.eval_into(ctx))?;
     let mut rest = list.cdr()?;
-    while rest.is_truthy() {
+    while rest.consp() {
         let next = rest.car_and_then(|x| x.eval_into(ctx))?;
         first = method(first, next)?;
         rest = rest.cdr()?;
