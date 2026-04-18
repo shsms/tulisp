@@ -1,6 +1,6 @@
 use crate::{
     Number, TulispObject,
-    cons::{self, Cons},
+    cons::Cons,
     context::Scope,
     error::Error,
     object::{
@@ -545,14 +545,6 @@ impl TulispValue {
             value.boundp()
         } else {
             false
-        }
-    }
-
-    #[inline(always)]
-    pub(crate) fn base_iter(&self) -> cons::BaseIter {
-        match self {
-            TulispValue::List { cons, .. } => cons.iter(),
-            _ => cons::BaseIter::default(),
         }
     }
 

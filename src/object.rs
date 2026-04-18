@@ -139,7 +139,7 @@ impl TulispObject {
 
     /// Returns an iterator over the values inside `self`.
     pub fn base_iter(&self) -> cons::BaseIter {
-        self.rc.borrow().0.base_iter()
+        cons::BaseIter { next: self.clone() }
     }
 
     /// Returns an iterator over the `TryInto` results on the values inside
