@@ -15,12 +15,20 @@ rust-version = "1.88.0"
 name = "tulisp"
 path = "src/bin/tulisp.rs"
 
+[[bin]]
+name = "bench_compare"
+path = "src/bin/bench_compare.rs"
+
 [lib]
 name = "tulisp"
 path = "src/lib.rs"
 
 [profile.release]
 lto = true
+
+[[bench]]
+name = "fib"
+harness = false
 
 [features]
 sync = []
