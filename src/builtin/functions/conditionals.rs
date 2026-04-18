@@ -1,3 +1,5 @@
+use crate::eval::EvalInto;
+
 use crate::{
     Error, TulispContext, TulispObject, destruct_bind, destruct_eval_bind,
     eval::eval_basic,
@@ -9,7 +11,7 @@ use std::borrow::Cow;
 pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.add_special_form("if", |ctx, args| {
         destruct_bind!((cond then &rest body) = args);
-        if ctx.eval_and_then(&cond, |_, x| Ok(x.is_truthy()))? {
+        if cond.eval_into(ctx)? {
             ctx.eval(&then)
         } else {
             ctx.eval_progn(&body)
@@ -32,7 +34,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     ctx.add_special_form("cond", |ctx, args| {
         for item in args.base_iter() {
-            if item.car_and_then(|x| ctx.eval_and_then(x, |_, x| Ok(x.is_truthy())))? {
+            if item.car_and_then(|x| x.eval_into(ctx))? {
                 return item.cdr_and_then(|x| ctx.eval_progn(x));
             }
         }
@@ -47,7 +49,10 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             ));
         }
 
-        args.car_and_then(|x| ctx.eval_and_then(x, |_, x| Ok(x.null().into())))
+        args.car_and_then(|x| {
+            let not: bool = !x.eval_into(ctx)?;
+            Ok(not.into())
+        })
     });
 
     ctx.add_special_form("and", |ctx, args| {

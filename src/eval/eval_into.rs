@@ -56,3 +56,23 @@ impl EvalInto<Number> for TulispObject {
         }
     }
 }
+
+impl EvalInto<bool> for TulispObject {
+    #[inline(always)]
+    fn eval_into(&self, ctx: &mut TulispContext) -> Result<bool, Error> {
+        let inner = self.inner_ref();
+        match &inner.0 {
+            TulispValue::Nil => Ok(false),
+            TulispValue::Symbol { value: sym, .. } => {
+                if sym.is_constant() {
+                    return Ok(true);
+                }
+                sym.get_as_bool().map_err(|e| e.with_trace(self.clone()))
+            }
+            TulispValue::List { .. } => Ok(eval_form::<Eval>(ctx, self)
+                .map_err(|e| e.with_trace(self.clone()))?
+                .is_truthy()),
+            _ => Ok(true),
+        }
+    }
+}

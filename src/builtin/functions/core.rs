@@ -9,7 +9,6 @@ use crate::error::Error;
 use crate::eval::DummyEval;
 use crate::eval::Eval;
 use crate::eval::EvalInto;
-use crate::eval::eval_basic;
 use crate::lists;
 use crate::value::DefunParams;
 use crate::{destruct_bind, list};
@@ -224,7 +223,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.add_special_form("while", |ctx, args| {
         destruct_bind!((condition &rest rest) = args);
         let mut result = TulispObject::nil();
-        while eval_basic(ctx, &condition).map(|x| x.is_truthy())? {
+        while condition.eval_into(ctx)? {
             result = ctx.eval_progn(&rest)?;
         }
         Ok(result)

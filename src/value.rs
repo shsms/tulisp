@@ -209,6 +209,17 @@ impl SymbolBindings {
     }
 
     #[inline(always)]
+    pub(crate) fn get_as_bool(&self) -> Result<bool, Error> {
+        let Some(item) = self.items.last() else {
+            return Err(Error::type_mismatch(format!(
+                "Variable definition is void: {}",
+                self.name
+            )));
+        };
+        Ok(item.is_truthy())
+    }
+
+    #[inline(always)]
     pub(crate) fn is_constant(&self) -> bool {
         self.constant
     }
