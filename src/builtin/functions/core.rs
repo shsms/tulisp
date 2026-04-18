@@ -8,7 +8,7 @@ use crate::destruct_eval_bind;
 use crate::error::Error;
 use crate::eval::DummyEval;
 use crate::eval::Eval;
-use crate::eval::eval_basic;
+use crate::eval::EvalInto;
 use crate::lists;
 use crate::value::DefunParams;
 use crate::{destruct_bind, list};
@@ -19,10 +19,15 @@ pub(super) fn reduce_with(
     list: &TulispObject,
     method: impl Fn(Number, Number) -> Result<Number, Error>,
 ) -> Result<TulispObject, Error> {
-    let mut first = list.car_and_then(|x| ctx.eval(x))?.as_number()?;
+    if !list.consp() {
+        return Err(Error::out_of_range(
+            "reduce requires at least 1 argument".to_string(),
+        ));
+    }
+    let mut first = list.car_and_then(|x| x.eval_into(ctx))?;
     let mut rest = list.cdr()?;
-    while rest.is_truthy() {
-        let next = rest.car_and_then(|x| ctx.eval(x))?.as_number()?;
+    while rest.consp() {
+        let next = rest.car_and_then(|x| x.eval_into(ctx))?;
         first = method(first, next)?;
         rest = rest.cdr()?;
     }
@@ -223,7 +228,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.add_special_form("while", |ctx, args| {
         destruct_bind!((condition &rest rest) = args);
         let mut result = TulispObject::nil();
-        while eval_basic(ctx, &condition).map(|x| x.is_truthy())? {
+        while condition.eval_into(ctx)? {
             result = ctx.eval_progn(&rest)?;
         }
         Ok(result)
@@ -285,10 +290,10 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             } else if varitem.consp() {
                 destruct_bind!((&optional name value &rest rest) = varitem);
                 if name.null() {
-                    return Err(Error::undefined("let varitem requires name".to_string()));
+                    return Err(Error::syntax_error("let varitem requires name".to_string()));
                 }
                 if !rest.null() {
-                    return Err(Error::undefined(
+                    return Err(Error::syntax_error(
                         "let varitem has too many values".to_string(),
                     ));
                 }

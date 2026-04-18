@@ -77,12 +77,6 @@ impl Cons {
         Ok(())
     }
 
-    pub fn iter(&self) -> BaseIter {
-        BaseIter {
-            next: Some(self.clone()),
-        }
-    }
-
     pub(crate) fn car(&self) -> &TulispObject {
         &self.car
     }
@@ -109,21 +103,19 @@ impl Drop for Cons {
 
 #[derive(Default)]
 pub struct BaseIter {
-    next: Option<Cons>,
+    pub(crate) next: TulispObject,
 }
 
 impl Iterator for BaseIter {
     type Item = TulispObject;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match &self.next {
-            Some(next) => {
-                let car = next.car.clone();
-                self.next = next.cdr.as_list_cons();
-                Some(car)
-            }
-            _ => None,
+        if self.next.null() {
+            return None;
         }
+        let car = self.next.car().ok()?;
+        self.next = self.next.cdr().ok()?;
+        Some(car)
     }
 }
 

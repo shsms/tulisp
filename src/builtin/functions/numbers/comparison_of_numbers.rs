@@ -1,54 +1,58 @@
 use crate::{
-    Error, TulispContext, TulispObject, builtin::functions::functions::reduce_with,
-    destruct_eval_bind,
+    Error, Number, TulispContext, TulispObject, builtin::functions::core::reduce_with,
+    destruct_eval_bind, eval::EvalInto,
 };
 
-macro_rules! compare_impl {
-    ($name:ident, $symbol:literal) => {
-        fn $name(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
-            if args.null() || args.cdr_and_then(|x| Ok(x.null()))? {
-                return Err(Error::out_of_range(format!(
-                    "{} requires at least 2 arguments",
-                    $symbol
-                )));
-            }
-            args.car_and_then(|x| {
-                ctx.eval_and_then(x, |ctx, first| {
-                    let first = first.as_number()?;
-                    args.cadr_and_then(|x| {
-                        ctx.eval_and_then(x, |ctx, second| {
-                            let second = second.as_number()?;
-                            if std::cmp::PartialOrd::$name(&first, &second) {
-                                args.cdr_and_then(|cdr| {
-                                    if cdr.cdr_and_then(|x| Ok(x.null()))? {
-                                        Ok(TulispObject::t())
-                                    } else {
-                                        $name(ctx, &cdr)
-                                    }
-                                })
-                            } else {
-                                Ok(TulispObject::nil())
-                            }
-                        })
-                    })
-                })
-            })
+#[inline(always)]
+fn compare_impl<F: Fn(&Number, &Number) -> bool>(
+    ctx: &mut TulispContext,
+    args: &TulispObject,
+    cmp: F,
+) -> Result<TulispObject, Error> {
+    if args.cdr_and_then(|x| Ok(x.consp()))? {
+        let first = args.car_and_then(|x| x.eval_into(ctx))?;
+        Ok(recursive_compare(ctx, first, args.cdr()?, cmp)?.into())
+    } else {
+        Err(Error::out_of_range(format!(
+            "Comparison requires at least 2 arguments"
+        )))
+    }
+}
+
+fn recursive_compare<F: Fn(&Number, &Number) -> bool>(
+    ctx: &mut TulispContext,
+    first: Number,
+    args: TulispObject,
+    cmp: F,
+) -> Result<bool, Error> {
+    let second: Number = args.car()?.eval_into(ctx)?;
+    if cmp(&first, &second) {
+        if args.cdr_and_then(|x| Ok(x.consp()))? {
+            recursive_compare(ctx, second, args.cdr()?, cmp)
+        } else {
+            Ok(true)
         }
-    };
+    } else {
+        Ok(false)
+    }
 }
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    compare_impl!(gt, ">");
-    ctx.add_special_form(">", gt);
+    ctx.add_special_form(">", |ctx, args| {
+        compare_impl(ctx, args, std::cmp::PartialOrd::gt)
+    });
 
-    compare_impl!(ge, ">=");
-    ctx.add_special_form(">=", ge);
+    ctx.add_special_form(">=", |ctx, args| {
+        compare_impl(ctx, args, std::cmp::PartialOrd::ge)
+    });
 
-    compare_impl!(lt, "<");
-    ctx.add_special_form("<", lt);
+    ctx.add_special_form("<", |ctx, args| {
+        compare_impl(ctx, args, std::cmp::PartialOrd::lt)
+    });
 
-    compare_impl!(le, "<=");
-    ctx.add_special_form("<=", le);
+    ctx.add_special_form("<=", |ctx, args| {
+        compare_impl(ctx, args, std::cmp::PartialOrd::le)
+    });
 
     fn max(ctx: &mut TulispContext, rest: &TulispObject) -> Result<TulispObject, Error> {
         reduce_with(ctx, rest, |a, b| Ok(if a > b { a } else { b }))

@@ -67,7 +67,7 @@ fn test_comparison_of_numbers() -> Result<(), Error> {
     tulisp_assert! { program: "(> 5.0 10.0)", result: "nil" }
     tulisp_assert! {
         program: "(let ((a 10)) (> a))",
-        error: r#"ERR OutOfRange: > requires at least 2 arguments
+        error: r#"ERR OutOfRange: Comparison requires at least 2 arguments
 <eval_string>:1.15-1.19:  at (> a)
 <eval_string>:1.1-1.20:  at (let ((a 10)) (> a))
 "#
@@ -91,7 +91,7 @@ fn test_comparison_of_numbers() -> Result<(), Error> {
     tulisp_assert! { program: "(>= 5.0 10.0)", result: "nil" }
     tulisp_assert! {
         program: "(let ((a 10)) (>= a))",
-        error: r#"ERR OutOfRange: >= requires at least 2 arguments
+        error: r#"ERR OutOfRange: Comparison requires at least 2 arguments
 <eval_string>:1.15-1.20:  at (>= a)
 <eval_string>:1.1-1.21:  at (let ((a 10)) (>= a))
 "#
@@ -109,7 +109,7 @@ fn test_comparison_of_numbers() -> Result<(), Error> {
     tulisp_assert! { program: "(< 5.0 10.0)", result: "t" }
     tulisp_assert! {
         program: "(let ((a 10)) (< a))",
-        error: r#"ERR OutOfRange: < requires at least 2 arguments
+        error: r#"ERR OutOfRange: Comparison requires at least 2 arguments
 <eval_string>:1.15-1.19:  at (< a)
 <eval_string>:1.1-1.20:  at (let ((a 10)) (< a))
 "#
@@ -127,7 +127,7 @@ fn test_comparison_of_numbers() -> Result<(), Error> {
     tulisp_assert! { program: "(<= 5.0 10.0)", result: "t" }
     tulisp_assert! {
         program: "(let ((a 10)) (<= a))",
-        error: r#"ERR OutOfRange: <= requires at least 2 arguments
+        error: r#"ERR OutOfRange: Comparison requires at least 2 arguments
 <eval_string>:1.15-1.20:  at (<= a)
 <eval_string>:1.1-1.21:  at (let ((a 10)) (<= a))
 "#
@@ -325,13 +325,13 @@ fn test_defun() -> Result<(), Error> {
         }
     tulisp_assert! {
         program: "(defun add (x y) (+ x y)) (add 10)",
-        error: r#"ERR TypeMismatch: Too few arguments
+        error: r#"ERR MissingArgument: Too few arguments
 <eval_string>:1.27-1.34:  at (add 10)
 "#
     }
     tulisp_assert! {
         program: "(defun add (x y) (+ x y)) (add 10 20 30)",
-        error: r#"ERR TypeMismatch: Too many arguments
+        error: r#"ERR InvalidArgument: Too many arguments
 <eval_string>:1.27-1.40:  at (add 10 20 30)
 "#
     }
@@ -355,13 +355,13 @@ fn test_defun() -> Result<(), Error> {
     }
     tulisp_assert! {
         program: "(defmacro inc (var)  (list 'setq var (list '+ 1 var))) (let ((x 4)) (inc))",
-        error: r#"ERR TypeMismatch: Too few arguments
+        error: r#"ERR MissingArgument: Too few arguments
 <eval_string>:1.69-1.73:  at (inc)
 "#
     }
     tulisp_assert! {
         program: "(defmacro inc (var)  (list 'setq var (list '+ 1 var))) (let ((x 4)) (inc 4 5))",
-        error: r#"ERR TypeMismatch: Too many arguments
+        error: r#"ERR InvalidArgument: Too many arguments
 <eval_string>:1.69-1.77:  at (inc 4 5)
 "#
     }
@@ -446,7 +446,7 @@ fn test_eval() -> Result<(), Error> {
     }
     tulisp_assert! {
         program: "(let ((y j) (j 10)) (funcall j))",
-        error: r#"ERR TypeMismatch: Variable definition is void: j
+        error: r#"ERR Uninitialized: Variable definition is void: j
 <eval_string>:1.1-1.32:  at (let ((y j) (j 10)) (funcall j))
 "#
     }
@@ -587,7 +587,7 @@ fn test_lists() -> Result<(), Error> {
         (setq items
               (append items '(10)))
         "#,
-        error: r#"ERR TypeMismatch: Variable definition is void: items
+        error: r#"ERR Uninitialized: Variable definition is void: items
 <eval_string>:3.15-3.34:  at (append items '(10))
 <eval_string>:2.9-3.35:  at (setq items (append items '(10)))
 "#
@@ -688,7 +688,7 @@ fn test_backquotes() -> Result<(), Error> {
 
     tulisp_assert! {
         program: r#"`(1 2 ,,(+ 10 20))"#,
-        error: r#"ERR TypeMismatch: Unquote without backquote
+        error: r#"ERR SyntaxError: Unquote without backquote
 <eval_string>:1.7-1.7:  at ,,(+ 10 20)
 <eval_string>:1.1-1.1:  at `(1 2 ,,(+ 10 20))
 "#,
@@ -701,7 +701,7 @@ fn test_backquotes() -> Result<(), Error> {
 fn test_math() -> Result<(), Error> {
     tulisp_assert! {
         program: "(/ 10 0)",
-        error: r#"ERR Undefined: Division by zero
+        error: r#"ERR OutOfRange: Division by zero
 <eval_string>:1.1-1.8:  at (/ 10 0)
 "#,
     }
@@ -711,7 +711,7 @@ fn test_math() -> Result<(), Error> {
     }
     tulisp_assert! {
         program: "(let ((a 10) (b 0)) (/ a b))",
-        error: r#"ERR Undefined: Division by zero
+        error: r#"ERR OutOfRange: Division by zero
 <eval_string>:1.21-1.27:  at (/ a b)
 <eval_string>:1.1-1.28:  at (let ((a 10) (b 0)) (/ a b))
 "#,
@@ -753,13 +753,13 @@ fn test_rounding_operations() -> Result<(), Error> {
 
     tulisp_assert! {
         program: "(fround)",
-        error: r#"ERR TypeMismatch: Too few arguments
+        error: r#"ERR MissingArgument: Too few arguments
 <eval_string>:1.1-1.8:  at (fround)
 "#,
     }
     tulisp_assert! {
         program: "(fround 3.14 3.14)",
-        error: r#"ERR TypeMismatch: Too many arguments
+        error: r#"ERR InvalidArgument: Too many arguments
 <eval_string>:1.1-1.18:  at (fround 3.14 3.14)
 "#,
     }
@@ -783,7 +783,7 @@ fn test_let() -> Result<(), Error> {
               (jj 20))
           (append kk (+ vv jj 1)))
         "#,
-        error: r#"ERR TypeMismatch: Variable definition is void: kk
+        error: r#"ERR Uninitialized: Variable definition is void: kk
 <eval_string>:4.11-4.33:  at (append kk (+ vv jj 1))
 <eval_string>:2.9-4.34:  at (let ((vv (+ 55 1)) (jj 20)) (append kk (+ vv jj 1)))
 "#
@@ -944,13 +944,13 @@ fn test_sort() -> Result<(), Error> {
     }
     tulisp_assert! {
         program: "(sort '(20 10 30 15 45) '<<)",
-        error: r#"ERR TypeMismatch: Variable definition is void: <<
+        error: r#"ERR Uninitialized: Variable definition is void: <<
 <eval_string>:1.1-1.28:  at (sort '(20 10 30 15 45) '<<)
 "#
     }
     tulisp_assert! {
         program: "(sort '(20 10 30 15 45))",
-        error: r#"ERR TypeMismatch: Too few arguments
+        error: r#"ERR MissingArgument: Too few arguments
 <eval_string>:1.1-1.24:  at (sort '(20 10 30 15 45))
 "#,
     }
@@ -1191,7 +1191,7 @@ fn test_any() -> Result<(), Error> {
     tulisp_assert! {
         ctx: ctx,
         program: "(maybe_add 10)",
-        error: r#"ERR TypeMismatch: Too few arguments
+        error: r#"ERR MissingArgument: Too few arguments
 <eval_string>:1.1-1.14:  at (maybe_add 10)
 "#
     }
@@ -1334,4 +1334,138 @@ fn test_symbol_creation() -> Result<(), Error> {
     }
 
     Ok(())
+}
+
+#[cfg(feature = "etags")]
+mod etags_tests {
+    use std::io::Write;
+    use tulisp::TulispContext;
+
+    fn write_temp_file(name: &str, content: &str) -> (std::path::PathBuf, impl Drop + use<>) {
+        let dir = std::env::temp_dir().join("tulisp_etags_test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(name);
+        let mut f = std::fs::File::create(&path).unwrap();
+        write!(f, "{}", content).unwrap();
+        struct Cleanup(std::path::PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                std::fs::remove_file(&self.0).ok();
+            }
+        }
+        let cleanup = Cleanup(path.clone());
+        (path, cleanup)
+    }
+
+    /// Assert that the tags output contains a tag entry line with the given
+    /// function/macro name between the \x7f and \x01 delimiters.
+    #[track_caller]
+    fn assert_tag_entry(tags: &str, name: &str) {
+        let pattern = format!("\x7f{}\x01", name);
+        assert!(
+            tags.contains(&pattern),
+            "tags output should contain an entry for `{name}`, got: {tags}"
+        );
+    }
+
+    #[test]
+    fn test_etags_defun_tracking() -> Result<(), tulisp::Error> {
+        let (path, _cleanup) =
+            write_temp_file("defun_test.el", "(defun my-test-func (x) (+ x 1))\n");
+        let mut ctx = TulispContext::new();
+        let path_str = path.to_str().unwrap();
+        let tags = ctx.tags_table(Some(&[path_str]))?;
+        assert_tag_entry(&tags, "my-test-func");
+        Ok(())
+    }
+
+    #[test]
+    fn test_etags_defmacro_tracking() -> Result<(), tulisp::Error> {
+        let (path, _cleanup) =
+            write_temp_file("defmacro_test.el", "(defmacro my-test-macro (x) x)\n");
+        let mut ctx = TulispContext::new();
+        let path_str = path.to_str().unwrap();
+        let tags = ctx.tags_table(Some(&[path_str]))?;
+        assert_tag_entry(&tags, "my-test-macro");
+        Ok(())
+    }
+
+    #[test]
+    fn test_etags_multiple_definitions() -> Result<(), tulisp::Error> {
+        let (path, _cleanup) = write_temp_file(
+            "multi_test.el",
+            "(defun func-a () 1)\n(defun func-b () 2)\n(defmacro macro-c (x) x)\n",
+        );
+        let mut ctx = TulispContext::new();
+        let path_str = path.to_str().unwrap();
+        let tags = ctx.tags_table(Some(&[path_str]))?;
+        assert_tag_entry(&tags, "func-a");
+        assert_tag_entry(&tags, "func-b");
+        assert_tag_entry(&tags, "macro-c");
+        Ok(())
+    }
+
+    #[test]
+    fn test_etags_builtin_functions_tracked() -> Result<(), tulisp::Error> {
+        let mut ctx = TulispContext::new();
+        let tags = ctx.tags_table(None)?;
+        assert!(
+            !tags.is_empty(),
+            "tags table should contain builtin entries"
+        );
+        // Verify at least some well-known builtins have proper tag entries.
+        assert_tag_entry(&tags, "if");
+        assert_tag_entry(&tags, "let");
+        Ok(())
+    }
+
+    #[test]
+    fn test_etags_output_contains_filename() -> Result<(), tulisp::Error> {
+        let (path, _cleanup) =
+            write_temp_file("filename_test.el", "(defun filename-test-fn () 42)\n");
+        let mut ctx = TulispContext::new();
+        let path_str = path.to_str().unwrap();
+        let tags = ctx.tags_table(Some(&[path_str]))?;
+        assert!(
+            tags.contains(path_str),
+            "tags output should reference the filename, got: {tags}"
+        );
+        assert_tag_entry(&tags, "filename-test-fn");
+        Ok(())
+    }
+
+    #[test]
+    fn test_etags_multiple_files() -> Result<(), tulisp::Error> {
+        let (path1, _c1) = write_temp_file("file1.el", "(defun fn-from-file1 () 1)\n");
+        let (path2, _c2) = write_temp_file("file2.el", "(defun fn-from-file2 () 2)\n");
+        let mut ctx = TulispContext::new();
+        let p1 = path1.to_str().unwrap();
+        let p2 = path2.to_str().unwrap();
+        let tags = ctx.tags_table(Some(&[p1, p2]))?;
+        assert_tag_entry(&tags, "fn-from-file1");
+        assert_tag_entry(&tags, "fn-from-file2");
+        assert!(tags.contains(p1), "should contain first file path");
+        assert!(tags.contains(p2), "should contain second file path");
+        Ok(())
+    }
+
+    #[test]
+    fn test_etags_follow_load() -> Result<(), tulisp::Error> {
+        let (path2, _c2) = write_temp_file("loaded.el", "(defun loaded-fn () 42)\n");
+        let p2_str = path2.to_str().unwrap();
+        let (path1, _c1) = write_temp_file(
+            "loader.el",
+            &format!("(defun loader-fn () 1)\n(load \"{}\")\n", p2_str),
+        );
+        let mut ctx = TulispContext::new();
+        let p1_str = path1.to_str().unwrap();
+        let tags = ctx.tags_table(Some(&[p1_str]))?;
+        assert_tag_entry(&tags, "loader-fn");
+        assert_tag_entry(&tags, "loaded-fn");
+        assert!(
+            tags.contains(p2_str),
+            "should contain the loaded file's path, got: {tags}"
+        );
+        Ok(())
+    }
 }

@@ -1,6 +1,6 @@
 use crate::{
     Number, TulispObject,
-    cons::{self, Cons},
+    cons::Cons,
     context::Scope,
     error::Error,
     object::{
@@ -188,12 +188,35 @@ impl SymbolBindings {
     #[inline(always)]
     pub(crate) fn get(&self) -> Result<TulispObject, Error> {
         if self.items.is_empty() {
-            return Err(Error::type_mismatch(format!(
+            return Err(Error::uninitialized(format!(
                 "Variable definition is void: {}",
                 self.name
             )));
         }
         Ok(self.items.last().unwrap().clone())
+    }
+
+    /// Gets the number value directly from the binding without cloning a TulispObject.
+    #[inline(always)]
+    pub(crate) fn get_as_number(&self) -> Result<crate::Number, Error> {
+        let Some(item) = self.items.last() else {
+            return Err(Error::type_mismatch(format!(
+                "Variable definition is void: {}",
+                self.name
+            )));
+        };
+        item.as_number()
+    }
+
+    #[inline(always)]
+    pub(crate) fn get_as_bool(&self) -> Result<bool, Error> {
+        let Some(item) = self.items.last() else {
+            return Err(Error::type_mismatch(format!(
+                "Variable definition is void: {}",
+                self.name
+            )));
+        };
+        Ok(item.is_truthy())
     }
 
     #[inline(always)]
@@ -334,7 +357,7 @@ impl PartialEq for TulispValue {
 /// Formats tulisp lists non-recursively.
 fn fmt_list(mut vv: TulispObject, f: &mut std::fmt::Formatter<'_>) -> Result<(), Error> {
     if let Err(e) = f.write_char('(') {
-        return Err(Error::undefined(format!("When trying to 'fmt': {}", e)));
+        return Err(Error::type_mismatch(format!("When trying to 'fmt': {}", e)));
     };
     let mut add_space = false;
     loop {
@@ -342,21 +365,21 @@ fn fmt_list(mut vv: TulispObject, f: &mut std::fmt::Formatter<'_>) -> Result<(),
         if !add_space {
             add_space = true;
         } else if let Err(e) = f.write_char(' ') {
-            return Err(Error::undefined(format!("When trying to 'fmt': {}", e)));
+            return Err(Error::type_mismatch(format!("When trying to 'fmt': {}", e)));
         };
         write!(f, "{}", vv.car()?)
-            .map_err(|e| Error::undefined(format!("When trying to 'fmt': {}", e)))?;
+            .map_err(|e| Error::type_mismatch(format!("When trying to 'fmt': {}", e)))?;
         if rest.null() {
             break;
         } else if !rest.consp() {
             write!(f, " . {}", rest)
-                .map_err(|e| Error::undefined(format!("When trying to 'fmt': {}", e)))?;
+                .map_err(|e| Error::type_mismatch(format!("When trying to 'fmt': {}", e)))?;
             break;
         };
         vv = rest;
     }
     if let Err(e) = f.write_char(')') {
-        return Err(Error::undefined(format!("When trying to 'fmt': {}", e)));
+        return Err(Error::type_mismatch(format!("When trying to 'fmt': {}", e)));
     };
     Ok(())
 }
@@ -490,18 +513,6 @@ impl TulispValue {
     }
 
     #[inline(always)]
-    pub(crate) fn lex_symbol_eq(&self, other: &TulispObject) -> bool {
-        let TulispValue::LexicalBinding { symbol, .. } = self else {
-            return false;
-        };
-        if let TulispValue::LexicalBinding { symbol: other, .. } = &other.inner_ref().0 {
-            symbol.eq(other)
-        } else {
-            symbol.eq(other)
-        }
-    }
-
-    #[inline(always)]
     pub(crate) fn get(&self) -> Result<TulispObject, Error> {
         if let TulispValue::Symbol { value, .. } | TulispValue::LexicalBinding { value, .. } = self
         {
@@ -534,14 +545,6 @@ impl TulispValue {
             value.boundp()
         } else {
             false
-        }
-    }
-
-    #[inline(always)]
-    pub(crate) fn base_iter(&self) -> cons::BaseIter {
-        match self {
-            TulispValue::List { cons, .. } => cons.iter(),
-            _ => cons::BaseIter::default(),
         }
     }
 
@@ -731,7 +734,7 @@ impl TulispValue {
 
     #[inline(always)]
     pub(crate) fn numberp(&self) -> bool {
-        self.integerp() || self.floatp()
+        matches!(self, TulispValue::Number { .. })
     }
 
     #[inline(always)]

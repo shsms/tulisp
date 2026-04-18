@@ -1,5 +1,5 @@
 use crate::object::wrappers::generic::SyncSend;
-use crate::{Error, Rest, TulispContext, TulispObject, destruct_bind, destruct_eval_bind};
+use crate::{destruct_bind, destruct_eval_bind, Error, Rest, TulispContext, TulispObject};
 
 pub trait TulispCallable<
     Args: 'static,
@@ -696,7 +696,7 @@ mod tests {
         eval_assert_error(
             ctx,
             "(add_round 2)",
-            r#"ERR TypeMismatch: Too few arguments
+            r#"ERR MissingArgument: Too few arguments
 <eval_string>:1.1-1.13:  at (add_round 2)
 "#,
         );
@@ -706,7 +706,7 @@ mod tests {
         eval_assert_error(
             ctx,
             r#"(greet "Alice" "Peter")"#,
-            r#"ERR TypeMismatch: Too many arguments
+            r#"ERR InvalidArgument: Too many arguments
 <eval_string>:1.1-1.23:  at (greet "Alice" "Peter")
 "#,
         );
@@ -751,14 +751,14 @@ mod tests {
         eval_assert_error(
             ctx,
             "(power 2 3 4)",
-            r#"ERR TypeMismatch: Too many arguments
+            r#"ERR InvalidArgument: Too many arguments
 <eval_string>:1.1-1.13:  at (power 2 3 4)
 "#,
         );
         eval_assert_error(
             ctx,
             "(power)",
-            r#"ERR TypeMismatch: Too few arguments
+            r#"ERR MissingArgument: Too few arguments
 <eval_string>:1.1-1.7:  at (power)
 "#,
         );

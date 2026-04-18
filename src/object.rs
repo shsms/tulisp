@@ -119,10 +119,9 @@ impl TulispObject {
     ///
     /// Read more about Emacs equality predicates
     /// [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Equality-Predicates.html).
+    #[allow(clippy::should_implement_trait)]
     pub fn eq(&self, other: &TulispObject) -> bool {
         self.eq_ptr(other)
-            || other.inner_ref().0.lex_symbol_eq(self)
-            || self.inner_ref().0.lex_symbol_eq(other)
     }
 
     /// Returns true if `self` and `other` are the same object, or are
@@ -140,7 +139,7 @@ impl TulispObject {
 
     /// Returns an iterator over the values inside `self`.
     pub fn base_iter(&self) -> cons::BaseIter {
-        self.rc.borrow().0.base_iter()
+        cons::BaseIter { next: self.clone() }
     }
 
     /// Returns an iterator over the `TryInto` results on the values inside
@@ -629,7 +628,23 @@ macro_rules! tulisp_object_from {
     };
 }
 
-tulisp_object_from!(i64);
+impl From<i64> for TulispObject {
+    fn from(vv: i64) -> Self {
+        const CACHE_MIN: i64 = -128;
+        const CACHE_MAX: i64 = 128;
+        if (CACHE_MIN..=CACHE_MAX).contains(&vv) {
+            thread_local! {
+                static INT_CACHE: Vec<TulispObject> = (CACHE_MIN..=CACHE_MAX)
+                    .map(|i| TulispValue::from(i).into_ref(None))
+                    .collect();
+            }
+            INT_CACHE.with(|cache| cache[(vv - CACHE_MIN) as usize].clone())
+        } else {
+            TulispValue::from(vv).into_ref(None)
+        }
+    }
+}
+
 tulisp_object_from!(f64);
 tulisp_object_from!(&str);
 tulisp_object_from!(String);

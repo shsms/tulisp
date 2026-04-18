@@ -39,7 +39,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                     return Ok(item);
                 }
             }
-            Ok(default.unwrap_or_else(|| TulispObject::nil()))
+            Ok(default.unwrap_or_else(TulispObject::nil))
         },
     );
 

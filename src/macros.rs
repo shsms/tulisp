@@ -116,7 +116,7 @@ fn main() -> Result<(), Error> {
 macro_rules! destruct_bind {
     (@reqr $vv:ident, $var:ident) => {
         if !$vv.consp() {
-            return Err($crate::Error::type_mismatch(
+            return Err($crate::Error::missing_argument(
                 "Too few arguments".to_string()
             ));
         }
@@ -130,7 +130,7 @@ macro_rules! destruct_bind {
     (@reqr $vv:ident,) => {};
     (@no-rest $vv:ident) => {
         if !$vv.null() {
-            return Err($crate::Error::type_mismatch(
+            return Err($crate::Error::invalid_argument(
                 "Too many arguments".to_string()
             ));
         }
@@ -176,7 +176,7 @@ macro_rules! destruct_bind {
 macro_rules! destruct_eval_bind {
     (@reqr $ctx:ident, $vv:ident, $var:ident) => {
         if !$vv.consp() {
-            return Err($crate::Error::type_mismatch(
+            return Err($crate::Error::missing_argument(
                 "Too few arguments".to_string()
             ));
         }
@@ -190,7 +190,7 @@ macro_rules! destruct_eval_bind {
     (@reqr $ctx:ident, $vv:ident,) => {};
     (@no-rest $ctx:ident, $vv:ident) => {
         if !$vv.null() {
-            return Err($crate::Error::type_mismatch(
+            return Err($crate::Error::invalid_argument(
                 "Too many arguments".to_string()
             ));
         }

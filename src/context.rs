@@ -13,13 +13,14 @@ use std::{
 };
 
 use crate::{
-    TulispObject, TulispValue, builtin,
+    builtin,
     context::add_function::TulispCallable,
     error::Error,
-    eval::{DummyEval, eval_basic, funcall},
+    eval::{eval_basic, funcall, DummyEval},
     list,
-    object::wrappers::{TulispFn, generic::Shared},
+    object::wrappers::{generic::Shared, TulispFn},
     parse::parse,
+    TulispObject, TulispValue,
 };
 
 #[derive(Debug, Default, Clone)]
@@ -104,7 +105,7 @@ impl TulispContext {
         if let Some(files) = files {
             for filename in files {
                 let contents = fs::read_to_string(filename).map_err(|e| {
-                    Error::undefined(format!("Unable to read file: {filename}. Error: {e}"))
+                    Error::os_error(format!("Unable to read file: {filename}. Error: {e}"))
                 })?;
                 self.filenames.push(filename.to_string());
                 // Parse the file to populate the tags table, but ignore the
@@ -133,7 +134,7 @@ impl TulispContext {
                         "{}{name}{},{}",
                         file[*loc - 1],
                         loc,
-                        file[0..*loc - 2]
+                        file[0..loc.saturating_sub(2)]
                             .iter()
                             .fold(1, |acc, line| acc + line.len() + 1)
                     )
@@ -184,16 +185,16 @@ impl TulispContext {
         &mut self,
         name: &str,
         func: impl TulispCallable<
-            Args,
-            Output,
-            NEEDS_CONTEXT,
-            NUM_ARGS,
-            NUM_OPTIONAL,
-            HAS_PLIST,
-            HAS_REST,
-            HAS_RETURN,
-            FALLIBLE,
-        > + 'static,
+                Args,
+                Output,
+                NEEDS_CONTEXT,
+                NUM_ARGS,
+                NUM_OPTIONAL,
+                HAS_PLIST,
+                HAS_REST,
+                HAS_RETURN,
+                FALLIBLE,
+            > + 'static,
     ) -> &mut Self {
         func.add_to_context(self, name);
         self
@@ -302,7 +303,13 @@ impl TulispContext {
 
     /// Parses and evaluates the given string, and returns the result.
     pub fn eval_string(&mut self, string: &str) -> Result<TulispObject, Error> {
-        let vv = parse(self, 0, string, false)?;
+        let vv = parse(
+            self,
+            0,
+            string,
+            #[cfg(feature = "etags")]
+            false,
+        )?;
         self.eval_progn(&vv)
     }
 
@@ -339,13 +346,18 @@ impl TulispContext {
     /// Parses and evaluates the contents of the given file and returns the
     /// value.
     pub fn eval_file(&mut self, filename: &str) -> Result<TulispObject, Error> {
-        let contents = fs::read_to_string(filename).map_err(|e| {
-            Error::undefined(format!("Unable to read file: {filename}. Error: {e}"))
-        })?;
+        let contents = fs::read_to_string(filename)
+            .map_err(|e| Error::os_error(format!("Unable to read file: {filename}. Error: {e}")))?;
         self.filenames.push(filename.to_owned());
 
         let string: &str = &contents;
-        let vv = parse(self, self.filenames.len() - 1, string, false)?;
+        let vv = parse(
+            self,
+            self.filenames.len() - 1,
+            string,
+            #[cfg(feature = "etags")]
+            false,
+        )?;
         self.eval_progn(&vv)
     }
 

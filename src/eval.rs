@@ -1,3 +1,6 @@
+mod eval_into;
+pub(crate) use eval_into::EvalInto;
+
 use std::borrow::Cow;
 
 use crate::{
@@ -61,12 +64,12 @@ fn zip_function_args<E: Evaluator>(
                 Cow::Owned(o) => o,
             }
         } else {
-            return Err(Error::type_mismatch("Too few arguments".to_string()));
+            return Err(Error::missing_argument("Too few arguments".to_string()));
         };
         param.param.set_scope(val)?;
     }
     if args_iter.next().is_some() {
-        return Err(Error::type_mismatch("Too many arguments".to_string()));
+        return Err(Error::invalid_argument("Too many arguments".to_string()));
     }
     Ok(())
 }
@@ -240,11 +243,11 @@ pub(crate) fn eval_basic<'a>(
         TulispValue::Backquote { value } => Ok(Cow::Owned(
             eval_back_quote(ctx, value.clone()).map_err(|e| e.with_trace(expr.clone()))?,
         )),
-        TulispValue::Unquote { .. } => Err(Error::type_mismatch(
-            "Unquote without backquote".to_string(),
-        )),
+        TulispValue::Unquote { .. } => {
+            Err(Error::syntax_error("Unquote without backquote".to_string()))
+        }
         TulispValue::Splice { .. } => {
-            Err(Error::type_mismatch("Splice without backquote".to_string()))
+            Err(Error::syntax_error("Splice without backquote".to_string()))
         }
         TulispValue::Sharpquote { value, .. } => Ok(Cow::Owned(value.clone())),
     }
