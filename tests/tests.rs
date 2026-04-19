@@ -757,6 +757,11 @@ fn test_math() -> Result<(), Error> {
     tulisp_assert! { program: "1_000.5",          result: "1000.5"    }
     tulisp_assert! { program: "1_000.000_1",      result: "1000.0001" }
 
+    tulisp_assert! { program: ".5",               result: "0.5"       }
+    tulisp_assert! { program: ".25",              result: "0.25"      }
+    tulisp_assert! { program: "(+ .5 .25)",       result: "0.75"      }
+    tulisp_assert! { program: ".1_5",             result: "0.15"      }
+
     tulisp_assert! {
         program: "99999999999999999999",
         error:

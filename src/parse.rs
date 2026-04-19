@@ -130,10 +130,17 @@ impl Tokenizer<'_> {
 
     fn read_num_ident(&mut self) -> Option<Token> {
         let start_pos = (self.line, self.pos + 1);
-        let mut output = String::new();
-        let mut first_char = true;
-        let mut is_int = true;
-        let mut is_float = false;
+        self.read_num_ident_impl(start_pos, String::new(), true, false)
+    }
+
+    fn read_num_ident_impl(
+        &mut self,
+        start_pos: (usize, usize),
+        mut output: String,
+        mut is_int: bool,
+        mut is_float: bool,
+    ) -> Option<Token> {
+        let mut first_char = output.is_empty();
 
         while let Some(ch) = self.peek_char() {
             match ch {
@@ -235,7 +242,16 @@ impl Iterator for Tokenizer<'_> {
                     });
                 }
                 '.' => {
+                    let start_pos = (self.line, self.pos + 1);
                     self.next_char()?;
+                    if matches!(self.peek_char(), Some('0'..='9')) {
+                        return self.read_num_ident_impl(
+                            start_pos,
+                            String::from("."),
+                            false,
+                            true,
+                        );
+                    }
                     return Some(Token::Dot {
                         span: Span::new(self.file_id, (self.line, self.pos), (self.line, self.pos)),
                     });
