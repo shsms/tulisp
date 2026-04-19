@@ -1,13 +1,4 @@
 #![doc = include_str!("../README.md")]
-/*!
-## Next steps
-
-1. Values in _Tulisp_ are represented in rust as [`TulispObject`]s.  That struct
-   implements methods for performing operations on Tulisp values.
-
-1. [`TulispContext`] tracks the state of the interpreter and provides methods
-   for executing _Tulisp_ programs.
-*/
 
 mod eval;
 mod macros;
