@@ -513,6 +513,18 @@ impl TulispValue {
     }
 
     #[inline(always)]
+    pub(crate) fn lex_symbol_eq(&self, other: &TulispObject) -> bool {
+        let TulispValue::LexicalBinding { symbol, .. } = self else {
+            return false;
+        };
+        if let TulispValue::LexicalBinding { symbol: other, .. } = &other.inner_ref().0 {
+            symbol.eq(other)
+        } else {
+            symbol.eq(other)
+        }
+    }
+
+    #[inline(always)]
     pub(crate) fn get(&self) -> Result<TulispObject, Error> {
         if let TulispValue::Symbol { value, .. } | TulispValue::LexicalBinding { value, .. } = self
         {

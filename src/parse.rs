@@ -155,7 +155,7 @@ impl Tokenizer<'_> {
                     output.push(ch);
                 }
                 '0'..='9' => output.push(ch),
-                '_' if is_int || is_float => {}
+                '_' if (is_int || is_float) && !first_char => {}
                 '.' => {
                     if is_int && !is_float {
                         is_int = false;
@@ -245,12 +245,7 @@ impl Iterator for Tokenizer<'_> {
                     let start_pos = (self.line, self.pos + 1);
                     self.next_char()?;
                     if matches!(self.peek_char(), Some('0'..='9')) {
-                        return self.read_num_ident_impl(
-                            start_pos,
-                            String::from("."),
-                            false,
-                            true,
-                        );
+                        return self.read_num_ident_impl(start_pos, String::from("."), false, true);
                     }
                     return Some(Token::Dot {
                         span: Span::new(self.file_id, (self.line, self.pos), (self.line, self.pos)),

@@ -892,6 +892,14 @@ fn test_lexical_binding() -> Result<(), Error> {
         result: "'(1 2)",
     }
 
+    tulisp_assert! {
+        program: r#"
+        (let ((a (list '((a . nil)) '((a . t)))))
+            (seq-filter (lambda (x) (alist-get 'a x)) a))
+        "#,
+        result: "'(((a . t)))",
+    }
+
     Ok(())
 }
 
@@ -1370,6 +1378,17 @@ fn test_symbol_creation() -> Result<(), Error> {
         result: r#"'(nil nil t t t)"#
     }
 
+    Ok(())
+}
+
+#[test]
+fn test_underscore_ident() -> Result<(), Error> {
+    // A lone underscore is a valid identifier, not a number.
+    tulisp_assert! { program: "(let ((_ 42)) _)", result: "42" }
+    // Leading underscore is also a valid identifier.
+    tulisp_assert! { program: "(let ((_x 7)) _x)", result: "7" }
+    // Underscore as numeric separator still works.
+    tulisp_assert! { program: "1_000", result: "1000" }
     Ok(())
 }
 
