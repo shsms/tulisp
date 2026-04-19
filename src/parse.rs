@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Write, iter::Peekable, str::Chars};
+use std::{collections::HashMap, iter::Peekable, str::Chars};
 
 use crate::{
     Error, Number, TulispContext, TulispObject, TulispValue, eval::macroexpand, object::Span,
@@ -79,7 +79,7 @@ impl Tokenizer<'_> {
     }
 
     fn read_string(&mut self) -> Option<Token> {
-        assert_eq!(self.next_char()?, '"');
+        self.next_char()?; // consume the opening '"'
         let start_pos = (self.line, self.pos + 1);
         let mut output = String::new();
         while let Some(ch) = self.next_char() {
@@ -102,7 +102,7 @@ impl Tokenizer<'_> {
                             )));
                         }
                     };
-                    output.write_char(out_ch).unwrap();
+                    output.push(out_ch);
                 }
                 '"' => {
                     return Some(Token::String {
@@ -114,7 +114,7 @@ impl Tokenizer<'_> {
                         value: output,
                     });
                 }
-                ch => output.write_char(ch).unwrap(),
+                ch => output.push(ch),
             }
         }
 
@@ -145,9 +145,9 @@ impl Tokenizer<'_> {
                         is_int = false;
                         is_float = false;
                     }
-                    output.write_char(ch).unwrap();
+                    output.push(ch);
                 }
-                '0'..='9' => output.write_char(ch).unwrap(),
+                '0'..='9' => output.push(ch),
                 '_' if is_int || is_float => {}
                 '.' => {
                     if is_int && !is_float {
@@ -156,12 +156,12 @@ impl Tokenizer<'_> {
                     } else if is_float {
                         is_float = false;
                     }
-                    output.write_char(ch).unwrap()
+                    output.push(ch)
                 }
                 ch => {
                     is_int = false;
                     is_float = false;
-                    output.write_char(ch).unwrap();
+                    output.push(ch);
                 }
             }
             self.next_char()?;
