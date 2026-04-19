@@ -148,6 +148,7 @@ impl Tokenizer<'_> {
                     output.write_char(ch).unwrap();
                 }
                 '0'..='9' => output.write_char(ch).unwrap(),
+                '_' if is_int || is_float => {}
                 '.' => {
                     if is_int && !is_float {
                         is_int = false;
