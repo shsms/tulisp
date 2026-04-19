@@ -366,6 +366,16 @@ fn test_defun() -> Result<(), Error> {
 "#
     }
     tulisp_assert! {
+        program: "((lambda (v1 v2) (+ v1 v2)) 10 20)",
+        result: "30",
+    }
+
+    Ok(())
+}
+
+#[test]
+fn test_tco() -> Result<(), Error> {
+    tulisp_assert! {
         program: r##"
         (defun if-tail (n acc)
           (if (equal n 0) acc (if-tail (- n 1) (+ acc 1))))
@@ -399,12 +409,14 @@ fn test_defun() -> Result<(), Error> {
         "##,
         result: "20000",
     }
-
     tulisp_assert! {
-        program: "((lambda (v1 v2) (+ v1 v2)) 10 20)",
-        result: "30",
+        program: r##"
+        (defun my-even (n) (if (equal n 0) t (my-odd (- n 1))))
+        (defun my-odd (n) (if (equal n 0) nil (my-even (- n 1))))
+        (list (my-even 5) (my-odd 5) (my-even 30000) (my-odd 10000))
+        "##,
+        result: "'(nil t t nil)",
     }
-
     Ok(())
 }
 

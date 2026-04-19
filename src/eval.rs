@@ -96,7 +96,16 @@ fn eval_lambda<E: Evaluator>(
 ) -> Result<TulispObject, Error> {
     let mut result = eval_function::<E>(ctx, params, body, args)?;
     while result.is_bounced() {
-        result = eval_function::<DummyEval>(ctx, params, body, &result.cdr()?)?;
+        let func = result.cadr()?;
+        let bounce_args = result.cddr()?;
+        let inner = func.inner_ref();
+        result = match &inner.0 {
+            TulispValue::Lambda { params, body } => {
+                eval_function::<DummyEval>(ctx, params, body, &bounce_args)?
+            }
+            TulispValue::Func(f) => f(ctx, &bounce_args)?,
+            _ => return Err(Error::undefined(format!("function is void: {}", func))),
+        };
     }
     Ok(result)
 }

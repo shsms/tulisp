@@ -37,7 +37,6 @@ pub(super) fn reduce_with(
 
 fn mark_tail_calls(
     ctx: &mut TulispContext,
-    name: TulispObject,
     body: TulispObject,
 ) -> Result<TulispObject, Error> {
     if !body.consp() {
@@ -57,23 +56,22 @@ fn mark_tail_calls(
     let ctxobj = tail.ctxobj();
     let tail_ident = tail.car()?;
     let tail_name_str = tail_ident.as_symbol()?;
-    let new_tail = if tail_ident.eq(&name) {
+    let new_tail = if ctx.eval(&tail_ident).is_ok_and(|f| {
+        matches!(f.inner_ref().0, TulispValue::Lambda { .. })
+    }) {
         let ret_tail = TulispObject::nil().append(tail.cdr()?)?.to_owned();
         list!(,ctx.intern("list")
             ,TulispValue::Bounce.into_ref(None)
+            ,tail_ident
             ,@ret_tail)?
     } else if tail_name_str == "progn" || tail_name_str == "let" || tail_name_str == "let*" {
-        list!(,tail_ident ,@mark_tail_calls(ctx, name, tail.cdr()?)?)?
+        list!(,tail_ident ,@mark_tail_calls(ctx, tail.cdr()?)?)?
     } else if tail_name_str == "if" {
         destruct_bind!((_if condition then_body &rest else_body) = tail);
         list!(,tail_ident
             ,condition.clone()
-            ,mark_tail_calls(
-                ctx,
-                name.clone(),
-                list!(,then_body)?
-            )?.car()?
-            ,@mark_tail_calls(ctx, name, else_body)?
+            ,mark_tail_calls(ctx, list!(,then_body)?)?.car()?
+            ,@mark_tail_calls(ctx, else_body)?
         )?
     } else if tail_name_str == "cond" {
         destruct_bind!((_cond &rest conds) = tail);
@@ -82,7 +80,7 @@ fn mark_tail_calls(
             destruct_bind!((condition &rest body) = cond);
             ret = list!(,@ret
                 ,list!(,condition.clone()
-                    ,@mark_tail_calls(ctx, name.clone(), body)?)?)?;
+                    ,@mark_tail_calls(ctx, body)?)?)?;
         }
         ret
     } else {
@@ -324,7 +322,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             } else {
                 rest
             };
-            let body = mark_tail_calls(ctx, name.clone(), body).map_err(|e| {
+            let body = mark_tail_calls(ctx, body).map_err(|e| {
                 println!("mark_tail_calls error: {:?}", e);
                 e
             })?;
