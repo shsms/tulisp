@@ -168,15 +168,23 @@ impl Tokenizer<'_> {
             first_char = false;
         }
         if is_int && output != "-" {
-            Some(Token::Integer {
-                span: Span::new(self.file_id, start_pos, (self.line, self.pos)),
-                value: output.parse::<i64>().unwrap(),
-            })
+            let span = Span::new(self.file_id, start_pos, (self.line, self.pos));
+            match output.parse::<i64>() {
+                Ok(value) => Some(Token::Integer { span, value }),
+                Err(e) => Some(Token::ParserError(ParserError::syntax_error(
+                    format!("{e}: {output}"),
+                    span,
+                ))),
+            }
         } else if is_float {
-            Some(Token::Float {
-                span: Span::new(self.file_id, start_pos, (self.line, self.pos)),
-                value: output.parse::<f64>().unwrap(),
-            })
+            let span = Span::new(self.file_id, start_pos, (self.line, self.pos));
+            match output.parse::<f64>() {
+                Ok(value) => Some(Token::Float { span, value }),
+                Err(e) => Some(Token::ParserError(ParserError::syntax_error(
+                    format!("{e}: {output}"),
+                    span,
+                ))),
+            }
         } else {
             Some(Token::Ident {
                 span: Span::new(self.file_id, start_pos, (self.line, self.pos)),

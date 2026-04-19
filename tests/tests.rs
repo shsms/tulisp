@@ -756,6 +756,20 @@ fn test_math() -> Result<(), Error> {
     tulisp_assert! { program: "(+ 1_000 2_000)",  result: "3000"      }
     tulisp_assert! { program: "1_000.5",          result: "1000.5"    }
     tulisp_assert! { program: "1_000.000_1",      result: "1000.0001" }
+
+    tulisp_assert! {
+        program: "99999999999999999999",
+        error:
+r#"ERR ParsingError: SyntaxError number too large to fit in target type: 99999999999999999999
+<eval_string>:1.1-1.20:  at nil
+"#,
+    }
+    tulisp_assert! {
+        program: "-.",
+        error: r#"ERR ParsingError: SyntaxError invalid float literal: -.
+<eval_string>:1.1-1.2:  at nil
+"#,
+    }
     Ok(())
 }
 
