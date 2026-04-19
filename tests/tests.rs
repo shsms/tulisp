@@ -892,6 +892,14 @@ fn test_lexical_binding() -> Result<(), Error> {
         result: "'(1 2)",
     }
 
+    tulisp_assert! {
+        program: r#"
+        (let ((a (list '((a . nil)) '((a . t)))))
+            (seq-filter (lambda (x) (alist-get 'a x)) a))
+        "#,
+        result: "'(((a . t)))",
+    }
+
     Ok(())
 }
 
