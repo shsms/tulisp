@@ -91,7 +91,7 @@ fn mark_tail_calls(
 }
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    ctx.add_function("load", |ctx: &mut TulispContext, filename: String| {
+    ctx.defun("load", |ctx: &mut TulispContext, filename: String| {
         let full_path = if let Some(ref load_path) = ctx.load_path {
             load_path.join(&filename)
         } else {
@@ -106,7 +106,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         ctx.eval_file(full_path)
     });
 
-    ctx.add_special_form("intern", |ctx, args| {
+    ctx.defspecial("intern", |ctx, args| {
         destruct_eval_bind!(ctx, (name) = args);
         Ok(ctx.intern(&name.as_string()?))
     });
@@ -116,12 +116,12 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(TulispObject::symbol(name, constant))
     }
 
-    ctx.add_special_form("make-symbol", |ctx, args| {
+    ctx.defspecial("make-symbol", |ctx, args| {
         destruct_eval_bind!(ctx, (name) = args);
         make_symbol(name.as_string()?)
     });
 
-    ctx.add_special_form("gensym", |ctx, args| {
+    ctx.defspecial("gensym", |ctx, args| {
         destruct_eval_bind!(ctx, (&optional prefix) = args);
         let prefix = if !prefix.null() {
             if prefix.stringp() {
@@ -150,7 +150,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         make_symbol(format!("{prefix}{count}"))
     });
 
-    ctx.add_special_form("concat", |ctx, args| {
+    ctx.defspecial("concat", |ctx, args| {
         destruct_eval_bind!(ctx, (&rest rest) = args);
         let mut ret = String::new();
         for ele in rest.base_iter() {
@@ -164,7 +164,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(TulispValue::from(ret).into_ref(rest.span()))
     });
 
-    ctx.add_special_form("format", |ctx, args| {
+    ctx.defspecial("format", |ctx, args| {
         destruct_eval_bind!(ctx, (input &rest rest) = args);
         let mut args = rest.base_iter();
         let mut output = String::new();
@@ -206,24 +206,24 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(TulispObject::from(output).with_span(input.span()))
     });
 
-    ctx.add_special_form("print", |ctx, args| {
+    ctx.defspecial("print", |ctx, args| {
         destruct_eval_bind!(ctx, (val) = args);
         println!("{}", val.fmt_string());
         Ok(val)
     });
 
-    ctx.add_special_form("prin1-to-string", |ctx, args| {
+    ctx.defspecial("prin1-to-string", |ctx, args| {
         destruct_eval_bind!(ctx, (arg) = args);
         Ok(TulispValue::from(arg.fmt_string()).into_ref(arg.span()))
     });
 
-    ctx.add_special_form("princ", |ctx, args| {
+    ctx.defspecial("princ", |ctx, args| {
         destruct_eval_bind!(ctx, (val) = args);
         println!("{}", val.fmt_string());
         Ok(val)
     });
 
-    ctx.add_special_form("while", |ctx, args| {
+    ctx.defspecial("while", |ctx, args| {
         destruct_bind!((condition &rest rest) = args);
         let mut result = TulispObject::nil();
         while condition.eval_into(ctx)? {
@@ -232,7 +232,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(result)
     });
 
-    ctx.add_special_form("setq", |ctx, args| {
+    ctx.defspecial("setq", |ctx, args| {
         let value = args.cdr_and_then(|args| {
             if args.null() {
                 return Err(Error::type_mismatch(
@@ -252,7 +252,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(value)
     });
 
-    ctx.add_special_form("set", |ctx, args| {
+    ctx.defspecial("set", |ctx, args| {
         let value = args.cdr_and_then(|args| {
             if args.null() {
                 return Err(Error::type_mismatch(
@@ -309,12 +309,12 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
         ret
     }
-    ctx.add_special_form("let", impl_let);
-    ctx.add_special_form("let*", impl_let);
+    ctx.defspecial("let", impl_let);
+    ctx.defspecial("let*", impl_let);
 
-    ctx.add_special_form("progn", |ctx, args| ctx.eval_progn(args));
+    ctx.defspecial("progn", |ctx, args| ctx.eval_progn(args));
 
-    ctx.add_special_form("defun", |ctx, args| {
+    ctx.defspecial("defun", |ctx, args| {
         destruct_bind!((name params &rest rest) = args);
         {
             let body = if rest.car()?.as_string().is_ok() {
@@ -454,9 +454,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         let body = capture_variables(&mut vec![], &param_names, body)?;
         Ok(TulispValue::Lambda { params, body }.into_ref(None))
     }
-    ctx.add_special_form("lambda", lambda);
+    ctx.defspecial("lambda", lambda);
 
-    ctx.add_special_form("defmacro", |_ctx, args| {
+    ctx.defspecial("defmacro", |_ctx, args| {
         destruct_bind!((name params &rest rest) = args);
         let body = if rest.car()?.as_string().is_ok() {
             rest.cdr()?
@@ -473,17 +473,17 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(TulispObject::nil())
     });
 
-    ctx.add_special_form("null", |ctx, args| {
+    ctx.defspecial("null", |ctx, args| {
         destruct_eval_bind!(ctx, (arg) = args);
         Ok(arg.null().into())
     });
 
-    ctx.add_special_form("eval", |ctx, args| {
+    ctx.defspecial("eval", |ctx, args| {
         destruct_eval_bind!(ctx, (arg) = args);
         ctx.eval(&arg)
     });
 
-    ctx.add_special_form("funcall", |ctx, args| {
+    ctx.defspecial("funcall", |ctx, args| {
         destruct_bind!((name &rest rest) = args);
         let name = ctx.eval(&name)?;
         let name = ctx.eval(&name)?;
@@ -494,14 +494,14 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         }
     });
 
-    ctx.add_special_form("macroexpand", |ctx, args| {
+    ctx.defspecial("macroexpand", |ctx, args| {
         destruct_eval_bind!(ctx, (name) = args);
         crate::eval::macroexpand(ctx, name)
     });
 
     // List functions
 
-    ctx.add_special_form("cons", |ctx, args| {
+    ctx.defspecial("cons", |ctx, args| {
         let cdr = args.cdr_and_then(|args| {
             if args.null() {
                 return Err(Error::type_mismatch(
@@ -521,7 +521,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(TulispObject::cons(car, cdr))
     });
 
-    ctx.add_special_form("append", |ctx, args| {
+    ctx.defspecial("append", |ctx, args| {
         destruct_eval_bind!(ctx, (first &rest rest) = args);
         for ele in rest.base_iter() {
             first.append(ele.deep_copy()?)?;
@@ -529,7 +529,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(first)
     });
 
-    ctx.add_special_form("dolist", |ctx, args| {
+    ctx.defspecial("dolist", |ctx, args| {
         destruct_bind!((spec &rest body) = args);
         destruct_bind!((var list &optional result) = spec);
         let mut list = ctx.eval(&list)?;
@@ -544,7 +544,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         ctx.eval(&result)
     });
 
-    ctx.add_special_form("dotimes", |ctx, args| {
+    ctx.defspecial("dotimes", |ctx, args| {
         destruct_bind!((spec &rest body) = args);
         destruct_bind!((var count &optional result) = spec);
         var.set_scope(TulispObject::from(0))?;
@@ -557,7 +557,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         ctx.eval(&result)
     });
 
-    ctx.add_special_form("list", |ctx, args| {
+    ctx.defspecial("list", |ctx, args| {
         let (ctxobj, span) = (args.ctxobj(), args.span());
         let mut cons: Option<Cons> = None;
         for ele in args.base_iter() {
@@ -574,12 +574,12 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         }
     });
 
-    ctx.add_special_form("mapcar", |ctx, args| {
+    ctx.defspecial("mapcar", |ctx, args| {
         destruct_eval_bind!(ctx, (func seq) = args);
         ctx.map(&func, &seq)
     });
 
-    ctx.add_special_form("assoc", |ctx, args| {
+    ctx.defspecial("assoc", |ctx, args| {
         destruct_eval_bind!(ctx, (key alist &optional testfn) = args);
         lists::assoc(
             ctx,
@@ -589,7 +589,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         )
     });
 
-    ctx.add_special_form("alist-get", |ctx, args| {
+    ctx.defspecial("alist-get", |ctx, args| {
         destruct_eval_bind!(ctx, (key alist &optional default_value remove testfn) = args);
         lists::alist_get(
             ctx,
@@ -605,7 +605,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         )
     });
 
-    ctx.add_special_form("plist-get", |ctx, args| {
+    ctx.defspecial("plist-get", |ctx, args| {
         destruct_eval_bind!(ctx, (plist property) = args);
         lists::plist_get(&plist, &property)
     });
@@ -623,7 +623,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 }
                 args.car_and_then(|arg| ctx.eval_and_then(&arg, |_, x| Ok(x.$name().into())))
             }
-            ctx.add_special_form(stringify!($name), $name);
+            ctx.defspecial(stringify!($name), $name);
         };
     }
     predicate_function!(consp);
@@ -637,7 +637,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     predicate_function!(keywordp);
     // predicates end
 
-    ctx.add_special_form("declare", |_ctx, _args| {
+    ctx.defspecial("declare", |_ctx, _args| {
         // no-op
         Ok(TulispObject::nil())
     });

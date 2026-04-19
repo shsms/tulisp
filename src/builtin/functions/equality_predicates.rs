@@ -5,11 +5,11 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         destruct_eval_bind!(ctx, (object1 object2) = args);
         Ok(object1.equal(&object2).into())
     }
-    ctx.add_special_form("equal", equal);
+    ctx.defspecial("equal", equal);
 
     fn eq(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
         destruct_eval_bind!(ctx, (object1 object2) = args);
         Ok(object1.eq(&object2).into())
     }
-    ctx.add_special_form("eq", eq);
+    ctx.defspecial("eq", eq);
 }

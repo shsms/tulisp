@@ -38,7 +38,7 @@ macro_rules! impl_tulisp_callable {
                 ctx: &mut TulispContext,
                 name: &str,
             ) {
-                ctx.add_special_form(
+                ctx.defspecial(
                     name,
                     move |_ctx, _args| {
                         impl_tulisp_callable!(@deb _ctx, $($arg)* &optional $($opt)*, _args);
@@ -64,7 +64,7 @@ macro_rules! impl_tulisp_callable {
                 ctx: &mut TulispContext,
                 name: &str,
             ) {
-                ctx.add_special_form(
+                ctx.defspecial(
                     name,
                     move |_ctx, _args| {
                         impl_tulisp_callable!(@deb _ctx, $($arg)* &optional $($opt)*, _args);
@@ -91,7 +91,7 @@ macro_rules! impl_tulisp_callable {
                 ctx: &mut TulispContext,
                 name: &str,
             ) {
-                ctx.add_special_form(
+                ctx.defspecial(
                     name,
                     move |ctx, _args| {
                         impl_tulisp_callable!(@deb ctx, $($arg)* &optional $($opt)*, _args);
@@ -117,7 +117,7 @@ macro_rules! impl_tulisp_callable {
                 ctx: &mut TulispContext,
                 name: &str,
             ) {
-                ctx.add_special_form(
+                ctx.defspecial(
                     name,
                     move |ctx, _args| {
                         impl_tulisp_callable!(@deb ctx, $($arg)* &optional $($opt)*, _args);
@@ -144,7 +144,7 @@ macro_rules! impl_tulisp_callable {
                 ctx: &mut TulispContext,
                 name: &str,
             ) {
-                ctx.add_special_form(
+                ctx.defspecial(
                     name,
                     move |_ctx, _args| {
                         impl_tulisp_callable!(@deb _ctx, $($arg)* &optional $($opt)*, _args);
@@ -171,7 +171,7 @@ macro_rules! impl_tulisp_callable {
                 ctx: &mut TulispContext,
                 name: &str,
             ) {
-                ctx.add_special_form(
+                ctx.defspecial(
                     name,
                     move |ctx, _args| {
                         impl_tulisp_callable!(@deb ctx, $($arg)* &optional $($opt)*, _args);
@@ -199,7 +199,7 @@ macro_rules! impl_tulisp_callable {
                 ctx: &mut TulispContext,
                 name: &str,
             ) {
-                ctx.add_special_form(
+                ctx.defspecial(
                     name,
                     move |_ctx, _args| {
                         impl_tulisp_callable!(@db $($arg)* &optional $($opt)* &rest rest, _args);
@@ -236,7 +236,7 @@ macro_rules! impl_tulisp_callable {
                 ctx: &mut TulispContext,
                 name: &str,
             ) {
-                ctx.add_special_form(
+                ctx.defspecial(
                     name,
                     move |_ctx, _args| {
                         impl_tulisp_callable!(@db $($arg)* &optional $($opt)* &rest rest, _args);
@@ -274,7 +274,7 @@ macro_rules! impl_tulisp_callable {
                 ctx: &mut TulispContext,
                 name: &str,
             ) {
-                ctx.add_special_form(
+                ctx.defspecial(
                     name,
                     move |ctx, _args| {
                         impl_tulisp_callable!(@db $($arg)* &optional $($opt)* &rest rest, _args);
@@ -312,7 +312,7 @@ macro_rules! impl_tulisp_callable {
                 ctx: &mut TulispContext,
                 name: &str,
             ) {
-                ctx.add_special_form(
+                ctx.defspecial(
                     name,
                     move |ctx, _args| {
                         impl_tulisp_callable!(@db $($arg)* &optional $($opt)* &rest rest, _args);
@@ -351,7 +351,7 @@ macro_rules! impl_tulisp_callable {
                 ctx: &mut TulispContext,
                 name: &str,
             ) {
-                ctx.add_special_form(
+                ctx.defspecial(
                     name,
                     move |_ctx, _args| {
                         impl_tulisp_callable!(@db $($arg)* &optional $($opt)* &rest rest, _args);
@@ -389,7 +389,7 @@ macro_rules! impl_tulisp_callable {
                 ctx: &mut TulispContext,
                 name: &str,
             ) {
-                ctx.add_special_form(
+                ctx.defspecial(
                     name,
                     move |ctx, _args| {
                         impl_tulisp_callable!(@db $($arg)* &optional $($opt)* &rest rest, _args);
@@ -537,7 +537,7 @@ mod plist_args {
     {
         #[track_caller]
         fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
-            ctx.add_special_form(name, move |ctx, _args| {
+            ctx.defspecial(name, move |ctx, _args| {
                 destruct_bind!((&rest rest) = _args);
                 let res = (self)(Plist::new(ctx, rest)?);
                 Ok(crate::TulispConvertible::into_tulisp(res))
@@ -552,7 +552,7 @@ mod plist_args {
     {
         #[track_caller]
         fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
-            ctx.add_special_form(name, move |ctx, _args| {
+            ctx.defspecial(name, move |ctx, _args| {
                 destruct_bind!((&rest rest) = _args);
                 (self)(Plist::new(ctx, rest)?);
                 Ok(TulispObject::nil())
@@ -569,7 +569,7 @@ mod plist_args {
     {
         #[track_caller]
         fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
-            ctx.add_special_form(name, move |ctx, _args| {
+            ctx.defspecial(name, move |ctx, _args| {
                 destruct_bind!((&rest rest) = _args);
                 let plist = Plist::new(ctx, rest)?;
                 let res = (self)(ctx, plist);
@@ -585,7 +585,7 @@ mod plist_args {
     {
         #[track_caller]
         fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
-            ctx.add_special_form(name, move |ctx, _args| {
+            ctx.defspecial(name, move |ctx, _args| {
                 destruct_bind!((&rest rest) = _args);
                 let plist = Plist::new(ctx, rest)?;
                 (self)(ctx, plist);
@@ -603,7 +603,7 @@ mod plist_args {
     {
         #[track_caller]
         fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
-            ctx.add_special_form(name, move |ctx, _args| {
+            ctx.defspecial(name, move |ctx, _args| {
                 destruct_bind!((&rest rest) = _args);
                 let plist = Plist::new(ctx, rest)?;
                 let res = (self)(plist);
@@ -620,7 +620,7 @@ mod plist_args {
     {
         #[track_caller]
         fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
-            ctx.add_special_form(name, move |ctx, _args| {
+            ctx.defspecial(name, move |ctx, _args| {
                 destruct_bind!((&rest rest) = _args);
                 let plist = Plist::new(ctx, rest)?;
                 let res = (self)(ctx, plist);
@@ -638,7 +638,7 @@ mod tests {
     #[test]
     fn test_add_functions_only_rest() -> Result<(), crate::Error> {
         let ctx = &mut TulispContext::new();
-        ctx.add_function("sum", |items: Rest<f64>| -> f64 { items.into_iter().sum() });
+        ctx.defun("sum", |items: Rest<f64>| -> f64 { items.into_iter().sum() });
 
         eval_assert_equal(ctx, "(sum)", "0.0");
         eval_assert_equal(ctx, "(sum (- 4 0.5) (+ 3 4) 5 10)", "25.5");
@@ -650,7 +650,7 @@ mod tests {
 "#,
         );
 
-        ctx.add_function(
+        ctx.defun(
             "cats",
             |items: Rest<String>| -> Result<TulispObject, crate::Error> {
                 for item in items {
@@ -689,7 +689,7 @@ mod tests {
     fn test_add_functions_only_args() -> Result<(), Error> {
         let ctx = &mut TulispContext::new();
 
-        ctx.add_function("add_round", |a: f64, b: f64| -> i64 {
+        ctx.defun("add_round", |a: f64, b: f64| -> i64 {
             (a + b).round() as i64
         });
         eval_assert_equal(ctx, "(let ((a 3.5) (b 4.2))(add_round a b))", "8");
@@ -701,7 +701,7 @@ mod tests {
 "#,
         );
 
-        ctx.add_function("greet", |name: String| format!("Hello, {}!", name));
+        ctx.defun("greet", |name: String| format!("Hello, {}!", name));
         eval_assert_equal(ctx, r#"(greet "Alice")"#, r#""Hello, Alice!""#);
         eval_assert_error(
             ctx,
@@ -718,7 +718,7 @@ mod tests {
     fn test_add_functions_args_and_rest() -> Result<(), Error> {
         let ctx = &mut TulispContext::new();
 
-        ctx.add_function(
+        ctx.defun(
             "make_sentence",
             |subject: String, verb: String, objects: Rest<String>| -> String {
                 let objs = objects.into_iter().collect::<Vec<_>>().join(" ");
@@ -741,7 +741,7 @@ mod tests {
     fn test_add_functions_args_and_optional() -> Result<(), Error> {
         let ctx = &mut TulispContext::new();
 
-        ctx.add_function("power", |base: f64, exponent: Option<f64>| -> f64 {
+        ctx.defun("power", |base: f64, exponent: Option<f64>| -> f64 {
             let exp = exponent.unwrap_or(2.0);
             base.powf(exp)
         });
@@ -769,7 +769,7 @@ mod tests {
     fn test_add_functions_args_optional_and_rest() -> Result<(), Error> {
         let ctx = &mut TulispContext::new();
 
-        ctx.add_function(
+        ctx.defun(
             "build_url",
             |base: String, path: Option<String>, query_params: Rest<String>| -> String {
                 let mut url = base;

@@ -1,7 +1,7 @@
 use crate::{TulispContext, destruct_eval_bind};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    ctx.add_special_form("sqrt", |ctx, args| {
+    ctx.defspecial("sqrt", |ctx, args| {
         destruct_eval_bind!(ctx, (arg) = args);
 
         let val: f64 = arg.try_float()?;
@@ -16,7 +16,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(val.sqrt().into())
     });
 
-    ctx.add_special_form("expt", |ctx, args| {
+    ctx.defspecial("expt", |ctx, args| {
         destruct_eval_bind!(ctx, (base exponent) = args);
 
         let base_val: f64 = base.try_float()?;

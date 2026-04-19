@@ -314,7 +314,7 @@ impl std::fmt::Display for TestStruct {
     }
 }
 
-ctx.add_special_form("make_any", |_ctx, args| {
+ctx.defspecial("make_any", |_ctx, args| {
     destruct_bind!((inp) = args);
     let inp: i64 = inp.try_into()?;
 

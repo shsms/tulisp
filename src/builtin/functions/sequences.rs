@@ -6,28 +6,28 @@ use crate::{
 use std::cmp::Ordering;
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    ctx.add_function("length", |list: TulispObject| {
+    ctx.defun("length", |list: TulispObject| {
         lists::length(&list).map(TulispObject::from)
     });
 
-    ctx.add_function(
+    ctx.defun(
         "seq-map",
         |ctx: &mut TulispContext, func: TulispObject, seq: TulispObject| ctx.map(&func, &seq),
     );
 
-    ctx.add_function(
+    ctx.defun(
         "seq-reduce",
         |ctx: &mut TulispContext, func: TulispObject, seq: TulispObject, initial: TulispObject| {
             ctx.reduce(&func, &seq, &initial)
         },
     );
 
-    ctx.add_function(
+    ctx.defun(
         "seq-filter",
         |ctx: &mut TulispContext, func: TulispObject, seq: TulispObject| ctx.filter(&func, &seq),
     );
 
-    ctx.add_function(
+    ctx.defun(
         "seq-find",
         |ctx: &mut TulispContext,
          func: TulispObject,
@@ -43,7 +43,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         },
     );
 
-    ctx.add_function(
+    ctx.defun(
         "sort",
         |ctx: &mut TulispContext, seq: TulispObject, pred: TulispObject| {
             let pred = ctx.eval(&pred)?;

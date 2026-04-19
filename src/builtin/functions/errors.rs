@@ -1,11 +1,11 @@
 use crate::{Error, ErrorKind, TulispContext, TulispObject, destruct_bind};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    ctx.add_function("error", |msg: String| -> Result<TulispObject, Error> {
+    ctx.defun("error", |msg: String| -> Result<TulispObject, Error> {
         Err(Error::lisp_error(msg))
     });
 
-    ctx.add_special_form("catch", |ctx, args| {
+    ctx.defspecial("catch", |ctx, args| {
         destruct_bind!((tag &rest body) = args);
         let res = ctx.eval_progn(&body);
         if let Err(ref e) = res {
@@ -19,7 +19,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         res
     });
 
-    ctx.add_function(
+    ctx.defun(
         "throw",
         |tag: TulispObject, value: TulispObject| -> Result<TulispObject, Error> {
             Err(Error::throw(tag, value))

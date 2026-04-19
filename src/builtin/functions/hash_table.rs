@@ -42,7 +42,7 @@ impl std::fmt::Display for HashTable {
 }
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    ctx.add_special_form("make-hash-table", |_ctx, args| {
+    ctx.defspecial("make-hash-table", |_ctx, args| {
         if !args.null() {
             return Err(Error::invalid_argument(
                 "make-hash-table: expected no arguments.".to_string(),
@@ -55,7 +55,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(table.into())
     });
 
-    ctx.add_special_form("gethash", |ctx, args| {
+    ctx.defspecial("gethash", |ctx, args| {
         destruct_eval_bind!(ctx, (key table) = args);
         let binding = table.as_any()?;
         let table = binding.downcast_ref::<HashTable>().unwrap();
@@ -69,7 +69,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(value)
     });
 
-    ctx.add_special_form("puthash", |ctx, args| {
+    ctx.defspecial("puthash", |ctx, args| {
         destruct_eval_bind!(ctx, (key value table) = args);
 
         let binding = table.as_any()?;

@@ -2,7 +2,7 @@ use crate::{Error, TulispContext, TulispObject, destruct_eval_bind};
 use std::time::Duration;
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    ctx.add_function("current-time", || {
+    ctx.defun("current-time", || {
         let usec_since_epoch = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -13,21 +13,21 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         ))
     });
 
-    ctx.add_function("time-less-p", |t1: TulispObject, t2: TulispObject| {
+    ctx.defun("time-less-p", |t1: TulispObject, t2: TulispObject| {
         time_operation(t1, t2, |a, b, _| (a < b).into())
     });
 
-    ctx.add_function("time-equal-p", |t1: TulispObject, t2: TulispObject| {
+    ctx.defun("time-equal-p", |t1: TulispObject, t2: TulispObject| {
         time_operation(t1, t2, |a, b, _| (a == b).into())
     });
 
-    ctx.add_function("time-subtract", |t1: TulispObject, t2: TulispObject| {
+    ctx.defun("time-subtract", |t1: TulispObject, t2: TulispObject| {
         time_operation(t1, t2, |a, b, hz| {
             TulispObject::cons((a - b).into(), hz.into())
         })
     });
 
-    ctx.add_function("time-add", |t1: TulispObject, t2: TulispObject| {
+    ctx.defun("time-add", |t1: TulispObject, t2: TulispObject| {
         time_operation(t1, t2, |a, b, hz| {
             TulispObject::cons((a + b).into(), hz.into())
         })
@@ -181,7 +181,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(output.into())
     }
 
-    ctx.add_special_form("format-seconds", |ctx, args| {
+    ctx.defspecial("format-seconds", |ctx, args| {
         destruct_eval_bind!(ctx, (format_string seconds) = args);
         format_seconds(format_string, seconds)
     });
