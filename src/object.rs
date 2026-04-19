@@ -122,6 +122,8 @@ impl TulispObject {
     #[allow(clippy::should_implement_trait)]
     pub fn eq(&self, other: &TulispObject) -> bool {
         self.eq_ptr(other)
+            || other.inner_ref().0.lex_symbol_eq(self)
+            || self.inner_ref().0.lex_symbol_eq(other)
     }
 
     /// Returns true if `self` and `other` are the same object, or are
