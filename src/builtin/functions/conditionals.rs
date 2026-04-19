@@ -9,7 +9,7 @@ use crate::{
 use std::borrow::Cow;
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    ctx.add_special_form("if", |ctx, args| {
+    ctx.defspecial("if", |ctx, args| {
         destruct_bind!((cond then &rest body) = args);
         if cond.eval_into(ctx)? {
             ctx.eval(&then)
@@ -18,12 +18,12 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         }
     });
 
-    ctx.add_macro("when", |ctx, args| {
+    ctx.defmacro("when", |ctx, args| {
         destruct_bind!((cond &rest body) = args);
         list!(,ctx.intern("if") ,cond ,TulispObject::cons(ctx.intern("progn"), body))
     });
 
-    ctx.add_macro("unless", |ctx, args| {
+    ctx.defmacro("unless", |ctx, args| {
         destruct_bind!((cond &rest body) = args);
 
         Ok(TulispObject::cons(
@@ -32,7 +32,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         ))
     });
 
-    ctx.add_special_form("cond", |ctx, args| {
+    ctx.defspecial("cond", |ctx, args| {
         for item in args.base_iter() {
             if item.car_and_then(|x| x.eval_into(ctx))? {
                 return item.cdr_and_then(|x| ctx.eval_progn(x));
@@ -42,7 +42,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     });
 
     // Constructs for combining conditions
-    ctx.add_special_form("not", |ctx, args| {
+    ctx.defspecial("not", |ctx, args| {
         if args.cdr_and_then(|x| Ok(!x.null()))? {
             return Err(Error::syntax_error(
                 "not: expected one argument".to_string(),
@@ -55,7 +55,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         })
     });
 
-    ctx.add_special_form("and", |ctx, args| {
+    ctx.defspecial("and", |ctx, args| {
         let mut ret = TulispObject::nil();
         for item in args.base_iter() {
             let result = eval_basic(ctx, &item)?;
@@ -70,7 +70,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(ret)
     });
 
-    ctx.add_special_form("or", |ctx, args| {
+    ctx.defspecial("or", |ctx, args| {
         for item in args.base_iter() {
             let result = eval_basic(ctx, &item)?;
             match result {
@@ -89,7 +89,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(TulispObject::nil())
     });
 
-    ctx.add_special_form("xor", |ctx, args| {
+    ctx.defspecial("xor", |ctx, args| {
         destruct_eval_bind!(ctx, (cond1 cond2) = args);
         if cond1.null() {
             Ok(cond2)
@@ -100,7 +100,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         }
     });
 
-    ctx.add_macro("if-let*", |ctx, args| {
+    ctx.defmacro("if-let*", |ctx, args| {
         destruct_bind!((varlist then &rest body) = args);
         if varlist.null() {
             return list!(,ctx.intern("let*") ,varlist ,then);
@@ -116,7 +116,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         )
     });
 
-    ctx.add_macro("if-let", |ctx, args| {
+    ctx.defmacro("if-let", |ctx, args| {
         destruct_bind!((spec then &rest body) = args);
         let spec = if length(&spec)? <= 2 && !spec.car()?.listp() {
             list!(,spec)?
@@ -131,7 +131,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         list!(,ctx.intern("if-let*") ,spec ,then ,macroexp_progn_on_body)
     });
 
-    ctx.add_macro("when-let", |ctx, args| {
+    ctx.defmacro("when-let", |ctx, args| {
         destruct_bind!((spec &rest body) = args);
         let macroexp_progn_on_body = if body.cdr()?.is_truthy() {
             list!(,ctx.intern("progn") ,@body)?
@@ -141,7 +141,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         list!(,ctx.intern("if-let") ,spec ,macroexp_progn_on_body)
     });
 
-    ctx.add_macro("while-let", |ctx, args| {
+    ctx.defmacro("while-let", |ctx, args| {
         destruct_bind!((spec &rest body) = args);
         list!(,ctx.intern("while")
               ,list!(

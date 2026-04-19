@@ -1,4 +1,4 @@
-mod add_function;
+mod callable;
 
 mod rest;
 pub use rest::Rest;
@@ -14,7 +14,7 @@ use std::{
 
 use crate::{
     builtin,
-    context::add_function::TulispCallable,
+    context::callable::TulispCallable,
     error::Error,
     eval::{eval_basic, funcall, DummyEval},
     list,
@@ -153,7 +153,7 @@ impl TulispContext {
 
     #[inline(always)]
     #[track_caller]
-    pub fn add_special_form(&mut self, name: &str, func: impl TulispFn + std::any::Any) {
+    pub fn defspecial(&mut self, name: &str, func: impl TulispFn + std::any::Any) {
         #[cfg(feature = "etags")]
         {
             let caller = std::panic::Location::caller();
@@ -171,7 +171,7 @@ impl TulispContext {
 
     #[inline(always)]
     #[track_caller]
-    pub fn add_function<
+    pub fn defun<
         Args: 'static,
         Output: 'static,
         const NEEDS_CONTEXT: bool,
@@ -202,7 +202,7 @@ impl TulispContext {
 
     #[inline(always)]
     #[track_caller]
-    pub fn add_macro(&mut self, name: &str, func: impl TulispFn) {
+    pub fn defmacro(&mut self, name: &str, func: impl TulispFn) {
         #[cfg(feature = "etags")]
         {
             let caller = std::panic::Location::caller();

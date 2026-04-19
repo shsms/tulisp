@@ -26,7 +26,7 @@ It is very easy to get started.  Here's an example:
       let mut ctx = TulispContext::new();
 
       // Add a function called `add_nums` to `ctx`.
-      ctx.add_function("add_round", |a: f64, b: f64| -> i64 {
+      ctx.defun("add_round", |a: f64, b: f64| -> i64 {
           (a + b).round() as i64
       });
 

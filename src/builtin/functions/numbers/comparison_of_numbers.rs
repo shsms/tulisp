@@ -38,33 +38,33 @@ fn recursive_compare<F: Fn(&Number, &Number) -> bool>(
 }
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    ctx.add_special_form(">", |ctx, args| {
+    ctx.defspecial(">", |ctx, args| {
         compare_impl(ctx, args, std::cmp::PartialOrd::gt)
     });
 
-    ctx.add_special_form(">=", |ctx, args| {
+    ctx.defspecial(">=", |ctx, args| {
         compare_impl(ctx, args, std::cmp::PartialOrd::ge)
     });
 
-    ctx.add_special_form("<", |ctx, args| {
+    ctx.defspecial("<", |ctx, args| {
         compare_impl(ctx, args, std::cmp::PartialOrd::lt)
     });
 
-    ctx.add_special_form("<=", |ctx, args| {
+    ctx.defspecial("<=", |ctx, args| {
         compare_impl(ctx, args, std::cmp::PartialOrd::le)
     });
 
     fn max(ctx: &mut TulispContext, rest: &TulispObject) -> Result<TulispObject, Error> {
         reduce_with(ctx, rest, |a, b| Ok(if a > b { a } else { b }))
     }
-    ctx.add_special_form("max", max);
+    ctx.defspecial("max", max);
 
     fn min(ctx: &mut TulispContext, rest: &TulispObject) -> Result<TulispObject, Error> {
         reduce_with(ctx, rest, |a, b| Ok(if a < b { a } else { b }))
     }
-    ctx.add_special_form("min", min);
+    ctx.defspecial("min", min);
 
-    ctx.add_special_form("abs", |ctx, args| {
+    ctx.defspecial("abs", |ctx, args| {
         destruct_eval_bind!(ctx, (number) = args);
 
         Ok(number.try_float()?.abs().into())

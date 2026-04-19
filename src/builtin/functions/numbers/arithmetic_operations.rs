@@ -7,7 +7,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     fn add(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
         reduce_with(ctx, args, |a, b| Ok(a + b))
     }
-    ctx.add_special_form("+", add);
+    ctx.defspecial("+", add);
 
     fn sub(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
         if let Some(cons) = args.as_list_cons() {
@@ -24,12 +24,12 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             ))
         }
     }
-    ctx.add_special_form("-", sub);
+    ctx.defspecial("-", sub);
 
     fn mul(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
         reduce_with(ctx, args, |a, b| Ok(a * b))
     }
-    ctx.add_special_form("*", mul);
+    ctx.defspecial("*", mul);
 
     fn div(ctx: &mut TulispContext, rest: &TulispObject) -> Result<TulispObject, Error> {
         reduce_with(ctx, rest, |a, b| {
@@ -40,9 +40,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             }
         })
     }
-    ctx.add_special_form("/", div);
+    ctx.defspecial("/", div);
 
-    ctx.add_function("1+", |a: Number| a + 1);
-    ctx.add_function("1-", |a: Number| a - 1);
-    ctx.add_function("mod", |a: Number, b: Number| a % b);
+    ctx.defun("1+", |a: Number| a + 1);
+    ctx.defun("1-", |a: Number| a - 1);
+    ctx.defun("mod", |a: Number, b: Number| a % b);
 }

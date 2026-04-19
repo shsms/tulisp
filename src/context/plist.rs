@@ -191,14 +191,14 @@ mod tests {
     fn test_plist() -> Result<(), Error> {
         let mut ctx = TulispContext::new();
 
-        ctx.add_function("get-name", |person: Plist<Person>| person.name.clone())
-            .add_function("get-age", |p: Plist<Person>| -> i64 { p.age })
-            .add_function("get-ans", |p: Plist<Person>| -> i64 { p.answer })
-            .add_function("get-place", |p: Plist<Person>| p.place.clone().unwrap())
-            .add_function("get-edu", |p: Plist<Person>| {
+        ctx.defun("get-name", |person: Plist<Person>| person.name.clone())
+            .defun("get-age", |p: Plist<Person>| -> i64 { p.age })
+            .defun("get-ans", |p: Plist<Person>| -> i64 { p.answer })
+            .defun("get-place", |p: Plist<Person>| p.place.clone().unwrap())
+            .defun("get-edu", |p: Plist<Person>| {
                 p.education.clone().unwrap_or("Unknown".to_string())
             })
-            .add_function("get-addr", |p: Plist<Person>| {
+            .defun("get-addr", |p: Plist<Person>| {
                 p.addr.last().unwrap().clone()
             });
 

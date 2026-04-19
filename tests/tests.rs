@@ -1106,7 +1106,7 @@ fn test_owned_method() -> Result<(), Error> {
 
     let mut ctx = TulispContext::new();
 
-    ctx.add_special_form("d.run", move |_, _| Ok(d.run().into()));
+    ctx.defspecial("d.run", move |_, _| Ok(d.run().into()));
 
     tulisp_assert! {
         ctx: ctx,
@@ -1128,7 +1128,7 @@ fn test_from_iter() -> Result<(), Error> {
 fn test_typed_iter() -> Result<(), Error> {
     let mut ctx = TulispContext::new();
 
-    ctx.add_special_form("add_ints", |_ctx, args| {
+    ctx.defspecial("add_ints", |_ctx, args| {
         destruct_eval_bind!(_ctx, (ints) = args);
 
         let ints: Iter<i64> = ints.iter()?;
@@ -1187,11 +1187,11 @@ fn test_any() -> Result<(), Error> {
 
     let mut ctx = TulispContext::new();
 
-    ctx.add_function("make_any", |value: i64| TestStruct { value });
+    ctx.defun("make_any", |value: i64| TestStruct { value });
 
-    ctx.add_function("get_int", |value: TestStruct| value.value);
+    ctx.defun("get_int", |value: TestStruct| value.value);
 
-    ctx.add_function("maybe_add", |value: i64, maybe_num: TulispObject| {
+    ctx.defun("maybe_add", |value: i64, maybe_num: TulispObject| {
         if maybe_num.null() {
             return Ok(value);
         }

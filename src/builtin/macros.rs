@@ -55,9 +55,9 @@ fn quote(_ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, 
 }
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    ctx.add_macro("->", thread_first);
-    ctx.add_macro("thread-first", thread_first);
-    ctx.add_macro("->>", thread_last);
-    ctx.add_macro("thread-last", thread_last);
-    ctx.add_macro("quote", quote);
+    ctx.defmacro("->", thread_first);
+    ctx.defmacro("thread-first", thread_first);
+    ctx.defmacro("->>", thread_last);
+    ctx.defmacro("thread-last", thread_last);
+    ctx.defmacro("quote", quote);
 }
