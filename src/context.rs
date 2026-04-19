@@ -13,14 +13,13 @@ use std::{
 };
 
 use crate::{
-    builtin,
+    TulispObject, TulispValue, builtin,
     context::callable::TulispCallable,
     error::Error,
-    eval::{eval_basic, funcall, DummyEval},
+    eval::{DummyEval, eval_basic, funcall},
     list,
-    object::wrappers::{generic::Shared, TulispFn},
+    object::wrappers::{TulispFn, generic::Shared},
     parse::parse,
-    TulispObject, TulispValue,
 };
 
 #[derive(Debug, Default, Clone)]
@@ -151,6 +150,38 @@ impl TulispContext {
         Ok(ret)
     }
 
+    /// Registers a low-level Rust function as a Lisp special form.
+    ///
+    /// The function receives unevaluated arguments as a raw [`TulispObject`]
+    /// list and is responsible for evaluating them itself.  This gives full
+    /// control over evaluation order and is how built-in forms like `if`,
+    /// `let`, and `and` are implemented internally.
+    ///
+    /// For most use cases, prefer [`defun`](Self::defun), which handles
+    /// argument evaluation and type conversion automatically.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use tulisp::{TulispContext, TulispObject, Error, destruct_bind};
+    ///
+    /// let mut ctx = TulispContext::new();
+    /// ctx.defspecial("my-if", |ctx, args| {
+    ///     destruct_bind!((cond then &rest else_body) = args);
+    ///     if ctx.eval(&cond)?.is_truthy() {
+    ///         ctx.eval(&then)
+    ///     } else {
+    ///         ctx.eval_progn(&else_body)
+    ///     }
+    /// });
+    ///
+    /// assert!(
+    ///     ctx
+    ///         .eval_string("(my-if t 1 2)")
+    ///         .unwrap()
+    ///         .equal(&TulispObject::from(1))
+    /// );
+    /// ```
     #[inline(always)]
     #[track_caller]
     pub fn defspecial(&mut self, name: &str, func: impl TulispFn + std::any::Any) {
@@ -169,6 +200,61 @@ impl TulispContext {
             .unwrap();
     }
 
+    /// Registers a Rust function as a callable Lisp function.
+    ///
+    /// This is the primary way to expose Rust logic to Lisp code. Argument
+    /// evaluation, arity checking, and type conversion are all handled
+    /// automatically based on the function's signature.
+    ///
+    /// Returns `&mut Self` so calls can be chained.
+    ///
+    /// # Argument types
+    ///
+    /// Each parameter type must implement [`TulispConvertible`](crate::TulispConvertible).  The built-in
+    /// implementations cover `i64`, `f64`, `bool`, `String`, [`Number`](crate::Number),
+    /// `Vec<T>`, and [`TulispObject`].
+    ///
+    /// | Signature pattern                        | Behaviour                                      |
+    /// |------------------------------------------|------------------------------------------------|
+    /// | `(T, U, ...) -> R`                       | fixed required arguments                       |
+    /// | `(..., Option<T>, Option<U>, ...) -> R`  | trailing optional arguments (Lisp `&optional`) |
+    /// | `(..., `[`Rest<T>`](Rest)`) -> R`        | trailing variadic arguments (Lisp `&rest`)     |
+    /// | `(&mut TulispContext, T, ...) -> R`      | access to the interpreter                      |
+    /// | `(...) -> Result<R, `[`Error`](Error)`>` | fallible function                              |
+    /// | `(`[`Plist<T>`](Plist)`) -> R`           | entire argument list as a typed plist          |
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use tulisp::{TulispContext, Rest};
+    ///
+    /// let mut ctx = TulispContext::new();
+    ///
+    /// // Fixed arguments
+    /// ctx.defun("add", |a: i64, b: i64| a + b);
+    ///
+    /// // Optional argument
+    /// ctx.defun("greet", |name: String, greeting: Option<String>| {
+    ///     format!("{}, {}!", greeting.unwrap_or("Hello".into()), name)
+    /// });
+    ///
+    /// // Variadic (rest) arguments
+    /// ctx.defun("sum", |items: Rest<f64>| -> f64 { items.into_iter().sum() });
+    ///
+    /// // Access to the interpreter context
+    /// ctx.defun("eval-expr", |ctx: &mut TulispContext, expr: tulisp::TulispObject| {
+    ///     Ok(format!("Result of {} is {}.", expr, ctx.eval(&expr)?))
+    /// });
+    ///
+    /// assert_eq!(ctx.eval_string("(add 3 4)").unwrap().to_string(), "7");
+    /// assert_eq!(ctx.eval_string("(sum 1.0 2.0 3.0)").unwrap().to_string(), "6");
+    /// assert_eq!(ctx.eval_string(r#"(greet "Sam")"#).unwrap().to_string(), r#""Hello, Sam!""#);
+    /// assert_eq!(ctx.eval_string(r#"(greet "Sam" "Hi")"#).unwrap().to_string(), r#""Hi, Sam!""#);
+    /// assert_eq!(
+    ///     ctx.eval_string("(eval-expr '(add 10 20))").unwrap().to_string(),
+    ///     r#""Result of (add 10 20) is 30.""#
+    /// );
+    /// ```
     #[inline(always)]
     #[track_caller]
     pub fn defun<
@@ -185,21 +271,52 @@ impl TulispContext {
         &mut self,
         name: &str,
         func: impl TulispCallable<
-                Args,
-                Output,
-                NEEDS_CONTEXT,
-                NUM_ARGS,
-                NUM_OPTIONAL,
-                HAS_PLIST,
-                HAS_REST,
-                HAS_RETURN,
-                FALLIBLE,
-            > + 'static,
+            Args,
+            Output,
+            NEEDS_CONTEXT,
+            NUM_ARGS,
+            NUM_OPTIONAL,
+            HAS_PLIST,
+            HAS_REST,
+            HAS_RETURN,
+            FALLIBLE,
+        > + 'static,
     ) -> &mut Self {
         func.add_to_context(self, name);
         self
     }
 
+    /// Registers a Rust function as a Lisp macro.
+    ///
+    /// A macro receives its arguments unevaluated and returns a
+    /// [`TulispObject`] that is then evaluated in the caller's environment —
+    /// the same semantics as a Lisp `defmacro`.
+    ///
+    /// For functions that should evaluate their arguments normally, use
+    /// [`defun`](Self::defun) instead.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use tulisp::{TulispContext, TulispObject, Error, destruct_bind, list};
+    ///
+    /// let mut ctx = TulispContext::new();
+    /// // Implement `(my-when cond body...)` as a macro
+    /// ctx.defmacro("push", |ctx, args| {
+    ///     destruct_bind!((newelt place) = args);
+    ///
+    ///     list!(
+    ///         ,ctx.intern("setq")
+    ///         ,place.clone()
+    ///         ,list!(,ctx.intern("cons"), newelt, place)?
+    ///     )
+    /// });
+    ///
+    /// assert_eq!(
+    ///     ctx.eval_string("(macroexpand '(push 1 my-list))").unwrap().to_string(),
+    ///     "(setq my-list (cons 1 my-list))"
+    /// );
+    /// ```
     #[inline(always)]
     #[track_caller]
     pub fn defmacro(&mut self, name: &str, func: impl TulispFn) {

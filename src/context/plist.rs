@@ -2,6 +2,37 @@ use std::ops::Deref;
 
 use crate::{Error, TulispContext, TulispObject};
 
+/// A typed wrapper around a Lisp plist, for use as a [`defun`](crate::TulispContext::defun) argument.
+///
+/// When `Plist<T>` appears as a parameter type, the function receives the
+/// caller's entire argument list as a plist and deserializes it into `T`.
+///
+/// `T` must implement [`Plistable`], which is most easily done via the
+/// [`AsPlist!`](macro@crate::AsPlist) macro.
+///
+/// `Plist<T>` implements [`Deref<Target = T>`], so fields of the inner struct
+/// can be accessed directly.
+///
+/// # Example
+///
+/// ```rust
+/// use tulisp::{TulispContext, Plist, Plistable, AsPlist};
+///
+/// AsPlist! {
+///     struct Point { x: i64, y: i64 }
+/// }
+///
+/// let mut ctx = TulispContext::new();
+///
+/// ctx.defun("distance", |p: Plist<Point>| -> f64 {
+///     ((p.x * p.x + p.y * p.y) as f64).sqrt()
+/// });
+///
+/// assert_eq!(
+///     ctx.eval_string("(distance :x 3 :y 4)").unwrap().as_number().unwrap(),
+///     5.0
+/// );
+/// ```
 pub struct Plist<T: Plistable> {
     plist: T,
 }
@@ -32,14 +63,81 @@ where
     }
 }
 
+/// Conversion between a Rust struct and a Lisp plist.
+///
+/// Implement this trait to use a struct as the argument type of a
+/// [`defun`](crate::TulispContext::defun)-registered function via [`Plist<T>`].
+///
+/// The [`AsPlist!`](macro@crate::AsPlist) macro generates this implementation
+/// automatically from a struct definition.
 pub trait Plistable {
+    /// Deserialize `obj` (a Lisp plist) into `Self`.
     fn from_plist(ctx: &mut TulispContext, obj: &TulispObject) -> Result<Self, Error>
     where
         Self: Sized;
 
+    /// Serialize `self` into a Lisp plist.
     fn into_plist(self, ctx: &mut TulispContext) -> TulispObject;
 }
 
+/// Derive [`Plistable`] for a struct, enabling it to be used as a [`Plist<T>`]
+/// argument in [`defun`](crate::TulispContext::defun)-registered functions.
+///
+/// # Syntax
+///
+/// ```text
+/// AsPlist! {
+///     [attributes]
+///     [pub] struct Name {
+///         [field_vis] field[<":key-name">]: Type [{= default}],
+///         ...
+///     }
+/// }
+/// ```
+///
+/// - Each field maps to a plist keyword.  By default the keyword is
+///   `":fieldname"`.  Use `field<":custom-key">` to override.
+/// - A field with `{= expr}` is optional; if absent from the plist the
+///   default expression is used.
+/// - A field without a default is required; a missing key is an error.
+///
+/// # Example
+///
+/// ```rust
+/// use tulisp::{TulispContext, Plist, AsPlist};
+///
+/// AsPlist! {
+///     struct Config {
+///         host: String,
+///         port<":port-number">: i64 {= 8080},
+///         scheme: Option<String> {= None},
+///     }
+/// }
+///
+/// let mut ctx = TulispContext::new();
+/// ctx.defun("make-server", |cfg: Plist<Config>| -> String {
+///     format!(
+///         "{}://{}:{}",
+///         cfg.scheme.clone().unwrap_or_else(||"http".to_string()),
+///         cfg.host,
+///         cfg.port
+///     )
+/// });
+///
+/// assert_eq!(
+///    ctx.eval_string(r#"(make-server :host "localhost")"#).unwrap().as_string().unwrap(),
+///    "http://localhost:8080"
+/// );
+/// assert_eq!(
+///    ctx.eval_string(r#"(make-server :host "example.com" :port-number 443)"#).unwrap().as_string().unwrap(),
+///    "http://example.com:443"
+/// );
+///
+/// assert_eq!(
+///    ctx.eval_string(r#"(make-server :host "localhost" :scheme "https")"#).unwrap().as_string().unwrap(),
+///    "https://localhost:8080"
+/// );
+/// ```
 #[macro_export]
 macro_rules! AsPlist {
     (@key-name
@@ -158,9 +256,9 @@ macro_rules! AsPlist {
 #[cfg(test)]
 mod tests {
     use crate::{
+        Error, Plist,
         context::TulispContext,
         test_utils::{eval_assert_equal, eval_assert_error},
-        Error, Plist,
     };
 
     AsPlist! {

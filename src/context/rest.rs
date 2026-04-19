@@ -1,5 +1,20 @@
 use crate::{cons, TulispConvertible, TulispObject};
 
+/// A variadic tail argument in a [`defun`](crate::TulispContext::defun) function.
+///
+/// Use `Rest<T>` as the last parameter of a function registered with
+/// [`defun`](crate::TulispContext::defun) to accept zero or more trailing arguments,
+/// all converted to `T`.  This mirrors Emacs Lisp's `&rest` parameter.
+///
+/// # Example
+///
+/// ```rust
+/// use tulisp::{TulispContext, Rest};
+///
+/// let mut ctx = TulispContext::new();
+/// ctx.defun("sum", |items: Rest<f64>| -> f64 { items.into_iter().sum() });
+/// assert_eq!(ctx.eval_string("(sum 1.0 2.0 3.0)").unwrap().to_string(), "6");
+/// ```
 pub struct Rest<T> {
     values: RestEnum<T>,
 }
@@ -39,6 +54,7 @@ where
     }
 }
 
+/// Iterator returned by [`Rest::into_iter`].
 pub enum RestEnumIter<T> {
     Typed(std::vec::IntoIter<T>),
     Boxed(cons::BaseIter, std::marker::PhantomData<T>),
