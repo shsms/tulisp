@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Write, iter::Peekable, str::Chars};
+use std::{collections::HashMap, iter::Peekable, str::Chars};
 
 use crate::{
     Error, Number, TulispContext, TulispObject, TulispValue, eval::macroexpand, object::Span,
@@ -79,7 +79,7 @@ impl Tokenizer<'_> {
     }
 
     fn read_string(&mut self) -> Option<Token> {
-        assert_eq!(self.next_char()?, '"');
+        self.next_char()?; // consume the opening '"'
         let start_pos = (self.line, self.pos + 1);
         let mut output = String::new();
         while let Some(ch) = self.next_char() {
@@ -102,7 +102,7 @@ impl Tokenizer<'_> {
                             )));
                         }
                     };
-                    output.write_char(out_ch).unwrap();
+                    output.push(out_ch);
                 }
                 '"' => {
                     return Some(Token::String {
@@ -114,7 +114,7 @@ impl Tokenizer<'_> {
                         value: output,
                     });
                 }
-                ch => output.write_char(ch).unwrap(),
+                ch => output.push(ch),
             }
         }
 
@@ -130,10 +130,17 @@ impl Tokenizer<'_> {
 
     fn read_num_ident(&mut self) -> Option<Token> {
         let start_pos = (self.line, self.pos + 1);
-        let mut output = String::new();
-        let mut first_char = true;
-        let mut is_int = true;
-        let mut is_float = false;
+        self.read_num_ident_impl(start_pos, String::new(), true, false)
+    }
+
+    fn read_num_ident_impl(
+        &mut self,
+        start_pos: (usize, usize),
+        mut output: String,
+        mut is_int: bool,
+        mut is_float: bool,
+    ) -> Option<Token> {
+        let mut first_char = output.is_empty();
 
         while let Some(ch) = self.peek_char() {
             match ch {
@@ -145,9 +152,10 @@ impl Tokenizer<'_> {
                         is_int = false;
                         is_float = false;
                     }
-                    output.write_char(ch).unwrap();
+                    output.push(ch);
                 }
-                '0'..='9' => output.write_char(ch).unwrap(),
+                '0'..='9' => output.push(ch),
+                '_' if is_int || is_float => {}
                 '.' => {
                     if is_int && !is_float {
                         is_int = false;
@@ -155,27 +163,35 @@ impl Tokenizer<'_> {
                     } else if is_float {
                         is_float = false;
                     }
-                    output.write_char(ch).unwrap()
+                    output.push(ch)
                 }
                 ch => {
                     is_int = false;
                     is_float = false;
-                    output.write_char(ch).unwrap();
+                    output.push(ch);
                 }
             }
             self.next_char()?;
             first_char = false;
         }
         if is_int && output != "-" {
-            Some(Token::Integer {
-                span: Span::new(self.file_id, start_pos, (self.line, self.pos)),
-                value: output.parse::<i64>().unwrap(),
-            })
+            let span = Span::new(self.file_id, start_pos, (self.line, self.pos));
+            match output.parse::<i64>() {
+                Ok(value) => Some(Token::Integer { span, value }),
+                Err(e) => Some(Token::ParserError(ParserError::syntax_error(
+                    format!("{e}: {output}"),
+                    span,
+                ))),
+            }
         } else if is_float {
-            Some(Token::Float {
-                span: Span::new(self.file_id, start_pos, (self.line, self.pos)),
-                value: output.parse::<f64>().unwrap(),
-            })
+            let span = Span::new(self.file_id, start_pos, (self.line, self.pos));
+            match output.parse::<f64>() {
+                Ok(value) => Some(Token::Float { span, value }),
+                Err(e) => Some(Token::ParserError(ParserError::syntax_error(
+                    format!("{e}: {output}"),
+                    span,
+                ))),
+            }
         } else {
             Some(Token::Ident {
                 span: Span::new(self.file_id, start_pos, (self.line, self.pos)),
@@ -226,7 +242,16 @@ impl Iterator for Tokenizer<'_> {
                     });
                 }
                 '.' => {
+                    let start_pos = (self.line, self.pos + 1);
                     self.next_char()?;
+                    if matches!(self.peek_char(), Some('0'..='9')) {
+                        return self.read_num_ident_impl(
+                            start_pos,
+                            String::from("."),
+                            false,
+                            true,
+                        );
+                    }
                     return Some(Token::Dot {
                         span: Span::new(self.file_id, (self.line, self.pos), (self.line, self.pos)),
                     });
