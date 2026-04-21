@@ -169,18 +169,47 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         let mut args = rest.base_iter();
         let mut output = String::new();
         let in_string = input.as_string().map_err(|e| e.with_trace(input.clone()))?;
-        let mut in_chars = in_string.chars();
+        let mut in_chars = in_string.chars().peekable();
+        // Supports `%[-][0]WIDTHTYPE` where TYPE is one of `s S d f`, plus
+        // `%%` for a literal percent. The `-` flag left-aligns and the `0`
+        // flag pads numerics with zeros. See the Emacs manual for the full
+        // format-spec grammar:
+        // https://www.gnu.org/software/emacs/manual/html_node/elisp/Formatting-Strings.html
         while let Some(ch) = in_chars.next() {
             if ch != '%' {
                 output.push(ch);
                 continue;
             }
-            let ch = match in_chars.next() {
-                Some(vv) => vv,
-                None => break,
+            let mut left_align = false;
+            let mut zero_pad = false;
+            let mut width: usize = 0;
+            loop {
+                match in_chars.peek() {
+                    Some('-') => {
+                        left_align = true;
+                        in_chars.next();
+                    }
+                    Some('0') if width == 0 => {
+                        zero_pad = true;
+                        in_chars.next();
+                    }
+                    Some(c) if c.is_ascii_digit() => {
+                        width = width * 10 + (*c as usize - '0' as usize);
+                        in_chars.next();
+                    }
+                    _ => break,
+                }
+            }
+            let type_char = match in_chars.next() {
+                Some(c) => c,
+                None => {
+                    return Err(Error::syntax_error(
+                        "format: unterminated % spec".to_string(),
+                    ));
+                }
             };
-            if ch == '%' {
-                output.push(ch);
+            if type_char == '%' {
+                output.push('%');
                 continue;
             }
             let Some(next_arg) = args.next() else {
@@ -188,19 +217,35 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                     "format has missing args".to_string(),
                 ));
             };
-            // TODO: improve format-spec coverage:
-            // https://www.gnu.org/software/emacs/manual/html_node/elisp/Formatting-Strings.html
-            match ch {
-                's' => output.push_str(&next_arg.fmt_string()),
-                'S' => output.push_str(&next_arg.to_string()),
-                'd' => output.push_str(&next_arg.try_int()?.to_string()),
-                'f' => output.push_str(&next_arg.try_float()?.to_string()),
+            let formatted = match type_char {
+                's' => next_arg.fmt_string(),
+                'S' => next_arg.to_string(),
+                'd' => next_arg.try_int()?.to_string(),
+                'f' => next_arg.try_float()?.to_string(),
                 _ => {
                     return Err(Error::syntax_error(format!(
                         "Invalid format operation: %{}",
-                        ch
+                        type_char
                     )));
                 }
+            };
+            let len = formatted.chars().count();
+            if width > len {
+                let pad_char = if zero_pad && !left_align && matches!(type_char, 'd' | 'f') {
+                    '0'
+                } else {
+                    ' '
+                };
+                let pad = pad_char.to_string().repeat(width - len);
+                if left_align {
+                    output.push_str(&formatted);
+                    output.push_str(&pad);
+                } else {
+                    output.push_str(&pad);
+                    output.push_str(&formatted);
+                }
+            } else {
+                output.push_str(&formatted);
             }
         }
         Ok(TulispObject::from(output).with_span(input.span()))
