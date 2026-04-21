@@ -38,6 +38,10 @@ fn recursive_compare<F: Fn(&Number, &Number) -> bool>(
 }
 
 pub(crate) fn add(ctx: &mut TulispContext) {
+    ctx.defspecial("=", |ctx, args| {
+        compare_impl(ctx, args, std::cmp::PartialEq::eq)
+    });
+
     ctx.defspecial(">", |ctx, args| {
         compare_impl(ctx, args, std::cmp::PartialOrd::gt)
     });
@@ -74,6 +78,18 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 #[cfg(test)]
 mod tests {
     use crate::{TulispContext, test_utils::eval_assert_equal};
+
+    #[test]
+    fn test_numeric_equal() {
+        let ctx = &mut TulispContext::new();
+
+        eval_assert_equal(ctx, "(= 1 1)", "t");
+        eval_assert_equal(ctx, "(= 1 2)", "nil");
+        eval_assert_equal(ctx, "(= 1.0 1)", "t");
+        eval_assert_equal(ctx, "(= 1 1 1)", "t");
+        eval_assert_equal(ctx, "(= 1 1 2)", "nil");
+        eval_assert_equal(ctx, "(= -3 -3.0)", "t");
+    }
 
     #[test]
     fn test_abs() {

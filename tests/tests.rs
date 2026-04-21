@@ -490,6 +490,35 @@ fn test_strings() -> Result<(), Error> {
         result: r#""Hello, world! %22 22.8 10 10""#
     }
 
+    // Width: right-aligned by default, left-aligned with `-`.
+    tulisp_assert! {
+        program: r#"(format "[%10s]" "hi")"#,
+        result: r#""[        hi]""#
+    }
+    tulisp_assert! {
+        program: r#"(format "[%-10s]" "hi")"#,
+        result: r#""[hi        ]""#
+    }
+    // Zero-pad for numerics.
+    tulisp_assert! {
+        program: r#"(format "%05d" 42)"#,
+        result: r#""00042""#
+    }
+    // Shorter than width stays as-is (no truncation).
+    tulisp_assert! {
+        program: r#"(format "[%3s]" "hello")"#,
+        result: r#""[hello]""#
+    }
+    // Width applies to %d too.
+    tulisp_assert! {
+        program: r#"(format "[%5d]" 7)"#,
+        result: r#""[    7]""#
+    }
+    tulisp_assert! {
+        program: r#"(format "[%-5d]" 7)"#,
+        result: r#""[7    ]""#
+    }
+
     tulisp_assert! { program: "(prin1-to-string 'hello)", result: r#""hello""# }
     tulisp_assert! { program: "(prin1-to-string #'hello)", result: r#""hello""# }
     tulisp_assert! { program: "(prin1-to-string 25)", result: r#""25""# }
@@ -914,6 +943,31 @@ fn test_setq() -> Result<(), Error> {
         result: "400",
     }
 
+    Ok(())
+}
+
+#[test]
+fn test_defvar() -> Result<(), Error> {
+    // Sets when unbound.
+    tulisp_assert! {
+        program: "(defvar foo-new 42) foo-new",
+        result: "42",
+    }
+    // Leaves an already-bound value alone.
+    tulisp_assert! {
+        program: "(setq foo-existing 1) (defvar foo-existing 99) foo-existing",
+        result: "1",
+    }
+    // Accepts an optional docstring.
+    tulisp_assert! {
+        program: r#"(defvar foo-doc 7 "docs") foo-doc"#,
+        result: "7",
+    }
+    // Returns the symbol.
+    tulisp_assert! {
+        program: "(defvar foo-sym 1)",
+        result: "'foo-sym",
+    }
     Ok(())
 }
 
@@ -1458,6 +1512,22 @@ mod etags_tests {
         assert_tag_entry(&tags, "func-a");
         assert_tag_entry(&tags, "func-b");
         assert_tag_entry(&tags, "macro-c");
+        Ok(())
+    }
+
+    #[test]
+    fn test_etags_defvar_tracking() -> Result<(), tulisp::Error> {
+        let (path, _cleanup) = write_temp_file(
+            "defvar_test.el",
+            r#"(defvar my-test-var 42)
+(defvar my-test-var-with-doc 7 "docs")
+"#,
+        );
+        let mut ctx = TulispContext::new();
+        let path_str = path.to_str().unwrap();
+        let tags = ctx.tags_table(Some(&[path_str]))?;
+        assert_tag_entry(&tags, "my-test-var");
+        assert_tag_entry(&tags, "my-test-var-with-doc");
         Ok(())
     }
 
