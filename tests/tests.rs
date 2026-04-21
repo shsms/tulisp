@@ -817,6 +817,28 @@ fn test_rounding_operations() -> Result<(), Error> {
     tulisp_assert! { program: "(ftruncate -3.8)",          result: "-3.0"  }
     tulisp_assert! { program: "(ftruncate -3.14)",         result: "-3.0"  }
 
+    tulisp_assert! { program: "(floor 3.7)",    result: "3"   }
+    tulisp_assert! { program: "(floor -3.2)",   result: "-4"  }
+    tulisp_assert! { program: "(floor 7 2)",    result: "3"   }
+    tulisp_assert! { program: "(floor 5)",      result: "5"   }
+
+    tulisp_assert! { program: "(ceiling 3.2)",  result: "4"   }
+    tulisp_assert! { program: "(ceiling -3.7)", result: "-3"  }
+    tulisp_assert! { program: "(ceiling 7 2)",  result: "4"   }
+
+    tulisp_assert! { program: "(truncate 3.7)", result: "3"   }
+    tulisp_assert! { program: "(truncate -3.7)",result: "-3"  }
+
+    tulisp_assert! { program: "(round 3.4)",    result: "3"   }
+    tulisp_assert! { program: "(round 3.6)",    result: "4"   }
+    // Round half to even.
+    tulisp_assert! { program: "(round 2.5)",    result: "2"   }
+    tulisp_assert! { program: "(round 3.5)",    result: "4"   }
+    tulisp_assert! { program: "(round -2.5)",   result: "-2"  }
+
+    tulisp_assert! { program: "(ffloor 3.7)",   result: "3.0" }
+    tulisp_assert! { program: "(fceiling 3.2)", result: "4.0" }
+
     tulisp_assert! {
         program: "(fround)",
         error: r#"ERR MissingArgument: Too few arguments
