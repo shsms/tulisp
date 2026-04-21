@@ -4,10 +4,15 @@ use crate::{
     list,
 };
 
-/// Returns the number of elements in the given list.
+/// Returns the number of elements in the given list, or the number of
+/// characters if the argument is a string.
 pub fn length(list: &TulispObject) -> Result<i64, Error> {
-    list.base_iter()
-        .count()
+    let count = if list.stringp() {
+        list.as_string()?.chars().count()
+    } else {
+        list.base_iter().count()
+    };
+    count
         .try_into()
         .map_err(|e: _| Error::out_of_range(format!("{}", e)))
 }
