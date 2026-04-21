@@ -45,7 +45,7 @@ Click [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Compariso
 | `<`   | ☑️      |         |
 | `>=`  | ☑️      |         |
 | `<=`  | ☑️      |         |
-| `=`   | 🔳     |         |
+| `=`   | ☑️      |         |
 | `eql` | ☑️     |         |
 | `/=`  | 🔳     |         |
 | `max` | ☑️      |         |
@@ -114,15 +114,22 @@ Because there are a huge number of sequence functions that are not yet implement
 
 | Name         | Status | Details |
 |--------------|--------|---------|
-| `length`     | ☑️      |         |
+| `length`     | ☑️      | works on lists and strings |
+| `make-string`| ☑️      | takes (N CHAR), where CHAR is an integer |
+| `reverse`    | ☑️      |         |
 | `sort`       | ☑️      |         |
+| `mapconcat`  | ☑️      |         |
+| `string-join`| ☑️      |         |
 | `seq-map`    | ☑️      |         |
 | `seq-filter` | ☑️      |         |
 | `seq-reduce` | ☑️      |         |
 | `seq-find`   | ☑️      |         |
-| `seq-drop`  | 🔳     |         |
-| `seq-take`  | 🔳     |         |
-| `seq-uniq`  | 🔳     |         |
+| `seq-drop`   | ☑️      |         |
+| `seq-take`   | ☑️      |         |
+| `memq`       | ☑️      |         |
+| `memql`      | ☑️      |         |
+| `member`     | ☑️      |         |
+| `seq-uniq`   | 🔳     |         |
 | `seq-some`  | 🔳     |         |
 | `seq-every-p` | 🔳     |         |
 | `seq-contains-p` | 🔳     |         |
@@ -192,6 +199,7 @@ These functions need to be organized into categories.  They are grouped here for
 | [`progn`](https://www.gnu.org/software/emacs/manual/html_node/eintr/progn.html)                         | ☑️      |                                                   |
 | `defun`                                                                                                 | ☑️      |                                                   |
 | `defmacro`                                                                                              | ☑️      |                                                   |
+| `defvar`                                                                                                | ☑️      | sets only when unbound; preserves value on reload |
 | `lambda`                                                                                                | ☑️      |                                                   |
 | `quote`                                                                                                 | ☑️      |                                                   |
 | `null`                                                                                                  | ☑️      |                                                   |
