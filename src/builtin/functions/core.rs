@@ -686,4 +686,18 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         // no-op
         Ok(TulispObject::nil())
     });
+
+    ctx.defspecial("defvar", |ctx, args| {
+        destruct_bind!((name &optional initval _docstring) = args);
+        if !name.symbolp() {
+            return Err(Error::type_mismatch(
+                "defvar: first argument must be a symbol".to_string(),
+            ));
+        }
+        if !name.boundp() {
+            let val = ctx.eval(&initval)?;
+            name.set(val)?;
+        }
+        Ok(name)
+    });
 }

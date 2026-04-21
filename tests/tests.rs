@@ -947,6 +947,31 @@ fn test_setq() -> Result<(), Error> {
 }
 
 #[test]
+fn test_defvar() -> Result<(), Error> {
+    // Sets when unbound.
+    tulisp_assert! {
+        program: "(defvar foo-new 42) foo-new",
+        result: "42",
+    }
+    // Leaves an already-bound value alone.
+    tulisp_assert! {
+        program: "(setq foo-existing 1) (defvar foo-existing 99) foo-existing",
+        result: "1",
+    }
+    // Accepts an optional docstring.
+    tulisp_assert! {
+        program: r#"(defvar foo-doc 7 "docs") foo-doc"#,
+        result: "7",
+    }
+    // Returns the symbol.
+    tulisp_assert! {
+        program: "(defvar foo-sym 1)",
+        result: "'foo-sym",
+    }
+    Ok(())
+}
+
+#[test]
 fn test_while() -> Result<(), Error> {
     tulisp_assert! {
         program: "(let ((vv 0)) (while (< vv 42) (setq vv (+ 1 vv))) vv)",
@@ -1487,6 +1512,22 @@ mod etags_tests {
         assert_tag_entry(&tags, "func-a");
         assert_tag_entry(&tags, "func-b");
         assert_tag_entry(&tags, "macro-c");
+        Ok(())
+    }
+
+    #[test]
+    fn test_etags_defvar_tracking() -> Result<(), tulisp::Error> {
+        let (path, _cleanup) = write_temp_file(
+            "defvar_test.el",
+            r#"(defvar my-test-var 42)
+(defvar my-test-var-with-doc 7 "docs")
+"#,
+        );
+        let mut ctx = TulispContext::new();
+        let path_str = path.to_str().unwrap();
+        let tags = ctx.tags_table(Some(&[path_str]))?;
+        assert_tag_entry(&tags, "my-test-var");
+        assert_tag_entry(&tags, "my-test-var-with-doc");
         Ok(())
     }
 

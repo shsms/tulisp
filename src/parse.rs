@@ -405,7 +405,9 @@ impl Parser<'_, '_> {
             );
         }
 
-        if let Ok("defun" | "defmacro") = inner.car()?.as_symbol().as_ref().map(|x| x.as_str()) {
+        if let Ok("defun" | "defmacro" | "defvar") =
+            inner.car()?.as_symbol().as_ref().map(|x| x.as_str())
+        {
             #[cfg(feature = "etags")]
             {
                 let name = inner.cadr()?.as_symbol()?.clone();
