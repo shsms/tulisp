@@ -225,6 +225,12 @@ These functions need to be organized into categories.  They are grouped here for
 | `intern`                                                                                                | ☑️      | no optional obarray param, always uses default.   |
 | `make-symbol`                                                                                           | ☑️      |                                                   |
 | `gensym`                                                                                                | ☑️      |                                                   |
+| `floor`                                                                                                 | ☑️      | takes optional divisor                            |
+| `ceiling`                                                                                               | ☑️      | takes optional divisor                            |
+| `truncate`                                                                                              | ☑️      | takes optional divisor                            |
+| `round`                                                                                                 | ☑️      | banker's rounding, takes optional divisor         |
+| `ffloor`                                                                                                | ☑️      |                                                   |
+| `fceiling`                                                                                              | ☑️      |                                                   |
 | `fround`                                                                                                | ☑️      |                                                   |
 | `ftruncate`                                                                                             | ☑️      |                                                   |
 
