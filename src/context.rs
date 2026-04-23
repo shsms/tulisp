@@ -22,26 +22,6 @@ use crate::{
     parse::parse,
 };
 
-#[derive(Debug, Default, Clone)]
-pub(crate) struct Scope {
-    pub scope: Vec<TulispObject>,
-}
-
-impl Scope {
-    pub fn set(&mut self, symbol: TulispObject, value: TulispObject) -> Result<(), Error> {
-        symbol.set_scope(value)?;
-        self.scope.push(symbol);
-        Ok(())
-    }
-
-    pub fn remove_all(&self) -> Result<(), Error> {
-        for item in &self.scope {
-            item.unset()?;
-        }
-        Ok(())
-    }
-}
-
 /// Represents an instance of the _Tulisp_ interpreter.
 ///
 /// Owns the
@@ -479,6 +459,12 @@ impl TulispContext {
     }
 
     pub(crate) fn get_filename(&self, file_id: usize) -> String {
-        self.filenames[file_id].clone()
+        // Spans can cross context boundaries (e.g. a lambda parsed in the
+        // parent, funcalled from a child async context that has its own
+        // `filenames`). An unknown file id is not a bug; fall back gracefully.
+        self.filenames
+            .get(file_id)
+            .cloned()
+            .unwrap_or_else(|| "<unknown>".to_string())
     }
 }

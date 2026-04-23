@@ -2,13 +2,13 @@ use crate::Number;
 use crate::TulispObject;
 use crate::TulispValue;
 use crate::cons::Cons;
-use crate::context::Scope;
 use crate::context::TulispContext;
 use crate::destruct_eval_bind;
 use crate::error::Error;
 use crate::eval::DummyEval;
 use crate::eval::Eval;
 use crate::eval::EvalInto;
+use crate::eval::substitute_lexical;
 use crate::lists;
 use crate::value::DefunParams;
 use crate::{destruct_bind, list};
@@ -320,39 +320,51 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     });
 
     fn impl_let(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
-        destruct_bind!((varlist &rest rest) = args);
-        if !rest.consp() {
+        destruct_bind!((varlist &rest body) = args);
+        if !body.consp() {
             return Err(Error::type_mismatch(
                 "let: expected varlist and body".to_string(),
             ));
         }
-        let mut local = Scope::default();
+        // Create fresh LexicalBindings per evaluation and rewrite the
+        // body so references resolve to those bindings. Initializers are
+        // evaluated in the scope of previously-bound let vars (same as
+        // `let*` — tulisp has always had `let` behave this way).
+        let mut mappings: Vec<(TulispObject, TulispObject)> = Vec::new();
         for varitem in varlist.base_iter() {
-            if varitem.symbolp() {
-                local.set(varitem, TulispObject::nil())?;
+            let (name, initial) = if varitem.symbolp() {
+                (varitem, TulispObject::nil())
             } else if varitem.consp() {
                 destruct_bind!((&optional name value &rest rest) = varitem);
                 if name.null() {
                     return Err(Error::syntax_error("let varitem requires name".to_string()));
+                }
+                if !name.symbolp() {
+                    return Err(Error::type_mismatch(format!(
+                        "Expected Symbol: Can't assign to {name}"
+                    )));
                 }
                 if !rest.null() {
                     return Err(Error::syntax_error(
                         "let varitem has too many values".to_string(),
                     ));
                 }
-                local.set(name, ctx.eval(&value)?)?;
+                let value_expr = substitute_lexical(value, &mappings)?;
+                let initial = ctx.eval(&value_expr)?;
+                (name, initial)
             } else {
                 return Err(Error::syntax_error(format!(
                     "varitems inside a let-varlist should be a var or a binding: {}",
                     varitem
                 )));
             };
+            let lex = TulispObject::lexical_binding(name.clone());
+            lex.set(initial)?;
+            mappings.push((name, lex));
         }
 
-        let ret = ctx.eval_progn(&rest);
-        local.remove_all()?;
-
-        ret
+        let rewritten = substitute_lexical(body, &mappings)?;
+        ctx.eval_progn(&rewritten)
     }
     ctx.defspecial("let", impl_let);
     ctx.defspecial("let*", impl_let);
@@ -371,12 +383,16 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 println!("mark_tail_calls error: {:?}", e);
                 e
             })?;
+            // Pre-rewrite the body so each param reference points at a
+            // shared `LexicalBinding` allocated once here. Call-time
+            // evaluation then only push/pops values onto the binding's
+            // thread-local stack, avoiding per-call AST clones (fib was
+            // 10.6× slower without this).
+            let raw_params: DefunParams = params.try_into()?;
+            let (params, mappings) = raw_params.bind_as_lexical();
+            let body = substitute_lexical(body, &mappings)?;
             name.set_global(
-                TulispValue::Lambda {
-                    params: params.try_into()?,
-                    body,
-                }
-                .into_ref(None),
+                TulispValue::Lambda { params, body }.into_ref(None),
             )?;
             Ok(TulispObject::nil())
         }
@@ -415,10 +431,8 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                     value: capture_variables(captured_vars, exclude, value.clone())?,
                 }
                 .into_ref(value.span()),
-                TulispValue::Quote { value } => TulispValue::Quote {
-                    value: capture_variables(captured_vars, exclude, value.clone())?,
-                }
-                .into_ref(value.span()),
+                // `Quote` is NOT descended into: `'x` is a literal
+                // symbol (e.g. an alist key), not a variable reference.
                 _ => {
                     drop(inner_ref);
                     value
@@ -450,8 +464,30 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                         return Ok(to.clone().with_span(symbol.span()));
                     }
                 }
-                let new_var = TulispObject::lexical_binding(symbol.clone());
-                new_var.set(symbol.get()?)?;
+                // Share the enclosing scope's slot with the closure
+                // so `setq` on either side is visible to both —
+                // matching Emacs' `lexical-binding: t` semantics.
+                let slot_opt = {
+                    let inner = symbol.inner_ref();
+                    match &inner.0 {
+                        crate::value::TulispValue::LexicalBinding { binding } => {
+                            Some((binding.current_slot(), binding.name().to_string()))
+                        }
+                        _ => None,
+                    }
+                };
+                let slot = match slot_opt {
+                    Some((Some(slot), _)) => slot,
+                    Some((None, name)) => {
+                        return Err(Error::uninitialized(format!(
+                            "Variable definition is void: {}",
+                            name
+                        )));
+                    }
+                    None => return Ok(symbol),
+                };
+                let new_var =
+                    TulispObject::lexical_binding_captured(symbol.clone(), slot);
                 captured_vars.push((symbol, new_var.clone()));
                 return Ok(new_var);
             }
@@ -497,6 +533,12 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         }
 
         let body = capture_variables(&mut vec![], &param_names, body)?;
+        // After capture_variables, free vars in body point at captured
+        // LexicalBindings from the enclosing scope; param references
+        // are still raw symbols. Pre-rewrite them to the new
+        // per-param LexicalBindings so calls are push/pop only.
+        let (params, mappings) = params.bind_as_lexical();
+        let body = substitute_lexical(body, &mappings)?;
         Ok(TulispValue::Lambda { params, body }.into_ref(None))
     }
     ctx.defspecial("lambda", lambda);
@@ -508,12 +550,11 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         } else {
             rest
         };
+        let raw_params: DefunParams = params.try_into()?;
+        let (params, mappings) = raw_params.bind_as_lexical();
+        let body = substitute_lexical(body, &mappings)?;
         name.set_scope(
-            TulispValue::Defmacro {
-                params: params.try_into()?,
-                body,
-            }
-            .into_ref(None),
+            TulispValue::Defmacro { params, body }.into_ref(None),
         )?;
         Ok(TulispObject::nil())
     });
@@ -577,28 +618,37 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defspecial("dolist", |ctx, args| {
         destruct_bind!((spec &rest body) = args);
         destruct_bind!((var list &optional result) = spec);
+        // Under Emacs' `lexical-binding: t`, dolist freshly binds the
+        // loop variable at each iteration — equivalent to `(while tail
+        // (let ((var (car tail))) body))`. So closures captured in
+        // different iterations get distinct slots. `result` is
+        // evaluated in the *outer* scope and does not see `var`.
+        let lex = TulispObject::lexical_binding(var.clone());
+        let mappings = vec![(var, lex.clone())];
+        let body = substitute_lexical(body, &mappings)?;
         let mut list = ctx.eval(&list)?;
-        var.set_scope(list.car()?)?;
         while list.is_truthy() {
-            let eval_res = ctx.eval_progn(&body);
-            eval_res?;
+            lex.set_scope(list.car()?)?;
+            let res = ctx.eval_progn(&body);
+            lex.unset()?;
+            res?;
             list = list.cdr()?;
-            var.set_unchecked(list.car()?);
         }
-        var.unset()?;
         ctx.eval(&result)
     });
 
     ctx.defspecial("dotimes", |ctx, args| {
         destruct_bind!((spec &rest body) = args);
         destruct_bind!((var count &optional result) = spec);
-        var.set_scope(TulispObject::from(0))?;
+        let lex = TulispObject::lexical_binding(var.clone());
+        let mappings = vec![(var, lex.clone())];
+        let body = substitute_lexical(body, &mappings)?;
         for counter in 0..count.as_int()? {
-            var.set_unchecked(TulispObject::from(counter));
-            let eval_res = ctx.eval_progn(&body);
-            eval_res?;
+            lex.set_scope(TulispObject::from(counter))?;
+            let res = ctx.eval_progn(&body);
+            lex.unset()?;
+            res?;
         }
-        var.unset()?;
         ctx.eval(&result)
     });
 

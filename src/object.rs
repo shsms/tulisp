@@ -380,20 +380,20 @@ impl TulispObject {
         TulispValue::lexical_binding(symbol).into_ref(span)
     }
 
+    pub(crate) fn lexical_binding_captured(
+        symbol: TulispObject,
+        slot: crate::object::wrappers::generic::SharedMut<TulispObject>,
+    ) -> TulispObject {
+        let span = symbol.span();
+        TulispValue::lexical_binding_captured(symbol, slot).into_ref(span)
+    }
+
     pub(crate) fn new(vv: TulispValue, span: Option<Span>) -> TulispObject {
         Self {
             rc: SharedMut::new((vv, span)),
         }
     }
 
-    /// Sets the value without checking if the symbol is constant, or if it is
-    /// bound.
-    ///
-    /// For use in loops and other places where a set_scope has already been
-    /// done, and the symbol is known to be bound.
-    pub(crate) fn set_unchecked(&self, to_set: TulispObject) {
-        self.rc.borrow_mut().0.set_unchecked(to_set)
-    }
 
     pub(crate) fn set_global(&self, to_set: TulispObject) -> Result<(), Error> {
         self.rc.borrow_mut().0.set_global(to_set)

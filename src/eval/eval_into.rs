@@ -43,9 +43,9 @@ impl EvalInto<Number> for TulispObject {
                 }
                 sym.get_as_number().map_err(|e| e.with_trace(self.clone()))
             }
-            TulispValue::LexicalBinding { value: sym, .. } => {
-                sym.get_as_number().map_err(|e| e.with_trace(self.clone()))
-            }
+            TulispValue::LexicalBinding { binding } => binding
+                .get_as_number()
+                .map_err(|e| e.with_trace(self.clone())),
             TulispValue::List { .. } => eval_form::<Eval>(ctx, self)
                 .map_err(|e| e.with_trace(self.clone()))?
                 .as_number(),
@@ -68,6 +68,9 @@ impl EvalInto<bool> for TulispObject {
                     return Ok(true);
                 }
                 sym.get_as_bool().map_err(|e| e.with_trace(self.clone()))
+            }
+            TulispValue::LexicalBinding { binding } => {
+                binding.get_as_bool().map_err(|e| e.with_trace(self.clone()))
             }
             TulispValue::List { .. } => Ok(eval_form::<Eval>(ctx, self)
                 .map_err(|e| e.with_trace(self.clone()))?

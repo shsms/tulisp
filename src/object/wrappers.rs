@@ -71,8 +71,17 @@ pub mod generic {
     }
 
     #[repr(transparent)]
-    #[derive(Clone, Debug)]
+    #[derive(Debug)]
     pub struct SharedMut<T>(std::rc::Rc<std::cell::RefCell<T>>);
+
+    // `#[derive(Clone)]` would synthesize `T: Clone` — but `Rc` clones
+    // without that bound, and callers rely on sharing non-Clone inner
+    // types (terminals, sockets, …).
+    impl<T> Clone for SharedMut<T> {
+        fn clone(&self) -> Self {
+            SharedMut(self.0.clone())
+        }
+    }
 
     impl<T> SharedMut<T> {
         pub fn new(val: T) -> Self {
@@ -160,8 +169,15 @@ pub mod generic {
     }
 
     #[repr(transparent)]
-    #[derive(Clone, Debug)]
+    #[derive(Debug)]
     pub struct SharedMut<T>(std::sync::Arc<std::sync::RwLock<T>>);
+
+    impl<T> Clone for SharedMut<T> {
+        fn clone(&self) -> Self {
+            SharedMut(self.0.clone())
+        }
+    }
+
     impl<T> SharedMut<T> {
         pub fn new(val: T) -> Self {
             SharedMut(std::sync::Arc::new(std::sync::RwLock::new(val)))
