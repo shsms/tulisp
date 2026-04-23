@@ -319,6 +319,20 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(value)
     });
 
+    /// RAII guard that pops dynamic (`defvar`-declared) let bindings
+    /// from their symbol stacks on scope exit, including the error path
+    /// when the body returns `?` partway through.
+    struct DynamicScopeGuard {
+        names: Vec<TulispObject>,
+    }
+    impl Drop for DynamicScopeGuard {
+        fn drop(&mut self) {
+            for name in self.names.drain(..).rev() {
+                let _ = name.unset();
+            }
+        }
+    }
+
     fn impl_let(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
         destruct_bind!((varlist &rest body) = args);
         if !body.consp() {
@@ -326,11 +340,17 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 "let: expected varlist and body".to_string(),
             ));
         }
-        // Create fresh LexicalBindings per evaluation and rewrite the
-        // body so references resolve to those bindings. Initializers are
-        // evaluated in the scope of previously-bound let vars (same as
-        // `let*` — tulisp has always had `let` behave this way).
+        // For non-special vars, create a fresh LexicalBinding per
+        // evaluation and rewrite the body to reference it.
+        // For `defvar`-declared (special/dynamic) vars, push onto the
+        // symbol's own stack instead — matching Emacs' behavior under
+        // `lexical-binding: t` for declared variables. The dynamic guard
+        // unwinds those pushes on scope exit.
+        // Initializers are evaluated in the scope of previously-bound
+        // let vars (same as `let*` — tulisp has always had `let` behave
+        // this way).
         let mut mappings: Vec<(TulispObject, TulispObject)> = Vec::new();
+        let mut dynamic_guard = DynamicScopeGuard { names: Vec::new() };
         for varitem in varlist.base_iter() {
             let (name, initial) = if varitem.symbolp() {
                 (varitem, TulispObject::nil())
@@ -358,9 +378,14 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                     varitem
                 )));
             };
-            let lex = TulispObject::lexical_binding(name.clone());
-            lex.set(initial)?;
-            mappings.push((name, lex));
+            if name.is_special() {
+                name.set_scope(initial)?;
+                dynamic_guard.names.push(name);
+            } else {
+                let lex = TulispObject::lexical_binding(name.clone());
+                lex.set(initial)?;
+                mappings.push((name, lex));
+            }
         }
 
         let rewritten = substitute_lexical(body, &mappings)?;
@@ -407,39 +432,6 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         };
         let params: DefunParams = params.try_into()?;
         let param_names: Vec<_> = params.iter().map(|x| x.param.clone()).collect();
-
-        fn capture_inside_quoted(
-            captured_vars: &mut Vec<(TulispObject, TulispObject)>,
-            exclude: &[TulispObject],
-            value: TulispObject,
-        ) -> Result<TulispObject, Error> {
-            let inner_ref = value.inner_ref();
-            let res = match &inner_ref.0 {
-                TulispValue::Backquote { value } => TulispValue::Backquote {
-                    value: capture_variables(captured_vars, exclude, value.clone())?,
-                }
-                .into_ref(value.span()),
-                TulispValue::Unquote { value } => TulispValue::Unquote {
-                    value: capture_variables(captured_vars, exclude, value.clone())?,
-                }
-                .into_ref(value.span()),
-                TulispValue::Splice { value } => TulispValue::Splice {
-                    value: capture_variables(captured_vars, exclude, value.clone())?,
-                }
-                .into_ref(value.span()),
-                TulispValue::Sharpquote { value } => TulispValue::Sharpquote {
-                    value: capture_variables(captured_vars, exclude, value.clone())?,
-                }
-                .into_ref(value.span()),
-                // `Quote` is NOT descended into: `'x` is a literal
-                // symbol (e.g. an alist key), not a variable reference.
-                _ => {
-                    drop(inner_ref);
-                    value
-                }
-            };
-            Ok(res)
-        }
 
         fn slice_contains(vec: &[TulispObject], item: &TulispObject) -> bool {
             for i in vec {
@@ -497,34 +489,104 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         fn capture_variables(
             captured_vars: &mut Vec<(TulispObject, TulispObject)>,
             exclude: &[TulispObject],
-            mut body: TulispObject,
+            body: TulispObject,
         ) -> Result<TulispObject, Error> {
-            let result = TulispObject::nil().with_span(body.span());
+            capture_variables_inner(captured_vars, exclude, body, 0)
+        }
+
+        // `quote_depth` tracks quasi-quote nesting: 0 = code context
+        // (substitute/capture vars); >0 = inside a backquote (data
+        // context — literal symbols are not var references). Unquote /
+        // splice decrement it (back to code), backquote increments.
+        fn capture_variables_inner(
+            captured_vars: &mut Vec<(TulispObject, TulispObject)>,
+            exclude: &[TulispObject],
+            mut body: TulispObject,
+            quote_depth: u32,
+        ) -> Result<TulispObject, Error> {
             if !body.consp() {
-                if body.symbolp() {
-                    return capture_symbol(captured_vars, exclude, body);
-                }
-                return capture_inside_quoted(captured_vars, exclude, body);
+                let inner_ref = body.inner_ref();
+                return match &inner_ref.0 {
+                    TulispValue::Symbol { .. } | TulispValue::LexicalBinding { .. } => {
+                        drop(inner_ref);
+                        if quote_depth > 0 {
+                            Ok(body)
+                        } else {
+                            capture_symbol(captured_vars, exclude, body)
+                        }
+                    }
+                    TulispValue::Backquote { value } => Ok(TulispValue::Backquote {
+                        value: capture_variables_inner(
+                            captured_vars,
+                            exclude,
+                            value.clone(),
+                            quote_depth + 1,
+                        )?,
+                    }
+                    .into_ref(body.span())),
+                    TulispValue::Unquote { value } => Ok(TulispValue::Unquote {
+                        value: capture_variables_inner(
+                            captured_vars,
+                            exclude,
+                            value.clone(),
+                            quote_depth.saturating_sub(1),
+                        )?,
+                    }
+                    .into_ref(body.span())),
+                    TulispValue::Splice { value } => Ok(TulispValue::Splice {
+                        value: capture_variables_inner(
+                            captured_vars,
+                            exclude,
+                            value.clone(),
+                            quote_depth.saturating_sub(1),
+                        )?,
+                    }
+                    .into_ref(body.span())),
+                    TulispValue::Sharpquote { value } if quote_depth == 0 => {
+                        Ok(TulispValue::Sharpquote {
+                            value: capture_variables_inner(
+                                captured_vars,
+                                exclude,
+                                value.clone(),
+                                quote_depth,
+                            )?,
+                        }
+                        .into_ref(body.span()))
+                    }
+                    // `Quote` is always data — don't descend.
+                    _ => {
+                        drop(inner_ref);
+                        Ok(body)
+                    }
+                };
             }
 
+            // At code level, `(quote X)` written as a list form is
+            // data-only — don't descend into X.
+            if quote_depth == 0
+                && let Ok(car) = body.car()
+                && let Ok(name) = car.as_symbol()
+                && name == "quote"
+            {
+                return Ok(body);
+            }
+
+            let result = TulispObject::nil().with_span(body.span());
             loop {
                 let car = body.car()?;
-                if car.consp() {
-                    result.push(capture_variables(captured_vars, exclude, car)?)?;
-                } else if car.symbolp() {
-                    result.push(capture_symbol(captured_vars, exclude, car)?)?;
-                } else {
-                    result.push(capture_inside_quoted(captured_vars, exclude, car)?)?;
-                }
+                result
+                    .push(capture_variables_inner(captured_vars, exclude, car, quote_depth)?)?;
                 let cdr = body.cdr()?;
                 if cdr.null() {
                     break;
                 }
-                if cdr.symbolp() {
-                    result.append(capture_symbol(captured_vars, exclude, cdr)?)?;
-                    break;
-                } else if !cdr.consp() {
-                    result.append(capture_inside_quoted(captured_vars, exclude, cdr)?)?;
+                if !cdr.consp() {
+                    result.append(capture_variables_inner(
+                        captured_vars,
+                        exclude,
+                        cdr,
+                        quote_depth,
+                    )?)?;
                     break;
                 }
                 body = cdr;
@@ -744,6 +806,11 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 "defvar: first argument must be a symbol".to_string(),
             ));
         }
+        // Flip the symbol's `special` flag so subsequent let/let* and
+        // reference-rewrite paths treat it as dynamic (Emacs' behavior
+        // under `lexical-binding: t`). Done before any initval eval so
+        // the flag is set even if initval errors.
+        name.set_special()?;
         if !name.boundp() {
             let val = ctx.eval(&initval)?;
             name.set(val)?;

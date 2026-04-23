@@ -110,6 +110,12 @@ impl DefunParams {
         let mut mappings = Vec::with_capacity(self.params.len());
         let mut new_params = Vec::with_capacity(self.params.len());
         for dp in self.params {
+            // Defun/lambda params are always lexically bound — even
+            // when the symbol has been declared `defvar` (special).
+            // Emacs under `lexical-binding: t` behaves this way: `let`
+            // of a special var binds dynamically, but function
+            // parameters stay lexical. Matching that keeps semantics
+            // consistent with Emacs' byte-compiler.
             let lex = TulispObject::lexical_binding(dp.param.clone());
             mappings.push((dp.param, lex.clone()));
             new_params.push(DefunParam {
@@ -126,6 +132,12 @@ impl DefunParams {
 pub struct SymbolBindings {
     name: String,
     constant: bool,
+    // "Special" (dynamic) in Emacs' terminology: `defvar`-declared.
+    // Once set, references to this symbol bypass lexical-binding
+    // rewrites (substitute_lexical / capture) and always use this
+    // symbol's own `items` stack, matching Emacs' behavior under
+    // `lexical-binding: t` for declared variables.
+    special: bool,
     has_global: bool,
     items: Vec<TulispObject>,
 }
@@ -231,6 +243,16 @@ impl SymbolBindings {
     #[inline(always)]
     pub(crate) fn is_constant(&self) -> bool {
         self.constant
+    }
+
+    #[inline(always)]
+    pub(crate) fn is_special(&self) -> bool {
+        self.special
+    }
+
+    #[inline(always)]
+    pub(crate) fn set_special(&mut self) {
+        self.special = true;
     }
 }
 
@@ -605,6 +627,7 @@ impl TulispValue {
             value: SymbolBindings {
                 name,
                 constant,
+                special: false,
                 has_global: false,
                 items: Default::default(),
             },
@@ -682,11 +705,35 @@ impl TulispValue {
     pub(crate) fn is_lexically_bound(&self) -> bool {
         match self {
             TulispValue::Symbol { value } => {
+                if value.special {
+                    return false;
+                }
                 (value.has_global && value.items.len() > 1)
                     || (!value.has_global && !value.items.is_empty())
             }
             TulispValue::LexicalBinding { .. } => true,
             _ => false,
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn is_special(&self) -> bool {
+        match self {
+            TulispValue::Symbol { value } => value.is_special(),
+            _ => false,
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn set_special(&mut self) -> Result<(), Error> {
+        match self {
+            TulispValue::Symbol { value } => {
+                value.set_special();
+                Ok(())
+            }
+            _ => Err(Error::type_mismatch(
+                "set_special requires a symbol".to_string(),
+            )),
         }
     }
 

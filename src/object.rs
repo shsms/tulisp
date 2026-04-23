@@ -228,6 +228,26 @@ impl TulispObject {
             .map_err(|e| e.with_trace(self.clone()))
     }
 
+    /// Marks `self` as a "special" (dynamically-bound) variable. Once
+    /// set, references to this symbol bypass lexical-binding rewrites
+    /// and always resolve through the symbol's dynamic stack, matching
+    /// Emacs' `defvar` behavior under `lexical-binding: t`.
+    ///
+    /// Returns an Error if `self` is not a `Symbol`.
+    pub(crate) fn set_special(&self) -> Result<(), Error> {
+        self.rc
+            .borrow_mut()
+            .0
+            .set_special()
+            .map_err(|e| e.with_trace(self.clone()))
+    }
+
+    /// Returns `true` if `self` was declared with `defvar` (or otherwise
+    /// marked special). Non-symbols return `false`.
+    pub(crate) fn is_special(&self) -> bool {
+        self.rc.borrow().0.is_special()
+    }
+
     /// Unsets the value from the most recent scope.
     ///
     /// Returns an Error if `self` is not a `Symbol`.

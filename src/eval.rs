@@ -131,7 +131,9 @@ fn eval_function<E: Evaluator>(
     // Params are pre-rewritten at defun/lambda/defmacro creation to
     // carry a shared `LexicalBinding`; here we just push the arg values
     // onto each binding's thread-local stack, run the body, and pop.
-    // Concurrent callers use independent stacks.
+    // Concurrent callers use independent stacks. Function parameters
+    // are always lexical — even for `defvar`-declared names — matching
+    // Emacs' byte-compiler under `lexical-binding: t`.
     let bindings = lex_bindings_of(params)?;
     let mut guard = LexScopeGuard::new(&bindings);
     for val in vals {
@@ -284,9 +286,8 @@ pub(crate) fn eval_basic<'a>(
             if value.is_constant() {
                 return Ok(Cow::Borrowed(expr));
             }
-            Ok(Cow::Owned(
-                value.get().map_err(|e| e.with_trace(expr.clone()))?,
-            ))
+            let got = value.get().map_err(|e| e.with_trace(expr.clone()))?;
+            Ok(Cow::Owned(got))
         }
         TulispValue::LexicalBinding { binding } => Ok(Cow::Owned(
             binding.get().map_err(|e| e.with_trace(expr.clone()))?,
@@ -363,13 +364,20 @@ pub fn macroexpand(ctx: &mut TulispContext, inp: TulispObject) -> Result<TulispO
 
 /// Walk `body` and replace each occurrence of a symbol listed in
 /// `mappings` with its mapped replacement (typically a freshly-created
-/// `LexicalBinding`). Descends into list, quote, and backquote forms,
-/// matching `capture_variables`'s traversal. Unlike `capture_variables`,
-/// this performs explicit substitution only — it does not auto-capture
-/// free lexically-bound vars.
+/// `LexicalBinding`). Only substitutes at code positions — literals
+/// inside `'x`, `(quote x)`, or backquote-but-not-unquote positions
+/// are preserved so data literals (e.g. alist keys) are not corrupted.
 pub(crate) fn substitute_lexical(
     body: TulispObject,
     mappings: &[(TulispObject, TulispObject)],
+) -> Result<TulispObject, Error> {
+    substitute_lexical_inner(body, mappings, 0)
+}
+
+fn substitute_lexical_inner(
+    body: TulispObject,
+    mappings: &[(TulispObject, TulispObject)],
+    quote_depth: u32,
 ) -> Result<TulispObject, Error> {
     if mappings.is_empty() {
         return Ok(body);
@@ -379,15 +387,28 @@ pub(crate) fn substitute_lexical(
     let res = match &inner_ref.0 {
         TulispValue::Symbol { .. } | TulispValue::LexicalBinding { .. } => {
             drop(inner_ref);
-            for (from, to) in mappings {
-                if body.eq(from) {
-                    return Ok(to.clone().with_span(span));
+            if quote_depth > 0 {
+                body
+            } else {
+                for (from, to) in mappings {
+                    if body.eq(from) {
+                        return Ok(to.clone().with_span(span));
+                    }
                 }
+                body
             }
-            body
         }
         TulispValue::List { .. } => {
             drop(inner_ref);
+            // At code level, `(quote X)` written as a list form is
+            // data-only — don't substitute inside X (alist key etc.).
+            if quote_depth == 0
+                && let Ok(car) = body.car()
+                && let Ok(name) = car.as_symbol()
+                && name == "quote"
+            {
+                return Ok(body);
+            }
             // Preserve the outer list's ctxobj — it caches the function
             // resolved at parse time for `(fn arg ...)` forms. Dropping
             // it here would force a symbol lookup on every call.
@@ -396,13 +417,13 @@ pub(crate) fn substitute_lexical(
             let mut cur = body;
             loop {
                 let car = cur.car()?;
-                result.push(substitute_lexical(car, mappings)?)?;
+                result.push(substitute_lexical_inner(car, mappings, quote_depth)?)?;
                 let cdr = cur.cdr()?;
                 if cdr.null() {
                     break;
                 }
                 if !cdr.consp() {
-                    result.append(substitute_lexical(cdr, mappings)?)?;
+                    result.append(substitute_lexical_inner(cdr, mappings, quote_depth)?)?;
                     break;
                 }
                 cur = cdr;
@@ -410,26 +431,34 @@ pub(crate) fn substitute_lexical(
             result
         }
         TulispValue::Backquote { value } => TulispValue::Backquote {
-            value: substitute_lexical(value.clone(), mappings)?,
+            value: substitute_lexical_inner(value.clone(), mappings, quote_depth + 1)?,
         }
         .into_ref(span),
         TulispValue::Unquote { value } => TulispValue::Unquote {
-            value: substitute_lexical(value.clone(), mappings)?,
+            value: substitute_lexical_inner(
+                value.clone(),
+                mappings,
+                quote_depth.saturating_sub(1),
+            )?,
         }
         .into_ref(span),
         TulispValue::Splice { value } => TulispValue::Splice {
-            value: substitute_lexical(value.clone(), mappings)?,
+            value: substitute_lexical_inner(
+                value.clone(),
+                mappings,
+                quote_depth.saturating_sub(1),
+            )?,
         }
         .into_ref(span),
-        TulispValue::Sharpquote { value } => TulispValue::Sharpquote {
-            value: substitute_lexical(value.clone(), mappings)?,
+        TulispValue::Sharpquote { value } if quote_depth == 0 => TulispValue::Sharpquote {
+            value: substitute_lexical_inner(value.clone(), mappings, quote_depth)?,
         }
         .into_ref(span),
         // `Quote` intentionally does NOT descend — `'x` is a literal
         // symbol reference (e.g. an alist key), not a variable use.
         // Rewriting it to a `LexicalBinding` would corrupt data
-        // literals. Backquote is different: it contains `,expr`
-        // unquotes that must be rewritten.
+        // literals. Inside a backquote (quote_depth > 0) Sharpquote
+        // also stays literal.
         _ => {
             drop(inner_ref);
             body
