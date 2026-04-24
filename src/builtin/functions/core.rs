@@ -114,8 +114,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(ctx.intern(&name.as_string()?))
     });
 
-    ctx.defspecial("symbol-value", |ctx, args| {
-        destruct_eval_bind!(ctx, (sym) = args);
+    ctx.defun("symbol-value", |sym: TulispObject| -> Result<TulispObject, Error> {
         if !sym.symbolp() {
             return Err(Error::type_mismatch(format!(
                 "symbol-value: expected a symbol, got {sym}"
