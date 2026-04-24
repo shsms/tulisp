@@ -118,6 +118,13 @@ pub(crate) enum Instruction {
         optional_count: usize,
         rest_count: usize,
     },
+    TailCall {
+        name: TulispObject,
+        args_count: usize,
+        function: Option<CompiledDefun>,
+        optional_count: usize,
+        rest_count: usize,
+    },
     Ret,
     // lists
     Cons,
@@ -168,6 +175,7 @@ impl std::fmt::Display for Instruction {
             Instruction::GtEq => write!(f, "    cge"),
             Instruction::Jump(pos) => write!(f, "    jmp {}", pos),
             Instruction::Call { name, .. } => write!(f, "    call {}", name),
+            Instruction::TailCall { name, .. } => write!(f, "    tcall {}", name),
             Instruction::Ret => write!(f, "    ret"),
             Instruction::RustCall { name, .. } => write!(f, "    rustcall {}", name),
             Instruction::Label(name) => write!(f, "{}", name),

@@ -1,6 +1,12 @@
-use super::{bytecode::Bytecode, compiler::VMDefunParams, Instruction};
+use super::{bytecode::Bytecode, bytecode::CompiledDefun, compiler::VMDefunParams, Instruction};
 use crate::{bytecode::Pos, lists, Error, TulispContext, TulispObject, TulispValue};
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
+
+struct TailCallInfo {
+    function: CompiledDefun,
+    optional_count: usize,
+    rest_count: usize,
+}
 
 macro_rules! binary_ops {
     ($oper:expr) => {{
@@ -185,7 +191,7 @@ impl Machine {
         ctx: &mut TulispContext,
         program: &Rc<RefCell<Vec<Instruction>>>,
         recursion_depth: u32,
-    ) -> Result<(), Error> {
+    ) -> Result<Option<TailCallInfo>, Error> {
         let mut pc: usize = 0;
         let program_size = program.borrow().len();
         let mut instr_ref = program.borrow_mut();
@@ -453,18 +459,79 @@ impl Machine {
                         *function = Some(func);
                     }
 
-                    let instructions = function.as_ref().unwrap().instructions.clone();
-                    let Some(function) = function.as_ref() else {
-                        unreachable!()
-                    };
+                    let mut current_function = function.as_ref().unwrap().clone();
+                    let mut current_optional = *optional_count;
+                    let mut current_rest = *rest_count;
 
-                    let params = self.init_defun_args(&function.params, optional_count, rest_count);
                     drop(instr_ref);
-                    self.run_function(ctx, &instructions, recursion_depth + 1)?;
+                    loop {
+                        let params = self.init_defun_args(
+                            &current_function.params,
+                            &current_optional,
+                            &current_rest,
+                        );
+                        let tail = self.run_function(
+                            ctx,
+                            &current_function.instructions,
+                            recursion_depth + 1,
+                        )?;
+                        drop(params);
+
+                        match tail {
+                            Some(info) => {
+                                current_function = info.function;
+                                current_optional = info.optional_count;
+                                current_rest = info.rest_count;
+                            }
+                            None => break,
+                        }
+                    }
                     instr_ref = program.borrow_mut();
-                    drop(params);
                 }
-                Instruction::Ret => return Ok(()),
+                Instruction::TailCall {
+                    name,
+                    function,
+                    args_count,
+                    optional_count,
+                    rest_count,
+                } => {
+                    if function.is_none() {
+                        let addr = name.addr_as_usize();
+                        let Some(func) = self.bytecode.functions.get(&addr) else {
+                            return Err(Error::new(
+                                crate::ErrorKind::Undefined,
+                                format!("undefined function: {}", name),
+                            )
+                            .with_trace(name.clone()));
+                        };
+                        let func = func.clone();
+
+                        if *args_count < func.params.required.len() {
+                            return Err(Error::missing_argument("Too few arguments".to_string()));
+                        }
+                        if func.params.rest.is_none()
+                            && *args_count > func.params.required.len() + func.params.optional.len()
+                        {
+                            return Err(Error::invalid_argument("Too many arguments".to_string()));
+                        }
+                        let left_args = *args_count - func.params.required.len();
+                        if left_args > func.params.optional.len() {
+                            *rest_count = left_args - func.params.optional.len();
+                            *optional_count = func.params.optional.len();
+                        } else if left_args > 0 {
+                            *optional_count = left_args
+                        }
+                        *function = Some(func);
+                    }
+
+                    let info = TailCallInfo {
+                        function: function.as_ref().unwrap().clone(),
+                        optional_count: *optional_count,
+                        rest_count: *rest_count,
+                    };
+                    return Ok(Some(info));
+                }
+                Instruction::Ret => return Ok(None),
                 Instruction::RustCall {
                     func, keep_result, ..
                 } => {
@@ -557,7 +624,7 @@ impl Machine {
             }
             pc += 1;
         }
-        Ok(())
+        Ok(None)
     }
 
     fn init_defun_args(
@@ -595,8 +662,7 @@ impl Machine {
         ctx: &mut TulispContext,
         instructions: &Rc<RefCell<Vec<Instruction>>>,
         recursion_depth: u32,
-    ) -> Result<(), Error> {
-        self.run_impl(ctx, &instructions, recursion_depth)?;
-        Ok(())
+    ) -> Result<Option<TailCallInfo>, Error> {
+        self.run_impl(ctx, instructions, recursion_depth)
     }
 }

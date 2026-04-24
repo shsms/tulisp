@@ -20,6 +20,7 @@ pub(crate) struct Compiler {
     pub defun_args: HashMap<usize, VMDefunParams>, // fn_name.addr_as_usize() -> arg symbol idx
     pub bytecode: Bytecode,
     pub keep_result: bool,
+    pub current_defun: Option<TulispObject>,
     label_counter: usize,
 }
 
@@ -30,6 +31,7 @@ impl Compiler {
             defun_args: HashMap::new(),
             bytecode: Bytecode::new(),
             keep_result: true,
+            current_defun: None,
             label_counter: 0,
         }
     }

@@ -109,6 +109,28 @@ fn compile_fn_defun_bounce_call(
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
     let compiler = ctx.compiler.as_mut().unwrap();
+    let is_self = compiler
+        .current_defun
+        .as_ref()
+        .is_some_and(|n| n.eq(name));
+
+    if !is_self {
+        let mut result = vec![];
+        let mut args_count = 0;
+        // cdr twice: first skips `Bounce`, second skips the function identity.
+        for arg in args.cdr()?.cdr()?.base_iter() {
+            result.append(&mut compile_expr_keep_result(ctx, &arg)?);
+            args_count += 1;
+        }
+        result.push(Instruction::TailCall {
+            name: name.clone(),
+            args_count,
+            function: None,
+            optional_count: 0,
+            rest_count: 0,
+        });
+        return Ok(result);
+    }
 
     let mut result = vec![];
     let params = compiler.defun_args[&name.addr_as_usize()].clone();
@@ -249,6 +271,7 @@ pub(super) fn compile_fn_defun(
         compiler
             .defun_args
             .insert(defun_name.addr_as_usize(), defun_params.clone());
+        let prev_defun = compiler.current_defun.replace(defun_name.clone());
 
         // TODO: replace with `is_string`
         let body = if body.car()?.as_string().is_ok() {
@@ -263,6 +286,7 @@ pub(super) fn compile_fn_defun(
         let mut result = compile_progn_keep_result(ctx, &body)?;
         result.push(Instruction::Ret);
 
+        ctx.compiler.as_mut().unwrap().current_defun = prev_defun;
         Ok(result)
     })?;
     let function = CompiledDefun {

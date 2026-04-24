@@ -576,7 +576,12 @@ pub(crate) fn mark_tail_calls(
     let ctxobj = tail.ctxobj();
     let tail_ident = tail.car()?;
     let tail_name_str = tail_ident.as_symbol()?;
-    let new_tail = if tail_ident.eq(&name) {
+    let is_self_call = tail_ident.eq(&name);
+    let new_tail = if is_self_call
+        || ctx
+            .eval(&tail_ident)
+            .is_ok_and(|f| matches!(&f.inner_ref().0, TulispValue::Lambda { .. }))
+    {
         let ret_tail = TulispObject::nil().append(tail.cdr()?)?.to_owned();
         list!(,ctx.intern("list")
               ,TulispValue::Bounce.into_ref(None)
