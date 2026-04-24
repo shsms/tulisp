@@ -319,9 +319,11 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(value)
     });
 
-    /// RAII guard that pops dynamic (`defvar`-declared) let bindings
-    /// from their symbol stacks on scope exit, including the error path
-    /// when the body returns `?` partway through.
+    /// RAII guard that unwinds dynamic (`defvar`-declared) let bindings
+    /// on scope exit — including the error path when the body returns
+    /// `?` partway through. Lexical (non-special) let vars don't need a
+    /// guard: they own their slot directly via
+    /// `lexical_binding_captured`, so the slot drops with the binding.
     struct DynamicScopeGuard {
         names: Vec<TulispObject>,
     }
@@ -341,7 +343,10 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             ));
         }
         // For non-special vars, create a fresh LexicalBinding per
-        // evaluation and rewrite the body to reference it.
+        // evaluation that directly owns its slot (via
+        // `lexical_binding_captured`) and rewrite the body to reference
+        // it. The slot drops when the binding drops — no thread-local
+        // stack involvement, no per-call id→stack growth.
         // For `defvar`-declared (special/dynamic) vars, push onto the
         // symbol's own stack instead — matching Emacs' behavior under
         // `lexical-binding: t` for declared variables. The dynamic guard
@@ -382,8 +387,8 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 name.set_scope(initial)?;
                 dynamic_guard.names.push(name);
             } else {
-                let lex = TulispObject::lexical_binding(name.clone());
-                lex.set(initial)?;
+                let slot = crate::object::wrappers::generic::SharedMut::new(initial);
+                let lex = TulispObject::lexical_binding_captured(name.clone(), slot);
                 mappings.push((name, lex));
             }
         }
