@@ -1,18 +1,18 @@
-use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc};
+use std::{collections::HashMap, fmt};
 
 use super::Instruction;
-use crate::{bytecode::compiler::VMDefunParams, TulispObject};
+use crate::{bytecode::compiler::VMDefunParams, object::wrappers::generic::SharedMut, TulispObject};
 
 #[derive(Default, Clone)]
 pub(crate) struct CompiledDefun {
     pub(crate) name: TulispObject,
-    pub(crate) instructions: Rc<RefCell<Vec<Instruction>>>,
+    pub(crate) instructions: SharedMut<Vec<Instruction>>,
     pub(crate) params: VMDefunParams,
 }
 
 #[derive(Default, Clone)]
 pub(crate) struct Bytecode {
-    pub(crate) global: Rc<RefCell<Vec<Instruction>>>,
+    pub(crate) global: SharedMut<Vec<Instruction>>,
     pub(crate) functions: HashMap<usize, CompiledDefun>, // key: fn_name.addr_as_usize()
 }
 

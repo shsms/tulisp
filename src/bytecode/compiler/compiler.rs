@@ -1,7 +1,8 @@
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::collections::HashMap;
 
 use crate::{
     bytecode::{Bytecode, Instruction},
+    object::wrappers::generic::SharedMut,
     Error, ErrorKind, TulispContext, TulispObject, TulispValue,
 };
 
@@ -45,7 +46,7 @@ impl Compiler {
 pub fn compile(ctx: &mut TulispContext, value: &TulispObject) -> Result<Bytecode, Error> {
     let output = compile_progn(ctx, value)?;
     let compiler = ctx.compiler.as_mut().unwrap();
-    compiler.bytecode.global = Rc::new(RefCell::new(output));
+    compiler.bytecode.global = SharedMut::new(output);
     Ok(compiler.bytecode.clone())
 }
 

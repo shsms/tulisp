@@ -1,5 +1,3 @@
-use std::{cell::RefCell, rc::Rc};
-
 use crate::{
     bytecode::{
         bytecode::CompiledDefun,
@@ -12,6 +10,7 @@ use crate::{
         Instruction, Pos,
     },
     list,
+    object::wrappers::generic::SharedMut,
     parse::mark_tail_calls,
     Error, ErrorKind, TulispContext, TulispObject,
 };
@@ -291,7 +290,7 @@ pub(super) fn compile_fn_defun(
     })?;
     let function = CompiledDefun {
         name: fn_name.clone(),
-        instructions: Rc::new(RefCell::new(res)),
+        instructions: SharedMut::new(res),
         params: defun_params,
     };
     let compiler = ctx.compiler.as_mut().unwrap();

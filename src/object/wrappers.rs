@@ -107,6 +107,12 @@ pub mod generic {
             std::rc::Rc::strong_count(&self.0)
         }
     }
+
+    impl<T: Default> Default for SharedMut<T> {
+        fn default() -> Self {
+            SharedMut::new(T::default())
+        }
+    }
 }
 
 #[cfg(feature = "sync")]
@@ -200,6 +206,12 @@ pub mod generic {
 
         pub fn strong_count(&self) -> usize {
             std::sync::Arc::strong_count(&self.0)
+        }
+    }
+
+    impl<T: Default> Default for SharedMut<T> {
+        fn default() -> Self {
+            SharedMut::new(T::default())
         }
     }
 }

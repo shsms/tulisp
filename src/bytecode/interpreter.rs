@@ -1,6 +1,9 @@
 use super::{bytecode::Bytecode, bytecode::CompiledDefun, compiler::VMDefunParams, Instruction};
-use crate::{bytecode::Pos, lists, Error, TulispContext, TulispObject, TulispValue};
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use crate::{
+    bytecode::Pos, lists, object::wrappers::generic::SharedMut, Error, TulispContext, TulispObject,
+    TulispValue,
+};
+use std::collections::HashMap;
 
 struct TailCallInfo {
     function: CompiledDefun,
@@ -189,7 +192,7 @@ impl Machine {
     fn run_impl(
         &mut self,
         ctx: &mut TulispContext,
-        program: &Rc<RefCell<Vec<Instruction>>>,
+        program: &SharedMut<Vec<Instruction>>,
         recursion_depth: u32,
     ) -> Result<Option<TailCallInfo>, Error> {
         let mut pc: usize = 0;
@@ -660,7 +663,7 @@ impl Machine {
     fn run_function(
         &mut self,
         ctx: &mut TulispContext,
-        instructions: &Rc<RefCell<Vec<Instruction>>>,
+        instructions: &SharedMut<Vec<Instruction>>,
         recursion_depth: u32,
     ) -> Result<Option<TailCallInfo>, Error> {
         self.run_impl(ctx, instructions, recursion_depth)

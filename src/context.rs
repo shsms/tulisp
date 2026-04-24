@@ -7,11 +7,9 @@ mod plist;
 pub use plist::{Plist, Plistable};
 
 use std::{
-    cell::RefCell,
     collections::HashMap,
     fs,
     path::{Path, PathBuf},
-    rc::Rc,
 };
 
 use crate::{
@@ -21,7 +19,7 @@ use crate::{
     error::Error,
     eval::{DummyEval, eval_basic, funcall},
     list,
-    object::wrappers::{TulispFn, generic::Shared},
+    object::wrappers::{TulispFn, generic::{Shared, SharedMut}},
     parse::parse,
 };
 
@@ -99,7 +97,7 @@ pub struct TulispContext {
     pub(crate) filenames: Vec<String>,
     pub(crate) compiler: Option<Compiler>,
     pub(crate) keywords: Keywords,
-    pub(crate) vm: Rc<RefCell<bytecode::Machine>>,
+    pub(crate) vm: SharedMut<bytecode::Machine>,
     pub(crate) load_path: Option<PathBuf>,
     #[cfg(feature = "etags")]
     pub(crate) tags_table: HashMap<String, HashMap<String, usize>>,
@@ -121,7 +119,7 @@ impl TulispContext {
             filenames: vec!["<eval_string>".to_string()],
             compiler: None,
             keywords,
-            vm: Rc::new(RefCell::new(bytecode::Machine::new())),
+            vm: SharedMut::new(bytecode::Machine::new()),
             load_path: None,
             #[cfg(feature = "etags")]
             tags_table: HashMap::new(),
