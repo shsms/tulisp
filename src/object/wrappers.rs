@@ -70,6 +70,12 @@ pub mod generic {
         }
     }
 
+    impl<T> Shared<T> {
+        pub(crate) fn new_sized(val: T) -> Self {
+            Shared(std::rc::Rc::new(val))
+        }
+    }
+
     #[repr(transparent)]
     #[derive(Debug)]
     pub struct SharedMut<T>(std::rc::Rc<std::cell::RefCell<T>>);
@@ -165,6 +171,12 @@ pub mod generic {
 
         fn deref(&self) -> &Self::Target {
             &self.0
+        }
+    }
+
+    impl<T> Shared<T> {
+        pub(crate) fn new_sized(val: T) -> Self {
+            Shared(std::sync::Arc::new(val))
         }
     }
 

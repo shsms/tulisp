@@ -6,7 +6,7 @@ use crate::{
     cons::{self, Cons},
     error::Error,
     object::wrappers::generic::{Shared, SharedMut, SharedRef},
-    value::TulispAny,
+    value::{LexAllocator, TulispAny},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
@@ -395,17 +395,21 @@ impl TulispObject {
         TulispValue::symbol(name, constant).into_ref(None)
     }
 
-    pub(crate) fn lexical_binding(symbol: TulispObject) -> TulispObject {
+    pub(crate) fn lexical_binding(
+        allocator: Shared<LexAllocator>,
+        symbol: TulispObject,
+    ) -> TulispObject {
         let span = symbol.span();
-        TulispValue::lexical_binding(symbol).into_ref(span)
+        TulispValue::lexical_binding(allocator, symbol).into_ref(span)
     }
 
     pub(crate) fn lexical_binding_captured(
+        allocator: Shared<LexAllocator>,
         symbol: TulispObject,
-        slot: crate::object::wrappers::generic::SharedMut<TulispObject>,
+        slot: SharedMut<TulispObject>,
     ) -> TulispObject {
         let span = symbol.span();
-        TulispValue::lexical_binding_captured(symbol, slot).into_ref(span)
+        TulispValue::lexical_binding_captured(allocator, symbol, slot).into_ref(span)
     }
 
     pub(crate) fn new(vv: TulispValue, span: Option<Span>) -> TulispObject {
