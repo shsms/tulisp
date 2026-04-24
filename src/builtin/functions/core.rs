@@ -757,11 +757,6 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         }
     });
 
-    ctx.defspecial("mapcar", |ctx, args| {
-        destruct_eval_bind!(ctx, (func seq) = args);
-        ctx.map(&func, &seq)
-    });
-
     ctx.defspecial("assoc", |ctx, args| {
         destruct_eval_bind!(ctx, (key alist &optional testfn) = args);
         lists::assoc(

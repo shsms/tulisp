@@ -104,6 +104,8 @@ impl VMCompilers {
             ("if", conditionals::compile_fn_if),
             ("cond", conditionals::compile_fn_cond),
             ("while", conditionals::compile_fn_while),
+            ("dolist", conditionals::compile_fn_dolist),
+            ("dotimes", conditionals::compile_fn_dotimes),
             ("and", conditionals::compile_fn_and),
             ("or", conditionals::compile_fn_or),
             ("not", conditionals::compile_fn_not),

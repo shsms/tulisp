@@ -1523,11 +1523,27 @@ fn test_sort() -> Result<(), Error> {
         program: "(sort '(20 10 30 15 45) '>)",
         result: "'(45 30 20 15 10)",
     }
+    // With a `>`-typed predicate applied to strings, the inner
+    // `funcall` hits a number-only operator and errors. The exact
+    // string that trips it depends on the sort walk order; `hello`
+    // happens to be first under the current Lisp implementation.
+    //
+    // The trace frames inside the prelude carry the crate-absolute
+    // path to `prelude.lisp` (see `vm_eval_prelude` in `context.rs`),
+    // so we inject that at compile time via `CARGO_MANIFEST_DIR`.
+    let prelude = concat!(env!("CARGO_MANIFEST_DIR"), "/src/builtin/prelude.lisp");
     tulisp_assert! {
         program: r#"(sort '("sort" "hello" "a" "world") '>)"#,
-        error: r#"ERR TypeMismatch: Expected number, got: "world"
+        error: format!(r#"ERR TypeMismatch: Expected number, got: "hello"
+{0}:67.35-67.55:  at (funcall pred item x)
+{0}:67.15-67.56:  at (and (not inserted) (funcall pred item x))
+{0}:67.11-71.36:  at (if (and (not inserted) (funcall pred item x)) (progn (setq new (cons item new))...
+{0}:66.9-71.37:  at (dolist (x out) (if (and (not inserted) (funcall pred item x)) (progn (setq new ...
+{0}:65.7-74.33:  at (let ((inserted nil) (new nil)) (dolist (x out) (if (and (not inserted) (funcall...
+{0}:64.5-74.34:  at (dolist (item seq) (let ((inserted nil) (new nil)) (dolist (x out) (if (and (not...
+{0}:63.3-75.8:  at (let ((out nil)) (dolist (item seq) (let ((inserted nil) (new nil)) (dolist (x o...
 <eval_string>:1.1-1.39:  at (sort '("sort" "hello" "a" "world") '>)
-"#,
+"#, prelude),
     }
     tulisp_assert! {
         program: r#"(sort '("sort" "hello" "a" "world") 'string<)"#,
@@ -1537,11 +1553,22 @@ fn test_sort() -> Result<(), Error> {
         program: r#"(sort '("sort" "hello" "a" "world") 'string>)"#,
         result: r#"'("world" "sort" "hello" "a")"#,
     }
+    // With sort now implemented in Lisp, resolution of an unknown
+    // predicate fails at the inner `funcall` callsite rather than at
+    // the outer Rust-side arg-eval, so the trace has the sort body's
+    // inner frames. The root error (unbound `<<`) is unchanged.
     tulisp_assert! {
         program: "(sort '(20 10 30 15 45) '<<)",
-        error: r#"ERR Uninitialized: Variable definition is void: <<
+        error: format!(r#"ERR Uninitialized: Variable definition is void: <<
+{0}:67.35-67.55:  at (funcall pred item x)
+{0}:67.15-67.56:  at (and (not inserted) (funcall pred item x))
+{0}:67.11-71.36:  at (if (and (not inserted) (funcall pred item x)) (progn (setq new (cons item new))...
+{0}:66.9-71.37:  at (dolist (x out) (if (and (not inserted) (funcall pred item x)) (progn (setq new ...
+{0}:65.7-74.33:  at (let ((inserted nil) (new nil)) (dolist (x out) (if (and (not inserted) (funcall...
+{0}:64.5-74.34:  at (dolist (item seq) (let ((inserted nil) (new nil)) (dolist (x out) (if (and (not...
+{0}:63.3-75.8:  at (let ((out nil)) (dolist (item seq) (let ((inserted nil) (new nil)) (dolist (x o...
 <eval_string>:1.1-1.28:  at (sort '(20 10 30 15 45) '<<)
-"#
+"#, prelude)
     }
     tulisp_assert! {
         program: "(sort '(20 10 30 15 45))",

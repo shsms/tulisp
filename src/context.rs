@@ -82,6 +82,7 @@ intern_from_obarray! {
         amp_optional: "&optional",
         amp_rest: "&rest",
         lambda: "lambda",
+        funcall: "funcall",
     }
 }
 
@@ -131,6 +132,28 @@ impl TulispContext {
         builtin::macros::add(&mut ctx);
         let vm_compilers = VMCompilers::new(&mut ctx);
         ctx.compiler = Some(Compiler::new(vm_compilers));
+        // The Lisp prelude is VM-compiled so higher-order forms
+        // (`seq-filter`, `mapcar`, `sort`, …) dispatch their
+        // predicate through `Instruction::Funcall` on the current
+        // `Machine`. A Rust implementation calling `eval::funcall`
+        // would deadlock on `ctx.vm.borrow_mut()` when invoked from
+        // inside an outer VM run with a `CompiledDefun` predicate.
+        //
+        // Use the build-time absolute path of `prelude.lisp` as the
+        // synthetic filename so error traces inside these defuns
+        // point at the real source file rather than `<eval_string>`.
+        ctx.vm_eval_prelude(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/src/builtin/prelude.lisp"),
+            include_str!("builtin/prelude.lisp"),
+        )
+        .expect("built-in prelude must evaluate cleanly at init");
+        // Reset the compiler's label counter so label names in later
+        // compiles start from `:1`, keeping snapshot-style tests
+        // stable regardless of how many labels the prelude used.
+        // Labels are resolved by `TulispObject` address, not name, so
+        // a reset can't collide with the prelude's already-embedded
+        // labels.
+        ctx.compiler.as_mut().unwrap().reset_label_counter();
         ctx
     }
 
@@ -527,6 +550,37 @@ impl TulispContext {
             self,
             0,
             string,
+            #[cfg(feature = "etags")]
+            false,
+        )?;
+        let bytecode = compile(self, &vv)?;
+        let vm = self.vm.clone();
+        let res = vm.borrow_mut().run(self, bytecode);
+        drop(vm);
+        res
+    }
+
+    /// Evaluate an embedded prelude string through the VM under a
+    /// dedicated file id so any error trace from inside those defuns
+    /// cites the given `filename` instead of the shared
+    /// `<eval_string>` bucket.
+    fn vm_eval_prelude(
+        &mut self,
+        filename: &str,
+        program: &str,
+    ) -> Result<TulispObject, Error> {
+        let file_id = self
+            .filenames
+            .iter()
+            .position(|x| x == filename)
+            .unwrap_or_else(|| {
+                self.filenames.push(filename.to_owned());
+                self.filenames.len() - 1
+            });
+        let vv = parse(
+            self,
+            file_id,
+            program,
             #[cfg(feature = "etags")]
             false,
         )?;

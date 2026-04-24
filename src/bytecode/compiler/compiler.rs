@@ -41,13 +41,42 @@ impl Compiler {
         self.label_counter += 1;
         TulispObject::symbol(format!(":{}", self.label_counter), true)
     }
+
+    pub fn reset_label_counter(&mut self) {
+        self.label_counter = 0;
+    }
 }
 
 pub fn compile(ctx: &mut TulispContext, value: &TulispObject) -> Result<Bytecode, Error> {
+    // Snapshot the accumulated function set before compilation so the
+    // returned `Bytecode` carries only the defuns produced by *this*
+    // compile. The compiler itself keeps accumulating so subsequent
+    // compiles (e.g., REPL-style) can resolve names that were defined
+    // earlier, and the machine's own `bytecode.functions` grows via
+    // `import_functions` on each run.
+    let before: std::collections::HashSet<usize> = ctx
+        .compiler
+        .as_ref()
+        .unwrap()
+        .bytecode
+        .functions
+        .keys()
+        .copied()
+        .collect();
     let output = compile_progn(ctx, value)?;
     let compiler = ctx.compiler.as_mut().unwrap();
     compiler.bytecode.global = SharedMut::new(output);
-    Ok(compiler.bytecode.clone())
+    let new_functions = compiler
+        .bytecode
+        .functions
+        .iter()
+        .filter(|(k, _)| !before.contains(k))
+        .map(|(k, v)| (*k, v.clone()))
+        .collect();
+    Ok(Bytecode {
+        global: compiler.bytecode.global.clone(),
+        functions: new_functions,
+    })
 }
 
 pub fn compile_progn(

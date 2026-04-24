@@ -189,7 +189,14 @@ impl Machine {
         self.bytecode.import_functions(&bytecode);
         self.bytecode.global = bytecode.global;
         self.run_impl(ctx, &self.bytecode.global.clone(), 0)?;
-        Ok(self.stack.pop().unwrap().into())
+        // When the top-level form has no value (e.g., a program of
+        // only `defun`s), the compiler emits no trailing Push — the
+        // stack is empty, not underflowed. Return nil in that case.
+        Ok(self
+            .stack
+            .pop()
+            .map(Into::into)
+            .unwrap_or_else(TulispObject::nil))
     }
 
     /// Invoke a VM-compiled lambda with already-evaluated args. Used by
@@ -780,6 +787,19 @@ impl Machine {
         args: Vec<TulispObject>,
         recursion_depth: u32,
     ) -> Result<TulispObject, Error> {
+        // `(funcall 'funcall fn …)` — unwrap the redundant outer
+        // `funcall`. If we didn't, the symbol would eval to the
+        // `funcall` defspecial `Func` and we'd fall through to the
+        // Lambda/Func arm below, which hands control back to
+        // `eval::funcall`. That in turn would dispatch the *real*
+        // `fn` via `ctx.vm.borrow_mut()`, deadlocking on the lock
+        // we're currently inside. Peel one layer: the first arg is
+        // the new func, the rest are its args.
+        if func.eq(&ctx.keywords.funcall) && !args.is_empty() {
+            let mut args = args;
+            let inner_func = args.remove(0);
+            return self.funcall_inline(ctx, &inner_func, args, recursion_depth);
+        }
         // Mirror the `funcall` defspecial's double-eval: a bare symbol
         // resolves to its bound function; a list such as `(lambda …)`
         // passed as-is (from `(funcall '(lambda …) …)`) needs the
