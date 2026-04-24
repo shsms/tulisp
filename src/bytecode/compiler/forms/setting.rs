@@ -96,7 +96,7 @@ pub(super) fn compile_fn_let_star(
             let binding = if is_special {
                 name.clone()
             } else {
-                TulispObject::lexical_binding(name.clone())
+                TulispObject::lexical_binding(ctx.lex_allocator.clone(), name.clone())
             };
 
             match value_expr {

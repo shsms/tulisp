@@ -114,6 +114,16 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(ctx.intern(&name.as_string()?))
     });
 
+    ctx.defspecial("symbol-value", |ctx, args| {
+        destruct_eval_bind!(ctx, (sym) = args);
+        if !sym.symbolp() {
+            return Err(Error::type_mismatch(format!(
+                "symbol-value: expected a symbol, got {sym}"
+            )));
+        }
+        sym.get()
+    });
+
     fn make_symbol(name: String) -> Result<TulispObject, Error> {
         let constant = name.starts_with(":");
         Ok(TulispObject::symbol(name, constant))

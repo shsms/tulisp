@@ -252,7 +252,8 @@ pub(super) fn compile_fn_defun(
                 is_optional = false;
                 is_rest = true;
             } else {
-                let lex = TulispObject::lexical_binding(arg.clone());
+                let lex =
+                    TulispObject::lexical_binding(ctx.lex_allocator.clone(), arg.clone());
                 mappings.push((arg.clone(), lex.clone()));
                 if is_optional {
                     defun_params.optional.push(lex);
