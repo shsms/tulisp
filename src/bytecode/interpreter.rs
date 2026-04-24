@@ -1,4 +1,7 @@
-use super::{bytecode::Bytecode, bytecode::CompiledDefun, compiler::VMDefunParams, Instruction};
+use super::{
+    bytecode::Bytecode, bytecode::CompiledDefun, compiler::VMDefunParams, Instruction,
+    LambdaTemplate,
+};
 use crate::{
     bytecode::Pos, lists, object::wrappers::generic::SharedMut, Error, TulispContext, TulispObject,
     TulispValue,
@@ -189,6 +192,60 @@ impl Machine {
         Ok(self.stack.pop().unwrap().into())
     }
 
+    /// Invoke a VM-compiled lambda with already-evaluated args. Used by
+    /// `eval::funcall` when it encounters a `TulispValue::CompiledDefun`.
+    pub(crate) fn run_lambda(
+        &mut self,
+        ctx: &mut TulispContext,
+        compiled: &CompiledDefun,
+        args: &[TulispObject],
+    ) -> Result<TulispObject, Error> {
+        let required = compiled.params.required.len();
+        let optional = compiled.params.optional.len();
+        let has_rest = compiled.params.rest.is_some();
+
+        if args.len() < required {
+            return Err(Error::missing_argument("Too few arguments".to_string()));
+        }
+        if !has_rest && args.len() > required + optional {
+            return Err(Error::invalid_argument("Too many arguments".to_string()));
+        }
+
+        let left_args = args.len() - required;
+        let (optional_count, rest_count) = if left_args > optional {
+            (optional, left_args - optional)
+        } else {
+            (left_args, 0)
+        };
+
+        // Push args in order; `init_defun_args` pops them in reverse
+        // to match `params.required` + `params.optional` + `rest` layout.
+        for a in args {
+            self.stack.push(a.clone());
+        }
+
+        // Use the same trampoline the `Call` handler uses so tail calls
+        // from the lambda body unwind without Rust-stack growth.
+        let mut current = compiled.clone();
+        let mut current_optional = optional_count;
+        let mut current_rest = rest_count;
+        loop {
+            let params = self.init_defun_args(&current.params, &current_optional, &current_rest);
+            let tail = self.run_function(ctx, &current.instructions, 1)?;
+            drop(params);
+            match tail {
+                Some(info) => {
+                    current = info.function;
+                    current_optional = info.optional_count;
+                    current_rest = info.rest_count;
+                }
+                None => break,
+            }
+        }
+
+        Ok(self.stack.pop().unwrap())
+    }
+
     fn run_impl(
         &mut self,
         ctx: &mut TulispContext,
@@ -247,7 +304,15 @@ impl Machine {
                             full_path.to_string_lossy()
                         ))
                     })?;
-                    let result = ctx.eval_file(full_path)?;
+                    // `(load …)` from VM-compiled code compiles the
+                    // loaded file through the VM as well — so defuns
+                    // in the loaded file register in `bytecode.functions`
+                    // and subsequent calls dispatch directly via the
+                    // `Call` instruction (same as if they had been
+                    // written in the outer file).
+                    drop(instr_ref);
+                    let result = vm_eval_file_inline(ctx, self, full_path)?;
+                    instr_ref = program.borrow_mut();
                     self.stack.push(result.into());
                 }
                 Instruction::PrintPop => {
@@ -435,31 +500,50 @@ impl Machine {
                 } => {
                     if function.is_none() {
                         let addr = name.addr_as_usize();
-                        let Some(func) = self.bytecode.functions.get(&addr) else {
-                            return Err(Error::new(
-                                crate::ErrorKind::Undefined,
-                                format!("undefined function: {}", name),
-                            )
-                            .with_trace(name.clone()));
-                        };
-                        let func = func.clone();
+                        if let Some(func) = self.bytecode.functions.get(&addr) {
+                            let func = func.clone();
 
-                        if *args_count < func.params.required.len() {
-                            return Err(Error::missing_argument("Too few arguments".to_string()));
+                            if *args_count < func.params.required.len() {
+                                return Err(Error::missing_argument(
+                                    "Too few arguments".to_string(),
+                                ));
+                            }
+                            if func.params.rest.is_none()
+                                && *args_count
+                                    > func.params.required.len() + func.params.optional.len()
+                            {
+                                return Err(Error::invalid_argument(
+                                    "Too many arguments".to_string(),
+                                ));
+                            }
+                            let left_args = *args_count - func.params.required.len();
+                            if left_args > func.params.optional.len() {
+                                *rest_count = left_args - func.params.optional.len();
+                                *optional_count = func.params.optional.len();
+                            } else if left_args > 0 {
+                                *optional_count = left_args
+                            }
+                            *function = Some(func);
+                        } else {
+                            // Target isn't a VM-compiled defun. It might
+                            // be a TW `Lambda` (e.g., defined by a file
+                            // loaded via `(load …)` → TW `eval_file`),
+                            // a `Func` defspecial, or a variable holding
+                            // a compiled closure. Fall back to the same
+                            // dispatch the inline `Funcall` uses.
+                            let args_count = *args_count;
+                            let split_at = self.stack.len() - args_count;
+                            let args: Vec<TulispObject> =
+                                self.stack.drain(split_at..).collect();
+                            let name = name.clone();
+                            drop(instr_ref);
+                            let result =
+                                self.funcall_inline(ctx, &name, args, recursion_depth)?;
+                            self.stack.push(result);
+                            instr_ref = program.borrow_mut();
+                            pc += 1;
+                            continue;
                         }
-                        if func.params.rest.is_none()
-                            && *args_count > func.params.required.len() + func.params.optional.len()
-                        {
-                            return Err(Error::invalid_argument("Too many arguments".to_string()));
-                        }
-                        let left_args = *args_count - func.params.required.len();
-                        if left_args > func.params.optional.len() {
-                            *rest_count = left_args - func.params.optional.len();
-                            *optional_count = func.params.optional.len();
-                        } else if left_args > 0 {
-                            *optional_count = left_args
-                        }
-                        *function = Some(func);
                     }
 
                     let mut current_function = function.as_ref().unwrap().clone();
@@ -535,6 +619,21 @@ impl Machine {
                     return Ok(Some(info));
                 }
                 Instruction::Ret => return Ok(None),
+                Instruction::MakeLambda(template) => {
+                    let closure = make_lambda_from_template(ctx, template)?;
+                    register_lambda_labels(self, &closure);
+                    self.stack.push(closure);
+                }
+                Instruction::Funcall { args_count } => {
+                    let args_count = *args_count;
+                    let split_at = self.stack.len() - args_count;
+                    let args: Vec<TulispObject> = self.stack.drain(split_at..).collect();
+                    let func = self.stack.pop().unwrap();
+                    drop(instr_ref);
+                    let result = self.funcall_inline(ctx, &func, args, recursion_depth)?;
+                    self.stack.push(result);
+                    instr_ref = program.borrow_mut();
+                }
                 Instruction::RustCall {
                     func, keep_result, ..
                 } => {
@@ -667,5 +766,372 @@ impl Machine {
         recursion_depth: u32,
     ) -> Result<Option<TailCallInfo>, Error> {
         self.run_impl(ctx, instructions, recursion_depth)
+    }
+
+    /// In-VM `funcall` dispatch used by `Instruction::Funcall`. Args are
+    /// already fully evaluated — `ctx.vm` is actively borrowed by the
+    /// caller, so we can't go through `eval::funcall` (it would
+    /// re-borrow for the VM path). Instead we dispatch each callable
+    /// variant using the machine we already have.
+    fn funcall_inline(
+        &mut self,
+        ctx: &mut TulispContext,
+        func: &TulispObject,
+        args: Vec<TulispObject>,
+        recursion_depth: u32,
+    ) -> Result<TulispObject, Error> {
+        // Mirror the `funcall` defspecial's double-eval: a bare symbol
+        // resolves to its bound function; a list such as `(lambda …)`
+        // passed as-is (from `(funcall '(lambda …) …)`) needs the
+        // inner form executed to become a Lambda value.
+        let resolved = if func.symbolp() && !func.keywordp() {
+            ctx.eval(func)?
+        } else if func.consp() {
+            ctx.eval(func)?
+        } else {
+            func.clone()
+        };
+        let inner = resolved.inner_ref();
+        match &inner.0 {
+            TulispValue::CompiledDefun { value } => {
+                let cd = value.clone();
+                drop(inner);
+                self.run_lambda_with(ctx, &cd, args, recursion_depth)
+            }
+            TulispValue::Lambda { .. } | TulispValue::Func(_) => {
+                drop(inner);
+                // Rebuild an arg list TulispObject (quoted so the TW
+                // side doesn't re-evaluate already-resolved values).
+                let list = TulispObject::nil();
+                for a in args {
+                    list.push(TulispValue::Quote { value: a }.into_ref(None))?;
+                }
+                crate::eval::funcall::<crate::eval::Eval>(ctx, &resolved, &list)
+            }
+            _ => Err(Error::undefined(format!("function is void: {}", resolved))),
+        }
+    }
+
+    /// Internal variant of `run_lambda` used when we're already inside
+    /// a VM run and have `&mut self` on the current machine.
+    fn run_lambda_with(
+        &mut self,
+        ctx: &mut TulispContext,
+        compiled: &CompiledDefun,
+        args: Vec<TulispObject>,
+        recursion_depth: u32,
+    ) -> Result<TulispObject, Error> {
+        let required = compiled.params.required.len();
+        let optional = compiled.params.optional.len();
+        let has_rest = compiled.params.rest.is_some();
+
+        if args.len() < required {
+            return Err(Error::missing_argument("Too few arguments".to_string()));
+        }
+        if !has_rest && args.len() > required + optional {
+            return Err(Error::invalid_argument("Too many arguments".to_string()));
+        }
+
+        let left_args = args.len() - required;
+        let (optional_count, rest_count) = if left_args > optional {
+            (optional, left_args - optional)
+        } else {
+            (left_args, 0)
+        };
+
+        for a in args {
+            self.stack.push(a);
+        }
+
+        let mut current = compiled.clone();
+        let mut current_optional = optional_count;
+        let mut current_rest = rest_count;
+        loop {
+            let params =
+                self.init_defun_args(&current.params, &current_optional, &current_rest);
+            let tail = self.run_function(ctx, &current.instructions, recursion_depth + 1)?;
+            drop(params);
+            match tail {
+                Some(info) => {
+                    current = info.function;
+                    current_optional = info.optional_count;
+                    current_rest = info.rest_count;
+                }
+                None => break,
+            }
+        }
+        Ok(self.stack.pop().unwrap())
+    }
+}
+
+/// In-VM version of `ctx.vm_eval_file` — parses & compiles the given
+/// file, merges its labels + `bytecode.functions` into the running
+/// machine, and evaluates its top-level forms on the current stack.
+/// Unlike the external `vm_eval_file`, this doesn't call
+/// `vm.borrow_mut().run(…)` — we're already holding `&mut self`.
+fn vm_eval_file_inline(
+    ctx: &mut TulispContext,
+    machine: &mut Machine,
+    path: &str,
+) -> Result<TulispObject, Error> {
+    let ast = ctx.parse_file(path)?;
+    let bytecode = crate::bytecode::compile(ctx, &ast)?;
+    let labels = Machine::locate_labels(&bytecode);
+    machine.labels.extend(labels);
+    machine.bytecode.import_functions(&bytecode);
+    let sub_global = bytecode.global.clone();
+    machine.run_impl(ctx, &sub_global, 1)?;
+    // `compile_progn` only keeps the result of the last form on the
+    // stack; for forms that produced no value (e.g., a `defun`) we
+    // return nil.
+    Ok(machine.stack.pop().unwrap_or_else(TulispObject::nil))
+}
+
+/// After phase-2 materialization, the closure's `Instruction::Label`
+/// positions need to be known to the running machine so that
+/// `Pos::Label` jumps (emitted by `and`/`or`/`cond`/etc.) can resolve.
+/// `locate_labels` only walks the top-level bytecode, not the lambda
+/// templates nested inside `MakeLambda`, so register them here when a
+/// closure is built.
+fn register_lambda_labels(machine: &mut Machine, closure: &TulispObject) {
+    let inner = closure.inner_ref();
+    let TulispValue::CompiledDefun { value } = &inner.0 else {
+        return;
+    };
+    let instructions = value.instructions.clone();
+    drop(inner);
+    let borrow = instructions.borrow();
+    for (i, instr) in borrow.iter().enumerate() {
+        if let Instruction::Label(name) = instr {
+            machine.labels.insert(name.addr_as_usize(), i + 1);
+        }
+    }
+}
+
+/// Extracts the original symbol from a placeholder LexicalBinding; if
+/// `obj` isn't a LexicalBinding (shouldn't happen for our placeholders)
+/// it's returned as-is.
+fn placeholder_symbol(obj: &TulispObject) -> TulispObject {
+    let inner = obj.inner_ref();
+    if let TulispValue::LexicalBinding { binding } = &inner.0 {
+        let s = binding.symbol().clone();
+        drop(inner);
+        s
+    } else {
+        drop(inner);
+        obj.clone()
+    }
+}
+
+/// Phase 2 of the two-phase lambda compile: given a `LambdaTemplate`
+/// and the current evaluation context, (a) capture each free var's
+/// slot, (b) mint fresh LexicalBindings for the params, (c) clone the
+/// template's instruction vector and rewrite placeholder references to
+/// those new bindings, then (d) wrap the result in a
+/// `TulispValue::CompiledDefun` so `funcall` can dispatch it to the VM.
+fn make_lambda_from_template(
+    ctx: &mut TulispContext,
+    template: &LambdaTemplate,
+) -> Result<TulispObject, Error> {
+    let allocator = ctx.lex_allocator.clone();
+    let mut mapping: HashMap<usize, TulispObject> =
+        HashMap::with_capacity(template.param_placeholders.len() + template.free_vars.len());
+
+    // Free vars: share the enclosing scope's slot if there is one,
+    // otherwise fall back to the original symbol (global/dynamic
+    // reference — no capture).
+    for (orig, placeholder) in &template.free_vars {
+        let slot = {
+            let inner = orig.inner_ref();
+            match &inner.0 {
+                TulispValue::LexicalBinding { binding } => binding.current_slot(),
+                _ => None,
+            }
+        };
+        let replacement = if let Some(slot) = slot {
+            TulispObject::lexical_binding_captured(allocator.clone(), orig.clone(), slot)
+        } else {
+            orig.clone()
+        };
+        mapping.insert(placeholder.addr_as_usize(), replacement);
+    }
+
+    // Params: each gets a fresh LexicalBinding; at call time, arg
+    // values are pushed onto the binding's thread-local stack.
+    for placeholder in &template.param_placeholders {
+        let sym = placeholder_symbol(placeholder);
+        let fresh = TulispObject::lexical_binding(allocator.clone(), sym);
+        mapping.insert(placeholder.addr_as_usize(), fresh);
+    }
+
+    let rewrite = |obj: &mut TulispObject| {
+        if let Some(replacement) = mapping.get(&obj.addr_as_usize()) {
+            *obj = replacement.clone();
+        }
+    };
+
+    let mut instructions = template.instructions.clone();
+    for insn in instructions.iter_mut() {
+        rewrite_instruction(insn, &mapping, &rewrite);
+    }
+
+    let rewrite_obj = |obj: &TulispObject| -> TulispObject {
+        mapping
+            .get(&obj.addr_as_usize())
+            .cloned()
+            .unwrap_or_else(|| obj.clone())
+    };
+    let params = VMDefunParams {
+        required: template.params.required.iter().map(&rewrite_obj).collect(),
+        optional: template.params.optional.iter().map(&rewrite_obj).collect(),
+        rest: template.params.rest.as_ref().map(&rewrite_obj),
+    };
+
+    let cd = CompiledDefun {
+        name: TulispObject::nil(),
+        instructions: SharedMut::new(instructions),
+        params,
+    };
+    Ok(TulispValue::CompiledDefun { value: cd }.into_ref(None))
+}
+
+/// Apply the outer closure's placeholder→binding map to a single
+/// instruction. For nested `MakeLambda`, descend and produce a rebuilt
+/// `LambdaTemplate` so the inner template's free-var keys become the
+/// outer's fresh bindings (so when the inner later runs its own phase
+/// 2 it finds the right slots).
+fn rewrite_instruction(
+    insn: &mut Instruction,
+    mapping: &HashMap<usize, TulispObject>,
+    rewrite: &impl Fn(&mut TulispObject),
+) {
+    match insn {
+        Instruction::Load(o)
+        | Instruction::Store(o)
+        | Instruction::StorePop(o)
+        | Instruction::BeginScope(o)
+        | Instruction::EndScope(o) => rewrite(o),
+        Instruction::Push(o) => {
+            // `Push` can carry an AST subtree — notably the args list
+            // of a `RustCall`-dispatched defun call — that may contain
+            // placeholder LexicalBinding references inside cons cells.
+            // Walk the subtree and materialize a fresh copy with
+            // placeholders substituted; the original AST is shared
+            // across all closures from this template, so we must not
+            // mutate in place.
+            if ast_contains_placeholder(o, mapping) {
+                *o = rewrite_ast(o, mapping);
+            }
+        }
+        Instruction::MakeLambda(template) => {
+            let rebuilt = rewrite_template(template, mapping);
+            *template = crate::object::wrappers::generic::Shared::new_sized(rebuilt);
+        }
+        _ => {}
+    }
+}
+
+/// Quick check: does `obj` or any cons-cell descendant reference a
+/// placeholder? Avoids the expensive deep-copy when Push holds plain
+/// literals (numbers, strings, etc.).
+fn ast_contains_placeholder(
+    obj: &TulispObject,
+    mapping: &HashMap<usize, TulispObject>,
+) -> bool {
+    if mapping.contains_key(&obj.addr_as_usize()) {
+        return true;
+    }
+    if obj.consp() {
+        let mut cur = obj.clone();
+        while cur.consp() {
+            let Ok(car) = cur.car() else { break };
+            if ast_contains_placeholder(&car, mapping) {
+                return true;
+            }
+            let Ok(next) = cur.cdr() else { break };
+            if !next.consp() {
+                if mapping.contains_key(&next.addr_as_usize()) {
+                    return true;
+                }
+                break;
+            }
+            cur = next;
+        }
+    }
+    false
+}
+
+/// Deep-clone `obj`, substituting any placeholder reference with the
+/// mapped binding. Only descends through cons lists; quoted literals
+/// and other value kinds pass through unchanged.
+fn rewrite_ast(
+    obj: &TulispObject,
+    mapping: &HashMap<usize, TulispObject>,
+) -> TulispObject {
+    if let Some(replacement) = mapping.get(&obj.addr_as_usize()) {
+        return replacement.clone();
+    }
+    if obj.consp() {
+        let result = TulispObject::nil().with_span(obj.span());
+        let mut cur = obj.clone();
+        loop {
+            let Ok(car) = cur.car() else { break };
+            let _ = result.push(rewrite_ast(&car, mapping));
+            let Ok(next) = cur.cdr() else { break };
+            if next.null() {
+                break;
+            }
+            if !next.consp() {
+                let tail = mapping
+                    .get(&next.addr_as_usize())
+                    .cloned()
+                    .unwrap_or_else(|| next.clone());
+                let _ = result.append(tail);
+                break;
+            }
+            cur = next;
+        }
+        return result;
+    }
+    obj.clone()
+}
+
+/// Clone `template` but with every `(orig, placeholder)` in `free_vars`
+/// whose `orig` appears in `mapping` rewritten to the mapped binding —
+/// and with nested `MakeLambda` instructions in the body recursively
+/// rebuilt the same way. The inner placeholder keys themselves stay
+/// intact so the inner's phase-2 rewrite still finds them.
+fn rewrite_template(
+    template: &LambdaTemplate,
+    mapping: &HashMap<usize, TulispObject>,
+) -> LambdaTemplate {
+    let rewrite = |obj: &mut TulispObject| {
+        if let Some(replacement) = mapping.get(&obj.addr_as_usize()) {
+            *obj = replacement.clone();
+        }
+    };
+
+    let new_free_vars: Vec<(TulispObject, TulispObject)> = template
+        .free_vars
+        .iter()
+        .map(|(orig, ph)| {
+            let new_orig = mapping
+                .get(&orig.addr_as_usize())
+                .cloned()
+                .unwrap_or_else(|| orig.clone());
+            (new_orig, ph.clone())
+        })
+        .collect();
+
+    let mut new_instructions = template.instructions.clone();
+    for insn in new_instructions.iter_mut() {
+        rewrite_instruction(insn, mapping, &rewrite);
+    }
+
+    LambdaTemplate {
+        instructions: new_instructions,
+        param_placeholders: template.param_placeholders.clone(),
+        params: template.params.clone(),
+        free_vars: new_free_vars,
     }
 }

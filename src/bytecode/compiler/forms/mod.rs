@@ -10,6 +10,7 @@ mod arithmetic_operations;
 mod common;
 mod comparison_of_numbers;
 mod conditionals;
+mod lambda;
 mod list_elements;
 mod other_functions;
 mod plist;
@@ -55,6 +56,8 @@ impl VMCompilers {
             ("print", other_functions::compile_fn_print),
             ("quote", other_functions::compile_fn_quote),
             ("defun", other_functions::compile_fn_defun),
+            ("lambda", lambda::compile_fn_lambda),
+            ("funcall", lambda::compile_fn_funcall),
             ("progn", other_functions::compile_fn_progn),
             // setting
             ("let", setting::compile_fn_let_star),

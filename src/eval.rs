@@ -158,6 +158,13 @@ fn eval_lambda<E: Evaluator>(
             TulispValue::Lambda { params, body } => {
                 eval_function::<DummyEval>(ctx, params, body, &bounce_args)?
             }
+            TulispValue::CompiledDefun { value } => {
+                let evaluated = eval_args_for_vm::<DummyEval>(ctx, &value.params, &bounce_args)?;
+                let vm = ctx.vm.clone();
+                let value = value.clone();
+                drop(inner);
+                vm.borrow_mut().run_lambda(ctx, &value, &evaluated)?
+            }
             TulispValue::Func(f) => f(ctx, &bounce_args)?,
             _ => return Err(Error::undefined(format!("function is void: {}", func))),
         };
@@ -183,12 +190,64 @@ pub(crate) fn funcall<E: Evaluator>(
     match &func.inner_ref().0 {
         TulispValue::Func(func) => func(ctx, args),
         TulispValue::Lambda { params, body } => eval_lambda::<E>(ctx, params, body, args),
+        TulispValue::CompiledDefun { value } => {
+            // Anonymous lambdas compiled by the VM land here. Evaluate
+            // args honoring &optional / &rest layout, then dispatch to
+            // `Machine::run_lambda` instead of returning to the TW.
+            let evaluated = eval_args_for_vm::<E>(ctx, &value.params, args)?;
+            let vm = ctx.vm.clone();
+            let result = vm.borrow_mut().run_lambda(ctx, value, &evaluated);
+            result
+        }
         TulispValue::Macro(_) | TulispValue::Defmacro { .. } => {
             let expanded = macroexpand(ctx, list!(func.clone() ,@args.clone())?)?;
             ctx.eval(&expanded)
         }
         _ => Err(Error::undefined(format!("function is void: {}", func))),
     }
+}
+
+/// Evaluate call-site args against a `VMDefunParams`. Required params
+/// eat the first N args; each optional param eats the next arg or
+/// defaults to nil; `&rest` soaks up what's left. Expression
+/// evaluation goes through `E::eval`, same as the TW path.
+fn eval_args_for_vm<E: Evaluator>(
+    ctx: &mut TulispContext,
+    params: &crate::bytecode::VMDefunParams,
+    args: &TulispObject,
+) -> Result<Vec<TulispObject>, Error> {
+    let mut out = Vec::new();
+    let mut args_iter = args.base_iter();
+    for _ in &params.required {
+        let Some(arg) = args_iter.next() else {
+            return Err(Error::missing_argument("Too few arguments".to_string()));
+        };
+        out.push(match E::eval(ctx, &arg)? {
+            Cow::Borrowed(_) => arg,
+            Cow::Owned(o) => o,
+        });
+    }
+    for _ in &params.optional {
+        let val = match args_iter.next() {
+            Some(arg) => match E::eval(ctx, &arg)? {
+                Cow::Borrowed(_) => arg,
+                Cow::Owned(o) => o,
+            },
+            None => TulispObject::nil(),
+        };
+        out.push(val);
+    }
+    if params.rest.is_some() {
+        for arg in args_iter.by_ref() {
+            out.push(match E::eval(ctx, &arg)? {
+                Cow::Borrowed(_) => arg,
+                Cow::Owned(o) => o,
+            });
+        }
+    } else if args_iter.next().is_some() {
+        return Err(Error::invalid_argument("Too many arguments".to_string()));
+    }
+    Ok(out)
 }
 
 #[inline(always)]

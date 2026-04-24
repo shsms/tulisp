@@ -1255,6 +1255,81 @@ fn test_lexical_binding() -> Result<(), Error> {
         result: "'ok",
     }
 
+    // VM-specific: an anonymous lambda created inside a function body
+    // must compile via the two-phase scheme (MakeLambda + inline
+    // Funcall) without falling back to the TW. Closure captures the
+    // enclosing defun param.
+    tulisp_assert! {
+        program: r#"
+        (defun make-scaler (k)
+          (lambda (x) (* k x)))
+        (funcall (make-scaler 7) 6)
+        "#,
+        result: "42",
+    }
+
+    // Self-recursive via funcall-of-letrec-style closure. Exercises
+    // the MakeLambda capturing its own just-bound slot.
+    tulisp_assert! {
+        program: r#"
+        (setq fact (lambda (n) (if (<= n 1) 1 (* n (funcall fact (- n 1))))))
+        (funcall fact 5)
+        "#,
+        result: "120",
+    }
+
+    // Regression: a closure captures a let-bound free var, takes a
+    // param whose name matches that of the *caller's* defun param
+    // (the caller's param is shadowed by its own let* with the same
+    // name; also calls a defun — not defspecial — whose args list
+    // carries placeholders that must be rewritten at phase 2).
+    tulisp_assert! {
+        program: r#"
+        (defun make-scaler (seed)
+          (let ((base (+ seed 100)))
+            (lambda (v) (floor (+ v base)))))
+        (defun wrap (id v)
+          (let* ((fn (make-scaler 0))
+                 (v (ftruncate (+ v 1))))
+            (funcall fn v)))
+        (wrap 1 5.5)
+        "#,
+        result: "106",
+    }
+
+    // Regression: a nested-closure scenario. An outer closure captures
+    // a let-bound inner closure via `set`/`symbol-value` indirection,
+    // and both closures take a param of the same name that is also
+    // shadowed by a let*-bound var in the caller. Exercises label
+    // registration + placeholder rewrite of the Push(args) AST inside
+    // the closure's body.
+    tulisp_assert! {
+        program: r#"
+        (defun sum-list (xs)
+          (let ((acc 0))
+            (dolist (x xs) (setq acc (+ acc x)))
+            acc))
+        (defun make-inner-check (xs)
+          (let ((limit (sum-list xs)))
+            (lambda (v) (<= v limit))))
+        (defun install-outer-check (sym xs)
+          (let ((inner-check (make-inner-check xs)))
+            (set sym
+              (lambda (v)
+                (and (funcall inner-check v)
+                     (> v 0))))))
+        (install-outer-check 'my-check-fn '(10 20 30))
+        (defun run-check (id v)
+          (let* ((check-fn (symbol-value 'my-check-fn))
+                 (v (ftruncate v)))
+            (if (funcall check-fn v)
+                'ok
+              'out-of-bounds)))
+        (list (run-check 1 30.5) (run-check 1 70.0) (run-check 1 -5.0))
+        "#,
+        result: "'(ok out-of-bounds out-of-bounds)",
+    }
+
     Ok(())
 }
 

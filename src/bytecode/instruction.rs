@@ -4,6 +4,7 @@ use crate::{
 };
 
 use super::bytecode::CompiledDefun;
+use super::lambda_template::LambdaTemplate;
 
 #[derive(Clone)]
 pub(crate) enum Pos {
@@ -125,6 +126,18 @@ pub(crate) enum Instruction {
         optional_count: usize,
         rest_count: usize,
     },
+    /// Instantiate an anonymous `(lambda …)` at runtime: capture the
+    /// enclosing scope's slots for each free var, bind fresh slots for
+    /// params, rewrite the template's instruction vector with those
+    /// bindings, and push the resulting closure (as a
+    /// `TulispValue::CompiledDefun`) on the stack.
+    MakeLambda(Shared<LambdaTemplate>),
+    /// Inline `(funcall fn arg1 …)` dispatch. The function value is
+    /// pushed first, then each arg, in source order (so at execution
+    /// the top of stack is the last arg, `args_count + 1` below it is
+    /// the function). Used to keep nested calls inside a VM run from
+    /// re-entering `eval::funcall` (which would re-borrow `ctx.vm`).
+    Funcall { args_count: usize },
     Ret,
     // lists
     Cons,
@@ -176,6 +189,8 @@ impl std::fmt::Display for Instruction {
             Instruction::Jump(pos) => write!(f, "    jmp {}", pos),
             Instruction::Call { name, .. } => write!(f, "    call {}", name),
             Instruction::TailCall { name, .. } => write!(f, "    tcall {}", name),
+            Instruction::MakeLambda(_) => write!(f, "    make_lambda"),
+            Instruction::Funcall { args_count } => write!(f, "    funcall {}", args_count),
             Instruction::Ret => write!(f, "    ret"),
             Instruction::RustCall { name, .. } => write!(f, "    rustcall {}", name),
             Instruction::Label(name) => write!(f, "{}", name),

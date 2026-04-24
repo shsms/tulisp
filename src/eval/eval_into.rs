@@ -49,6 +49,11 @@ impl EvalInto<Number> for TulispObject {
             TulispValue::List { .. } => eval_form::<Eval>(ctx, self)
                 .map_err(|e| e.with_trace(self.clone()))?
                 .as_number(),
+            TulispValue::Quote { value } => {
+                let v = value.clone();
+                drop(inner);
+                v.eval_into(ctx)
+            }
             _ => Err(Error::type_mismatch(format!(
                 "Expected number, got: {}",
                 self
