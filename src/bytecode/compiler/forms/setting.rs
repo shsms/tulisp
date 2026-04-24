@@ -3,7 +3,9 @@ use crate::{
         compiler::compiler::{compile_expr_keep_result, compile_progn},
         Instruction,
     },
-    destruct_bind, Error, ErrorKind, TulispContext, TulispObject,
+    destruct_bind,
+    eval::substitute_lexical,
+    Error, ErrorKind, TulispContext, TulispObject,
 };
 
 pub(super) fn compile_fn_setq(
@@ -46,18 +48,11 @@ pub(super) fn compile_fn_let_star(
 ) -> Result<Vec<Instruction>, Error> {
     ctx.compile_1_arg_call(name, args, true, |ctx, varlist, body| {
         let mut result = vec![];
-        let mut params = vec![];
-        let mut symbols = vec![];
+        let mut params: Vec<TulispObject> = Vec::new();
+        let mut mappings: Vec<(TulispObject, TulispObject)> = Vec::new();
         for varitem in varlist.base_iter() {
-            if varitem.symbolp() {
-                let param = varitem.clone();
-                params.push(param.clone());
-                result.append(&mut vec![
-                    Instruction::Push(false.into()),
-                    Instruction::BeginScope(param),
-                ]);
-
-                symbols.push(varitem);
+            let (name, value_expr): (TulispObject, Option<TulispObject>) = if varitem.symbolp() {
+                (varitem.clone(), None)
             } else if varitem.consp() {
                 let varitem_clone = varitem.clone();
                 destruct_bind!((&optional name value &rest rest) = varitem_clone);
@@ -82,12 +77,7 @@ pub(super) fn compile_fn_let_star(
                     )
                     .with_trace(varitem));
                 }
-                let param = name.clone();
-                params.push(param.clone());
-                result.append(
-                    &mut compile_expr_keep_result(ctx, &value).map_err(|e| e.with_trace(value))?,
-                );
-                result.push(Instruction::BeginScope(param));
+                (name, Some(value))
             } else {
                 return Err(Error::new(
                     ErrorKind::SyntaxError,
@@ -97,9 +87,37 @@ pub(super) fn compile_fn_let_star(
                     ),
                 )
                 .with_trace(varitem));
+            };
+
+            // Dynamic (special) vars skip lexical rewriting — they bind
+            // on the symbol's own stack so `set` / dynamic references
+            // resolve to the let-bound value.
+            let is_special = name.is_special();
+            let binding = if is_special {
+                name.clone()
+            } else {
+                TulispObject::lexical_binding(name.clone())
+            };
+
+            match value_expr {
+                None => result.push(Instruction::Push(false.into())),
+                Some(value) => {
+                    let value = substitute_lexical(value, &mappings)
+                        .map_err(|e| e.with_trace(varitem.clone()))?;
+                    result.append(
+                        &mut compile_expr_keep_result(ctx, &value)
+                            .map_err(|e| e.with_trace(value))?,
+                    );
+                }
+            }
+            result.push(Instruction::BeginScope(binding.clone()));
+            params.push(binding.clone());
+            if !is_special {
+                mappings.push((name, binding));
             }
         }
-        let mut body = compile_progn(ctx, body)?;
+        let rewritten_body = substitute_lexical(body.clone(), &mappings)?;
+        let mut body = compile_progn(ctx, &rewritten_body)?;
         if body.is_empty() {
             return Ok(vec![]);
         }

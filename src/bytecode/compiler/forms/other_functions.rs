@@ -9,6 +9,7 @@ use crate::{
         },
         Instruction, Pos,
     },
+    eval::substitute_lexical,
     list,
     object::wrappers::generic::SharedMut,
     parse::mark_tail_calls,
@@ -230,6 +231,7 @@ pub(super) fn compile_fn_defun(
         let args = args.base_iter().collect::<Vec<_>>();
         let mut is_optional = false;
         let mut is_rest = false;
+        let mut mappings: Vec<(TulispObject, TulispObject)> = Vec::new();
         for arg in args.iter() {
             if arg.eq(&ctx.keywords.amp_optional) {
                 if is_rest {
@@ -249,19 +251,23 @@ pub(super) fn compile_fn_defun(
                 }
                 is_optional = false;
                 is_rest = true;
-            } else if is_optional {
-                defun_params.optional.push(arg.clone());
-            } else if is_rest {
-                if defun_params.rest.is_some() {
-                    return Err(Error::new(
-                        ErrorKind::Undefined,
-                        "multiple rest arguments".to_string(),
-                    )
-                    .with_trace(arg.clone()));
-                }
-                defun_params.rest = Some(arg.clone());
             } else {
-                defun_params.required.push(arg.clone());
+                let lex = TulispObject::lexical_binding(arg.clone());
+                mappings.push((arg.clone(), lex.clone()));
+                if is_optional {
+                    defun_params.optional.push(lex);
+                } else if is_rest {
+                    if defun_params.rest.is_some() {
+                        return Err(Error::new(
+                            ErrorKind::Undefined,
+                            "multiple rest arguments".to_string(),
+                        )
+                        .with_trace(arg.clone()));
+                    }
+                    defun_params.rest = Some(lex);
+                } else {
+                    defun_params.required.push(lex);
+                }
             }
         }
 
@@ -282,6 +288,7 @@ pub(super) fn compile_fn_defun(
             println!("mark_tail_calls error: {:?}", e);
             e
         })?;
+        let body = substitute_lexical(body, &mappings)?;
         let mut result = compile_progn_keep_result(ctx, &body)?;
         result.push(Instruction::Ret);
 
