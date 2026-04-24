@@ -1,84 +1,48 @@
-use crate::builtin::functions::functions::reduce_with;
-use crate::eval::eval;
-use crate::{ErrorKind, destruct_eval_bind};
-
-use crate::{Error, TulispContext, TulispObject, TulispValue};
-
-use std::rc::Rc;
+use crate::Number;
+use crate::builtin::functions::core::reduce_with;
+use crate::eval::EvalInto;
+use crate::{Error, TulispContext, TulispObject};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
     fn add(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
-        reduce_with(ctx, args, binary_ops!(std::ops::Add::add))
+        reduce_with(ctx, args, |a, b| Ok(a + b))
     }
-    intern_set_func!(ctx, add, "+");
+    ctx.defspecial("+", add);
 
     fn sub(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
         if let Some(cons) = args.as_list_cons() {
             if cons.cdr().null() {
-                let vv = binary_ops!(std::ops::Sub::sub)(&0.into(), &eval(ctx, cons.car())?)?;
-                Ok(vv)
+                let value: Number = cons.car().eval_into(ctx)?;
+                let vv = Number::from(0) - value;
+                Ok(vv.into())
             } else {
-                reduce_with(ctx, args, binary_ops!(std::ops::Sub::sub))
+                reduce_with(ctx, args, |a, b| Ok(a - b))
             }
         } else {
-            Err(Error::new(
-                ErrorKind::MissingArgument,
+            Err(Error::missing_argument(
                 "Call to `sub` without any arguments".to_string(),
             ))
         }
     }
-    intern_set_func!(ctx, sub, "-");
+    ctx.defspecial("-", sub);
 
     fn mul(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
-        reduce_with(ctx, args, binary_ops!(std::ops::Mul::mul))
+        reduce_with(ctx, args, |a, b| Ok(a * b))
     }
-    intern_set_func!(ctx, mul, "*");
+    ctx.defspecial("*", mul);
 
     fn div(ctx: &mut TulispContext, rest: &TulispObject) -> Result<TulispObject, Error> {
-        let mut iter = rest.base_iter();
-        // Skip the first element, that can be zero.
-        iter.next();
-        while let Some(ele) = iter.eval_next(ctx) {
-            let ele = ele?;
-            if *ele.inner_ref() == TulispValue::from(0)
-                || *ele.inner_ref() == TulispValue::from(0.0)
-            {
-                return Err(Error::new(
-                    ErrorKind::Undefined,
-                    "Division by zero".to_string(),
-                ));
+        reduce_with(ctx, rest, |a, b| {
+            if b == 0 {
+                Err(Error::out_of_range("Division by zero".to_string()))
+            } else {
+                Ok(a / b)
             }
-        }
-        reduce_with(ctx, rest, binary_ops!(std::ops::Div::div))
+        })
     }
-    intern_set_func!(ctx, div, "/");
+    ctx.defspecial("/", div);
 
-    ctx.add_special_form("1+", |ctx, args| {
-        destruct_eval_bind!(ctx, (number) = args);
-        match &*number.inner_ref() {
-            TulispValue::Int { value } => Ok((*value + 1).into()),
-            TulispValue::Float { value } => Ok((*value + 1.0).into()),
-            _ => Err(Error::new(
-                ErrorKind::TypeMismatch,
-                "expected a number as argument.".to_string(),
-            )),
-        }
-    });
-
-    ctx.add_special_form("1-", |ctx, args| {
-        destruct_eval_bind!(ctx, (number) = args);
-        match &*number.inner_ref() {
-            TulispValue::Int { value } => Ok((*value - 1).into()),
-            TulispValue::Float { value } => Ok((*value - 1.0).into()),
-            _ => Err(Error::new(
-                ErrorKind::TypeMismatch,
-                "expected a number as argument.".to_string(),
-            )),
-        }
-    });
-
-    ctx.add_special_form("mod", |ctx, args| {
-        destruct_eval_bind!(ctx, (dividend divisor) = args);
-        binary_ops!(std::ops::Rem::rem)(&dividend, &divisor)
-    });
+    ctx.defun("1+", |a: Number| a + 1);
+    ctx.defun("1-", |a: Number| a - 1);
+    ctx.defun("mod", |a: Number, b: Number| a % b);
 }

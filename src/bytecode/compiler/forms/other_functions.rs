@@ -67,7 +67,10 @@ pub(super) fn compile_fn_list(
     _name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    if let Some(name) = args.is_bounced() {
+    if args.is_bounced() {
+        // args: (Bounce fn arg1 arg2 ...). The bounced function identity
+        // is the second element.
+        let name = args.cdr()?.car()?;
         return compile_fn_defun_bounce_call(ctx, &name, args);
     }
 
@@ -110,8 +113,8 @@ fn compile_fn_defun_bounce_call(
     let mut result = vec![];
     let params = compiler.defun_args[&name.addr_as_usize()].clone();
     let mut args_count = 0;
-    // cdr because the first element is `Bounce`.
-    for arg in args.cdr()?.base_iter() {
+    // cdr twice: first skips `Bounce`, second skips the function identity.
+    for arg in args.cdr()?.cdr()?.base_iter() {
         result.append(&mut compile_expr_keep_result(ctx, &arg)?);
         args_count += 1;
     }

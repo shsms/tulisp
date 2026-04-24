@@ -1,16 +1,22 @@
 use crate::{
-    TulispContext, TulispObject,
+    Number, TulispObject,
     bytecode::CompiledDefun,
-    cons::{self, Cons},
-    context::Scope,
-    error::{Error, ErrorKind},
-    object::Span,
+    cons::Cons,
+    error::Error,
+    object::{
+        Span,
+        wrappers::{
+            TulispFn,
+            generic::{Shared, SharedMut, SyncSend},
+        },
+    },
 };
 use std::{
     any::Any,
+    cell::RefCell,
     convert::TryInto,
     fmt::{Display, Write},
-    rc::Rc,
+    sync::atomic::{AtomicU64, Ordering},
 };
 
 #[doc(hidden)]
@@ -34,7 +40,6 @@ impl std::fmt::Display for DefunParam {
 #[derive(Debug, Default, Clone)]
 pub struct DefunParams {
     params: Vec<DefunParam>,
-    scope: Scope,
 }
 
 impl std::fmt::Display for DefunParams {
@@ -52,8 +57,7 @@ impl TryFrom<TulispObject> for DefunParams {
 
     fn try_from(params: TulispObject) -> Result<Self, Self::Error> {
         if !params.listp() {
-            return Err(Error::new(
-                ErrorKind::SyntaxError,
+            return Err(Error::syntax_error(
                 "Parameter list needs to be a list".to_string(),
             ));
         }
@@ -71,7 +75,6 @@ impl TryFrom<TulispObject> for DefunParams {
                 is_rest = true;
                 continue;
             }
-            def_params.scope.scope.push(param.clone());
             def_params.params.push(DefunParam {
                 param,
                 is_rest,
@@ -79,8 +82,7 @@ impl TryFrom<TulispObject> for DefunParams {
             });
             if is_rest {
                 if params_iter.next().is_some() {
-                    return Err(Error::new(
-                        ErrorKind::TypeMismatch,
+                    return Err(Error::type_mismatch(
                         "Too many &rest parameters".to_string(),
                     ));
                 }
@@ -96,17 +98,47 @@ impl DefunParams {
         self.params.iter()
     }
 
-    pub(crate) fn unbind(&self) -> Result<(), Error> {
-        self.scope.remove_all()
+    /// Replaces each raw-symbol param with a fresh `LexicalBinding` and
+    /// returns `(new_params, mappings)` where `mappings` is a list of
+    /// `(old_symbol, new_binding)` pairs suitable for
+    /// `substitute_lexical`. Callers are expected to run that
+    /// substitution on the function/macro body once at definition time,
+    /// so call-time evaluation only needs to push/pop values on each
+    /// binding's thread-local stack.
+    pub(crate) fn bind_as_lexical(
+        self,
+    ) -> (DefunParams, Vec<(TulispObject, TulispObject)>) {
+        let mut mappings = Vec::with_capacity(self.params.len());
+        let mut new_params = Vec::with_capacity(self.params.len());
+        for dp in self.params {
+            // Defun/lambda params are always lexically bound — even
+            // when the symbol has been declared `defvar` (special).
+            // Emacs under `lexical-binding: t` behaves this way: `let`
+            // of a special var binds dynamically, but function
+            // parameters stay lexical. Matching that keeps semantics
+            // consistent with Emacs' byte-compiler.
+            let lex = TulispObject::lexical_binding(dp.param.clone());
+            mappings.push((dp.param, lex.clone()));
+            new_params.push(DefunParam {
+                param: lex,
+                is_rest: dp.is_rest,
+                is_optional: dp.is_optional,
+            });
+        }
+        (DefunParams { params: new_params }, mappings)
     }
 }
-
-pub(crate) type TulispFn = dyn Fn(&mut TulispContext, &TulispObject) -> Result<TulispObject, Error>;
 
 #[derive(Default, Clone, Debug)]
 pub struct SymbolBindings {
     name: String,
     constant: bool,
+    // "Special" (dynamic) in Emacs' terminology: `defvar`-declared.
+    // Once set, references to this symbol bypass lexical-binding
+    // rewrites (substitute_lexical / capture) and always use this
+    // symbol's own `items` stack, matching Emacs' behavior under
+    // `lexical-binding: t` for declared variables.
+    special: bool,
     has_global: bool,
     items: Vec<TulispObject>,
 }
@@ -115,10 +147,10 @@ impl SymbolBindings {
     #[inline(always)]
     pub(crate) fn set(&mut self, to_set: TulispObject) -> Result<(), Error> {
         if self.constant {
-            return Err(Error::new(
-                ErrorKind::Undefined,
-                format!("Can't set constant symbol: {}", self.name),
-            ));
+            return Err(Error::undefined(format!(
+                "Can't set constant symbol: {}",
+                self.name
+            )));
         }
         if self.items.is_empty() {
             self.has_global = true;
@@ -132,10 +164,10 @@ impl SymbolBindings {
     #[inline(always)]
     pub(crate) fn set_global(&mut self, to_set: TulispObject) -> Result<(), Error> {
         if self.constant {
-            return Err(Error::new(
-                ErrorKind::Undefined,
-                format!("Can't set constant symbol: {}", self.name),
-            ));
+            return Err(Error::undefined(format!(
+                "Can't set constant symbol: {}",
+                self.name
+            )));
         }
         self.has_global = true;
         if self.items.is_empty() {
@@ -149,32 +181,22 @@ impl SymbolBindings {
     #[inline(always)]
     pub(crate) fn set_scope(&mut self, to_set: TulispObject) -> Result<(), Error> {
         if self.constant {
-            return Err(Error::new(
-                ErrorKind::Undefined,
-                format!("Can't set constant symbol: {}", self.name),
-            ));
+            return Err(Error::undefined(format!(
+                "Can't set constant symbol: {}",
+                self.name
+            )));
         }
         self.items.push(to_set);
         Ok(())
     }
 
-    /// Sets the value without checking if the symbol is constant, or if it is
-    /// bound.
-    ///
-    /// For use in loops and other places where a set_scope has already been
-    /// done, and the symbol is known to be bound.
-    #[inline(always)]
-    pub(crate) fn set_unchecked(&mut self, to_set: TulispObject) {
-        *self.items.last_mut().unwrap() = to_set;
-    }
-
     #[inline(always)]
     pub(crate) fn unset(&mut self) -> Result<(), Error> {
         if self.items.is_empty() {
-            return Err(Error::new(
-                ErrorKind::Uninitialized,
-                format!("Can't unbind from unassigned symbol: {}", self.name),
-            ));
+            return Err(Error::uninitialized(format!(
+                "Can't unbind from unassigned symbol: {}",
+                self.name
+            )));
         }
         self.items.pop();
         Ok(())
@@ -188,22 +210,240 @@ impl SymbolBindings {
     #[inline(always)]
     pub(crate) fn get(&self) -> Result<TulispObject, Error> {
         if self.items.is_empty() {
-            return Err(Error::new(
-                ErrorKind::TypeMismatch,
-                format!("Variable definition is void: {}", self.name),
-            ));
+            return Err(Error::uninitialized(format!(
+                "Variable definition is void: {}",
+                self.name
+            )));
         }
         Ok(self.items.last().unwrap().clone())
+    }
+
+    /// Gets the number value directly from the binding without cloning a TulispObject.
+    #[inline(always)]
+    pub(crate) fn get_as_number(&self) -> Result<crate::Number, Error> {
+        let Some(item) = self.items.last() else {
+            return Err(Error::uninitialized(format!(
+                "Variable definition is void: {}",
+                self.name
+            )));
+        };
+        item.as_number()
+    }
+
+    #[inline(always)]
+    pub(crate) fn get_as_bool(&self) -> Result<bool, Error> {
+        let Some(item) = self.items.last() else {
+            return Err(Error::uninitialized(format!(
+                "Variable definition is void: {}",
+                self.name
+            )));
+        };
+        Ok(item.is_truthy())
     }
 
     #[inline(always)]
     pub(crate) fn is_constant(&self) -> bool {
         self.constant
     }
+
+    #[inline(always)]
+    pub(crate) fn is_special(&self) -> bool {
+        self.special
+    }
+
+    #[inline(always)]
+    pub(crate) fn set_special(&mut self) {
+        self.special = true;
+    }
 }
 
-pub trait TulispAny: Any + Display {}
-impl<T: Any + Display> TulispAny for T {}
+// Thread-local item stacks for lexical bindings. A LexBinding is shared
+// across threads (one per defun/lambda param, allocated once at
+// creation); but each thread has its own push/pop stack indexed by the
+// binding's id. This lets concurrent calls into the same function —
+// e.g. tulisp-async timers — bind parameters independently, without
+// the cross-thread `Vec` aliasing that was Bug #3.
+//
+// Each stack entry is a `SharedMut<TulispObject>` — an actual cell
+// shared with any closures that captured this scope. `setq` mutates
+// the cell contents in place, so closures see the update (this is
+// what Emacs' `lexical-binding: t` semantics require, distinct from
+// snapshot-at-capture Scheme semantics). When the scope exits, the
+// stack pops the cell; any closures that cloned the `SharedMut` keep
+// it alive.
+//
+// The Vec grows to `max(id) + 1` per thread; see
+// docs/lexical-binding.md for the growth/cleanup tradeoffs we
+// explicitly accept (free-list is a deferred optimization).
+static LEX_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+thread_local! {
+    static LEX_STACKS: RefCell<Vec<Vec<SharedMut<TulispObject>>>> =
+        const { RefCell::new(Vec::new()) };
+}
+
+#[inline(always)]
+fn with_lex_stack<R>(id: u64, f: impl FnOnce(&mut Vec<SharedMut<TulispObject>>) -> R) -> R {
+    LEX_STACKS.with(|s| {
+        let mut v = s.borrow_mut();
+        let idx = id as usize;
+        if v.len() <= idx {
+            v.resize_with(idx + 1, Vec::new);
+        }
+        f(&mut v[idx])
+    })
+}
+
+#[doc(hidden)]
+#[derive(Clone, Debug)]
+pub struct LexBinding {
+    id: u64,
+    name: String,
+    symbol: TulispObject,
+    // Captured bindings (from closures) hold a direct reference to the
+    // same shared slot that was on the enclosing scope's stack at
+    // capture time. Mutations to the enclosing scope's binding are
+    // therefore visible to the closure and vice-versa — matching
+    // Emacs' `lexical-binding: t` semantics. Param/let bindings leave
+    // this `None` and reach their slot through the thread-local stack
+    // indexed by `id`, which is faster and avoids cross-thread Vec
+    // aliasing (Bug #3).
+    captured: Option<SharedMut<TulispObject>>,
+}
+
+impl LexBinding {
+    pub(crate) fn new(symbol: TulispObject) -> Self {
+        let id = LEX_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let name = symbol.to_string();
+        LexBinding {
+            id,
+            name,
+            symbol,
+            captured: None,
+        }
+    }
+
+    /// Creates a captured binding that shares `slot` with the
+    /// originating scope. Used by lambda's `capture_variables`.
+    pub(crate) fn new_captured(symbol: TulispObject, slot: SharedMut<TulispObject>) -> Self {
+        let id = LEX_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let name = symbol.to_string();
+        LexBinding {
+            id,
+            name,
+            symbol,
+            captured: Some(slot),
+        }
+    }
+
+    pub(crate) fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub(crate) fn symbol(&self) -> &TulispObject {
+        &self.symbol
+    }
+
+    /// Returns the `SharedMut` slot that currently holds this
+    /// binding's value, or `None` if it's unbound. Used by closure
+    /// capture so the closure can share the slot rather than snapshot.
+    #[inline(always)]
+    pub(crate) fn current_slot(&self) -> Option<SharedMut<TulispObject>> {
+        if let Some(slot) = &self.captured {
+            return Some(slot.clone());
+        }
+        with_lex_stack(self.id, |s| s.last().cloned())
+    }
+
+    #[inline(always)]
+    pub(crate) fn push(&self, val: TulispObject) {
+        if let Some(slot) = &self.captured {
+            *slot.borrow_mut() = val;
+            return;
+        }
+        with_lex_stack(self.id, |s| s.push(SharedMut::new(val)));
+    }
+
+    #[inline(always)]
+    pub(crate) fn pop(&self) -> Result<(), Error> {
+        if self.captured.is_some() {
+            return Ok(());
+        }
+        let popped = with_lex_stack(self.id, |s| s.pop());
+        if popped.is_some() {
+            Ok(())
+        } else {
+            Err(Error::uninitialized(format!(
+                "Can't unbind from unassigned symbol: {}",
+                self.name
+            )))
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn set(&self, val: TulispObject) -> Result<(), Error> {
+        if let Some(slot) = &self.captured {
+            *slot.borrow_mut() = val;
+            return Ok(());
+        }
+        with_lex_stack(self.id, |s| {
+            if let Some(last) = s.last() {
+                *last.borrow_mut() = val;
+            } else {
+                s.push(SharedMut::new(val));
+            }
+        });
+        Ok(())
+    }
+
+    #[inline(always)]
+    pub(crate) fn set_scope(&self, val: TulispObject) {
+        if let Some(slot) = &self.captured {
+            *slot.borrow_mut() = val;
+            return;
+        }
+        with_lex_stack(self.id, |s| s.push(SharedMut::new(val)));
+    }
+
+    #[inline(always)]
+    pub(crate) fn get(&self) -> Result<TulispObject, Error> {
+        if let Some(slot) = &self.captured {
+            return Ok(slot.borrow().clone());
+        }
+        let got = with_lex_stack(self.id, |s| s.last().map(|slot| slot.borrow().clone()));
+        got.ok_or_else(|| {
+            Error::uninitialized(format!("Variable definition is void: {}", self.name))
+        })
+    }
+
+    #[inline(always)]
+    pub(crate) fn boundp(&self) -> bool {
+        if self.captured.is_some() {
+            return true;
+        }
+        with_lex_stack(self.id, |s| !s.is_empty())
+    }
+
+    #[inline(always)]
+    pub(crate) fn get_as_number(&self) -> Result<Number, Error> {
+        self.get()?.as_number()
+    }
+
+    #[inline(always)]
+    pub(crate) fn get_as_bool(&self) -> Result<bool, Error> {
+        Ok(self.get()?.is_truthy())
+    }
+}
+
+pub trait TulispAny: Any + Display + SyncSend {}
+
+impl std::fmt::Debug for dyn TulispAny {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "TulispAny({})", self)
+    }
+}
+
+impl<T: Any + Display + SyncSend> TulispAny for T {}
 
 #[doc(hidden)]
 #[derive(Clone)]
@@ -214,14 +454,10 @@ pub enum TulispValue {
         value: SymbolBindings,
     },
     LexicalBinding {
-        value: SymbolBindings,
-        symbol: TulispObject,
+        binding: LexBinding,
     },
-    Int {
-        value: i64,
-    },
-    Float {
-        value: f64,
+    Number {
+        value: Number,
     },
     String {
         value: String,
@@ -246,9 +482,9 @@ pub enum TulispValue {
     Splice {
         value: TulispObject,
     },
-    Any(Rc<dyn TulispAny>),
-    Func(Rc<TulispFn>),
-    Macro(Rc<TulispFn>),
+    Any(Shared<dyn TulispAny>),
+    Func(Shared<dyn TulispFn>),
+    Macro(Shared<dyn TulispFn>),
     Defmacro {
         params: DefunParams,
         body: TulispObject,
@@ -260,9 +496,7 @@ pub enum TulispValue {
     CompiledDefun {
         value: CompiledDefun,
     },
-    Bounce {
-        value: TulispObject,
-    },
+    Bounce,
 }
 
 impl std::fmt::Debug for TulispValue {
@@ -275,13 +509,12 @@ impl std::fmt::Debug for TulispValue {
                 .field("name", &value.name)
                 .field("value", value)
                 .finish(),
-            Self::LexicalBinding { value, symbol } => f
+            Self::LexicalBinding { binding } => f
                 .debug_struct("LexicalBinding")
-                .field("symbol", symbol)
-                .field("value", value)
+                .field("symbol", binding.symbol())
+                .field("name", &binding.name())
                 .finish(),
-            Self::Int { value } => f.debug_struct("Int").field("value", value).finish(),
-            Self::Float { value } => f.debug_struct("Float").field("value", value).finish(),
+            Self::Number { value } => f.debug_struct("Number").field("value", value).finish(),
             Self::String { value } => f.debug_struct("String").field("value", value).finish(),
             Self::List { cons, ctxobj } => f
                 .debug_struct("List")
@@ -309,7 +542,7 @@ impl std::fmt::Debug for TulispValue {
                 .field("body", body)
                 .finish(),
             Self::CompiledDefun { .. } => f.debug_struct("CompiledDefun").finish(),
-            Self::Bounce { value } => f.debug_struct("Bounce").field("value", value).finish(),
+            Self::Bounce => f.debug_struct("Bounce").finish(),
         }
     }
 }
@@ -318,8 +551,7 @@ impl PartialEq for TulispValue {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Symbol { value: l0, .. }, Self::Symbol { value: r0, .. }) => l0.name == r0.name,
-            (Self::Int { value: l0, .. }, Self::Int { value: r0, .. }) => l0 == r0,
-            (Self::Float { value: l0, .. }, Self::Float { value: r0, .. }) => l0 == r0,
+            (Self::Number { value: l0, .. }, Self::Number { value: r0, .. }) => l0 == r0,
             (Self::String { value: l0, .. }, Self::String { value: r0, .. }) => l0 == r0,
             (Self::List { cons: l_cons, .. }, Self::List { cons: r_cons, .. }) => l_cons == r_cons,
             (Self::Quote { value: l0, .. }, Self::Quote { value: r0, .. }) => l0.equal(r0),
@@ -330,9 +562,6 @@ impl PartialEq for TulispValue {
             (Self::Unquote { value: l0, .. }, Self::Unquote { value: r0, .. }) => l0.equal(r0),
             (Self::Splice { value: l0, .. }, Self::Splice { value: r0, .. }) => l0.equal(r0),
 
-            (Self::Int { value: l0, .. }, Self::Float { value: r0, .. }) => *l0 as f64 == *r0,
-            (Self::Float { value: l0, .. }, Self::Int { value: r0, .. }) => *l0 == *r0 as f64,
-
             _ => core::mem::discriminant(self) == core::mem::discriminant(other),
         }
     }
@@ -341,10 +570,7 @@ impl PartialEq for TulispValue {
 /// Formats tulisp lists non-recursively.
 fn fmt_list(mut vv: TulispObject, f: &mut std::fmt::Formatter<'_>) -> Result<(), Error> {
     if let Err(e) = f.write_char('(') {
-        return Err(Error::new(
-            ErrorKind::Undefined,
-            format!("When trying to 'fmt': {}", e),
-        ));
+        return Err(Error::type_mismatch(format!("When trying to 'fmt': {}", e)));
     };
     let mut add_space = false;
     loop {
@@ -352,29 +578,21 @@ fn fmt_list(mut vv: TulispObject, f: &mut std::fmt::Formatter<'_>) -> Result<(),
         if !add_space {
             add_space = true;
         } else if let Err(e) = f.write_char(' ') {
-            return Err(Error::new(
-                ErrorKind::Undefined,
-                format!("When trying to 'fmt': {}", e),
-            ));
+            return Err(Error::type_mismatch(format!("When trying to 'fmt': {}", e)));
         };
-        write!(f, "{}", vv.car()?).map_err(|e| {
-            Error::new(ErrorKind::Undefined, format!("When trying to 'fmt': {}", e))
-        })?;
+        write!(f, "{}", vv.car()?)
+            .map_err(|e| Error::type_mismatch(format!("When trying to 'fmt': {}", e)))?;
         if rest.null() {
             break;
         } else if !rest.consp() {
-            write!(f, " . {}", rest).map_err(|e| {
-                Error::new(ErrorKind::Undefined, format!("When trying to 'fmt': {}", e))
-            })?;
+            write!(f, " . {}", rest)
+                .map_err(|e| Error::type_mismatch(format!("When trying to 'fmt': {}", e)))?;
             break;
         };
         vv = rest;
     }
     if let Err(e) = f.write_char(')') {
-        return Err(Error::new(
-            ErrorKind::Undefined,
-            format!("When trying to 'fmt': {}", e),
-        ));
+        return Err(Error::type_mismatch(format!("When trying to 'fmt': {}", e)));
     };
     Ok(())
 }
@@ -382,12 +600,11 @@ fn fmt_list(mut vv: TulispObject, f: &mut std::fmt::Formatter<'_>) -> Result<(),
 impl std::fmt::Display for TulispValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TulispValue::Bounce { value } => f.write_fmt(format_args!("{}::bounce", value)),
+            TulispValue::Bounce => f.write_str("Bounce"),
             TulispValue::Nil => f.write_str("nil"),
             TulispValue::Symbol { value } => f.write_str(&value.name),
-            TulispValue::LexicalBinding { value, .. } => f.write_str(&value.name),
-            TulispValue::Int { value, .. } => f.write_fmt(format_args!("{}", value)),
-            TulispValue::Float { value, .. } => f.write_fmt(format_args!("{}", value)),
+            TulispValue::LexicalBinding { binding } => f.write_str(binding.name()),
+            TulispValue::Number { value, .. } => f.write_fmt(format_args!("{}", value)),
             TulispValue::String { value, .. } => f.write_fmt(format_args!(r#""{}""#, value)),
             vv @ TulispValue::List { .. } => {
                 fmt_list(vv.clone().into_ref(None), f).unwrap_or(());
@@ -398,7 +615,7 @@ impl std::fmt::Display for TulispValue {
             TulispValue::Unquote { value, .. } => f.write_fmt(format_args!(",{}", value)),
             TulispValue::Splice { value, .. } => f.write_fmt(format_args!(",@{}", value)),
             TulispValue::Sharpquote { value, .. } => f.write_fmt(format_args!("#'{}", value)),
-            TulispValue::Any(_) => f.write_str("BoxedValue"),
+            TulispValue::Any(value) => f.write_fmt(format_args!("{}", value)),
             TulispValue::T => f.write_str("t"),
             TulispValue::Func(_) => f.write_str("Func"),
             TulispValue::Macro(_) => f.write_str("Macro"),
@@ -416,6 +633,7 @@ impl TulispValue {
             value: SymbolBindings {
                 name,
                 constant,
+                special: false,
                 has_global: false,
                 items: Default::default(),
             },
@@ -424,80 +642,68 @@ impl TulispValue {
 
     #[inline(always)]
     pub(crate) fn lexical_binding(symbol: TulispObject) -> TulispValue {
-        let name = symbol.to_string();
         TulispValue::LexicalBinding {
-            symbol,
-            value: SymbolBindings {
-                name,
-                constant: false,
-                has_global: false,
-                items: Default::default(),
-            },
+            binding: LexBinding::new(symbol),
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn lexical_binding_captured(
+        symbol: TulispObject,
+        slot: SharedMut<TulispObject>,
+    ) -> TulispValue {
+        TulispValue::LexicalBinding {
+            binding: LexBinding::new_captured(symbol, slot),
         }
     }
 
     #[inline(always)]
     pub(crate) fn set(&mut self, to_set: TulispObject) -> Result<(), Error> {
-        if let TulispValue::Symbol { value, .. } | TulispValue::LexicalBinding { value, .. } = self
-        {
-            value.set(to_set)
-        } else {
-            Err(Error::new(
-                ErrorKind::TypeMismatch,
+        match self {
+            TulispValue::Symbol { value } => value.set(to_set),
+            TulispValue::LexicalBinding { binding } => binding.set(to_set),
+            _ => Err(Error::type_mismatch(
                 "Can bind values only to Symbols".to_string(),
-            ))
+            )),
         }
     }
 
     #[inline(always)]
     pub(crate) fn set_global(&mut self, to_set: TulispObject) -> Result<(), Error> {
-        if let TulispValue::Symbol { value, .. } | TulispValue::LexicalBinding { value, .. } = self
-        {
-            value.set_global(to_set)
-        } else {
-            Err(Error::new(
-                ErrorKind::TypeMismatch,
+        match self {
+            TulispValue::Symbol { value } => value.set_global(to_set),
+            // LexicalBindings have no "global" slot — setting the
+            // global cell of a lexical binding is nonsensical. Fall
+            // through to the same error as non-symbols.
+            _ => Err(Error::type_mismatch(
                 "Can bind values only to Symbols".to_string(),
-            ))
+            )),
         }
     }
 
     #[inline(always)]
     pub(crate) fn set_scope(&mut self, to_set: TulispObject) -> Result<(), Error> {
-        if let TulispValue::Symbol { value, .. } | TulispValue::LexicalBinding { value, .. } = self
-        {
-            value.set_scope(to_set)
-        } else {
-            Err(Error::new(
-                ErrorKind::TypeMismatch,
-                format!("Expected Symbol: Can't assign to {self}"),
-            ))
+        match self {
+            TulispValue::Symbol { value } => value.set_scope(to_set),
+            TulispValue::LexicalBinding { binding } => {
+                binding.set_scope(to_set);
+                Ok(())
+            }
+            _ => Err(Error::type_mismatch(format!(
+                "Expected Symbol: Can't assign to {self}"
+            ))),
         }
     }
 
     /// Sets the value without checking if the symbol is constant, or if it is
-    /// bound.
-    ///
-    /// For use in loops and other places where a set_scope has already been
-    /// done, and the symbol is known to be bound.
-    #[inline(always)]
-    pub(crate) fn set_unchecked(&mut self, to_set: TulispObject) {
-        if let TulispValue::Symbol { value, .. } | TulispValue::LexicalBinding { value, .. } = self
-        {
-            value.set_unchecked(to_set)
-        }
-    }
-
     #[inline(always)]
     pub(crate) fn unset(&mut self) -> Result<(), Error> {
-        if let TulispValue::Symbol { value, .. } | TulispValue::LexicalBinding { value, .. } = self
-        {
-            value.unset()
-        } else {
-            Err(Error::new(
-                ErrorKind::TypeMismatch,
+        match self {
+            TulispValue::Symbol { value } => value.unset(),
+            TulispValue::LexicalBinding { binding } => binding.pop(),
+            _ => Err(Error::type_mismatch(
                 "Can unbind only from Symbols".to_string(),
-            ))
+            )),
         }
     }
 
@@ -505,6 +711,9 @@ impl TulispValue {
     pub(crate) fn is_lexically_bound(&self) -> bool {
         match self {
             TulispValue::Symbol { value } => {
+                if value.special {
+                    return false;
+                }
                 (value.has_global && value.items.len() > 1)
                     || (!value.has_global && !value.items.is_empty())
             }
@@ -514,32 +723,54 @@ impl TulispValue {
     }
 
     #[inline(always)]
+    pub(crate) fn is_special(&self) -> bool {
+        match self {
+            TulispValue::Symbol { value } => value.is_special(),
+            _ => false,
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn set_special(&mut self) -> Result<(), Error> {
+        match self {
+            TulispValue::Symbol { value } => {
+                value.set_special();
+                Ok(())
+            }
+            _ => Err(Error::type_mismatch(
+                "set_special requires a symbol".to_string(),
+            )),
+        }
+    }
+
+    #[inline(always)]
     pub(crate) fn lex_symbol_eq(&self, other: &TulispObject) -> bool {
-        let TulispValue::LexicalBinding { symbol, .. } = self else {
+        let TulispValue::LexicalBinding { binding } = self else {
             return false;
         };
-        if let TulispValue::LexicalBinding { symbol: other, .. } = &*other.inner_ref() {
-            symbol.eq(other)
+        let self_sym = binding.symbol();
+        if let TulispValue::LexicalBinding { binding: other_b } = &other.inner_ref().0 {
+            self_sym.eq(other_b.symbol())
         } else {
-            symbol.eq(other)
+            self_sym.eq(other)
         }
     }
 
     #[inline(always)]
     pub(crate) fn get(&self) -> Result<TulispObject, Error> {
-        if let TulispValue::Symbol { value, .. } | TulispValue::LexicalBinding { value, .. } = self
-        {
-            if value.is_constant() {
-                // Taking this path loses the span, so it should never be used.
-                // This check needs to be done in the object.
-                return Ok(self.clone().into_ref(None));
+        match self {
+            TulispValue::Symbol { value } => {
+                if value.is_constant() {
+                    // Taking this path loses the span, so it should never be
+                    // used. This check needs to be done in the object.
+                    return Ok(self.clone().into_ref(None));
+                }
+                value.get()
             }
-            value.get()
-        } else {
-            Err(Error::new(
-                ErrorKind::TypeMismatch,
+            TulispValue::LexicalBinding { binding } => binding.get(),
+            _ => Err(Error::type_mismatch(
                 "Can get only from Symbols".to_string(),
-            ))
+            )),
         }
     }
 
@@ -554,19 +785,10 @@ impl TulispValue {
 
     #[inline(always)]
     pub(crate) fn boundp(&self) -> bool {
-        if let TulispValue::Symbol { value, .. } | TulispValue::LexicalBinding { value, .. } = self
-        {
-            value.boundp()
-        } else {
-            false
-        }
-    }
-
-    #[inline(always)]
-    pub(crate) fn base_iter(&self) -> cons::BaseIter {
         match self {
-            TulispValue::List { cons, .. } => cons.iter(),
-            _ => cons::BaseIter::default(),
+            TulispValue::Symbol { value } => value.boundp(),
+            TulispValue::LexicalBinding { binding } => binding.boundp(),
+            _ => false,
         }
     }
 
@@ -591,10 +813,7 @@ impl TulispValue {
             *self = TulispValue::List { cons, ctxobj };
             Ok(())
         } else {
-            Err(Error::new(
-                ErrorKind::TypeMismatch,
-                "unable to push".to_string(),
-            ))
+            Err(Error::type_mismatch("unable to push".to_string()))
         }
     }
 
@@ -614,10 +833,7 @@ impl TulispValue {
             }
             Ok(())
         } else {
-            Err(Error::new(
-                ErrorKind::TypeMismatch,
-                format!("unable to append: {}", val),
-            ))
+            Err(Error::type_mismatch(format!("unable to append: {}", val)))
         }
     }
 
@@ -637,59 +853,72 @@ impl TulispValue {
     #[inline(always)]
     pub(crate) fn as_symbol(&self) -> Result<String, Error> {
         match self {
-            TulispValue::Symbol { value } | TulispValue::LexicalBinding { value, .. } => {
-                Ok(value.name.to_string())
-            }
-            _ => Err(Error::new(
-                ErrorKind::TypeMismatch,
-                format!("Expected symbol: {}", self),
-            )),
+            TulispValue::Symbol { value } => Ok(value.name.to_string()),
+            TulispValue::LexicalBinding { binding } => Ok(binding.name().to_string()),
+            _ => Err(Error::type_mismatch(format!(
+                "Expected symbol, got: {}",
+                self
+            ))),
         }
     }
 
     #[inline(always)]
     pub(crate) fn as_float(&self) -> Result<f64, Error> {
         match self {
-            TulispValue::Float { value, .. } => Ok(*value),
-            t => Err(Error::new(
-                ErrorKind::TypeMismatch,
-                format!("Expected number, got: {:?}", t),
-            )),
+            TulispValue::Number {
+                value: Number::Float(value),
+                ..
+            } => Ok(*value),
+            t => Err(Error::type_mismatch(format!("Expected number, got: {}", t))),
         }
     }
 
     #[inline(always)]
     pub(crate) fn try_float(&self) -> Result<f64, Error> {
         match self {
-            TulispValue::Float { value, .. } => Ok(*value),
-            TulispValue::Int { value, .. } => Ok(*value as f64),
-            t => Err(Error::new(
-                ErrorKind::TypeMismatch,
-                format!("Expected number, got: {:?}", t),
-            )),
+            TulispValue::Number {
+                value: Number::Float(value),
+                ..
+            } => Ok(*value),
+            TulispValue::Number {
+                value: Number::Int(value),
+                ..
+            } => Ok(*value as f64),
+            t => Err(Error::type_mismatch(format!("Expected number, got: {}", t))),
         }
     }
 
     #[inline(always)]
     pub(crate) fn as_int(&self) -> Result<i64, Error> {
         match self {
-            TulispValue::Int { value, .. } => Ok(*value),
-            t => Err(Error::new(
-                ErrorKind::TypeMismatch,
-                format!("Expected integer: {:?}", t),
-            )),
+            TulispValue::Number {
+                value: Number::Int(value),
+                ..
+            } => Ok(*value),
+            t => Err(Error::type_mismatch(format!("Expected integer: {}", t))),
         }
     }
 
     #[inline(always)]
     pub(crate) fn try_int(&self) -> Result<i64, Error> {
         match self {
-            TulispValue::Float { value, .. } => Ok(value.trunc() as i64),
-            TulispValue::Int { value, .. } => Ok(*value),
-            t => Err(Error::new(
-                ErrorKind::TypeMismatch,
-                format!("Expected number, got {:?}", t),
-            )),
+            TulispValue::Number {
+                value: Number::Float(value),
+                ..
+            } => Ok(value.trunc() as i64),
+            TulispValue::Number {
+                value: Number::Int(value),
+                ..
+            } => Ok(*value),
+            t => Err(Error::type_mismatch(format!("Expected number, got {}", t))),
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn as_number(&self) -> Result<Number, Error> {
+        match self {
+            TulispValue::Number { value, .. } => Ok(*value),
+            t => Err(Error::type_mismatch(format!("Expected number, got: {}", t))),
         }
     }
 
@@ -704,19 +933,16 @@ impl TulispValue {
     }
 
     #[inline(always)]
-    pub(crate) fn is_bounced(&self) -> Option<TulispObject> {
+    pub(crate) fn is_bounced(&self) -> bool {
         match self {
             TulispValue::List { cons, .. } => cons.car().is_bounce(),
-            _ => None,
+            _ => false,
         }
     }
 
     #[inline(always)]
-    pub fn is_bounce(&self) -> Option<TulispObject> {
-        match self {
-            TulispValue::Bounce { value } => Some(value.clone()),
-            _ => None,
-        }
+    pub fn is_bounce(&self) -> bool {
+        matches!(self, TulispValue::Bounce)
     }
 
     #[inline(always)]
@@ -731,17 +957,27 @@ impl TulispValue {
 
     #[inline(always)]
     pub(crate) fn integerp(&self) -> bool {
-        matches!(self, TulispValue::Int { .. })
+        matches!(
+            self,
+            TulispValue::Number {
+                value: Number::Int(..)
+            }
+        )
     }
 
     #[inline(always)]
     pub(crate) fn floatp(&self) -> bool {
-        matches!(self, TulispValue::Float { .. })
+        matches!(
+            self,
+            TulispValue::Number {
+                value: Number::Float(..)
+            }
+        )
     }
 
     #[inline(always)]
     pub(crate) fn numberp(&self) -> bool {
-        self.integerp() || self.floatp()
+        matches!(self, TulispValue::Number { .. })
     }
 
     #[inline(always)]
@@ -761,21 +997,21 @@ impl TulispValue {
     pub(crate) fn as_string(&self) -> Result<String, Error> {
         match self {
             TulispValue::String { value, .. } => Ok(value.to_owned()),
-            _ => Err(Error::new(
-                ErrorKind::TypeMismatch,
-                format!("Expected string: {}", self),
-            )),
+            _ => Err(Error::type_mismatch(format!(
+                "Expected string, got: {}",
+                self
+            ))),
         }
     }
 
     #[inline(always)]
-    pub(crate) fn as_any(&self) -> Result<Rc<dyn Any>, Error> {
+    pub(crate) fn as_any(&self) -> Result<Shared<dyn TulispAny>, Error> {
         match self {
             TulispValue::Any(value) => Ok(value.clone()),
-            _ => Err(Error::new(
-                ErrorKind::TypeMismatch,
-                format!("Expected Any(Rc<dyn Any>): {}", self),
-            )),
+            _ => Err(Error::type_mismatch(format!(
+                "Expected Any(Shared<dyn TulispAny>), got: {}",
+                self
+            ))),
         }
     }
 
@@ -835,13 +1071,17 @@ impl TryFrom<TulispValue> for bool {
 
 impl From<i64> for TulispValue {
     fn from(value: i64) -> Self {
-        TulispValue::Int { value }
+        TulispValue::Number {
+            value: value.into(),
+        }
     }
 }
 
 impl From<f64> for TulispValue {
     fn from(value: f64) -> Self {
-        TulispValue::Float { value }
+        TulispValue::Number {
+            value: value.into(),
+        }
     }
 }
 
@@ -868,8 +1108,14 @@ impl From<bool> for TulispValue {
     }
 }
 
-impl From<Rc<dyn TulispAny>> for TulispValue {
-    fn from(value: Rc<dyn TulispAny>) -> Self {
+impl From<Number> for TulispValue {
+    fn from(value: Number) -> Self {
+        TulispValue::Number { value }
+    }
+}
+
+impl From<Shared<dyn TulispAny>> for TulispValue {
+    fn from(value: Shared<dyn TulispAny>) -> Self {
         TulispValue::Any(value)
     }
 }
@@ -905,8 +1151,8 @@ macro_rules! make_cxr_and_then {
             match self {
                 TulispValue::List { cons, .. } => cons.$($step)+(func),
                 TulispValue::Nil => Ok(Out::default()),
-                _ => Err(Error::new(
-                    ErrorKind::TypeMismatch,
+    _ => Err(Error::type_mismatch(
+
                     format!("cxr: Not a Cons: {}", self),
 
                 )),
@@ -925,10 +1171,7 @@ impl TulispValue {
         match self {
             TulispValue::List { cons, .. } => step(cons),
             TulispValue::Nil => Ok(TulispObject::nil()),
-            _ => Err(Error::new(
-                ErrorKind::TypeMismatch,
-                format!("cxr: Not a Cons: {}", self),
-            )),
+            _ => Err(Error::type_mismatch(format!("cxr: Not a Cons: {}", self))),
         }
     }
 
@@ -974,10 +1217,7 @@ impl TulispValue {
         match self {
             TulispValue::List { cons, .. } => func(cons.car()),
             TulispValue::Nil => Ok(Out::default()),
-            _ => Err(Error::new(
-                ErrorKind::TypeMismatch,
-                format!("cxr: Not a Cons: {}", self),
-            )),
+            _ => Err(Error::type_mismatch(format!("cxr: Not a Cons: {}", self))),
         }
     }
 
@@ -989,10 +1229,7 @@ impl TulispValue {
         match self {
             TulispValue::List { cons, .. } => func(cons.cdr()),
             TulispValue::Nil => Ok(Out::default()),
-            _ => Err(Error::new(
-                ErrorKind::TypeMismatch,
-                format!("cxr: Not a Cons: {}", self),
-            )),
+            _ => Err(Error::type_mismatch(format!("cxr: Not a Cons: {}", self))),
         }
     }
 

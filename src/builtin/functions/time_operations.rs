@@ -1,15 +1,8 @@
-use crate::{Error, ErrorKind, TulispContext, TulispObject, destruct_eval_bind};
+use crate::{Error, TulispContext, TulispObject, destruct_eval_bind};
 use std::time::Duration;
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    ctx.add_special_form("current-time", |_ctx, args| {
-        if !args.null() {
-            return Err(Error::new(
-                ErrorKind::SyntaxError,
-                "current-time takes no arguments".to_string(),
-            )
-            .with_trace(args.clone()));
-        }
+    ctx.defun("current-time", || {
         let usec_since_epoch = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -20,25 +13,21 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         ))
     });
 
-    ctx.add_special_form("time-less-p", |ctx, args| {
-        destruct_eval_bind!(ctx, (t1 t2) = args);
+    ctx.defun("time-less-p", |t1: TulispObject, t2: TulispObject| {
         time_operation(t1, t2, |a, b, _| (a < b).into())
     });
 
-    ctx.add_special_form("time-equal-p", |ctx, args| {
-        destruct_eval_bind!(ctx, (t1 t2) = args);
+    ctx.defun("time-equal-p", |t1: TulispObject, t2: TulispObject| {
         time_operation(t1, t2, |a, b, _| (a == b).into())
     });
 
-    ctx.add_special_form("time-subtract", |ctx, args| {
-        destruct_eval_bind!(ctx, (t1 t2) = args);
+    ctx.defun("time-subtract", |t1: TulispObject, t2: TulispObject| {
         time_operation(t1, t2, |a, b, hz| {
             TulispObject::cons((a - b).into(), hz.into())
         })
     });
 
-    ctx.add_special_form("time-add", |ctx, args| {
-        destruct_eval_bind!(ctx, (t1 t2) = args);
+    ctx.defun("time-add", |t1: TulispObject, t2: TulispObject| {
         time_operation(t1, t2, |a, b, hz| {
             TulispObject::cons((a + b).into(), hz.into())
         })
@@ -49,27 +38,21 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             if let Ok(ticks) = obj.as_int() {
                 Ok((ticks, 1))
             } else {
-                Err(
-                    Error::new(ErrorKind::TypeMismatch, "expected integer".to_string())
-                        .with_trace(obj.clone()),
-                )
+                Err(Error::type_mismatch("expected integer".to_string()).with_trace(obj.clone()))
             }
         } else if let Some(cons) = obj.as_list_cons() {
             if let (Ok(ticks), Ok(hz)) = (cons.car().as_int(), cons.cdr().as_int()) {
                 Ok((ticks, hz))
             } else {
-                Err(Error::new(
-                    ErrorKind::TypeMismatch,
-                    "expected (ticks . hz) pair".to_string(),
+                Err(
+                    Error::type_mismatch("expected (ticks . hz) pair".to_string())
+                        .with_trace(obj.clone()),
                 )
-                .with_trace(obj.clone()))
             }
         } else {
-            Err(Error::new(
-                ErrorKind::TypeMismatch,
-                "expected integer or (ticks . hz) pair".to_string(),
-            )
-            .with_trace(obj.clone()))
+            Err(Error::type_mismatch(format!(
+                "expected integer or (ticks . hz) pair. found: {obj}"
+            )))
         }
     }
 
@@ -136,8 +119,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                     }
                     '.' => {
                         if !prefix.is_empty() || has_comma || has_dot {
-                            return Err(Error::new(
-                                ErrorKind::SyntaxError,
+                            return Err(Error::syntax_error(
                                 "Invalid format operation: '.' allowed only in the first place."
                                     .to_string(),
                             )
@@ -148,8 +130,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                     }
                     ',' => {
                         if !prefix.is_empty() || has_comma || has_dot {
-                            return Err(Error::new(
-                                ErrorKind::SyntaxError,
+                            return Err(Error::syntax_error(
                                 "Invalid format operation: ',' allowed only in the first place."
                                     .to_string(),
                             )
@@ -159,19 +140,16 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                         continue;
                     }
                     _ => {
-                        return Err(Error::new(
-                            ErrorKind::SyntaxError,
-                            format!("Invalid format operation: %{}", ch),
-                        ));
+                        return Err(Error::syntax_error(format!(
+                            "Invalid format operation: %{}",
+                            ch
+                        )));
                     }
                 };
                 let padding = if !prefix.is_empty() {
                     prefix.parse::<usize>().map_err(|_| {
-                        Error::new(
-                            ErrorKind::SyntaxError,
-                            format!("Invalid padding number: {}", prefix),
-                        )
-                        .with_trace(format_string.clone())
+                        Error::syntax_error(format!("Invalid padding number: {}", prefix))
+                            .with_trace(format_string.clone())
                     })?
                 } else {
                     0
@@ -203,7 +181,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(output.into())
     }
 
-    ctx.add_special_form("format-seconds", |ctx, args| {
+    ctx.defspecial("format-seconds", |ctx, args| {
         destruct_eval_bind!(ctx, (format_string seconds) = args);
         format_seconds(format_string, seconds)
     });
@@ -296,8 +274,8 @@ mod tests {
                 .unwrap_err()
                 .format(ctx),
             r#"ERR TypeMismatch: expected (ticks . hz) pair
-<eval_string>:1.15-1.26:  at (test . 10)
-<eval_string>:1.1-1.38:  at (time-less-p '(test . 10) 1758549822)
+<eval_string>:1.15-1.25:  at (test . 10)
+<eval_string>:1.1-1.37:  at (time-less-p '(test . 10) 1758549822)
 "#
         );
 
@@ -305,9 +283,8 @@ mod tests {
             ctx.eval_string("(time-less-p 'test 1758549822)")
                 .unwrap_err()
                 .format(ctx),
-            r#"ERR TypeMismatch: expected integer or (ticks . hz) pair
-<eval_string>:1.15-1.19:  at test
-<eval_string>:1.1-1.31:  at (time-less-p 'test 1758549822)
+            r#"ERR TypeMismatch: expected integer or (ticks . hz) pair. found: test
+<eval_string>:1.1-1.30:  at (time-less-p 'test 1758549822)
 "#
         );
 

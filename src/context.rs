@@ -1,21 +1,29 @@
-mod add_function;
+mod callable;
 
 mod rest;
 pub use rest::Rest;
 
-use std::{cell::RefCell, collections::HashMap, fs, rc::Rc};
+mod plist;
+pub use plist::{Plist, Plistable};
+
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    fs,
+    path::{Path, PathBuf},
+    rc::Rc,
+};
 
 use crate::{
     TulispObject, TulispValue, builtin,
-    bytecode::{self, Bytecode, Compiler, compile},
-    context::add_function::TulispCallable,
+    bytecode::{self, Bytecode, Compiler, VMCompilers, compile},
+    context::callable::TulispCallable,
     error::Error,
-    eval::{DummyEval, eval, eval_and_then, eval_basic, funcall},
+    eval::{DummyEval, eval_basic, funcall},
     list,
+    object::wrappers::{TulispFn, generic::Shared},
     parse::parse,
 };
-
-use crate::bytecode::VMCompilers;
 
 macro_rules! intern_from_obarray {
     ($( #[$meta:meta] )*
@@ -38,7 +46,7 @@ macro_rules! intern_from_obarray {
 
     (@intern $obarray:ident, $name:literal) => {
         if let Some(sym) = $obarray.get($name) {
-            sym.clone_without_span()
+            sym.clone()
         } else {
             let name = $name.to_string();
             let constant = name.starts_with(':');
@@ -92,6 +100,9 @@ pub struct TulispContext {
     pub(crate) compiler: Option<Compiler>,
     pub(crate) keywords: Keywords,
     pub(crate) vm: Rc<RefCell<bytecode::Machine>>,
+    pub(crate) load_path: Option<PathBuf>,
+    #[cfg(feature = "etags")]
+    pub(crate) tags_table: HashMap<String, HashMap<String, usize>>,
 }
 
 impl Default for TulispContext {
@@ -111,6 +122,9 @@ impl TulispContext {
             compiler: None,
             keywords,
             vm: Rc::new(RefCell::new(bytecode::Machine::new())),
+            load_path: None,
+            #[cfg(feature = "etags")]
+            tags_table: HashMap::new(),
         };
         builtin::functions::add(&mut ctx);
         builtin::macros::add(&mut ctx);
@@ -125,7 +139,7 @@ impl TulispContext {
     /// [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Creating-Symbols.html).
     pub fn intern(&mut self, name: &str) -> TulispObject {
         if let Some(sym) = self.obarray.get(name) {
-            sym.clone_without_span()
+            sym.clone()
         } else {
             let name = name.to_string();
             let constant = name.starts_with(':');
@@ -136,27 +150,174 @@ impl TulispContext {
     }
 
     pub(crate) fn intern_soft(&mut self, name: &str) -> Option<TulispObject> {
-        self.obarray.get(name).map(|x| x.clone_without_span())
+        self.obarray.get(name).cloned()
     }
 
+    #[cfg(feature = "etags")]
+    pub fn tags_table(&mut self, files: Option<&[&str]>) -> Result<String, Error> {
+        if let Some(files) = files {
+            for filename in files {
+                let contents = fs::read_to_string(filename).map_err(|e| {
+                    Error::os_error(format!("Unable to read file: {filename}. Error: {e}"))
+                })?;
+                self.filenames.push(filename.to_string());
+                // Parse the file to populate the tags table, but ignore the
+                // result since we only care about the side effect of populating
+                // the tags table.
+                let _ = parse(self, self.filenames.len() - 1, contents.as_str(), true);
+            }
+        }
+
+        let mut ret = String::new();
+        for (filename, tags) in &self.tags_table {
+            let file = std::fs::read_to_string(filename)
+                .map_err(|e| {
+                    Error::os_error(format!(
+                        "Unable to read file for tag table: {filename}. Error: {e}"
+                    ))
+                })?
+                .split('\n')
+                .map(|line| line.to_string())
+                .collect::<Vec<_>>();
+
+            let tags = tags
+                .iter()
+                .map(|(name, loc)| {
+                    format!(
+                        "{}{name}{},{}",
+                        file[*loc - 1],
+                        loc,
+                        file[0..loc.saturating_sub(2)]
+                            .iter()
+                            .fold(1, |acc, line| acc + line.len() + 1)
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            ret.push_str("\n");
+            ret.push_str(filename);
+            ret.push_str(&format!(",{}\n", tags.len()));
+            ret.push_str(&tags);
+            ret.push('\n');
+        }
+        Ok(ret)
+    }
+
+    /// Registers a low-level Rust function as a Lisp special form.
+    ///
+    /// The function receives unevaluated arguments as a raw [`TulispObject`]
+    /// list and is responsible for evaluating them itself.  This gives full
+    /// control over evaluation order and is how built-in forms like `if`,
+    /// `let`, and `and` are implemented internally.
+    ///
+    /// For most use cases, prefer [`defun`](Self::defun), which handles
+    /// argument evaluation and type conversion automatically.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use tulisp::{TulispContext, TulispObject, Error, destruct_bind};
+    ///
+    /// let mut ctx = TulispContext::new();
+    /// ctx.defspecial("my-if", |ctx, args| {
+    ///     destruct_bind!((cond then &rest else_body) = args);
+    ///     if ctx.eval(&cond)?.is_truthy() {
+    ///         ctx.eval(&then)
+    ///     } else {
+    ///         ctx.eval_progn(&else_body)
+    ///     }
+    /// });
+    ///
+    /// assert!(
+    ///     ctx
+    ///         .eval_string("(my-if t 1 2)")
+    ///         .unwrap()
+    ///         .equal(&TulispObject::from(1))
+    /// );
+    /// ```
     #[inline(always)]
-    pub fn add_special_form(
-        &mut self,
-        name: &str,
-        func: impl Fn(&mut TulispContext, &TulispObject) -> Result<TulispObject, Error> + 'static,
-    ) {
+    #[track_caller]
+    pub fn defspecial(&mut self, name: &str, func: impl TulispFn + std::any::Any) {
+        #[cfg(feature = "etags")]
+        {
+            let caller = std::panic::Location::caller();
+
+            self.tags_table
+                .entry(caller.file().to_owned())
+                .or_default()
+                .insert(name.to_owned(), caller.line() as usize);
+        }
+
         self.intern(name)
-            .set_global(TulispValue::Func(Rc::new(func)).into_ref(None))
+            .set_global(TulispValue::Func(Shared::new_tulisp_fn(func)).into_ref(None))
             .unwrap();
     }
 
+    /// Registers a Rust function as a callable Lisp function.
+    ///
+    /// This is the primary way to expose Rust logic to Lisp code. Argument
+    /// evaluation, arity checking, and type conversion are all handled
+    /// automatically based on the function's signature.
+    ///
+    /// Returns `&mut Self` so calls can be chained.
+    ///
+    /// # Argument types
+    ///
+    /// Each parameter type must implement [`TulispConvertible`](crate::TulispConvertible).  The built-in
+    /// implementations cover `i64`, `f64`, `bool`, `String`, [`Number`](crate::Number),
+    /// `Vec<T>`, and [`TulispObject`].
+    ///
+    /// | Signature pattern                        | Behaviour                                      |
+    /// |------------------------------------------|------------------------------------------------|
+    /// | `(T, U, ...) -> R`                       | fixed required arguments                       |
+    /// | `(..., Option<T>, Option<U>, ...) -> R`  | trailing optional arguments (Lisp `&optional`) |
+    /// | `(..., `[`Rest<T>`](Rest)`) -> R`        | trailing variadic arguments (Lisp `&rest`)     |
+    /// | `(&mut TulispContext, T, ...) -> R`      | access to the interpreter                      |
+    /// | `(...) -> Result<R, `[`Error`](Error)`>` | fallible function                              |
+    /// | `(`[`Plist<T>`](Plist)`) -> R`           | entire argument list as a typed plist          |
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use tulisp::{TulispContext, Rest};
+    ///
+    /// let mut ctx = TulispContext::new();
+    ///
+    /// // Fixed arguments
+    /// ctx.defun("add", |a: i64, b: i64| a + b);
+    ///
+    /// // Optional argument
+    /// ctx.defun("greet", |name: String, greeting: Option<String>| {
+    ///     format!("{}, {}!", greeting.unwrap_or("Hello".into()), name)
+    /// });
+    ///
+    /// // Variadic (rest) arguments
+    /// ctx.defun("sum", |items: Rest<f64>| -> f64 { items.into_iter().sum() });
+    ///
+    /// // Access to the interpreter context
+    /// ctx.defun("eval-expr", |ctx: &mut TulispContext, expr: tulisp::TulispObject| {
+    ///     Ok(format!("Result of {} is {}.", expr, ctx.eval(&expr)?))
+    /// });
+    ///
+    /// assert_eq!(ctx.eval_string("(add 3 4)").unwrap().to_string(), "7");
+    /// assert_eq!(ctx.eval_string("(sum 1.0 2.0 3.0)").unwrap().to_string(), "6");
+    /// assert_eq!(ctx.eval_string(r#"(greet "Sam")"#).unwrap().to_string(), r#""Hello, Sam!""#);
+    /// assert_eq!(ctx.eval_string(r#"(greet "Sam" "Hi")"#).unwrap().to_string(), r#""Hi, Sam!""#);
+    /// assert_eq!(
+    ///     ctx.eval_string("(eval-expr '(add 10 20))").unwrap().to_string(),
+    ///     r#""Result of (add 10 20) is 30.""#
+    /// );
+    /// ```
     #[inline(always)]
-    pub fn add_function<
+    #[track_caller]
+    pub fn defun<
         Args: 'static,
         Output: 'static,
         const NEEDS_CONTEXT: bool,
         const NUM_ARGS: usize,
         const NUM_OPTIONAL: usize,
+        const HAS_PLIST: bool,
         const HAS_REST: bool,
         const HAS_RETURN: bool,
         const FALLIBLE: bool,
@@ -169,6 +330,7 @@ impl TulispContext {
             NEEDS_CONTEXT,
             NUM_ARGS,
             NUM_OPTIONAL,
+            HAS_PLIST,
             HAS_REST,
             HAS_RETURN,
             FALLIBLE,
@@ -178,21 +340,70 @@ impl TulispContext {
         self
     }
 
+    /// Registers a Rust function as a Lisp macro.
+    ///
+    /// A macro receives its arguments unevaluated and returns a
+    /// [`TulispObject`] that is then evaluated in the caller's environment —
+    /// the same semantics as a Lisp `defmacro`.
+    ///
+    /// For functions that should evaluate their arguments normally, use
+    /// [`defun`](Self::defun) instead.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use tulisp::{TulispContext, TulispObject, Error, destruct_bind, list};
+    ///
+    /// let mut ctx = TulispContext::new();
+    /// // Implement `(my-when cond body...)` as a macro
+    /// ctx.defmacro("push", |ctx, args| {
+    ///     destruct_bind!((newelt place) = args);
+    ///
+    ///     list!(
+    ///         ,ctx.intern("setq")
+    ///         ,place.clone()
+    ///         ,list!(,ctx.intern("cons"), newelt, place)?
+    ///     )
+    /// });
+    ///
+    /// assert_eq!(
+    ///     ctx.eval_string("(macroexpand '(push 1 my-list))").unwrap().to_string(),
+    ///     "(setq my-list (cons 1 my-list))"
+    /// );
+    /// ```
     #[inline(always)]
-    pub fn add_macro(
-        &mut self,
-        name: &str,
-        func: impl Fn(&mut TulispContext, &TulispObject) -> Result<TulispObject, Error> + 'static,
-    ) {
+    #[track_caller]
+    pub fn defmacro(&mut self, name: &str, func: impl TulispFn) {
+        #[cfg(feature = "etags")]
+        {
+            let caller = std::panic::Location::caller();
+
+            self.tags_table
+                .entry(caller.file().to_owned())
+                .or_default()
+                .insert(name.to_owned(), caller.line() as usize);
+        }
+
         self.intern(name)
-            .set_global(TulispValue::Macro(Rc::new(func)).into_ref(None))
+            .set_global(TulispValue::Macro(Shared::new_tulisp_fn(func)).into_ref(None))
             .unwrap();
+    }
+
+    pub fn set_load_path<P: AsRef<Path>>(&mut self, path: Option<P>) -> Result<(), Error> {
+        self.load_path = match path {
+            Some(path) => Some(
+                std::fs::canonicalize(path)
+                    .map_err(|e| Error::os_error(format!("Unable to set load path: {e}")))?,
+            ),
+            None => None,
+        };
+        Ok(())
     }
 
     /// Evaluates the given value and returns the result.
     #[inline(always)]
     pub fn eval(&mut self, value: &TulispObject) -> Result<TulispObject, Error> {
-        eval(self, value)
+        eval_basic(self, value).map(|x| x.into_owned())
     }
 
     /// Evaluates the given value, run the given function on the result of the
@@ -203,7 +414,8 @@ impl TulispContext {
         expr: &TulispObject,
         f: impl FnOnce(&mut TulispContext, &TulispObject) -> Result<T, Error>,
     ) -> Result<T, Error> {
-        eval_and_then(self, expr, f)
+        let val = eval_basic(self, expr)?;
+        f(self, &val)
     }
 
     /// Calls the given function with the given arguments, and returns the
@@ -262,7 +474,13 @@ impl TulispContext {
 
     /// Parses and evaluates the given string, and returns the result.
     pub fn eval_string(&mut self, string: &str) -> Result<TulispObject, Error> {
-        let vv = parse(self, 0, string)?;
+        let vv = parse(
+            self,
+            0,
+            string,
+            #[cfg(feature = "etags")]
+            false,
+        )?;
         self.eval_progn(&vv)
     }
 
@@ -271,10 +489,16 @@ impl TulispContext {
     #[inline(always)]
     pub fn eval_progn(&mut self, seq: &TulispObject) -> Result<TulispObject, Error> {
         let mut ret = None;
-        let mut result = None;
+
         for val in seq.base_iter() {
-            eval_basic(self, &val, &mut result)?;
-            ret = Some(result.take().unwrap_or(val))
+            match eval_basic(self, &val)? {
+                std::borrow::Cow::Borrowed(_) => {
+                    ret = Some(val);
+                }
+                std::borrow::Cow::Owned(o) => {
+                    ret = Some(o);
+                }
+            };
         }
         Ok(ret.unwrap_or_else(TulispObject::nil))
     }
@@ -285,7 +509,7 @@ impl TulispContext {
     pub fn eval_each(&mut self, seq: &TulispObject) -> Result<TulispObject, Error> {
         let ret = TulispObject::nil();
         for val in seq.base_iter() {
-            ret.push(eval(self, &val)?)?;
+            ret.push(self.eval(&val)?)?;
         }
         Ok(ret)
     }
@@ -298,7 +522,13 @@ impl TulispContext {
     }
 
     pub fn vm_eval_string(&mut self, string: &str) -> Result<TulispObject, Error> {
-        let vv = parse(self, 0, string)?;
+        let vv = parse(
+            self,
+            0,
+            string,
+            #[cfg(feature = "etags")]
+            false,
+        )?;
         let bytecode = compile(self, &vv)?;
         let vm = self.vm.clone();
         let res = vm.borrow_mut().run(self, bytecode);
@@ -313,7 +543,6 @@ impl TulispContext {
         let start = std::time::Instant::now();
         let bytecode = compile(self, &vv)?;
         println!("Compiling took: {:?}", start.elapsed());
-        // println!("{}", bytecode);
         let start = std::time::Instant::now();
         let vm = self.vm.clone();
         let res = vm.borrow_mut().run(self, bytecode);
@@ -323,16 +552,18 @@ impl TulispContext {
     }
 
     pub(crate) fn get_filename(&self, file_id: usize) -> String {
-        self.filenames[file_id].clone()
+        // Spans can cross context boundaries (e.g. a lambda parsed in the
+        // parent, funcalled from a child async context that has its own
+        // `filenames`). An unknown file id is not a bug; fall back gracefully.
+        self.filenames
+            .get(file_id)
+            .cloned()
+            .unwrap_or_else(|| "<unknown>".to_string())
     }
 
     pub(crate) fn parse_file(&mut self, filename: &str) -> Result<TulispObject, Error> {
-        let contents = fs::read_to_string(filename).map_err(|e| {
-            Error::new(
-                crate::ErrorKind::Undefined,
-                format!("Unable to read file: {filename}. Error: {e}"),
-            )
-        })?;
+        let contents = fs::read_to_string(filename)
+            .map_err(|e| Error::os_error(format!("Unable to read file: {filename}. Error: {e}")))?;
         let idx = if let Some(idx) = self.filenames.iter().position(|x| x == filename) {
             idx
         } else {
@@ -341,7 +572,13 @@ impl TulispContext {
         };
 
         let string: &str = &contents;
-        parse(self, idx, string)
+        parse(
+            self,
+            idx,
+            string,
+            #[cfg(feature = "etags")]
+            false,
+        )
     }
 
     #[allow(dead_code)]
@@ -350,7 +587,13 @@ impl TulispContext {
         string: &str,
         keep_result: bool,
     ) -> Result<crate::bytecode::Bytecode, Error> {
-        let vv = parse(self, 0, string)?;
+        let vv = parse(
+            self,
+            0,
+            string,
+            #[cfg(feature = "etags")]
+            false,
+        )?;
         let compiler = self.compiler.as_mut().unwrap();
         compiler.keep_result = keep_result;
         compile(self, &vv)

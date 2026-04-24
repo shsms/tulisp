@@ -1,4 +1,4 @@
-use crate::{Error, ErrorKind, TulispContext, TulispObject, TulispValue, destruct_eval_bind};
+use crate::{Error, TulispContext, TulispObject, TulispValue, destruct_eval_bind};
 
 fn string_cmp(
     ctx: &mut TulispContext,
@@ -9,33 +9,65 @@ fn string_cmp(
     destruct_eval_bind!(ctx, (string1 string2) = args_other);
     let string1 = string1.inner_ref();
     let string2 = string2.inner_ref();
-    match (&*string1, &*string2) {
+    match (&string1.0, &string2.0) {
         (TulispValue::String { value: string1 }, TulispValue::String { value: string2 }) => {
             Ok(oper(string1, string2).into())
         }
-        (_, _) => Err(Error::new(
-            ErrorKind::TypeMismatch,
-            "Both arguments need to be strings".to_string(),
-        )
-        .with_trace(if string1.stringp() {
-            args.cadr()?
-        } else {
-            args.car()?
-        })),
+        (_, _) => Err(
+            Error::type_mismatch("Both arguments need to be strings".to_string()).with_trace(
+                if string1.0.stringp() {
+                    args.cadr()?
+                } else {
+                    args.car()?
+                },
+            ),
+        ),
     }
 }
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    ctx.add_special_form("string<", |ctx, args| string_cmp(ctx, args, PartialOrd::lt));
-    ctx.add_special_form("string>", |ctx, args| string_cmp(ctx, args, PartialOrd::gt));
-    ctx.add_special_form("string=", |ctx, args| string_cmp(ctx, args, PartialEq::eq));
-    ctx.add_special_form("string-lessp", |ctx, args| {
+    ctx.defspecial("string<", |ctx, args| string_cmp(ctx, args, PartialOrd::lt));
+    ctx.defspecial("string>", |ctx, args| string_cmp(ctx, args, PartialOrd::gt));
+    ctx.defspecial("string=", |ctx, args| string_cmp(ctx, args, PartialEq::eq));
+    ctx.defspecial("string-lessp", |ctx, args| {
         string_cmp(ctx, args, PartialOrd::lt)
     });
-    ctx.add_special_form("string-greaterp", |ctx, args| {
+    ctx.defspecial("string-greaterp", |ctx, args| {
         string_cmp(ctx, args, PartialOrd::gt)
     });
-    ctx.add_special_form("string-equal", |ctx, args| {
+    ctx.defspecial("string-equal", |ctx, args| {
         string_cmp(ctx, args, PartialEq::eq)
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        TulispContext,
+        test_utils::{eval_assert, eval_assert_not},
+    };
+
+    #[test]
+    fn test_string_comparison() {
+        let ctx = &mut TulispContext::new();
+        eval_assert(ctx, r#"(string< "hello" "world")"#);
+        eval_assert(ctx, r#"(string> "world" "hello")"#);
+        eval_assert(ctx, r#"(string= "hello" "hello")"#);
+        eval_assert(ctx, r#"(string-lessp "hello" "world")"#);
+        eval_assert(ctx, r#"(string-greaterp "world" "hello")"#);
+        eval_assert(ctx, r#"(string-equal "hello" "hello")"#);
+
+        eval_assert_not(ctx, r#"(string< "hello" "hello")"#);
+        eval_assert_not(ctx, r#"(string< "world" "hello")"#);
+        eval_assert_not(ctx, r#"(string> "hello" "world")"#);
+        eval_assert_not(ctx, r#"(string> "hello" "hello")"#);
+        eval_assert_not(ctx, r#"(string= "hello" "world")"#);
+        eval_assert_not(ctx, r#"(string= "world" "hello")"#);
+        eval_assert_not(ctx, r#"(string-lessp "hello" "hello")"#);
+        eval_assert_not(ctx, r#"(string-lessp "world" "hello")"#);
+        eval_assert_not(ctx, r#"(string-greaterp "hello" "world")"#);
+        eval_assert_not(ctx, r#"(string-greaterp "hello" "hello")"#);
+        eval_assert_not(ctx, r#"(string-equal "hello" "world")"#);
+        eval_assert_not(ctx, r#"(string-equal "world" "hello")"#);
+    }
 }

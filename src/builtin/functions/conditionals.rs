@@ -1,102 +1,95 @@
+use crate::eval::EvalInto;
+
 use crate::{
-    Error, ErrorKind, TulispContext, TulispObject, TulispValue,
-    builtin::functions::common::eval_2_arg_special_form,
-    destruct_bind, destruct_eval_bind,
-    eval::{eval_and_then, eval_basic},
+    Error, TulispContext, TulispObject, destruct_bind, destruct_eval_bind,
+    eval::eval_basic,
     list,
     lists::{last, length},
 };
-use std::rc::Rc;
+use std::borrow::Cow;
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    fn impl_if(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
-        eval_2_arg_special_form(ctx, "if", args, true, |ctx, cond, then, else_body| {
-            if eval_and_then(ctx, cond, |_, x| Ok(x.is_truthy()))? {
-                ctx.eval(then)
-            } else {
-                ctx.eval_progn(else_body)
-            }
-        })
-    }
-    intern_set_func!(ctx, impl_if, "if");
+    ctx.defspecial("if", |ctx, args| {
+        destruct_bind!((cond then &rest body) = args);
+        if cond.eval_into(ctx)? {
+            ctx.eval(&then)
+        } else {
+            ctx.eval_progn(&body)
+        }
+    });
 
-    fn when(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+    ctx.defmacro("when", |ctx, args| {
         destruct_bind!((cond &rest body) = args);
         list!(,ctx.intern("if") ,cond ,TulispObject::cons(ctx.intern("progn"), body))
-    }
-    ctx.add_macro("when", when);
+    });
 
-    fn unless(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+    ctx.defmacro("unless", |ctx, args| {
         destruct_bind!((cond &rest body) = args);
 
         Ok(TulispObject::cons(
             ctx.intern("if"),
             TulispObject::cons(cond, TulispObject::cons(TulispObject::nil(), body)),
         ))
-    }
-    ctx.add_macro("unless", unless);
+    });
 
-    fn cond(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+    ctx.defspecial("cond", |ctx, args| {
         for item in args.base_iter() {
-            if item.car_and_then(|x| eval_and_then(ctx, x, |_, x| Ok(x.is_truthy())))? {
+            if item.car_and_then(|x| x.eval_into(ctx))? {
                 return item.cdr_and_then(|x| ctx.eval_progn(x));
             }
         }
         Ok(TulispObject::nil())
-    }
-    intern_set_func!(ctx, cond, "cond");
+    });
 
     // Constructs for combining conditions
-    fn not(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+    ctx.defspecial("not", |ctx, args| {
         if args.cdr_and_then(|x| Ok(!x.null()))? {
-            return Err(Error::new(
-                ErrorKind::SyntaxError,
+            return Err(Error::syntax_error(
                 "not: expected one argument".to_string(),
             ));
         }
 
-        args.car_and_then(|x| ctx.eval_and_then(x, |_, x| Ok(x.null().into())))
-    }
-    ctx.add_special_form("not", not);
+        args.car_and_then(|x| {
+            let not: bool = !x.eval_into(ctx)?;
+            Ok(not.into())
+        })
+    });
 
-    fn and(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+    ctx.defspecial("and", |ctx, args| {
         let mut ret = TulispObject::nil();
         for item in args.base_iter() {
-            let mut result = None;
-            eval_basic(ctx, &item, &mut result)?;
-            if let Some(result) = result {
-                if result.null() {
-                    return Ok(result);
-                }
-                ret = result;
-            } else {
-                if item.null() {
-                    return Ok(item);
-                }
-                ret = item;
+            let result = eval_basic(ctx, &item)?;
+            if result.null() {
+                return Ok(result.into_owned());
             }
+            ret = match result {
+                Cow::Borrowed(_) => item,
+                Cow::Owned(o) => o,
+            };
         }
         Ok(ret)
-    }
-    ctx.add_special_form("and", and);
+    });
 
-    fn or(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+    ctx.defspecial("or", |ctx, args| {
         for item in args.base_iter() {
-            let mut result = None;
-            eval_basic(ctx, &item, &mut result)?;
-            if let Some(result) = result {
-                if !result.null() {
-                    return Ok(result);
+            let result = eval_basic(ctx, &item)?;
+            match result {
+                Cow::Borrowed(_) => {
+                    if !item.null() {
+                        return Ok(item);
+                    }
                 }
-            } else if !item.null() {
-                return Ok(item);
+                Cow::Owned(o) => {
+                    if !o.null() {
+                        return Ok(o);
+                    }
+                }
             }
         }
         Ok(TulispObject::nil())
-    }
-    ctx.add_special_form("or", or);
+    });
 
-    fn xor(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+    ctx.defspecial("xor", |ctx, args| {
         destruct_eval_bind!(ctx, (cond1 cond2) = args);
         if cond1.null() {
             Ok(cond2)
@@ -105,10 +98,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         } else {
             Ok(TulispObject::nil())
         }
-    }
-    ctx.add_special_form("xor", xor);
+    });
 
-    fn if_let_star(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+    ctx.defmacro("if-let*", |ctx, args| {
         destruct_bind!((varlist then &rest body) = args);
         if varlist.null() {
             return list!(,ctx.intern("let*") ,varlist ,then);
@@ -122,10 +114,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                      ,@body
               )?
         )
-    }
-    ctx.add_macro("if-let*", if_let_star);
+    });
 
-    fn if_let(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+    ctx.defmacro("if-let", |ctx, args| {
         destruct_bind!((spec then &rest body) = args);
         let spec = if length(&spec)? <= 2 && !spec.car()?.listp() {
             list!(,spec)?
@@ -138,10 +129,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             body.car()?
         };
         list!(,ctx.intern("if-let*") ,spec ,then ,macroexp_progn_on_body)
-    }
-    ctx.add_macro("if-let", if_let);
+    });
 
-    fn when_let(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+    ctx.defmacro("when-let", |ctx, args| {
         destruct_bind!((spec &rest body) = args);
         let macroexp_progn_on_body = if body.cdr()?.is_truthy() {
             list!(,ctx.intern("progn") ,@body)?
@@ -149,10 +139,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             body.car()?
         };
         list!(,ctx.intern("if-let") ,spec ,macroexp_progn_on_body)
-    }
-    ctx.add_macro("when-let", when_let);
+    });
 
-    fn while_let(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+    ctx.defmacro("while-let", |ctx, args| {
         destruct_bind!((spec &rest body) = args);
         list!(,ctx.intern("while")
               ,list!(
@@ -162,8 +151,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                   TulispObject::nil()
               )?
         )
-    }
-    ctx.add_macro("while-let", while_let);
+    });
 }
 
 fn build_binding(
@@ -180,10 +168,10 @@ fn build_binding(
     };
 
     if length(&binding)? > 2 {
-        return Err(Error::new(
-            ErrorKind::SyntaxError,
-            format!("`let` bindings can have only one value-form {}", &binding),
-        ));
+        return Err(Error::syntax_error(format!(
+            "`let` bindings can have only one value-form {}",
+            &binding
+        )));
     }
 
     let var = binding.car()?;

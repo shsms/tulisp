@@ -1,12 +1,13 @@
 [package]
 name = "tulisp"
 description = "An embeddable lisp interpreter."
-version = "0.23.0"
+version = "0.28.0"
 repository = "https://github.com/shsms/tulisp"
 license = "GPL-3.0"
 edition = "2024"
 keywords = ["lisp", "scripting", "emacs-lisp"]
 categories = ["compilers", "config"]
+rust-version = "1.88.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -14,9 +15,22 @@ categories = ["compilers", "config"]
 name = "tulisp"
 path = "src/bin/tulisp.rs"
 
+[[bin]]
+name = "bench_compare"
+path = "src/bin/bench_compare.rs"
+
 [lib]
 name = "tulisp"
 path = "src/lib.rs"
 
+[profile.release]
+lto = true
+
+[[bench]]
+name = "fib"
+harness = false
+
 [features]
+sync = []
 big_functions = []
+etags = []

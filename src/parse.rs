@@ -1,10 +1,8 @@
-use std::{collections::HashMap, fmt::Write, iter::Peekable, str::Chars};
+use std::{collections::HashMap, iter::Peekable, str::Chars};
 
 use crate::{
-    Error, ErrorKind, TulispContext, TulispObject, TulispValue, destruct_bind,
-    eval::{eval, macroexpand},
-    list,
-    object::Span,
+    Error, Number, TulispContext, TulispObject, TulispValue, destruct_bind,
+    eval::macroexpand, list, object::Span,
 };
 
 struct Tokenizer<'a> {
@@ -62,7 +60,7 @@ impl Tokenizer<'_> {
             file_id,
             chars,
             line: 1,
-            pos: 1,
+            pos: 0,
         }
     }
 
@@ -74,7 +72,7 @@ impl Tokenizer<'_> {
         self.chars.next().inspect(|ch| {
             if *ch == '\n' {
                 self.line += 1;
-                self.pos = 1;
+                self.pos = 0;
             } else {
                 self.pos += 1;
             }
@@ -82,8 +80,8 @@ impl Tokenizer<'_> {
     }
 
     fn read_string(&mut self) -> Option<Token> {
-        assert_eq!(self.next_char()?, '"');
-        let start_pos = (self.line, self.pos);
+        self.next_char()?; // consume the opening '"'
+        let start_pos = (self.line, self.pos + 1);
         let mut output = String::new();
         while let Some(ch) = self.next_char() {
             match ch {
@@ -99,13 +97,13 @@ impl Tokenizer<'_> {
                                 format!("Unknown escape char {}", e),
                                 Span {
                                     file_id: self.file_id,
-                                    start: (self.line, self.pos - 1),
+                                    start: (self.line, self.pos),
                                     end: (self.line, self.pos),
                                 },
                             )));
                         }
                     };
-                    output.write_char(out_ch).unwrap();
+                    output.push(out_ch);
                 }
                 '"' => {
                     return Some(Token::String {
@@ -117,7 +115,7 @@ impl Tokenizer<'_> {
                         value: output,
                     });
                 }
-                ch => output.write_char(ch).unwrap(),
+                ch => output.push(ch),
             }
         }
 
@@ -132,11 +130,18 @@ impl Tokenizer<'_> {
     }
 
     fn read_num_ident(&mut self) -> Option<Token> {
-        let start_pos = (self.line, self.pos);
-        let mut output = String::new();
-        let mut first_char = true;
-        let mut is_int = true;
-        let mut is_float = false;
+        let start_pos = (self.line, self.pos + 1);
+        self.read_num_ident_impl(start_pos, String::new(), true, false)
+    }
+
+    fn read_num_ident_impl(
+        &mut self,
+        start_pos: (usize, usize),
+        mut output: String,
+        mut is_int: bool,
+        mut is_float: bool,
+    ) -> Option<Token> {
+        let mut first_char = output.is_empty();
 
         while let Some(ch) = self.peek_char() {
             match ch {
@@ -148,9 +153,10 @@ impl Tokenizer<'_> {
                         is_int = false;
                         is_float = false;
                     }
-                    output.write_char(ch).unwrap();
+                    output.push(ch);
                 }
-                '0'..='9' => output.write_char(ch).unwrap(),
+                '0'..='9' => output.push(ch),
+                '_' if (is_int || is_float) && !first_char => {}
                 '.' => {
                     if is_int && !is_float {
                         is_int = false;
@@ -158,27 +164,35 @@ impl Tokenizer<'_> {
                     } else if is_float {
                         is_float = false;
                     }
-                    output.write_char(ch).unwrap()
+                    output.push(ch)
                 }
                 ch => {
                     is_int = false;
                     is_float = false;
-                    output.write_char(ch).unwrap();
+                    output.push(ch);
                 }
             }
             self.next_char()?;
             first_char = false;
         }
         if is_int && output != "-" {
-            Some(Token::Integer {
-                span: Span::new(self.file_id, start_pos, (self.line, self.pos)),
-                value: output.parse::<i64>().unwrap(),
-            })
+            let span = Span::new(self.file_id, start_pos, (self.line, self.pos));
+            match output.parse::<i64>() {
+                Ok(value) => Some(Token::Integer { span, value }),
+                Err(e) => Some(Token::ParserError(ParserError::syntax_error(
+                    format!("{e}: {output}"),
+                    span,
+                ))),
+            }
         } else if is_float {
-            Some(Token::Float {
-                span: Span::new(self.file_id, start_pos, (self.line, self.pos)),
-                value: output.parse::<f64>().unwrap(),
-            })
+            let span = Span::new(self.file_id, start_pos, (self.line, self.pos));
+            match output.parse::<f64>() {
+                Ok(value) => Some(Token::Float { span, value }),
+                Err(e) => Some(Token::ParserError(ParserError::syntax_error(
+                    format!("{e}: {output}"),
+                    span,
+                ))),
+            }
         } else {
             Some(Token::Ident {
                 span: Span::new(self.file_id, start_pos, (self.line, self.pos)),
@@ -207,51 +221,35 @@ impl Iterator for Tokenizer<'_> {
                 '(' => {
                     self.next_char()?;
                     return Some(Token::OpenParen {
-                        span: Span::new(
-                            self.file_id,
-                            (self.line, self.pos - 1),
-                            (self.line, self.pos),
-                        ),
+                        span: Span::new(self.file_id, (self.line, self.pos), (self.line, self.pos)),
                     });
                 }
                 ')' => {
                     self.next_char()?;
                     return Some(Token::CloseParen {
-                        span: Span::new(
-                            self.file_id,
-                            (self.line, self.pos - 1),
-                            (self.line, self.pos),
-                        ),
+                        span: Span::new(self.file_id, (self.line, self.pos), (self.line, self.pos)),
                     });
                 }
                 '\'' => {
                     self.next_char()?;
                     return Some(Token::Quote {
-                        span: Span::new(
-                            self.file_id,
-                            (self.line, self.pos - 1),
-                            (self.line, self.pos),
-                        ),
+                        span: Span::new(self.file_id, (self.line, self.pos), (self.line, self.pos)),
                     });
                 }
                 '`' => {
                     self.next_char()?;
                     return Some(Token::Backtick {
-                        span: Span::new(
-                            self.file_id,
-                            (self.line, self.pos - 1),
-                            (self.line, self.pos),
-                        ),
+                        span: Span::new(self.file_id, (self.line, self.pos), (self.line, self.pos)),
                     });
                 }
                 '.' => {
+                    let start_pos = (self.line, self.pos + 1);
                     self.next_char()?;
+                    if matches!(self.peek_char(), Some('0'..='9')) {
+                        return self.read_num_ident_impl(start_pos, String::from("."), false, true);
+                    }
                     return Some(Token::Dot {
-                        span: Span::new(
-                            self.file_id,
-                            (self.line, self.pos - 1),
-                            (self.line, self.pos),
-                        ),
+                        span: Span::new(self.file_id, (self.line, self.pos), (self.line, self.pos)),
                     });
                 }
                 '#' => {
@@ -261,18 +259,14 @@ impl Iterator for Tokenizer<'_> {
                         return Some(Token::SharpQuote {
                             span: Span::new(
                                 self.file_id,
-                                (self.line, self.pos - 2),
+                                (self.line, self.pos - 1),
                                 (self.line, self.pos),
                             ),
                         });
                     }
                     return Some(Token::ParserError(ParserError::syntax_error(
                         "Unknown token #.  Did you mean #' ?".to_string(),
-                        Span::new(
-                            self.file_id,
-                            (self.line, self.pos - 1),
-                            (self.line, self.pos),
-                        ),
+                        Span::new(self.file_id, (self.line, self.pos), (self.line, self.pos)),
                     )));
                 }
                 ',' => {
@@ -282,17 +276,13 @@ impl Iterator for Tokenizer<'_> {
                         return Some(Token::Splice {
                             span: Span::new(
                                 self.file_id,
-                                (self.line, self.pos - 2),
+                                (self.line, self.pos - 1),
                                 (self.line, self.pos),
                             ),
                         });
                     }
                     return Some(Token::Comma {
-                        span: Span::new(
-                            self.file_id,
-                            (self.line, self.pos - 1),
-                            (self.line, self.pos),
-                        ),
+                        span: Span::new(self.file_id, (self.line, self.pos), (self.line, self.pos)),
                     });
                 }
                 '"' => {
@@ -311,6 +301,8 @@ struct Parser<'a, 'b> {
     ctx: &'b mut TulispContext,
     ints: HashMap<i64, TulispObject>,
     strings: HashMap<String, TulispObject>,
+    #[cfg(feature = "etags")]
+    follow_load_files: bool,
 }
 
 fn recursive_update_ctxobj(ctx: &mut TulispContext, body: &TulispObject) -> Result<(), Error> {
@@ -319,7 +311,7 @@ fn recursive_update_ctxobj(ctx: &mut TulispContext, body: &TulispObject) -> Resu
     }
     let name = body.car()?;
     if name.symbolp() && body.ctxobj().is_none() {
-        let ctxobj = eval(ctx, &name).ok();
+        let ctxobj = ctx.eval(&name).ok();
         body.with_ctxobj(ctxobj);
     }
     for item in body.base_iter() {
@@ -329,13 +321,20 @@ fn recursive_update_ctxobj(ctx: &mut TulispContext, body: &TulispObject) -> Resu
 }
 
 impl Parser<'_, '_> {
-    fn new<'b, 'a>(ctx: &'b mut TulispContext, file_id: usize, program: &'a str) -> Parser<'a, 'b> {
+    fn new<'b, 'a>(
+        ctx: &'b mut TulispContext,
+        file_id: usize,
+        program: &'a str,
+        #[cfg(feature = "etags")] follow_load_files: bool,
+    ) -> Parser<'a, 'b> {
         Parser {
             file_id,
             tokenizer: Tokenizer::new(file_id, program).peekable(),
             ctx,
             ints: Default::default(),
             strings: Default::default(),
+            #[cfg(feature = "etags")]
+            follow_load_files,
         }
     }
 
@@ -344,10 +343,8 @@ impl Parser<'_, '_> {
         let mut got_dot = false;
         loop {
             let Some(token) = self.tokenizer.peek() else {
-                return Err(
-                    Error::new(ErrorKind::ParsingError, "Unclosed list".to_string())
-                        .with_trace(TulispObject::nil().with_span(Some(start_span))),
-                );
+                return Err(Error::parsing_error("Unclosed list".to_string())
+                    .with_trace(TulispObject::nil().with_span(Some(start_span))));
             };
             match token {
                 Token::CloseParen { span: end_span } => {
@@ -381,8 +378,7 @@ impl Parser<'_, '_> {
                     end: end_span.end,
                 }));
             } else {
-                return Err(Error::new(
-                    ErrorKind::ParsingError,
+                return Err(Error::parsing_error(
                     "Expected only one item in list after dot.".to_string(),
                 )
                 .with_trace(next));
@@ -390,15 +386,49 @@ impl Parser<'_, '_> {
             inner.append(next)?;
         }
 
-        if let Ok("defun" | "defmacro") = inner.car()?.as_symbol().as_ref().map(|x| x.as_str()) {
+        #[cfg(feature = "etags")]
+        if self.follow_load_files
+            && let Ok("load") = inner.car()?.as_symbol().as_ref().map(|x| x.as_str())
+        {
+            let filename = inner.cadr()?.as_string()?;
+            let contents = std::fs::read_to_string(&filename).map_err(|e| {
+                Error::os_error(format!("Unable to read file: {filename}. Error: {e}"))
+            })?;
+            self.ctx.filenames.push(filename.to_string());
+            // Parse the file to populate the tags table, but ignore the
+            // result since we only care about the side effect of populating
+            // the tags table.
+            let _ = parse(
+                self.ctx,
+                self.ctx.filenames.len() - 1,
+                contents.as_str(),
+                self.follow_load_files,
+            );
+        }
+
+        if let Ok("defun" | "defmacro" | "defvar") =
+            inner.car()?.as_symbol().as_ref().map(|x| x.as_str())
+        {
+            #[cfg(feature = "etags")]
+            {
+                let name = inner.cadr()?.as_symbol()?.clone();
+                if let Some(span) = inner.span() {
+                    self.ctx
+                        .tags_table
+                        .entry(self.ctx.filenames[self.file_id].clone())
+                        .or_default()
+                        .insert(name, span.start.0);
+                }
+            }
+
             inner = macroexpand(self.ctx, inner)?;
-            eval(self.ctx, &inner)?;
+            self.ctx.eval(&inner)?;
             // recursively update ctx obj in case it is a recursive function.
             recursive_update_ctxobj(self.ctx, &inner)?;
         }
         if inner.consp() {
             let name = inner.car()?;
-            let ctxobj = eval(self.ctx, &name).ok();
+            let ctxobj = self.ctx.eval(&name).ok();
             inner.with_ctxobj(ctxobj);
         }
         Ok(inner)
@@ -410,8 +440,7 @@ impl Parser<'_, '_> {
         };
         match token {
             Token::OpenParen { span } => self.parse_list(span).map(Some),
-            Token::CloseParen { span } => Err(Error::new(
-                ErrorKind::ParsingError,
+            Token::CloseParen { span } => Err(Error::parsing_error(
                 "Unexpected closing parenthesis".to_string(),
             )
             .with_trace(TulispValue::Nil.into_ref(Some(span)))),
@@ -419,11 +448,8 @@ impl Parser<'_, '_> {
                 let next = match self.parse_value()? {
                     Some(next) => next,
                     None => {
-                        return Err(Error::new(
-                            ErrorKind::ParsingError,
-                            "Unexpected EOF".to_string(),
-                        )
-                        .with_trace(TulispValue::Nil.into_ref(Some(span))));
+                        return Err(Error::parsing_error("Unexpected EOF".to_string())
+                            .with_trace(TulispValue::Nil.into_ref(Some(span))));
                     }
                 };
                 Ok(Some(
@@ -434,31 +460,22 @@ impl Parser<'_, '_> {
                 let next = match self.parse_value()? {
                     Some(next) => next,
                     None => {
-                        return Err(Error::new(
-                            ErrorKind::ParsingError,
-                            "Unexpected EOF".to_string(),
-                        )
-                        .with_trace(TulispValue::Nil.into_ref(Some(span))));
+                        return Err(Error::parsing_error("Unexpected EOF".to_string())
+                            .with_trace(TulispValue::Nil.into_ref(Some(span))));
                     }
                 };
                 Ok(Some(
                     TulispValue::Backquote { value: next }.into_ref(Some(span)),
                 ))
             }
-            Token::Dot { span } => Err(Error::new(
-                ErrorKind::ParsingError,
-                "Unexpected dot".to_string(),
-            )
-            .with_trace(TulispValue::Nil.into_ref(Some(span)))),
+            Token::Dot { span } => Err(Error::parsing_error("Unexpected dot".to_string())
+                .with_trace(TulispValue::Nil.into_ref(Some(span)))),
             Token::Comma { span } => {
                 let next = match self.parse_value()? {
                     Some(next) => next,
                     None => {
-                        return Err(Error::new(
-                            ErrorKind::ParsingError,
-                            "Unexpected EOF".to_string(),
-                        )
-                        .with_trace(TulispValue::Nil.into_ref(Some(span))));
+                        return Err(Error::parsing_error("Unexpected EOF".to_string())
+                            .with_trace(TulispValue::Nil.into_ref(Some(span))));
                     }
                 };
                 Ok(Some(
@@ -472,11 +489,8 @@ impl Parser<'_, '_> {
                 let next = match self.parse_value()? {
                     Some(next) => next,
                     None => {
-                        return Err(Error::new(
-                            ErrorKind::ParsingError,
-                            "Unexpected EOF".to_string(),
-                        )
-                        .with_trace(TulispValue::Nil.into_ref(Some(span))));
+                        return Err(Error::parsing_error("Unexpected EOF".to_string())
+                            .with_trace(TulispValue::Nil.into_ref(Some(span))));
                     }
                 };
                 Ok(Some(
@@ -498,14 +512,20 @@ impl Parser<'_, '_> {
             Token::Integer { span, value } => Ok(Some(match self.ints.get(&value) {
                 Some(vv) => vv.with_span(Some(span)),
                 None => {
-                    let vv = TulispValue::Int { value }.into_ref(Some(span));
+                    let vv = TulispValue::Number {
+                        value: Number::Int(value),
+                    }
+                    .into_ref(Some(span));
                     self.ints.insert(value, vv.clone());
                     vv
                 }
             })),
-            Token::Float { span, value } => {
-                Ok(Some(TulispValue::Float { value }.into_ref(Some(span))))
-            }
+            Token::Float { span, value } => Ok(Some(
+                TulispValue::Number {
+                    value: Number::Float(value),
+                }
+                .into_ref(Some(span)),
+            )),
             Token::Ident { span, value } => Ok(Some(match self.ctx.intern_soft(&value) {
                 Some(vv) => vv.with_span(Some(span)),
                 None => {
@@ -518,11 +538,10 @@ impl Parser<'_, '_> {
                     }
                 }
             })),
-            Token::ParserError(err) => Err(Error::new(
-                ErrorKind::ParsingError,
-                format!("{:?} {}", err.kind, err.desc),
-            )
-            .with_trace(TulispValue::Nil.into_ref(Some(err.span)))),
+            Token::ParserError(err) => {
+                Err(Error::parsing_error(format!("{:?} {}", err.kind, err.desc))
+                    .with_trace(TulispValue::Nil.into_ref(Some(err.span))))
+            }
         }
     }
 
@@ -560,7 +579,8 @@ pub(crate) fn mark_tail_calls(
     let new_tail = if tail_ident.eq(&name) {
         let ret_tail = TulispObject::nil().append(tail.cdr()?)?.to_owned();
         list!(,ctx.intern("list")
-              ,TulispValue::Bounce{ value: name }.into_ref(None)
+              ,TulispValue::Bounce.into_ref(None)
+              ,tail_ident
               ,@ret_tail)?
     } else if tail_name_str == "progn" || tail_name_str == "let" || tail_name_str == "let*" {
         list!(,tail_ident ,@mark_tail_calls(ctx, name, tail.cdr()?)?)?
@@ -596,6 +616,14 @@ pub fn parse(
     ctx: &mut TulispContext,
     file_id: usize,
     program: &str,
+    #[cfg(feature = "etags")] follow_load_files: bool,
 ) -> Result<TulispObject, Error> {
-    Parser::new(ctx, file_id, program).parse()
+    Parser::new(
+        ctx,
+        file_id,
+        program,
+        #[cfg(feature = "etags")]
+        follow_load_files,
+    )
+    .parse()
 }

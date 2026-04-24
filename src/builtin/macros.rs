@@ -1,4 +1,3 @@
-use crate::ErrorKind;
 use crate::TulispObject;
 use crate::TulispValue;
 use crate::context::TulispContext;
@@ -39,15 +38,13 @@ fn thread_last(_ctx: &mut TulispContext, vv: &TulispObject) -> Result<TulispObje
 
 fn quote(_ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
     if !args.consp() {
-        return Err(Error::new(
-            ErrorKind::TypeMismatch,
+        return Err(Error::type_mismatch(
             "quote: expected one argument".to_string(),
         ));
     }
     args.cdr_and_then(|cdr| {
         if !cdr.null() {
-            return Err(Error::new(
-                ErrorKind::TypeMismatch,
+            return Err(Error::type_mismatch(
                 "quote: expected one argument".to_string(),
             ));
         }
@@ -58,9 +55,9 @@ fn quote(_ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, 
 }
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    ctx.add_macro("->", thread_first);
-    ctx.add_macro("thread-first", thread_first);
-    ctx.add_macro("->>", thread_last);
-    ctx.add_macro("thread-last", thread_last);
-    ctx.add_macro("quote", quote);
+    ctx.defmacro("->", thread_first);
+    ctx.defmacro("thread-first", thread_first);
+    ctx.defmacro("->>", thread_last);
+    ctx.defmacro("thread-last", thread_last);
+    ctx.defmacro("quote", quote);
 }

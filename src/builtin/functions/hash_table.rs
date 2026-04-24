@@ -1,5 +1,8 @@
-use crate::{Error, ErrorKind, TulispAny, TulispContext, TulispObject, destruct_eval_bind};
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use crate::{
+    Error, TulispContext, TulispObject, destruct_eval_bind,
+    object::wrappers::generic::{Shared, SharedMut},
+};
+use std::collections::HashMap;
 
 struct TulispObjectEql(TulispObject);
 
@@ -29,7 +32,7 @@ impl From<TulispObject> for TulispObjectEql {
 }
 
 pub(crate) struct HashTable {
-    inner: RefCell<HashMap<TulispObjectEql, TulispObject>>,
+    inner: SharedMut<HashMap<TulispObjectEql, TulispObject>>,
 }
 
 impl std::fmt::Display for HashTable {
@@ -39,21 +42,20 @@ impl std::fmt::Display for HashTable {
 }
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    ctx.add_special_form("make-hash-table", |_ctx, args| {
+    ctx.defspecial("make-hash-table", |_ctx, args| {
         if !args.null() {
-            return Err(Error::new(
-                ErrorKind::InvalidArgument,
+            return Err(Error::invalid_argument(
                 "make-hash-table: expected no arguments.".to_string(),
             )
             .with_trace(args.clone()));
         }
-        let table: Rc<dyn TulispAny> = Rc::new(HashTable {
-            inner: RefCell::new(HashMap::new()),
+        let table = Shared::new(HashTable {
+            inner: SharedMut::new(HashMap::new()),
         });
         Ok(table.into())
     });
 
-    ctx.add_special_form("gethash", |ctx, args| {
+    ctx.defspecial("gethash", |ctx, args| {
         destruct_eval_bind!(ctx, (key table) = args);
         let binding = table.as_any()?;
         let table = binding.downcast_ref::<HashTable>().unwrap();
@@ -67,7 +69,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(value)
     });
 
-    ctx.add_special_form("puthash", |ctx, args| {
+    ctx.defspecial("puthash", |ctx, args| {
         destruct_eval_bind!(ctx, (key value table) = args);
 
         let binding = table.as_any()?;

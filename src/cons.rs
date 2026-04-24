@@ -1,11 +1,8 @@
 use std::marker::PhantomData;
 
-use crate::TulispContext;
 use crate::TulispObject;
 use crate::TulispValue;
 use crate::error::Error;
-use crate::error::ErrorKind;
-use crate::eval::eval_basic;
 use crate::object::Span;
 
 #[derive(Debug, Clone)]
@@ -50,10 +47,7 @@ impl Cons {
             });
             last.with_span(span);
         } else {
-            return Err(Error::new(
-                ErrorKind::TypeMismatch,
-                "Cons: unable to push".to_string(),
-            ));
+            return Err(Error::type_mismatch("Cons: unable to push".to_string()));
         }
         Ok(())
     }
@@ -78,18 +72,9 @@ impl Cons {
                 self.cdr = val.deep_copy()?;
             }
         } else {
-            return Err(Error::new(
-                ErrorKind::TypeMismatch,
-                format!("Unable to append: {}", val),
-            ));
+            return Err(Error::type_mismatch(format!("Unable to append: {}", val)));
         }
         Ok(())
-    }
-
-    pub fn iter(&self) -> BaseIter {
-        BaseIter {
-            next: Some(self.clone()),
-        }
     }
 
     pub(crate) fn car(&self) -> &TulispObject {
@@ -118,48 +103,19 @@ impl Drop for Cons {
 
 #[derive(Default)]
 pub struct BaseIter {
-    next: Option<Cons>,
+    pub(crate) next: TulispObject,
 }
 
 impl Iterator for BaseIter {
     type Item = TulispObject;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match &self.next {
-            Some(next) => {
-                let car = next.car.clone();
-                self.next = next.cdr.as_list_cons();
-                Some(car)
-            }
-            _ => None,
+        if self.next.null() {
+            return None;
         }
-    }
-}
-
-impl BaseIter {
-    pub(crate) fn eval_next(
-        &mut self,
-        ctx: &mut TulispContext,
-    ) -> Option<Result<TulispObject, Error>> {
-        if let Some(ref next) = self.next {
-            let Cons { car, cdr } = next;
-            let new_car = {
-                let mut result = None;
-                if let Err(e) = eval_basic(ctx, car, &mut result) {
-                    return Some(Err(e));
-                };
-                if let Some(result) = result {
-                    Ok(result)
-                } else {
-                    Ok(next.car.clone())
-                }
-            };
-
-            self.next = cdr.as_list_cons();
-            Some(new_car)
-        } else {
-            None
-        }
+        let car = self.next.car().ok()?;
+        self.next = self.next.cdr().ok()?;
+        Some(car)
     }
 }
 
@@ -184,10 +140,7 @@ impl<T: 'static + std::convert::TryFrom<TulispObject>> Iterator for Iter<T> {
         self.iter.next().map(|vv| {
             vv.clone().try_into().map_err(|_| {
                 let tid = std::any::type_name::<T>();
-                Error::new(
-                    ErrorKind::TypeMismatch,
-                    format!("Iter<{}> can't handle {}", tid, vv),
-                )
+                Error::type_mismatch(format!("Iter<{}> can't handle {}", tid, vv))
             })
         })
     }

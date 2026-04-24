@@ -111,22 +111,22 @@ fn compile_back_quote(
         return Ok(vec![]);
     }
     match &*value.inner_ref() {
-        TulispValue::Quote { value } => {
+        (TulispValue::Quote { value }, _) => {
             return compile_back_quote(ctx, value).map(|mut v| {
                 v.push(Instruction::Quote);
                 v
             })
         }
-        TulispValue::Unquote { value } => {
+        (TulispValue::Unquote { value }, _) => {
             return compile_expr(ctx, value).map_err(|e| e.with_trace(value.clone()));
         }
-        TulispValue::Splice { .. } => {
+        (TulispValue::Splice { .. }, _) => {
             return Err(Error::new(
                 crate::ErrorKind::SyntaxError,
                 "Splice must be within a backquoted list.".to_string(),
             ));
         }
-        TulispValue::List { .. } => {}
+        (TulispValue::List { .. }, _) => {}
         _ => return Ok(vec![Instruction::Push(value.clone().into())]),
     }
     let mut result = vec![];
@@ -138,12 +138,12 @@ fn compile_back_quote(
     loop {
         value.car_and_then(|first| {
             let first_inner = &*first.inner_ref();
-            if let TulispValue::Unquote { value } = first_inner {
+            if let (TulispValue::Unquote { value }, _) = first_inner {
                 items += 1;
                 result.append(
                     &mut compile_expr(ctx, &value).map_err(|e| e.with_trace(first.clone()))?,
                 );
-            } else if let TulispValue::Splice { value } = first_inner {
+            } else if let (TulispValue::Splice { value }, _) = first_inner {
                 let mut splice_result = compile_expr(ctx, &value)?;
                 let list_inst = splice_result.pop().unwrap();
                 if let Instruction::List(n) = list_inst {
@@ -186,7 +186,7 @@ fn compile_back_quote(
             Ok(())
         })?;
         let rest = value.cdr()?;
-        if let TulispValue::Unquote { value } = &*rest.inner_ref() {
+        if let (TulispValue::Unquote { value }, _) = &*rest.inner_ref() {
             result.append(&mut compile_expr(ctx, &value)?);
             result.push(Instruction::Cons);
             need_list = false;
@@ -218,61 +218,54 @@ pub(crate) fn compile_expr(
     let expr_ref = expr.inner_ref();
     let compiler = ctx.compiler.as_mut().unwrap();
     match &*expr_ref {
-        TulispValue::Int { value } => {
+        (TulispValue::Number { value }, _) => {
             if compiler.keep_result {
-                return Ok(vec![Instruction::Push(value.clone().into())]);
+                return Ok(vec![Instruction::Push((*value).into())]);
             } else {
                 return Ok(vec![]);
             }
         }
-        TulispValue::Float { value } => {
-            if compiler.keep_result {
-                return Ok(vec![Instruction::Push(value.clone().into())]);
-            } else {
-                return Ok(vec![]);
-            }
-        }
-        TulispValue::Nil => {
+        (TulispValue::Nil, _) => {
             if compiler.keep_result {
                 return Ok(vec![Instruction::Push(false.into())]);
             } else {
                 return Ok(vec![]);
             }
         }
-        TulispValue::T => {
+        (TulispValue::T, _) => {
             if compiler.keep_result {
                 return Ok(vec![Instruction::Push(true.into())]);
             } else {
                 return Ok(vec![]);
             }
         }
-        TulispValue::String { .. } | TulispValue::Any(_) => {
+        (TulispValue::String { .. }, _) | (TulispValue::Any(_), _) => {
             if compiler.keep_result {
                 return Ok(vec![Instruction::Push(expr.clone().into())]);
             } else {
                 return Ok(vec![]);
             }
         }
-        TulispValue::Lambda { .. }
-        | TulispValue::Func(_)
-        | TulispValue::CompiledDefun { .. }
-        | TulispValue::Macro(_)
-        | TulispValue::Defmacro { .. }
-        | TulispValue::Bounce { .. } => return Ok(vec![]),
+        (TulispValue::Lambda { .. }, _)
+        | (TulispValue::Func(_), _)
+        | (TulispValue::CompiledDefun { .. }, _)
+        | (TulispValue::Macro(_), _)
+        | (TulispValue::Defmacro { .. }, _)
+        | (TulispValue::Bounce, _) => return Ok(vec![]),
 
-        TulispValue::Backquote { value } => compile_back_quote(ctx, value),
-        TulispValue::Quote { value } | TulispValue::Sharpquote { value } => {
+        (TulispValue::Backquote { value }, _) => compile_back_quote(ctx, value),
+        (TulispValue::Quote { value }, _) | (TulispValue::Sharpquote { value }, _) => {
             if compiler.keep_result {
                 return Ok(vec![Instruction::Push(value.clone().into())]);
             } else {
                 return Ok(vec![]);
             }
         }
-        TulispValue::List { .. } => {
+        (TulispValue::List { .. }, _) => {
             drop(expr_ref);
             compile_form(ctx, expr).map_err(|e| e.with_trace(expr.clone()))
         }
-        TulispValue::Symbol { .. } | TulispValue::LexicalBinding { .. } => {
+        (TulispValue::Symbol { .. }, _) | (TulispValue::LexicalBinding { .. }, _) => {
             if !compiler.keep_result {
                 return Ok(vec![]);
             }
@@ -282,9 +275,9 @@ pub(crate) fn compile_expr(
                 Instruction::Load(expr.clone())
             }]);
         }
-        TulispValue::Unquote { .. } | TulispValue::Splice { .. } => {
+        (TulispValue::Unquote { .. }, _) | (TulispValue::Splice { .. }, _) => {
             return Err(Error::new(
-                crate::ErrorKind::TypeMismatch, // TODO: ErrorKind::SyntaxError
+                crate::ErrorKind::SyntaxError,
                 "Unquote without backquote".to_string(),
             ));
         }

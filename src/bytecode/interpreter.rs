@@ -1,4 +1,4 @@
-use super::{bytecode::Bytecode, compile, compiler::VMDefunParams, Instruction};
+use super::{bytecode::Bytecode, compiler::VMDefunParams, Instruction};
 use crate::{bytecode::Pos, lists, Error, TulispContext, TulispObject, TulispValue};
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
@@ -8,14 +8,14 @@ macro_rules! binary_ops {
             if !selfobj.numberp() {
                 return Err(Error::new(
                     crate::ErrorKind::TypeMismatch,
-                    format!("Expected number, found: {selfobj}"),
+                    format!("Expected number, got: {selfobj}"),
                 )
                 .with_trace(selfobj.clone()));
             }
             if !other.numberp() {
                 return Err(Error::new(
                     crate::ErrorKind::TypeMismatch,
-                    format!("Expected number, found: {other}"),
+                    format!("Expected number, got: {other}"),
                 )
                 .with_trace(other.clone()));
             }
@@ -42,14 +42,14 @@ macro_rules! compare_ops {
             if !selfobj.numberp() {
                 return Err(Error::new(
                     crate::ErrorKind::TypeMismatch,
-                    format!("Expected number, found: {selfobj}"),
+                    format!("Expected number, got: {selfobj}"),
                 )
                 .with_trace(selfobj.clone()));
             }
             if !other.numberp() {
                 return Err(Error::new(
                     crate::ErrorKind::TypeMismatch,
-                    format!("Expected number, found: {other}"),
+                    format!("Expected number, got: {other}"),
                 )
                 .with_trace(other.clone()));
             }
@@ -213,10 +213,7 @@ impl Machine {
                             Mul => binary_ops!(|a, b| a * b)(a, b)?,
                             Div => {
                                 if b.integerp() && b.as_int().unwrap() == 0 {
-                                    return Err(Error::new(
-                                        crate::ErrorKind::Undefined,
-                                        "Division by zero".to_string(),
-                                    ));
+                                    return Err(Error::out_of_range("Division by zero"));
                                 }
                                 binary_ops!(|a, b| a / b)(a, b)?
                             }
@@ -230,18 +227,19 @@ impl Machine {
                     let filename = filename
                         .as_string()
                         .map_err(|err| err.with_trace(filename))?;
-                    let ast = ctx.parse_file(&filename)?;
-                    let bytecode = compile(ctx, &ast)?;
-                    // TODO: support global code in modules
-                    if bytecode.global.borrow().len() > 0 {
-                        return Err(Error::new(
-                            crate::ErrorKind::Undefined,
-                            "Cannot load a file with global code".to_string(),
-                        ));
-                    }
-                    // println!("{}", bytecode);
-                    self.labels.extend(Self::locate_labels(&bytecode));
-                    self.bytecode.import_functions(&bytecode);
+                    let full_path = if let Some(ref load_path) = ctx.load_path {
+                        load_path.join(&filename)
+                    } else {
+                        std::path::PathBuf::from(&filename)
+                    };
+                    let full_path = full_path.to_str().ok_or_else(|| {
+                        Error::invalid_argument(format!(
+                            "load: Invalid path: {}",
+                            full_path.to_string_lossy()
+                        ))
+                    })?;
+                    let result = ctx.eval_file(full_path)?;
+                    self.stack.push(result.into());
                 }
                 Instruction::PrintPop => {
                     let a = self.stack.pop().unwrap();
@@ -408,7 +406,7 @@ impl Machine {
                     obj.set(a.clone().into()).unwrap();
                 }
                 Instruction::Load(obj) => {
-                    let a = obj.get()?;
+                    let a = obj.get().map_err(|e| e.with_trace(obj.clone()))?;
                     self.stack.push(a.into());
                 }
                 Instruction::BeginScope(obj) => {
@@ -438,18 +436,12 @@ impl Machine {
                         let func = func.clone();
 
                         if *args_count < func.params.required.len() {
-                            return Err(Error::new(
-                                crate::ErrorKind::TypeMismatch, // TODO: change to ArityMismatch
-                                "Too few arguments".to_string(),
-                            ));
+                            return Err(Error::missing_argument("Too few arguments".to_string()));
                         }
                         if func.params.rest.is_none()
                             && *args_count > func.params.required.len() + func.params.optional.len()
                         {
-                            return Err(Error::new(
-                                crate::ErrorKind::TypeMismatch, // TODO: change to ArityMismatch
-                                "Too many arguments".to_string(),
-                            ));
+                            return Err(Error::invalid_argument("Too many arguments".to_string()));
                         }
                         let left_args = *args_count - func.params.required.len();
                         if left_args > func.params.optional.len() {

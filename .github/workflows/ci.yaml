@@ -12,4 +12,34 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Run tests
-      run: cargo test
+      run: cargo test --features etags
+
+    - name: Run sync tests
+      run: cargo test --features etags,sync
+
+  bench:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+
+    - name: Build compare tool from PR branch
+      run: cargo build --release --bin bench_compare
+
+    - name: Run benchmarks on PR branch
+      run: rm -f /tmp/current.bench && cargo bench -- /tmp/current.bench
+
+    - name: Checkout base branch
+      run: git checkout origin/${{ github.base_ref }}
+
+    - name: Run benchmarks on base branch
+      run: rm -f /tmp/baseline.bench && cargo bench -- /tmp/baseline.bench
+
+    - name: Checkout PR branch
+      run: git checkout ${{ github.sha }}
+
+    - name: Compare benchmark results
+      run: ./target/release/bench_compare /tmp/baseline.bench /tmp/current.bench

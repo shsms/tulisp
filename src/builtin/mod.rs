@@ -45,7 +45,7 @@ Click [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Compariso
 | `<`   | ☑️      |         |
 | `>=`  | ☑️      |         |
 | `<=`  | ☑️      |         |
-| `=`   | 🔳     |         |
+| `=`   | ☑️      |         |
 | `eql` | ☑️     |         |
 | `/=`  | 🔳     |         |
 | `max` | ☑️      |         |
@@ -114,15 +114,22 @@ Because there are a huge number of sequence functions that are not yet implement
 
 | Name         | Status | Details |
 |--------------|--------|---------|
-| `length`     | ☑️      |         |
+| `length`     | ☑️      | works on lists and strings |
+| `make-string`| ☑️      | takes (N CHAR), where CHAR is an integer |
+| `reverse`    | ☑️      |         |
 | `sort`       | ☑️      |         |
+| `mapconcat`  | ☑️      |         |
+| `string-join`| ☑️      |         |
 | `seq-map`    | ☑️      |         |
 | `seq-filter` | ☑️      |         |
 | `seq-reduce` | ☑️      |         |
 | `seq-find`   | ☑️      |         |
-| `seq-drop`  | 🔳     |         |
-| `seq-take`  | 🔳     |         |
-| `seq-uniq`  | 🔳     |         |
+| `seq-drop`   | ☑️      |         |
+| `seq-take`   | ☑️      |         |
+| `memq`       | ☑️      |         |
+| `memql`      | ☑️      |         |
+| `member`     | ☑️      |         |
+| `seq-uniq`   | 🔳     |         |
 | `seq-some`  | 🔳     |         |
 | `seq-every-p` | 🔳     |         |
 | `seq-contains-p` | 🔳     |         |
@@ -171,6 +178,14 @@ the unix epoch.
 | `sqrt`      | ☑️      |        |
 | `abs`       | ☑️      |        |
 
+## Error handling
+
+| Name                                                                                                   | Status | Details |
+|--------------------------------------------------------------------------------------------------------|--------|---------|
+| [`error`](https://www.gnu.org/software/emacs/manual/html_node/elisp/Signaling-Errors.html#index-error) | ☑️      |         |
+| [`throw`](https://www.gnu.org/software/emacs/manual/html_node/elisp/Catch-and-Throw.html#index-throw)  | ☑️      |         |
+| [`catch`](https://www.gnu.org/software/emacs/manual/html_node/elisp/Catch-and-Throw.html#index-catch)  | ☑️      |         |
+
 ## Others
 
 These functions need to be organized into categories.  They are grouped here for now.
@@ -184,6 +199,7 @@ These functions need to be organized into categories.  They are grouped here for
 | [`progn`](https://www.gnu.org/software/emacs/manual/html_node/eintr/progn.html)                         | ☑️      |                                                   |
 | `defun`                                                                                                 | ☑️      |                                                   |
 | `defmacro`                                                                                              | ☑️      |                                                   |
+| `defvar`                                                                                                | ☑️      | sets only when unbound; preserves value on reload |
 | `lambda`                                                                                                | ☑️      |                                                   |
 | `quote`                                                                                                 | ☑️      |                                                   |
 | `null`                                                                                                  | ☑️      |                                                   |
@@ -209,6 +225,12 @@ These functions need to be organized into categories.  They are grouped here for
 | `intern`                                                                                                | ☑️      | no optional obarray param, always uses default.   |
 | `make-symbol`                                                                                           | ☑️      |                                                   |
 | `gensym`                                                                                                | ☑️      |                                                   |
+| `floor`                                                                                                 | ☑️      | takes optional divisor                            |
+| `ceiling`                                                                                               | ☑️      | takes optional divisor                            |
+| `truncate`                                                                                              | ☑️      | takes optional divisor                            |
+| `round`                                                                                                 | ☑️      | banker's rounding, takes optional divisor         |
+| `ffloor`                                                                                                | ☑️      |                                                   |
+| `fceiling`                                                                                              | ☑️      |                                                   |
 | `fround`                                                                                                | ☑️      |                                                   |
 | `ftruncate`                                                                                             | ☑️      |                                                   |
 

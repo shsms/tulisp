@@ -19,7 +19,7 @@ fn compile_fn_compare(
     if args.len() < 2 {
         return Err(Error::new(
             crate::ErrorKind::OutOfRange, // TODO: change to ArityMismatch
-            format!("{} requires at least 2 arguments", name),
+            "Comparison requires at least 2 arguments".to_string(),
         ));
     }
     for items in args.windows(2) {

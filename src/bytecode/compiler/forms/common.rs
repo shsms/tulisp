@@ -47,7 +47,7 @@ impl TulispContext {
             &TulispObject,
         ) -> Result<Vec<Instruction>, Error>,
     ) -> Result<Vec<Instruction>, Error> {
-        let TulispValue::List { cons: args, .. } = &*args.inner_ref() else {
+        let (TulispValue::List { cons: args, .. }, _) = &*args.inner_ref() else {
             return Err(Error::new(
                 ErrorKind::TypeMismatch, // TODO: change to ArityMismatch
                 if has_rest {

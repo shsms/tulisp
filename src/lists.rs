@@ -1,15 +1,20 @@
 use crate::{
-    Error, ErrorKind, TulispContext, TulispObject,
-    eval::{DummyEval, eval, funcall},
+    Error, TulispContext, TulispObject,
+    eval::{DummyEval, funcall},
     list,
 };
 
-/// Returns the number of elements in the given list.
+/// Returns the number of elements in the given list, or the number of
+/// characters if the argument is a string.
 pub fn length(list: &TulispObject) -> Result<i64, Error> {
-    list.base_iter()
-        .count()
+    let count = if list.stringp() {
+        list.as_string()?.chars().count()
+    } else {
+        list.base_iter().count()
+    };
+    count
         .try_into()
-        .map_err(|e: _| Error::new(ErrorKind::OutOfRange, format!("{}", e)))
+        .map_err(|e: _| Error::out_of_range(format!("{}", e)))
 }
 
 /// Returns the last link in the given list.
@@ -18,10 +23,10 @@ pub fn last(list: &TulispObject, n: Option<i64>) -> Result<TulispObject, Error> 
         return Ok(list.clone());
     }
     if !list.consp() {
-        return Err(Error::new(
-            ErrorKind::TypeMismatch,
-            format!("expected list, got: {}", list),
-        ));
+        return Err(Error::type_mismatch(format!(
+            "expected list, got: {}",
+            list
+        )));
     }
 
     // TODO: emacs' implementation uses the `safe-length` function for this, but
@@ -30,10 +35,10 @@ pub fn last(list: &TulispObject, n: Option<i64>) -> Result<TulispObject, Error> 
     let len = length(list)?;
     if let Some(n) = n {
         if n < 0 {
-            return Err(Error::new(
-                ErrorKind::OutOfRange,
-                format!("n must be positive. got: {}", n),
-            ));
+            return Err(Error::out_of_range(format!(
+                "n must be positive. got: {}",
+                n
+            )));
         }
         if n < len {
             return nthcdr(len - n, list.clone());
@@ -93,13 +98,13 @@ pub fn assoc(
     testfn: Option<TulispObject>,
 ) -> Result<TulispObject, Error> {
     if !alist.listp() {
-        return Err(Error::new(
-            ErrorKind::TypeMismatch,
-            format!("expected alist. got: {}", alist),
-        ));
+        return Err(Error::type_mismatch(format!(
+            "expected alist. got: {}",
+            alist
+        )));
     }
     if let Some(testfn) = testfn {
-        let pred = eval(ctx, &testfn)?;
+        let pred = ctx.eval(&testfn)?;
 
         let testfn = |_1: &TulispObject, _2: &TulispObject| -> Result<bool, Error> {
             funcall::<DummyEval>(ctx, &pred, &list!(,_1.clone() ,_2.clone()).unwrap())
@@ -138,11 +143,12 @@ fn assoc_find(
     alist: &TulispObject,
     mut testfn: impl FnMut(&TulispObject, &TulispObject) -> Result<bool, Error>,
 ) -> Result<TulispObject, Error> {
-    if alist.caar_and_then(|caar| testfn(caar, key))? {
-        return alist.car();
-    }
-    if alist.consp() {
-        return alist.cdr_and_then(|cdr| assoc_find(key, cdr, testfn));
+    let mut cur = alist.clone();
+    while cur.consp() {
+        if cur.caar_and_then(|caar| testfn(caar, key))? {
+            return cur.car();
+        }
+        cur = cur.cdr()?;
     }
     Ok(TulispObject::nil())
 }
@@ -153,11 +159,12 @@ fn assoc_find(
 /// Read more about `plist`s
 /// [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Property-Lists.html).
 pub fn plist_get(plist: &TulispObject, property: &TulispObject) -> Result<TulispObject, Error> {
-    if plist.car_and_then(|car| Ok(car.eq(property)))? {
-        return plist.cadr();
-    };
-    if plist.consp() {
-        return plist.cddr_and_then(|cddr| plist_get(cddr, property));
+    let mut cur = plist.clone();
+    while cur.consp() {
+        if cur.car_and_then(|car| Ok(car.eq(property)))? {
+            return cur.cadr();
+        }
+        cur = cur.cddr()?;
     }
     Ok(TulispObject::nil())
 }

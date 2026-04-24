@@ -1,25 +1,22 @@
 use crate::{TulispContext, destruct_eval_bind};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    ctx.add_special_form("sqrt", |ctx, args| {
+    ctx.defspecial("sqrt", |ctx, args| {
         destruct_eval_bind!(ctx, (arg) = args);
 
         let val: f64 = arg.try_float()?;
         // TODO: switch to return NaN for negative inputs.
         if val < 0.0 {
-            return Err(crate::Error::new(
-                crate::ErrorKind::TypeMismatch,
-                format!(
-                    "sqrt: cannot compute square root of negative number: {}",
-                    val
-                ),
-            )
+            return Err(crate::Error::type_mismatch(format!(
+                "sqrt: cannot compute square root of negative number: {}",
+                val
+            ))
             .with_trace(arg));
         }
         Ok(val.sqrt().into())
     });
 
-    ctx.add_special_form("expt", |ctx, args| {
+    ctx.defspecial("expt", |ctx, args| {
         destruct_eval_bind!(ctx, (base exponent) = args);
 
         let base_val: f64 = base.try_float()?;
@@ -27,12 +24,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
         // TODO: switch to return Inf for 0^negative.
         if base_val == 0.0 && exponent_val < 0.0 {
-            return Err(crate::Error::new(
-                crate::ErrorKind::OutOfRange,
+            return Err(crate::Error::out_of_range(
                 "expt: cannot compute with base 0 and negative exponent".to_string(),
-            )
-            .with_trace(base)
-            .with_trace(exponent));
+            ));
         }
 
         Ok(base_val.powf(exponent_val).into())
@@ -52,8 +46,7 @@ mod tests {
         assert_eq!(
             ctx.eval_string("(sqrt -4.0)").unwrap_err().format(&ctx),
             r#"ERR TypeMismatch: sqrt: cannot compute square root of negative number: -4
-<eval_string>:1.7-1.11:  at -4
-<eval_string>:1.1-1.12:  at (sqrt -4)
+<eval_string>:1.1-1.11:  at (sqrt -4)
 "#
         );
     }
@@ -74,9 +67,7 @@ mod tests {
         assert_eq!(
             ctx.eval_string("(expt 0 -2)").unwrap_err().format(&ctx),
             r#"ERR OutOfRange: expt: cannot compute with base 0 and negative exponent
-<eval_string>:1.7-1.8:  at 0
-<eval_string>:1.9-1.11:  at -2
-<eval_string>:1.1-1.12:  at (expt 0 -2)
+<eval_string>:1.1-1.11:  at (expt 0 -2)
 "#
         );
     }

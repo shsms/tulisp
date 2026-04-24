@@ -1,99 +1,74 @@
 use crate::{
-    Error, TulispContext, TulispObject, TulispValue, builtin::functions::functions::reduce_with,
-    destruct_eval_bind,
+    Error, Number, TulispContext, TulispObject, builtin::functions::core::reduce_with,
+    destruct_eval_bind, eval::EvalInto,
 };
-use std::rc::Rc;
 
-macro_rules! compare_ops {
-    ($oper:expr) => {{
-        |selfobj: &TulispObject, other: &TulispObject| -> Result<bool, Error> {
-            if selfobj.floatp() {
-                let s: f64 = selfobj.as_float().unwrap();
-                let o: f64 = other.try_into()?;
-                Ok($oper(&s, &o))
-            } else if other.floatp() {
-                let o: f64 = other.as_float().unwrap();
-                let s: f64 = selfobj.try_into()?;
-                Ok($oper(&s, &o))
-            } else {
-                let s: i64 = selfobj.try_into()?;
-                let o: i64 = other.try_into()?;
-                Ok($oper(&s, &o))
-            }
-        }
-    }};
+#[inline(always)]
+fn compare_impl<F: Fn(&Number, &Number) -> bool>(
+    ctx: &mut TulispContext,
+    args: &TulispObject,
+    cmp: F,
+) -> Result<TulispObject, Error> {
+    if args.cdr_and_then(|x| Ok(x.consp()))? {
+        let first = args.car_and_then(|x| x.eval_into(ctx))?;
+        Ok(recursive_compare(ctx, first, args.cdr()?, cmp)?.into())
+    } else {
+        Err(Error::out_of_range(format!(
+            "Comparison requires at least 2 arguments"
+        )))
+    }
 }
 
-macro_rules! compare_impl {
-    ($name:ident, $symbol:literal) => {
-        fn $name(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
-            if args.null() || args.cdr_and_then(|x| Ok(x.null()))? {
-                return Err(Error::new(
-                    crate::ErrorKind::OutOfRange,
-                    format!("{} requires at least 2 arguments", $symbol),
-                ));
-            }
-            args.car_and_then(|x| {
-                ctx.eval_and_then(x, |ctx, first| {
-                    if !first.numberp() {
-                        return Err(Error::new(
-                            crate::ErrorKind::TypeMismatch,
-                            format!("Expected number, found: {first}"),
-                        )
-                        .with_trace(args.car()?));
-                    }
-                    args.cadr_and_then(|x| {
-                        ctx.eval_and_then(x, |ctx, second| {
-                            if !second.numberp() {
-                                return Err(Error::new(
-                                    crate::ErrorKind::TypeMismatch,
-                                    format!("Expected number, found: {second}"),
-                                )
-                                .with_trace(args.cadr()?));
-                            }
-                            if compare_ops!(std::cmp::PartialOrd::$name)(first, second)? {
-                                args.cdr_and_then(|cdr| {
-                                    if cdr.cdr_and_then(|x| Ok(x.null()))? {
-                                        Ok(TulispObject::t())
-                                    } else {
-                                        $name(ctx, &cdr)
-                                    }
-                                })
-                            } else {
-                                Ok(TulispObject::nil())
-                            }
-                        })
-                    })
-                })
-            })
+fn recursive_compare<F: Fn(&Number, &Number) -> bool>(
+    ctx: &mut TulispContext,
+    first: Number,
+    args: TulispObject,
+    cmp: F,
+) -> Result<bool, Error> {
+    let second: Number = args.car()?.eval_into(ctx)?;
+    if cmp(&first, &second) {
+        if args.cdr_and_then(|x| Ok(x.consp()))? {
+            recursive_compare(ctx, second, args.cdr()?, cmp)
+        } else {
+            Ok(true)
         }
-    };
+    } else {
+        Ok(false)
+    }
 }
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    compare_impl!(gt, ">");
-    intern_set_func!(ctx, gt, ">");
+    ctx.defspecial("=", |ctx, args| {
+        compare_impl(ctx, args, std::cmp::PartialEq::eq)
+    });
 
-    compare_impl!(ge, ">=");
-    intern_set_func!(ctx, ge, ">=");
+    ctx.defspecial(">", |ctx, args| {
+        compare_impl(ctx, args, std::cmp::PartialOrd::gt)
+    });
 
-    compare_impl!(lt, "<");
-    intern_set_func!(ctx, lt, "<");
+    ctx.defspecial(">=", |ctx, args| {
+        compare_impl(ctx, args, std::cmp::PartialOrd::ge)
+    });
 
-    compare_impl!(le, "<=");
-    intern_set_func!(ctx, le, "<=");
+    ctx.defspecial("<", |ctx, args| {
+        compare_impl(ctx, args, std::cmp::PartialOrd::lt)
+    });
+
+    ctx.defspecial("<=", |ctx, args| {
+        compare_impl(ctx, args, std::cmp::PartialOrd::le)
+    });
 
     fn max(ctx: &mut TulispContext, rest: &TulispObject) -> Result<TulispObject, Error> {
-        reduce_with(ctx, rest, max_min_ops!(max))
+        reduce_with(ctx, rest, |a, b| Ok(if a > b { a } else { b }))
     }
-    intern_set_func!(ctx, max, "max");
+    ctx.defspecial("max", max);
 
     fn min(ctx: &mut TulispContext, rest: &TulispObject) -> Result<TulispObject, Error> {
-        reduce_with(ctx, rest, max_min_ops!(min))
+        reduce_with(ctx, rest, |a, b| Ok(if a < b { a } else { b }))
     }
-    intern_set_func!(ctx, min, "min");
+    ctx.defspecial("min", min);
 
-    ctx.add_special_form("abs", |ctx, args| {
+    ctx.defspecial("abs", |ctx, args| {
         destruct_eval_bind!(ctx, (number) = args);
 
         Ok(number.try_float()?.abs().into())
@@ -103,6 +78,18 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 #[cfg(test)]
 mod tests {
     use crate::{TulispContext, test_utils::eval_assert_equal};
+
+    #[test]
+    fn test_numeric_equal() {
+        let ctx = &mut TulispContext::new();
+
+        eval_assert_equal(ctx, "(= 1 1)", "t");
+        eval_assert_equal(ctx, "(= 1 2)", "nil");
+        eval_assert_equal(ctx, "(= 1.0 1)", "t");
+        eval_assert_equal(ctx, "(= 1 1 1)", "t");
+        eval_assert_equal(ctx, "(= 1 1 2)", "nil");
+        eval_assert_equal(ctx, "(= -3 -3.0)", "t");
+    }
 
     #[test]
     fn test_abs() {

@@ -129,7 +129,7 @@ pub(super) fn compile_form(
     }
     if let Ok(func) = ctx.eval(&name) {
         match &*func.inner_ref() {
-            TulispValue::Func(func) => {
+            (TulispValue::Func(func), _) => {
                 let compiler = ctx.compiler.as_mut().unwrap();
                 return Ok(vec![
                     Instruction::Push(args.clone()),
@@ -140,7 +140,7 @@ pub(super) fn compile_form(
                     },
                 ]);
             }
-            TulispValue::Defmacro { .. } | TulispValue::Macro(..) => {
+            (TulispValue::Defmacro { .. }, _) | (TulispValue::Macro(..), _) => {
                 // TODO: this should not be necessary, this should be
                 // handled in the parser instead.
                 let form = macroexpand(ctx, form.clone())?;

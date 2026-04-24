@@ -1,6 +1,7 @@
-use std::rc::Rc;
-
-use crate::{value::TulispFn, TulispObject};
+use crate::{
+    object::wrappers::{generic::Shared, TulispFn},
+    TulispObject,
+};
 
 use super::bytecode::CompiledDefun;
 
@@ -107,7 +108,7 @@ pub(crate) enum Instruction {
     Label(TulispObject),
     RustCall {
         name: TulispObject,
-        func: Rc<TulispFn>,
+        func: Shared<dyn TulispFn>,
         keep_result: bool,
     },
     Call {

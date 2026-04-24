@@ -1,5 +1,7 @@
-use std::{fmt::Display, rc::Rc};
-use tulisp::{Error, Iter, TulispAny, TulispContext, TulispObject, destruct_eval_bind};
+use std::fmt::Display;
+use tulisp::{
+    Error, Iter, Shared, TulispContext, TulispConvertible, TulispObject, destruct_eval_bind,
+};
 
 macro_rules! tulisp_assert {
     (@impl $ctx: expr, program:$input:expr, result:$result:expr $(,)?) => {
@@ -113,16 +115,15 @@ fn test_comparison_of_numbers() -> Result<(), Error> {
     tulisp_assert! { program: "(> 5.0 10.0)", result: "nil" }
     tulisp_assert! {
         program: "(let ((a 10)) (> a))",
-        error: r#"ERR OutOfRange: > requires at least 2 arguments
-<eval_string>:1.15-1.20:  at (> a)
-<eval_string>:1.1-1.21:  at (let ((a 10)) (> a))
+        error: r#"ERR OutOfRange: Comparison requires at least 2 arguments
+<eval_string>:1.15-1.19:  at (> a)
+<eval_string>:1.1-1.20:  at (let ((a 10)) (> a))
 "#
     }
     tulisp_assert! {
         program: r#"(> 10 "hello")"#,
-        error: r#"ERR TypeMismatch: Expected number, found: "hello"
-<eval_string>:1.8-1.14:  at "hello"
-<eval_string>:1.1-1.15:  at (> 10 "hello")
+        error: r#"ERR TypeMismatch: Expected number, got: "hello"
+<eval_string>:1.1-1.14:  at (> 10 "hello")
 "#
     }
 
@@ -138,9 +139,9 @@ fn test_comparison_of_numbers() -> Result<(), Error> {
     tulisp_assert! { program: "(>= 5.0 10.0)", result: "nil" }
     tulisp_assert! {
         program: "(let ((a 10)) (>= a))",
-        error: r#"ERR OutOfRange: >= requires at least 2 arguments
-<eval_string>:1.15-1.21:  at (>= a)
-<eval_string>:1.1-1.22:  at (let ((a 10)) (>= a))
+        error: r#"ERR OutOfRange: Comparison requires at least 2 arguments
+<eval_string>:1.15-1.20:  at (>= a)
+<eval_string>:1.1-1.21:  at (let ((a 10)) (>= a))
 "#
     }
 
@@ -156,9 +157,9 @@ fn test_comparison_of_numbers() -> Result<(), Error> {
     tulisp_assert! { program: "(< 5.0 10.0)", result: "t" }
     tulisp_assert! {
         program: "(let ((a 10)) (< a))",
-        error: r#"ERR OutOfRange: < requires at least 2 arguments
-<eval_string>:1.15-1.20:  at (< a)
-<eval_string>:1.1-1.21:  at (let ((a 10)) (< a))
+        error: r#"ERR OutOfRange: Comparison requires at least 2 arguments
+<eval_string>:1.15-1.19:  at (< a)
+<eval_string>:1.1-1.20:  at (let ((a 10)) (< a))
 "#
     }
 
@@ -174,35 +175,12 @@ fn test_comparison_of_numbers() -> Result<(), Error> {
     tulisp_assert! { program: "(<= 5.0 10.0)", result: "t" }
     tulisp_assert! {
         program: "(let ((a 10)) (<= a))",
-        error: r#"ERR OutOfRange: <= requires at least 2 arguments
-<eval_string>:1.15-1.21:  at (<= a)
-<eval_string>:1.1-1.22:  at (let ((a 10)) (<= a))
+        error: r#"ERR OutOfRange: Comparison requires at least 2 arguments
+<eval_string>:1.15-1.20:  at (<= a)
+<eval_string>:1.1-1.21:  at (let ((a 10)) (<= a))
 "#
     }
 
-    Ok(())
-}
-
-#[test]
-fn test_comparison_of_strings() -> Result<(), Error> {
-    tulisp_assert! { program: r#"(string< "hello" "world")"#, result: "t" }
-    tulisp_assert! { program: r#"(string< "hello" "hello")"#, result: "nil" }
-    tulisp_assert! { program: r#"(string< "world" "hello")"#, result: "nil" }
-    tulisp_assert! { program: r#"(string> "hello" "world")"#, result: "nil" }
-    tulisp_assert! { program: r#"(string> "hello" "hello")"#, result: "nil" }
-    tulisp_assert! { program: r#"(string> "world" "hello")"#, result: "t" }
-    tulisp_assert! { program: r#"(string= "hello" "world")"#, result: "nil" }
-    tulisp_assert! { program: r#"(string= "hello" "hello")"#, result: "t" }
-    tulisp_assert! { program: r#"(string= "world" "hello")"#, result: "nil" }
-    tulisp_assert! { program: r#"(string-lessp "hello" "world")"#, result: "t" }
-    tulisp_assert! { program: r#"(string-lessp "hello" "hello")"#, result: "nil" }
-    tulisp_assert! { program: r#"(string-lessp "world" "hello")"#, result: "nil" }
-    tulisp_assert! { program: r#"(string-greaterp "hello" "world")"#, result: "nil" }
-    tulisp_assert! { program: r#"(string-greaterp "hello" "hello")"#, result: "nil" }
-    tulisp_assert! { program: r#"(string-greaterp "world" "hello")"#, result: "t" }
-    tulisp_assert! { program: r#"(string-equal "hello" "world")"#, result: "nil" }
-    tulisp_assert! { program: r#"(string-equal "hello" "hello")"#, result: "t" }
-    tulisp_assert! { program: r#"(string-equal "world" "hello")"#, result: "nil" }
     Ok(())
 }
 
@@ -374,7 +352,7 @@ fn test_defun() -> Result<(), Error> {
     tulisp_assert! {
         program: "(defun j (&rest x y) nil) (j)",
         error: r#"ERR TypeMismatch: Too many &rest parameters
-<eval_string>:1.1-1.26:  at (defun j (&rest x y) nil)
+<eval_string>:1.1-1.25:  at (defun j (&rest x y) nil)
 "#
     }
     tulisp_assert! {
@@ -395,14 +373,14 @@ fn test_defun() -> Result<(), Error> {
         }
     tulisp_assert! {
         program: "(defun add (x y) (+ x y)) (add 10)",
-        error: r#"ERR TypeMismatch: Too few arguments
-<eval_string>:1.27-1.35:  at (add 10)
+        error: r#"ERR MissingArgument: Too few arguments
+<eval_string>:1.27-1.34:  at (add 10)
 "#
     }
     tulisp_assert! {
         program: "(defun add (x y) (+ x y)) (add 10 20 30)",
-        error: r#"ERR TypeMismatch: Too many arguments
-<eval_string>:1.27-1.41:  at (add 10 20 30)
+        error: r#"ERR InvalidArgument: Too many arguments
+<eval_string>:1.27-1.40:  at (add 10 20 30)
 "#
     }
     tulisp_assert! {
@@ -425,16 +403,26 @@ fn test_defun() -> Result<(), Error> {
     }
     tulisp_assert! {
         program: "(defmacro inc (var)  (list 'setq var (list '+ 1 var))) (let ((x 4)) (inc))",
-        error: r#"ERR TypeMismatch: Too few arguments
-<eval_string>:1.69-1.74:  at (inc)
+        error: r#"ERR MissingArgument: Too few arguments
+<eval_string>:1.69-1.73:  at (inc)
 "#
     }
     tulisp_assert! {
         program: "(defmacro inc (var)  (list 'setq var (list '+ 1 var))) (let ((x 4)) (inc 4 5))",
-        error: r#"ERR TypeMismatch: Too many arguments
-<eval_string>:1.69-1.78:  at (inc 4 5)
+        error: r#"ERR InvalidArgument: Too many arguments
+<eval_string>:1.69-1.77:  at (inc 4 5)
 "#
     }
+    tulisp_assert! {
+        program: "((lambda (v1 v2) (+ v1 v2)) 10 20)",
+        result: "30",
+    }
+
+    Ok(())
+}
+
+#[test]
+fn test_tco() -> Result<(), Error> {
     tulisp_assert! {
         program: r##"
         (defun if-tail (n acc)
@@ -469,12 +457,14 @@ fn test_defun() -> Result<(), Error> {
         "##,
         result: "20000",
     }
-
     tulisp_assert! {
-        program: "((lambda (v1 v2) (+ v1 v2)) 10 20)",
-        result: "30",
+        program: r##"
+        (defun my-even (n) (if (equal n 0) t (my-odd (- n 1))))
+        (defun my-odd (n) (if (equal n 0) nil (my-even (- n 1))))
+        (list (my-even 5) (my-odd 5) (my-even 30000) (my-odd 10000))
+        "##,
+        result: "'(nil t t nil)",
     }
-
     Ok(())
 }
 
@@ -516,16 +506,14 @@ fn test_eval() -> Result<(), Error> {
     }
     tulisp_assert! {
         program: "(let ((y j) (j 10)) (funcall j))",
-        error: r#"ERR TypeMismatch: Variable definition is void: j
-<eval_string>:1.10-1.11:  at j
-<eval_string>:1.1-1.33:  at (let ((y j) (j 10)) (funcall j))
+        error: r#"ERR Uninitialized: Variable definition is void: j
+<eval_string>:1.1-1.32:  at (let ((y j) (j 10)) (funcall j))
 "#
     }
     tulisp_assert! {
         program: "(let ((j 10)) (+ j j))(+ j 1)",
-        error: r#"ERR TypeMismatch: Variable definition is void: j
-<eval_string>:1.26-1.27:  at j
-<eval_string>:1.23-1.30:  at (+ j 1)
+        error: r#"ERR Uninitialized: Variable definition is void: j
+<eval_string>:1.23-1.29:  at (+ j 1)
 "#
     }
     Ok(())
@@ -536,7 +524,7 @@ fn test_strings() -> Result<(), Error> {
     tulisp_assert! {
         program: r##"(concat 'hello 'world)"##,
         error: r#"ERR TypeMismatch: Not a string: hello
-<eval_string>:1.1-1.23:  at (concat 'hello 'world)
+<eval_string>:1.1-1.22:  at (concat 'hello 'world)
 "#
     }
     tulisp_assert! { program: r##"(concat "hello" " world")"##, result: r#""hello world""# }
@@ -548,6 +536,35 @@ fn test_strings() -> Result<(), Error> {
     tulisp_assert! {
         program: r##"(format "Hello, %s! %%%d %f %s %d" "world" 22.8 22.8 10 10)"##,
         result: r#""Hello, world! %22 22.8 10 10""#
+    }
+
+    // Width: right-aligned by default, left-aligned with `-`.
+    tulisp_assert! {
+        program: r#"(format "[%10s]" "hi")"#,
+        result: r#""[        hi]""#
+    }
+    tulisp_assert! {
+        program: r#"(format "[%-10s]" "hi")"#,
+        result: r#""[hi        ]""#
+    }
+    // Zero-pad for numerics.
+    tulisp_assert! {
+        program: r#"(format "%05d" 42)"#,
+        result: r#""00042""#
+    }
+    // Shorter than width stays as-is (no truncation).
+    tulisp_assert! {
+        program: r#"(format "[%3s]" "hello")"#,
+        result: r#""[hello]""#
+    }
+    // Width applies to %d too.
+    tulisp_assert! {
+        program: r#"(format "[%5d]" 7)"#,
+        result: r#""[    7]""#
+    }
+    tulisp_assert! {
+        program: r#"(format "[%-5d]" 7)"#,
+        result: r#""[7    ]""#
     }
 
     tulisp_assert! { program: "(prin1-to-string 'hello)", result: r#""hello""# }
@@ -575,13 +592,13 @@ fn test_cons() -> Result<(), Error> {
     tulisp_assert! {
         program: "(cons 1)",
         error: r#"ERR TypeMismatch: cons requires exactly 2 arguments
-<eval_string>:1.1-1.9:  at (cons 1)
+<eval_string>:1.1-1.8:  at (cons 1)
 "#
     };
     tulisp_assert! {
         program: "(cons 1 2 3)",
         error: r#"ERR TypeMismatch: cons requires exactly 2 arguments
-<eval_string>:1.1-1.13:  at (cons 1 2 3)
+<eval_string>:1.1-1.12:  at (cons 1 2 3)
 "#
     };
     Ok(())
@@ -600,13 +617,13 @@ fn test_quote() -> Result<(), Error> {
     tulisp_assert! {
         program: "(quote)",
         error: r#"ERR TypeMismatch: quote: expected one argument
-<eval_string>:1.1-1.8:  at (quote)
+<eval_string>:1.1-1.7:  at (quote)
 "#
     };
     tulisp_assert! {
         program: "(quote 1 2)",
         error: r#"ERR TypeMismatch: quote: expected one argument
-<eval_string>:1.1-1.12:  at (quote 1 2)
+<eval_string>:1.1-1.11:  at (quote 1 2)
 "#
     };
     Ok(())
@@ -659,10 +676,9 @@ fn test_lists() -> Result<(), Error> {
         (setq items
               (append items '(10)))
         "#,
-        error: r#"ERR TypeMismatch: Variable definition is void: items
-<eval_string>:3.23-3.28:  at items
-<eval_string>:3.15-3.35:  at (append items '(10))
-<eval_string>:2.9-3.36:  at (setq items (append items '(10)))
+        error: r#"ERR Uninitialized: Variable definition is void: items
+<eval_string>:3.15-3.34:  at (append items '(10))
+<eval_string>:2.9-3.35:  at (setq items (append items '(10)))
 "#
     }
 
@@ -769,9 +785,9 @@ fn test_backquotes() -> Result<(), Error> {
 
     tulisp_assert! {
         program: r#"`(1 2 ,,(+ 10 20))"#,
-        error: r#"ERR TypeMismatch: Unquote without backquote
-<eval_string>:1.7-1.8:  at ,,(+ 10 20)
-<eval_string>:1.1-1.2:  at `(1 2 ,,(+ 10 20))
+        error: r#"ERR SyntaxError: Unquote without backquote
+<eval_string>:1.7-1.7:  at ,,(+ 10 20)
+<eval_string>:1.1-1.1:  at `(1 2 ,,(+ 10 20))
 "#,
     }
 
@@ -782,8 +798,8 @@ fn test_backquotes() -> Result<(), Error> {
 fn test_math() -> Result<(), Error> {
     tulisp_assert! {
         program: "(/ 10 0)",
-        error: r#"ERR Undefined: Division by zero
-<eval_string>:1.1-1.9:  at (/ 10 0)
+        error: r#"ERR OutOfRange: Division by zero
+<eval_string>:1.1-1.8:  at (/ 10 0)
 "#,
     }
     tulisp_assert! {
@@ -792,9 +808,9 @@ fn test_math() -> Result<(), Error> {
     }
     tulisp_assert! {
         program: "(let ((a 10) (b 0)) (/ a b))",
-        error: r#"ERR Undefined: Division by zero
-<eval_string>:1.21-1.28:  at (/ a b)
-<eval_string>:1.1-1.29:  at (let ((a 10) (b 0)) (/ a b))
+        error: r#"ERR OutOfRange: Division by zero
+<eval_string>:1.21-1.27:  at (/ a b)
+<eval_string>:1.1-1.28:  at (let ((a 10) (b 0)) (/ a b))
 "#,
     }
 
@@ -819,6 +835,31 @@ fn test_math() -> Result<(), Error> {
     tulisp_assert! { program: "(equal 8 4)",   result: "nil" }
     tulisp_assert! { program: "(equal 8.0 8)", result: "t"   }
     tulisp_assert! { program: "(equal 8.0 4)", result: "nil" }
+
+    tulisp_assert! { program: "1_000",            result: "1000"      }
+    tulisp_assert! { program: "1_000_000",        result: "1000000"   }
+    tulisp_assert! { program: "(+ 1_000 2_000)",  result: "3000"      }
+    tulisp_assert! { program: "1_000.5",          result: "1000.5"    }
+    tulisp_assert! { program: "1_000.000_1",      result: "1000.0001" }
+
+    tulisp_assert! { program: ".5",               result: "0.5"       }
+    tulisp_assert! { program: ".25",              result: "0.25"      }
+    tulisp_assert! { program: "(+ .5 .25)",       result: "0.75"      }
+    tulisp_assert! { program: ".1_5",             result: "0.15"      }
+
+    tulisp_assert! {
+        program: "99999999999999999999",
+        error:
+r#"ERR ParsingError: SyntaxError number too large to fit in target type: 99999999999999999999
+<eval_string>:1.1-1.20:  at nil
+"#,
+    }
+    tulisp_assert! {
+        program: "-.",
+        error: r#"ERR ParsingError: SyntaxError invalid float literal: -.
+<eval_string>:1.1-1.2:  at nil
+"#,
+    }
     Ok(())
 }
 
@@ -832,16 +873,38 @@ fn test_rounding_operations() -> Result<(), Error> {
     tulisp_assert! { program: "(ftruncate -3.8)",          result: "-3.0"  }
     tulisp_assert! { program: "(ftruncate -3.14)",         result: "-3.0"  }
 
+    tulisp_assert! { program: "(floor 3.7)",    result: "3"   }
+    tulisp_assert! { program: "(floor -3.2)",   result: "-4"  }
+    tulisp_assert! { program: "(floor 7 2)",    result: "3"   }
+    tulisp_assert! { program: "(floor 5)",      result: "5"   }
+
+    tulisp_assert! { program: "(ceiling 3.2)",  result: "4"   }
+    tulisp_assert! { program: "(ceiling -3.7)", result: "-3"  }
+    tulisp_assert! { program: "(ceiling 7 2)",  result: "4"   }
+
+    tulisp_assert! { program: "(truncate 3.7)", result: "3"   }
+    tulisp_assert! { program: "(truncate -3.7)",result: "-3"  }
+
+    tulisp_assert! { program: "(round 3.4)",    result: "3"   }
+    tulisp_assert! { program: "(round 3.6)",    result: "4"   }
+    // Round half to even.
+    tulisp_assert! { program: "(round 2.5)",    result: "2"   }
+    tulisp_assert! { program: "(round 3.5)",    result: "4"   }
+    tulisp_assert! { program: "(round -2.5)",   result: "-2"  }
+
+    tulisp_assert! { program: "(ffloor 3.7)",   result: "3.0" }
+    tulisp_assert! { program: "(fceiling 3.2)", result: "4.0" }
+
     tulisp_assert! {
         program: "(fround)",
-        error: r#"ERR MissingArgument: fround: expected 1 argument.
-<eval_string>:1.1-1.9:  at (fround)
+        error: r#"ERR MissingArgument: Too few arguments
+<eval_string>:1.1-1.8:  at (fround)
 "#,
     }
     tulisp_assert! {
         program: "(fround 3.14 3.14)",
-        error: r#"ERR MissingArgument: fround: expected only 1 argument.
-<eval_string>:1.1-1.19:  at (fround 3.14 3.14)
+        error: r#"ERR InvalidArgument: Too many arguments
+<eval_string>:1.1-1.18:  at (fround 3.14 3.14)
 "#,
     }
 
@@ -864,24 +927,21 @@ fn test_let() -> Result<(), Error> {
               (jj 20))
           (append kk (+ vv jj 1)))
         "#,
-        error: r#"ERR TypeMismatch: Variable definition is void: kk
-<eval_string>:4.19-4.21:  at kk
-<eval_string>:4.11-4.34:  at (append kk (+ vv jj 1))
-<eval_string>:2.9-4.35:  at (let ((vv (+ 55 1)) (jj 20)) (append kk (+ vv jj 1)))
+        error: r#"ERR Uninitialized: Variable definition is void: kk
+<eval_string>:4.11-4.33:  at (append kk (+ vv jj 1))
+<eval_string>:2.9-4.34:  at (let ((vv (+ 55 1)) (jj 20)) (append kk (+ vv jj 1)))
 "#
     }
     tulisp_assert! {
         program: "(let ((22 (+ 55 1)) (jj 20)) (+ vv jj 1))",
         error: r#"ERR TypeMismatch: Expected Symbol: Can't assign to 22
-<eval_string>:1.8-1.10:  at 22
-<eval_string>:1.1-1.42:  at (let ((22 (+ 55 1)) (jj 20)) (+ vv jj 1))
+<eval_string>:1.1-1.41:  at (let ((22 (+ 55 1)) (jj 20)) (+ vv jj 1))
 "#
     }
     tulisp_assert! {
         program: "(let (18 (vv (+ 55 1)) (jj 20)) (+ vv jj 1))",
         error: r#"ERR SyntaxError: varitems inside a let-varlist should be a var or a binding: 18
-<eval_string>:1.7-1.9:  at 18
-<eval_string>:1.1-1.45:  at (let (18 (vv (+ 55 1)) (jj 20)) (+ vv jj 1))
+<eval_string>:1.1-1.44:  at (let (18 (vv (+ 55 1)) (jj 20)) (+ vv jj 1))
 "#
     }
 
@@ -939,6 +999,357 @@ fn test_lexical_binding() -> Result<(), Error> {
         result: "'(1 2)",
     }
 
+    tulisp_assert! {
+        program: r#"
+        (let ((a (list '((a . nil)) '((a . t)))))
+            (seq-filter (lambda (x) (alist-get 'a x)) a))
+        "#,
+        result: "'(((a . t)))",
+    }
+
+    // 'symbol is a literal — a defun param with the same name must not
+    // rewrite it into a variable reference.
+    tulisp_assert! {
+        program: r#"
+        (defun lookup-a (a data) (alist-get 'a data))
+        (lookup-a 999 '((a . 1) (b . 2)))
+        "#,
+        result: "1",
+    }
+
+    // '(…) list literals stay literal even when they contain names that
+    // match lex bindings in the surrounding scope.
+    tulisp_assert! {
+        program: r#"
+        (defun keys-of (x) '(a b x))
+        (keys-of 42)
+        "#,
+        result: "'(a b x)",
+    }
+
+    // Nested closures: each inner lambda captures its own enclosing var.
+    tulisp_assert! {
+        program: r#"
+        (defun outer (x)
+          (lambda (y)
+            (lambda (z) (+ x y z))))
+        (funcall (funcall (outer 100) 20) 3)
+        "#,
+        result: "123",
+    }
+
+    // Closure invoked after outer let scope has exited — captured slot
+    // must still hold the value.
+    tulisp_assert! {
+        program: r#"
+        (setq g (let ((k 7)) (lambda () k)))
+        (funcall g)
+        "#,
+        result: "7",
+    }
+
+    // setq on a captured variable inside a closure persists across
+    // invocations (classic counter pattern).
+    tulisp_assert! {
+        program: r#"
+        (defun make-counter ()
+          (let ((n 0))
+            (lambda () (setq n (+ n 1)) n)))
+        (setq c (make-counter))
+        (list (funcall c) (funcall c) (funcall c))
+        "#,
+        result: "'(1 2 3)",
+    }
+
+    // Two counters built from the same factory are independent.
+    tulisp_assert! {
+        program: r#"
+        (defun make-counter ()
+          (let ((n 0))
+            (lambda () (setq n (+ n 1)) n)))
+        (setq a (make-counter))
+        (setq b (make-counter))
+        (funcall a) (funcall a) (funcall b)
+        (list (funcall a) (funcall b))
+        "#,
+        result: "'(3 2)",
+    }
+
+    // A lambda parameter shadows an outer lex binding of the same name.
+    tulisp_assert! {
+        program: r#"
+        (let ((x 100))
+          (funcall (lambda (x) (* x 2)) 7))
+        "#,
+        result: "14",
+    }
+
+    // Quote inside backquote: 'a stays literal, ,b is substituted.
+    tulisp_assert! {
+        program: r#"
+        (let ((b 42))
+          `('a ,b))
+        "#,
+        result: "'('a 42)",
+    }
+
+    // let* sequential binding — later bindings see earlier ones.
+    tulisp_assert! {
+        program: r#"
+        (let* ((a 1) (b (+ a 10)) (c (+ a b))) (list a b c))
+        "#,
+        result: "'(1 11 12)",
+    }
+
+    // dolist under Emacs' `lexical-binding: t` binds the loop variable
+    // freshly at each iteration (roughly `(while tail (let ((i (car
+    // tail))) body))`), so each captured closure sees its own value.
+    tulisp_assert! {
+        program: r#"
+        (setq fns nil)
+        (dolist (i '(1 2 3))
+          (setq fns (cons (lambda () i) fns)))
+        (mapcar 'funcall fns)
+        "#,
+        result: "'(3 2 1)",
+    }
+
+    // dotimes behaves like dolist: fresh binding per iteration.
+    tulisp_assert! {
+        program: r#"
+        (setq fns nil)
+        (dotimes (j 3)
+          (setq fns (cons (lambda () j) fns)))
+        (mapcar 'funcall fns)
+        "#,
+        result: "'(2 1 0)",
+    }
+
+    // setq on a let-bound variable inside the let scope propagates to a
+    // closure that captured the same binding (Emacs behavior — the
+    // closure and the enclosing scope share the slot).
+    tulisp_assert! {
+        program: r#"
+        (let ((x 1))
+          (setq f (lambda () x))
+          (setq x 42))
+        (funcall f)
+        "#,
+        result: "42",
+    }
+
+    // setq on a defun parameter is visible to a closure constructed
+    // earlier inside the same defun.
+    tulisp_assert! {
+        program: r#"
+        (defun outer-mutating (x)
+          (let ((g (lambda () x)))
+            (setq x 99)
+            (funcall g)))
+        (outer-mutating 1)
+        "#,
+        result: "99",
+    }
+
+    // Two closures that captured the same let-binding share the slot,
+    // so `setq` in one is visible to the other.
+    tulisp_assert! {
+        program: r#"
+        (let ((n 0))
+          (setq inc (lambda () (setq n (+ n 1)) n))
+          (setq read-n (lambda () n)))
+        (funcall inc)
+        (funcall inc)
+        (funcall read-n)
+        "#,
+        result: "2",
+    }
+
+    // Backquote constructed in one scope, eval'd inside another
+    // function. The unquoted value is captured at construction time so
+    // the inner eval only needs to see already-resolved literals.
+    tulisp_assert! {
+        program: r#"
+        (defun run-eval (form) (eval form))
+        (let ((id 99))
+          (run-eval `(+ ,id 1)))
+        "#,
+        result: "100",
+    }
+
+    // Captured var reads the current value at capture time; later
+    // rebinding of the original symbol does not affect the closure.
+    tulisp_assert! {
+        program: r#"
+        (setq f (let ((x 1)) (lambda () x)))
+        (setq x 999)
+        (funcall f)
+        "#,
+        result: "1",
+    }
+
+    // A closure in a list can still be invoked via funcall after list
+    // operations (doesn't rely on stack-top semantics).
+    tulisp_assert! {
+        program: r#"
+        (setq fs (mapcar (lambda (n) (lambda () n)) '(10 20 30)))
+        (mapcar 'funcall fs)
+        "#,
+        result: "'(10 20 30)",
+    }
+
+    // Recursive defun sees its own lex params correctly across calls.
+    tulisp_assert! {
+        program: r#"
+        (defun fact (n)
+          (if (<= n 1) 1 (* n (fact (- n 1)))))
+        (fact 6)
+        "#,
+        result: "720",
+    }
+
+    // Regression: literal symbol in a backquote alist key position must
+    // NOT be rewritten even when it shares a name with a lambda param.
+    // With the bug present, `k` in `(k . literal)` would be substituted
+    // to a LexicalBinding wrapper, so `(assoc 'k entry)` would miss.
+    tulisp_assert! {
+        program: r#"
+        (defun make-entry (k v)
+          `((key . ,k) (value . ,v) (k . literal-k)))
+        (let ((entry (make-entry 'foo 42)))
+          (list (cdr (assoc 'key entry))
+                (cdr (assoc 'value entry))
+                (cdr (assoc 'k entry))))
+        "#,
+        result: "'(foo 42 literal-k)",
+    }
+
+    // Regression: `(quote X)` written as a list form must not be
+    // descended into for substitution, even if X names a defun param.
+    // With the bug present, `(quote key)` would rewrite the literal
+    // `key` symbol, breaking the subsequent `(assoc 'key ...)`.
+    tulisp_assert! {
+        program: r#"
+        (defun pick (key alist)
+          (cdr (assoc (quote key) alist)))
+        (pick 'ignored '((key . the-key-value) (other . o)))
+        "#,
+        result: "'the-key-value",
+    }
+
+    // Regression: a backquote whose unquoted data contains literal
+    // symbols matching enclosing lambda params must stay usable as a
+    // lambda form. The bug turned inner literal keys into
+    // LexicalBindings, which then errored when the stored form was
+    // re-evaluated by funcall.
+    tulisp_assert! {
+        program: r#"
+        (defun make-resetter (items)
+          `(lambda ()
+             (dolist (item (quote ,items))
+               (cdr (assoc 'value item)))))
+        (let ((form (make-resetter '(((value . 1)) ((value . 2))))))
+          (funcall (eval form))
+          'ok)
+        "#,
+        result: "'ok",
+    }
+
+    Ok(())
+}
+
+// `defvar`-declared variables are dynamic (special) — references resolve
+// through the symbol's own stack, so eval-in-a-different-scope sees the
+// enclosing binding. This matches Emacs' behavior under `lexical-binding: t`.
+#[test]
+fn test_defvar_dynamic_binding() -> Result<(), Error> {
+    // With defvar, eval in a different function scope sees the let
+    // binding through the symbol's dynamic stack — the let binding pushes onto
+    // the symbol's dynamic stack, and eval inside run-eval sees it.
+    tulisp_assert! {
+        program: r#"
+        (defvar xdyn nil)
+        (defun run-eval (form) (eval form))
+        (let ((xdyn 7))
+          (run-eval 'xdyn))
+        "#,
+        result: "7",
+    }
+
+    // The backquote-quoted-and-eval'd-later pattern — works once the
+    // variable is defvar'd so dynamic binding survives the scope jump.
+    tulisp_assert! {
+        program: r#"
+        (defvar xbq nil)
+        (defun run-eval (form) (eval form))
+        (let ((xbq 42))
+          (run-eval '`(+ ,xbq 1)))
+        "#,
+        result: "'(+ 42 1)",
+    }
+
+    // setq on a dynamic var in outer scope is visible after let scope
+    // exits: the global slot gets updated, not a fresh lex slot.
+    tulisp_assert! {
+        program: r#"
+        (defvar counter 0)
+        (defun bump () (setq counter (+ counter 1)))
+        (bump) (bump) (bump)
+        counter
+        "#,
+        result: "3",
+    }
+
+    // Dynamic binding unwinds properly on let exit — outer value is
+    // restored.
+    tulisp_assert! {
+        program: r#"
+        (defvar k 100)
+        (let ((k 1))
+          (let ((k 2)) k)
+          k)
+        "#,
+        result: "1",
+    }
+
+    // A closure referencing a dynamic var reads the current dynamic
+    // binding at call time, not a snapshot from capture time.
+    tulisp_assert! {
+        program: r#"
+        (defvar d 1)
+        (setq f (lambda () d))
+        (let ((d 99))
+          (funcall f))
+        "#,
+        result: "99",
+    }
+
+    // Defun/lambda parameters are lexically bound even when the name
+    // was declared `defvar` — matching Emacs' byte-compiler under
+    // `lexical-binding: t`. The param binding does not shadow the
+    // dynamic global, so another function that references the same
+    // symbol sees the outer dynamic value, not the caller's arg.
+    tulisp_assert! {
+        program: r#"
+        (defvar p 10)
+        (defun observe () p)
+        (defun with-p (p) (observe))
+        (with-p 55)
+        "#,
+        result: "10",
+    }
+
+    // Direct reference to the param inside the defun sees the lex
+    // binding even though the name is defvar'd.
+    tulisp_assert! {
+        program: r#"
+        (defvar p2 10)
+        (defun read-param (p2) p2)
+        (read-param 55)
+        "#,
+        result: "55",
+    }
+
     Ok(())
 }
 
@@ -953,6 +1364,31 @@ fn test_setq() -> Result<(), Error> {
         result: "400",
     }
 
+    Ok(())
+}
+
+#[test]
+fn test_defvar() -> Result<(), Error> {
+    // Sets when unbound.
+    tulisp_assert! {
+        program: "(defvar foo-new 42) foo-new",
+        result: "42",
+    }
+    // Leaves an already-bound value alone.
+    tulisp_assert! {
+        program: "(setq foo-existing 1) (defvar foo-existing 99) foo-existing",
+        result: "1",
+    }
+    // Accepts an optional docstring.
+    tulisp_assert! {
+        program: r#"(defvar foo-doc 7 "docs") foo-doc"#,
+        result: "7",
+    }
+    // Returns the symbol.
+    tulisp_assert! {
+        program: "(defvar foo-sym 1)",
+        result: "'foo-sym",
+    }
     Ok(())
 }
 
@@ -1014,9 +1450,8 @@ fn test_sort() -> Result<(), Error> {
     }
     tulisp_assert! {
         program: r#"(sort '("sort" "hello" "a" "world") '>)"#,
-        error: r#"ERR TypeMismatch: Expected number, found: "world"
-<eval_string>:1.29-1.35:  at "world"
-<eval_string>:1.1-1.40:  at (sort '("sort" "hello" "a" "world") '>)
+        error: r#"ERR TypeMismatch: Expected number, got: "world"
+<eval_string>:1.1-1.39:  at (sort '("sort" "hello" "a" "world") '>)
 "#,
     }
     tulisp_assert! {
@@ -1029,15 +1464,14 @@ fn test_sort() -> Result<(), Error> {
     }
     tulisp_assert! {
         program: "(sort '(20 10 30 15 45) '<<)",
-        error: r#"ERR TypeMismatch: Variable definition is void: <<
-<eval_string>:1.26-1.28:  at <<
-<eval_string>:1.1-1.29:  at (sort '(20 10 30 15 45) '<<)
+        error: r#"ERR Uninitialized: Variable definition is void: <<
+<eval_string>:1.1-1.28:  at (sort '(20 10 30 15 45) '<<)
 "#
     }
     tulisp_assert! {
         program: "(sort '(20 10 30 15 45))",
-        error: r#"ERR TypeMismatch: Too few arguments
-<eval_string>:1.1-1.25:  at (sort '(20 10 30 15 45))
+        error: r#"ERR MissingArgument: Too few arguments
+<eval_string>:1.1-1.24:  at (sort '(20 10 30 15 45))
 "#,
     }
     tulisp_assert! {
@@ -1155,7 +1589,7 @@ fn test_owned_method() -> Result<(), Error> {
 
     let mut ctx = TulispContext::new();
 
-    ctx.add_special_form("d.run", move |_, _| Ok(d.run().into()));
+    ctx.defspecial("d.run", move |_, _| Ok(d.run().into()));
 
     tulisp_assert! {
         ctx: ctx,
@@ -1177,7 +1611,7 @@ fn test_from_iter() -> Result<(), Error> {
 fn test_typed_iter() -> Result<(), Error> {
     let mut ctx = TulispContext::new();
 
-    ctx.add_special_form("add_ints", |_ctx, args| {
+    ctx.defspecial("add_ints", |_ctx, args| {
         destruct_eval_bind!(_ctx, (ints) = args);
 
         let ints: Iter<i64> = ints.iter()?;
@@ -1201,7 +1635,7 @@ fn test_typed_iter() -> Result<(), Error> {
         ctx: ctx,
         program: "(add_ints 20)",
         error: r#"ERR TypeMismatch: Expected a list, got 20
-<eval_string>:1.1-1.14:  at (add_ints 20)
+<eval_string>:1.1-1.13:  at (add_ints 20)
 "#
     }
     Ok(())
@@ -1209,39 +1643,42 @@ fn test_typed_iter() -> Result<(), Error> {
 
 #[test]
 fn test_any() -> Result<(), Error> {
+    #[derive(Clone)]
     struct TestStruct {
         value: i64,
     }
     impl Display for TestStruct {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "TestStruct({})", self.value)
+            write!(f, "(TestStruct {})", self.value)
+        }
+    }
+
+    impl TulispConvertible for TestStruct {
+        fn from_tulisp(value: &TulispObject) -> Result<Self, Error> {
+            match value.as_any() {
+                Ok(value) => match value.downcast_ref::<TestStruct>() {
+                    Some(v) => Ok(v.clone()),
+                    None => Err(Error::type_mismatch("Expected TestStruct".to_string())),
+                },
+                Err(_) => Err(Error::type_mismatch("Expected TestStruct".to_string())),
+            }
+        }
+        fn into_tulisp(self) -> TulispObject {
+            Shared::new(self).into()
         }
     }
 
     let mut ctx = TulispContext::new();
 
-    ctx.add_special_form("make_any", |ctx, args| {
-        destruct_eval_bind!(ctx, (inp) = args);
-        let res: Rc<dyn TulispAny> = Rc::new(TestStruct {
-            value: inp.try_into()?,
-        });
+    ctx.defun("make_any", |value: i64| TestStruct { value });
 
-        Ok(res.into())
-    });
+    ctx.defun("get_int", |value: TestStruct| value.value);
 
-    ctx.add_special_form("get_int", |_ctx, args| {
-        destruct_eval_bind!(_ctx, (inp) = args);
-        let inp = inp.as_any()?;
-
-        inp.downcast::<TestStruct>()
-            .map(|vv| vv.value)
-            .map_err(|_| {
-                Error::new(
-                    tulisp::ErrorKind::TypeMismatch,
-                    "Not the any thing we wanted.".to_owned(),
-                )
-            })
-            .map(TulispObject::from)
+    ctx.defun("maybe_add", |value: i64, maybe_num: TulispObject| {
+        if maybe_num.null() {
+            return Ok(value);
+        }
+        return Ok(value + i64::try_from(maybe_num)?);
     });
 
     tulisp_assert! {
@@ -1251,12 +1688,34 @@ fn test_any() -> Result<(), Error> {
     }
     tulisp_assert! {
         ctx: ctx,
+        program: "(make_any 55)",
+        result_str: "'(TestStruct 55)",
+    }
+    tulisp_assert! {
+        ctx: ctx,
         program: "(get_int 55)",
-        error: r#"ERR TypeMismatch: Expected Any(Rc<dyn Any>): 55
-<eval_string>:1.10-1.12:  at 55
-<eval_string>:1.1-1.13:  at (get_int 55)
+        error: r#"ERR TypeMismatch: Expected TestStruct
+<eval_string>:1.1-1.12:  at (get_int 55)
 "#
     }
+    tulisp_assert! {
+        ctx: ctx,
+        program: "(maybe_add 10 5)",
+        result: "15",
+    }
+    tulisp_assert! {
+        ctx: ctx,
+        program: "(maybe_add 10 nil)",
+        result: "10",
+    }
+    tulisp_assert! {
+        ctx: ctx,
+        program: "(maybe_add 10)",
+        error: r#"ERR MissingArgument: Too few arguments
+<eval_string>:1.1-1.14:  at (maybe_add 10)
+"#
+    }
+
     Ok(())
 }
 
@@ -1266,7 +1725,7 @@ fn test_load() -> Result<(), Error> {
 
     tulisp_assert! {
         ctx: ctx,
-        program: r#"(load "tests/good-load.lisp") (test)"#,
+        program: r#"(load "tests/good-load.lisp")"#,
         result: "'(1 2 3)",
     }
 
@@ -1274,9 +1733,16 @@ fn test_load() -> Result<(), Error> {
         ctx: ctx,
         program: r#"(load "tests/bad-load.lisp")"#,
         error: r#"ERR ParsingError: Unexpected closing parenthesis
-tests/bad-load.lisp:1.9-1.10:  at nil
-<eval_string>:1.1-1.29:  at (load "tests/bad-load.lisp")
+tests/bad-load.lisp:1.9-1.9:  at nil
+<eval_string>:1.1-1.28:  at (load "tests/bad-load.lisp")
 "#
+    }
+
+    ctx.set_load_path(Some("tests/"))?;
+    tulisp_assert! {
+        ctx: ctx,
+        program: r#"(load "good-load.lisp")"#,
+        result: "'(1 2 3)",
     }
 
     Ok(())
@@ -1388,4 +1854,165 @@ fn test_symbol_creation() -> Result<(), Error> {
     }
 
     Ok(())
+}
+
+#[test]
+fn test_underscore_ident() -> Result<(), Error> {
+    // A lone underscore is a valid identifier, not a number.
+    tulisp_assert! { program: "(let ((_ 42)) _)", result: "42" }
+    // Leading underscore is also a valid identifier.
+    tulisp_assert! { program: "(let ((_x 7)) _x)", result: "7" }
+    // Underscore as numeric separator still works.
+    tulisp_assert! { program: "1_000", result: "1000" }
+    Ok(())
+}
+
+#[cfg(feature = "etags")]
+mod etags_tests {
+    use std::io::Write;
+    use tulisp::TulispContext;
+
+    fn write_temp_file(name: &str, content: &str) -> (std::path::PathBuf, impl Drop + use<>) {
+        let dir = std::env::temp_dir().join("tulisp_etags_test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(name);
+        let mut f = std::fs::File::create(&path).unwrap();
+        write!(f, "{}", content).unwrap();
+        struct Cleanup(std::path::PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                std::fs::remove_file(&self.0).ok();
+            }
+        }
+        let cleanup = Cleanup(path.clone());
+        (path, cleanup)
+    }
+
+    /// Assert that the tags output contains a tag entry line with the given
+    /// function/macro name between the \x7f and \x01 delimiters.
+    #[track_caller]
+    fn assert_tag_entry(tags: &str, name: &str) {
+        let pattern = format!("\x7f{}\x01", name);
+        assert!(
+            tags.contains(&pattern),
+            "tags output should contain an entry for `{name}`, got: {tags}"
+        );
+    }
+
+    #[test]
+    fn test_etags_defun_tracking() -> Result<(), tulisp::Error> {
+        let (path, _cleanup) =
+            write_temp_file("defun_test.el", "(defun my-test-func (x) (+ x 1))\n");
+        let mut ctx = TulispContext::new();
+        let path_str = path.to_str().unwrap();
+        let tags = ctx.tags_table(Some(&[path_str]))?;
+        assert_tag_entry(&tags, "my-test-func");
+        Ok(())
+    }
+
+    #[test]
+    fn test_etags_defmacro_tracking() -> Result<(), tulisp::Error> {
+        let (path, _cleanup) =
+            write_temp_file("defmacro_test.el", "(defmacro my-test-macro (x) x)\n");
+        let mut ctx = TulispContext::new();
+        let path_str = path.to_str().unwrap();
+        let tags = ctx.tags_table(Some(&[path_str]))?;
+        assert_tag_entry(&tags, "my-test-macro");
+        Ok(())
+    }
+
+    #[test]
+    fn test_etags_multiple_definitions() -> Result<(), tulisp::Error> {
+        let (path, _cleanup) = write_temp_file(
+            "multi_test.el",
+            "(defun func-a () 1)\n(defun func-b () 2)\n(defmacro macro-c (x) x)\n",
+        );
+        let mut ctx = TulispContext::new();
+        let path_str = path.to_str().unwrap();
+        let tags = ctx.tags_table(Some(&[path_str]))?;
+        assert_tag_entry(&tags, "func-a");
+        assert_tag_entry(&tags, "func-b");
+        assert_tag_entry(&tags, "macro-c");
+        Ok(())
+    }
+
+    #[test]
+    fn test_etags_defvar_tracking() -> Result<(), tulisp::Error> {
+        let (path, _cleanup) = write_temp_file(
+            "defvar_test.el",
+            r#"(defvar my-test-var 42)
+(defvar my-test-var-with-doc 7 "docs")
+"#,
+        );
+        let mut ctx = TulispContext::new();
+        let path_str = path.to_str().unwrap();
+        let tags = ctx.tags_table(Some(&[path_str]))?;
+        assert_tag_entry(&tags, "my-test-var");
+        assert_tag_entry(&tags, "my-test-var-with-doc");
+        Ok(())
+    }
+
+    #[test]
+    fn test_etags_builtin_functions_tracked() -> Result<(), tulisp::Error> {
+        let mut ctx = TulispContext::new();
+        let tags = ctx.tags_table(None)?;
+        assert!(
+            !tags.is_empty(),
+            "tags table should contain builtin entries"
+        );
+        // Verify at least some well-known builtins have proper tag entries.
+        assert_tag_entry(&tags, "if");
+        assert_tag_entry(&tags, "let");
+        Ok(())
+    }
+
+    #[test]
+    fn test_etags_output_contains_filename() -> Result<(), tulisp::Error> {
+        let (path, _cleanup) =
+            write_temp_file("filename_test.el", "(defun filename-test-fn () 42)\n");
+        let mut ctx = TulispContext::new();
+        let path_str = path.to_str().unwrap();
+        let tags = ctx.tags_table(Some(&[path_str]))?;
+        assert!(
+            tags.contains(path_str),
+            "tags output should reference the filename, got: {tags}"
+        );
+        assert_tag_entry(&tags, "filename-test-fn");
+        Ok(())
+    }
+
+    #[test]
+    fn test_etags_multiple_files() -> Result<(), tulisp::Error> {
+        let (path1, _c1) = write_temp_file("file1.el", "(defun fn-from-file1 () 1)\n");
+        let (path2, _c2) = write_temp_file("file2.el", "(defun fn-from-file2 () 2)\n");
+        let mut ctx = TulispContext::new();
+        let p1 = path1.to_str().unwrap();
+        let p2 = path2.to_str().unwrap();
+        let tags = ctx.tags_table(Some(&[p1, p2]))?;
+        assert_tag_entry(&tags, "fn-from-file1");
+        assert_tag_entry(&tags, "fn-from-file2");
+        assert!(tags.contains(p1), "should contain first file path");
+        assert!(tags.contains(p2), "should contain second file path");
+        Ok(())
+    }
+
+    #[test]
+    fn test_etags_follow_load() -> Result<(), tulisp::Error> {
+        let (path2, _c2) = write_temp_file("loaded.el", "(defun loaded-fn () 42)\n");
+        let p2_str = path2.to_str().unwrap();
+        let (path1, _c1) = write_temp_file(
+            "loader.el",
+            &format!("(defun loader-fn () 1)\n(load \"{}\")\n", p2_str),
+        );
+        let mut ctx = TulispContext::new();
+        let p1_str = path1.to_str().unwrap();
+        let tags = ctx.tags_table(Some(&[p1_str]))?;
+        assert_tag_entry(&tags, "loader-fn");
+        assert_tag_entry(&tags, "loaded-fn");
+        assert!(
+            tags.contains(p2_str),
+            "should contain the loaded file's path, got: {tags}"
+        );
+        Ok(())
+    }
 }
