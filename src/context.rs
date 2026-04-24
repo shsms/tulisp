@@ -21,6 +21,7 @@ use crate::{
     list,
     object::wrappers::{TulispFn, generic::{Shared, SharedMut}},
     parse::parse,
+    value::LexAllocator,
 };
 
 macro_rules! intern_from_obarray {
@@ -99,6 +100,7 @@ pub struct TulispContext {
     pub(crate) keywords: Keywords,
     pub(crate) vm: SharedMut<bytecode::Machine>,
     pub(crate) load_path: Option<PathBuf>,
+    pub(crate) lex_allocator: Shared<LexAllocator>,
     #[cfg(feature = "etags")]
     pub(crate) tags_table: HashMap<String, HashMap<String, usize>>,
 }
@@ -121,6 +123,7 @@ impl TulispContext {
             keywords,
             vm: SharedMut::new(bytecode::Machine::new()),
             load_path: None,
+            lex_allocator: Shared::new_sized(LexAllocator::new()),
             #[cfg(feature = "etags")]
             tags_table: HashMap::new(),
         };
