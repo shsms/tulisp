@@ -1,9 +1,9 @@
-use crate::{bytecode::Instruction, Error, ErrorKind, TulispContext, TulispObject, TulispValue};
+use crate::{bytecode::Instruction, Error, TulispContext, TulispObject, TulispValue};
 
 impl TulispContext {
     pub(crate) fn compile_1_arg_call(
         &mut self,
-        name: &TulispObject,
+        _name: &TulispObject,
         args: &TulispObject,
         has_rest: bool,
         mut lambda: impl FnMut(
@@ -13,22 +13,12 @@ impl TulispContext {
         ) -> Result<Vec<Instruction>, Error>,
     ) -> Result<Vec<Instruction>, Error> {
         if args.null() {
-            return Err(Error::new(
-                ErrorKind::TypeMismatch, // TODO: change to ArityMismatch
-                if has_rest {
-                    format!("{} requires at least 1 argument", name)
-                } else {
-                    format!("{} requires exactly 1 argument", name)
-                },
-            ));
+            return Err(Error::missing_argument("Too few arguments".to_string()));
         }
         args.car_and_then(|arg1| {
             args.cdr_and_then(|rest| {
                 if !has_rest && !rest.null() {
-                    return Err(Error::new(
-                        ErrorKind::TypeMismatch, // TODO: change to ArityMismatch
-                        format!("{} requires exactly 1 argument", name),
-                    ));
+                    return Err(Error::invalid_argument("Too many arguments".to_string()));
                 }
                 lambda(self, arg1, rest)
             })
@@ -37,7 +27,7 @@ impl TulispContext {
 
     pub(crate) fn compile_2_arg_call(
         &mut self,
-        name: &TulispObject,
+        _name: &TulispObject,
         args: &TulispObject,
         has_rest: bool,
         mut lambda: impl FnMut(
@@ -48,33 +38,16 @@ impl TulispContext {
         ) -> Result<Vec<Instruction>, Error>,
     ) -> Result<Vec<Instruction>, Error> {
         let (TulispValue::List { cons: args, .. }, _) = &*args.inner_ref() else {
-            return Err(Error::new(
-                ErrorKind::TypeMismatch, // TODO: change to ArityMismatch
-                if has_rest {
-                    format!("{} requires at least 2 arguments", name)
-                } else {
-                    format!("{} requires exactly 2 arguments", name)
-                },
-            ));
+            return Err(Error::missing_argument("Too few arguments".to_string()));
         };
         if args.cdr().null() {
-            return Err(Error::new(
-                ErrorKind::TypeMismatch, // TODO: change to ArityMismatch
-                if has_rest {
-                    format!("{} requires at least 2 arguments", name)
-                } else {
-                    format!("{} requires exactly 2 arguments", name)
-                },
-            ));
+            return Err(Error::missing_argument("Too few arguments".to_string()));
         }
         let arg1 = args.car();
         args.cdr().car_and_then(|arg2| {
             args.cdr().cdr_and_then(|rest| {
                 if !has_rest && !rest.null() {
-                    return Err(Error::new(
-                        ErrorKind::TypeMismatch, // TODO: change to ArityMismatch
-                        format!("{} requires exactly 2 arguments", name),
-                    ));
+                    return Err(Error::invalid_argument("Too many arguments".to_string()));
                 }
                 lambda(self, arg1, arg2, rest)
             })

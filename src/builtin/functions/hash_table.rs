@@ -1,9 +1,10 @@
 use crate::{
-    Error, TulispContext, TulispObject, destruct_eval_bind,
+    Error, TulispContext, TulispConvertible, TulispObject,
     object::wrappers::generic::{Shared, SharedMut},
 };
 use std::collections::HashMap;
 
+#[derive(Clone)]
 struct TulispObjectEql(TulispObject);
 
 impl std::hash::Hash for TulispObjectEql {
@@ -31,6 +32,7 @@ impl From<TulispObject> for TulispObjectEql {
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct HashTable {
     inner: SharedMut<HashMap<TulispObjectEql, TulispObject>>,
 }
@@ -41,41 +43,45 @@ impl std::fmt::Display for HashTable {
     }
 }
 
+impl TulispConvertible for HashTable {
+    fn from_tulisp(value: &TulispObject) -> Result<HashTable, Error> {
+        value
+            .as_any()
+            .ok()
+            .and_then(|v| v.downcast_ref::<HashTable>().cloned())
+            .ok_or_else(|| {
+                Error::type_mismatch(format!("Expected hash-table, got: {value}"))
+                    .with_trace(value.clone())
+            })
+    }
+    fn into_tulisp(self) -> TulispObject {
+        Shared::new(self).into()
+    }
+}
+
 pub(crate) fn add(ctx: &mut TulispContext) {
-    ctx.defspecial("make-hash-table", |_ctx, args| {
-        if !args.null() {
-            return Err(Error::invalid_argument(
-                "make-hash-table: expected no arguments.".to_string(),
-            )
-            .with_trace(args.clone()));
-        }
-        let table = Shared::new(HashTable {
+    ctx.defun("make-hash-table", || -> HashTable {
+        HashTable {
             inner: SharedMut::new(HashMap::new()),
-        });
-        Ok(table.into())
+        }
     });
 
-    ctx.defspecial("gethash", |ctx, args| {
-        destruct_eval_bind!(ctx, (key table) = args);
-        let binding = table.as_any()?;
-        let table = binding.downcast_ref::<HashTable>().unwrap();
-        let value = table
-            .inner
-            .borrow_mut()
-            .get(&key.into())
-            .cloned()
-            .unwrap_or(TulispObject::nil());
+    ctx.defun(
+        "gethash",
+        |key: TulispObject, table: HashTable| -> TulispObject {
+            table
+                .inner
+                .borrow_mut()
+                .get(&key.into())
+                .cloned()
+                .unwrap_or(TulispObject::nil())
+        },
+    );
 
-        Ok(value)
-    });
-
-    ctx.defspecial("puthash", |ctx, args| {
-        destruct_eval_bind!(ctx, (key value table) = args);
-
-        let binding = table.as_any()?;
-        let table = binding.downcast_ref::<HashTable>().unwrap();
-        table.inner.borrow_mut().insert(key.into(), value);
-
-        Ok(TulispObject::nil())
-    });
+    ctx.defun(
+        "puthash",
+        |key: TulispObject, value: TulispObject, table: HashTable| {
+            table.inner.borrow_mut().insert(key.into(), value);
+        },
+    );
 }

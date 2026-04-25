@@ -1,9 +1,6 @@
-use crate::Number;
 use crate::TulispObject;
 use crate::TulispValue;
-use crate::cons::Cons;
 use crate::context::TulispContext;
-use crate::destruct_eval_bind;
 use crate::error::Error;
 use crate::eval::DummyEval;
 use crate::eval::Eval;
@@ -14,27 +11,6 @@ use crate::object::wrappers::generic::{Shared, SharedMut};
 use crate::value::{DefunParams, LexAllocator};
 use crate::{destruct_bind, list};
 use std::convert::TryInto;
-
-pub(super) fn reduce_with(
-    ctx: &mut TulispContext,
-    list: &TulispObject,
-    method: impl Fn(Number, Number) -> Result<Number, Error>,
-) -> Result<TulispObject, Error> {
-    if !list.consp() {
-        return Err(Error::out_of_range(
-            "reduce requires at least 1 argument".to_string(),
-        ));
-    }
-    let mut first = list.car_and_then(|x| x.eval_into(ctx))?;
-    let mut rest = list.cdr()?;
-    while rest.consp() {
-        let next = rest.car_and_then(|x| x.eval_into(ctx))?;
-        first = method(first, next)?;
-        rest = rest.cdr()?;
-    }
-
-    Ok(first.into())
-}
 
 fn mark_tail_calls(
     ctx: &mut TulispContext,
@@ -109,78 +85,69 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         ctx.eval_file(full_path)
     });
 
-    ctx.defspecial("intern", |ctx, args| {
-        destruct_eval_bind!(ctx, (name) = args);
-        Ok(ctx.intern(&name.as_string()?))
+    ctx.defun("intern", |ctx: &mut TulispContext, name: String| -> TulispObject {
+        ctx.intern(&name)
     });
 
-    ctx.defun("symbol-value", |sym: TulispObject| -> Result<TulispObject, Error> {
-        if !sym.symbolp() {
-            return Err(Error::type_mismatch(format!(
-                "symbol-value: expected a symbol, got {sym}"
-            )));
-        }
-        sym.get()
-    });
+    ctx.defun(
+        "symbol-value",
+        |sym: TulispObject| -> Result<TulispObject, Error> {
+            if !sym.symbolp() {
+                return Err(Error::type_mismatch(format!(
+                    "symbol-value: expected a symbol, got {sym}"
+                )));
+            }
+            sym.get()
+        },
+    );
 
-    fn make_symbol(name: String) -> Result<TulispObject, Error> {
+    fn make_symbol(name: String) -> TulispObject {
         let constant = name.starts_with(":");
-        Ok(TulispObject::symbol(name, constant))
+        TulispObject::symbol(name, constant)
     }
 
-    ctx.defspecial("make-symbol", |ctx, args| {
-        destruct_eval_bind!(ctx, (name) = args);
-        make_symbol(name.as_string()?)
-    });
+    ctx.defun("make-symbol", make_symbol);
 
-    ctx.defspecial("gensym", |ctx, args| {
-        destruct_eval_bind!(ctx, (&optional prefix) = args);
-        let prefix = if !prefix.null() {
-            if prefix.stringp() {
-                prefix.as_string()?
-            } else {
-                return Err(Error::type_mismatch(
-                    "gensym: prefix must be a string".to_string(),
-                ));
-            }
-        } else {
-            "g".to_string()
-        };
-        let counter = ctx.intern("gensym-counter");
-        let count = if counter.boundp() {
-            let value = counter.get()?;
-            if value.integerp() {
-                value.as_int().unwrap()
+    ctx.defun(
+        "gensym",
+        |ctx: &mut TulispContext, prefix: Option<String>| -> Result<TulispObject, Error> {
+            let prefix = prefix.unwrap_or_else(|| "g".to_string());
+            let counter = ctx.intern("gensym-counter");
+            let count = if counter.boundp() {
+                let value = counter.get()?;
+                if value.integerp() {
+                    value.as_int().unwrap()
+                } else {
+                    0
+                }
             } else {
                 0
-            }
-        } else {
-            0
-        };
-        counter.set(TulispObject::from(count + 1))?;
+            };
+            counter.set(TulispObject::from(count + 1))?;
+            Ok(make_symbol(format!("{prefix}{count}")))
+        },
+    );
 
-        make_symbol(format!("{prefix}{count}"))
-    });
-
-    ctx.defspecial("concat", |ctx, args| {
-        destruct_eval_bind!(ctx, (&rest rest) = args);
-        let mut ret = String::new();
-        for ele in rest.base_iter() {
-            match ele.as_string() {
-                Ok(ref s) => ret.push_str(s),
-                _ => {
-                    return Err(Error::type_mismatch(format!("Not a string: {}", ele)));
+    ctx.defun(
+        "concat",
+        |rest: crate::Rest<TulispObject>| -> Result<String, Error> {
+            let mut ret = String::new();
+            for ele in rest {
+                match ele.as_string() {
+                    Ok(ref s) => ret.push_str(s),
+                    _ => {
+                        return Err(Error::type_mismatch(format!("Not a string: {}", ele)));
+                    }
                 }
             }
-        }
-        Ok(TulispValue::from(ret).into_ref(rest.span()))
-    });
+            Ok(ret)
+        },
+    );
 
-    ctx.defspecial("format", |ctx, args| {
-        destruct_eval_bind!(ctx, (input &rest rest) = args);
-        let mut args = rest.base_iter();
+    ctx.defun("format", |in_string: String, rest: crate::Rest<TulispObject>| -> Result<String, Error> {
+        let rest: Vec<TulispObject> = rest.into_iter().collect();
+        let mut args = rest.iter();
         let mut output = String::new();
-        let in_string = input.as_string().map_err(|e| e.with_trace(input.clone()))?;
         let mut in_chars = in_string.chars().peekable();
         // Supports `%[-][0]WIDTHTYPE` where TYPE is one of `s S d f`, plus
         // `%%` for a literal percent. The `-` flag left-aligns and the `0`
@@ -260,24 +227,19 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 output.push_str(&formatted);
             }
         }
-        Ok(TulispObject::from(output).with_span(input.span()))
+        Ok(output)
     });
 
-    ctx.defspecial("print", |ctx, args| {
-        destruct_eval_bind!(ctx, (val) = args);
+    ctx.defun("print", |val: TulispObject| -> TulispObject {
         println!("{}", val.fmt_string());
-        Ok(val)
+        val
     });
 
-    ctx.defspecial("prin1-to-string", |ctx, args| {
-        destruct_eval_bind!(ctx, (arg) = args);
-        Ok(TulispValue::from(arg.fmt_string()).into_ref(arg.span()))
-    });
+    ctx.defun("prin1-to-string", |arg: TulispObject| -> String { arg.fmt_string() });
 
-    ctx.defspecial("princ", |ctx, args| {
-        destruct_eval_bind!(ctx, (val) = args);
+    ctx.defun("princ", |val: TulispObject| -> TulispObject {
         println!("{}", val.fmt_string());
-        Ok(val)
+        val
     });
 
     ctx.defspecial("while", |ctx, args| {
@@ -309,27 +271,13 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(value)
     });
 
-    ctx.defspecial("set", |ctx, args| {
-        let value = args.cdr_and_then(|args| {
-            if args.null() {
-                return Err(Error::type_mismatch(
-                    "set requires exactly 2 arguments".to_string(),
-                ));
-            }
-            args.cdr_and_then(|x| {
-                if !x.null() {
-                    return Err(Error::type_mismatch(
-                        "set requires exactly 2 arguments".to_string(),
-                    ));
-                }
-                args.car_and_then(|arg| ctx.eval(arg))
-            })
-        })?;
-        args.car_and_then(|name_sym| {
-            ctx.eval_and_then(name_sym, |_, name| name.set(value.clone()))
-        })?;
-        Ok(value)
-    });
+    ctx.defun(
+        "set",
+        |name: TulispObject, value: TulispObject| -> Result<TulispObject, Error> {
+            name.set(value.clone())?;
+            Ok(value)
+        },
+    );
 
     /// RAII guard that unwinds dynamic (`defvar`-declared) let bindings
     /// on scope exit — including the error path when the body returns
@@ -647,15 +595,14 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(TulispObject::nil())
     });
 
-    ctx.defspecial("null", |ctx, args| {
-        destruct_eval_bind!(ctx, (arg) = args);
-        Ok(arg.null().into())
-    });
+    ctx.defun("null", |arg: TulispObject| -> bool { arg.null() });
 
-    ctx.defspecial("eval", |ctx, args| {
-        destruct_eval_bind!(ctx, (arg) = args);
-        ctx.eval(&arg)
-    });
+    ctx.defun(
+        "eval",
+        |ctx: &mut TulispContext, arg: TulispObject| -> Result<TulispObject, Error> {
+            ctx.eval(&arg)
+        },
+    );
 
     ctx.defspecial("funcall", |ctx, args| {
         destruct_bind!((name &rest rest) = args);
@@ -668,40 +615,29 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         }
     });
 
-    ctx.defspecial("macroexpand", |ctx, args| {
-        destruct_eval_bind!(ctx, (name) = args);
-        crate::eval::macroexpand(ctx, name)
-    });
+    ctx.defun(
+        "macroexpand",
+        |ctx: &mut TulispContext, name: TulispObject| -> Result<TulispObject, Error> {
+            crate::eval::macroexpand(ctx, name)
+        },
+    );
 
     // List functions
 
-    ctx.defspecial("cons", |ctx, args| {
-        let cdr = args.cdr_and_then(|args| {
-            if args.null() {
-                return Err(Error::type_mismatch(
-                    "cons requires exactly 2 arguments".to_string(),
-                ));
-            }
-            args.cdr_and_then(|x| {
-                if !x.null() {
-                    return Err(Error::type_mismatch(
-                        "cons requires exactly 2 arguments".to_string(),
-                    ));
-                }
-                args.car_and_then(|arg| ctx.eval(arg))
-            })
-        })?;
-        let car = args.car_and_then(|arg| ctx.eval(arg))?;
-        Ok(TulispObject::cons(car, cdr))
-    });
+    ctx.defun(
+        "cons",
+        |car: TulispObject, cdr: TulispObject| -> TulispObject { TulispObject::cons(car, cdr) },
+    );
 
-    ctx.defspecial("append", |ctx, args| {
-        destruct_eval_bind!(ctx, (first &rest rest) = args);
-        for ele in rest.base_iter() {
-            first.append(ele.deep_copy()?)?;
-        }
-        Ok(first)
-    });
+    ctx.defun(
+        "append",
+        |first: TulispObject, rest: crate::Rest<TulispObject>| -> Result<TulispObject, Error> {
+            for ele in rest {
+                first.append(ele.deep_copy()?)?;
+            }
+            Ok(first)
+        },
+    );
 
     ctx.defspecial("dolist", |ctx, args| {
         destruct_bind!((spec &rest body) = args);
@@ -740,68 +676,47 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         ctx.eval(&result)
     });
 
-    ctx.defspecial("list", |ctx, args| {
-        let (ctxobj, span) = (args.ctxobj(), args.span());
-        let mut cons: Option<Cons> = None;
-        for ele in args.base_iter() {
-            match cons {
-                Some(ref mut cons) => {
-                    cons.push(ctx.eval(&ele)?)?;
-                }
-                None => cons = Some(Cons::new(ctx.eval(&ele)?, TulispObject::nil())),
-            }
-        }
-        match cons {
-            Some(cons) => Ok(TulispValue::List { cons, ctxobj }.into_ref(span)),
-            None => Ok(TulispObject::nil()),
-        }
-    });
+    ctx.defun(
+        "list",
+        |args: crate::Rest<TulispObject>| -> TulispObject { args.into_iter().collect() },
+    );
 
-    ctx.defspecial("assoc", |ctx, args| {
-        destruct_eval_bind!(ctx, (key alist &optional testfn) = args);
-        lists::assoc(
-            ctx,
-            &key,
-            &alist,
-            if testfn.null() { None } else { Some(testfn) },
-        )
-    });
+    ctx.defun(
+        "assoc",
+        |ctx: &mut TulispContext,
+         key: TulispObject,
+         alist: TulispObject,
+         testfn: Option<TulispObject>|
+         -> Result<TulispObject, Error> { lists::assoc(ctx, &key, &alist, testfn) },
+    );
 
-    ctx.defspecial("alist-get", |ctx, args| {
-        destruct_eval_bind!(ctx, (key alist &optional default_value remove testfn) = args);
-        lists::alist_get(
-            ctx,
-            &key,
-            &alist,
-            if default_value.null() {
-                None
-            } else {
-                Some(default_value)
-            },
-            if remove.null() { None } else { Some(remove) }, // TODO: implement after setf
-            if testfn.null() { None } else { Some(testfn) },
-        )
-    });
+    ctx.defun(
+        "alist-get",
+        |ctx: &mut TulispContext,
+         key: TulispObject,
+         alist: TulispObject,
+         default_value: Option<TulispObject>,
+         remove: Option<TulispObject>,
+         testfn: Option<TulispObject>|
+         -> Result<TulispObject, Error> {
+            // TODO: implement remove after `setf`.
+            lists::alist_get(ctx, &key, &alist, default_value, remove, testfn)
+        },
+    );
 
-    ctx.defspecial("plist-get", |ctx, args| {
-        destruct_eval_bind!(ctx, (plist property) = args);
-        lists::plist_get(&plist, &property)
-    });
+    ctx.defun(
+        "plist-get",
+        |plist: TulispObject, property: TulispObject| -> Result<TulispObject, Error> {
+            lists::plist_get(&plist, &property)
+        },
+    );
 
     // predicates begin
     macro_rules! predicate_function {
         ($name: ident) => {
-            fn $name(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
-                if args.cdr_and_then(|x| Ok(x.is_truthy()))? {
-                    return Err(Error::type_mismatch(format!(
-                        "Expected exatly 1 argument for {}. Got args: {}",
-                        stringify!($name),
-                        args
-                    )));
-                }
-                args.car_and_then(|arg| ctx.eval_and_then(&arg, |_, x| Ok(x.$name().into())))
-            }
-            ctx.defspecial(stringify!($name), $name);
+            ctx.defun(stringify!($name), |arg: TulispObject| -> bool {
+                arg.$name()
+            });
         };
     }
     predicate_function!(consp);
