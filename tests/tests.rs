@@ -951,6 +951,349 @@ fn test_lexical_binding() -> Result<(), Error> {
         result: "'(((a . t)))",
     }
 
+    // 'symbol is a literal — a defun param with the same name must not
+    // rewrite it into a variable reference.
+    tulisp_assert! {
+        program: r#"
+        (defun lookup-a (a data) (alist-get 'a data))
+        (lookup-a 999 '((a . 1) (b . 2)))
+        "#,
+        result: "1",
+    }
+
+    // '(…) list literals stay literal even when they contain names that
+    // match lex bindings in the surrounding scope.
+    tulisp_assert! {
+        program: r#"
+        (defun keys-of (x) '(a b x))
+        (keys-of 42)
+        "#,
+        result: "'(a b x)",
+    }
+
+    // Nested closures: each inner lambda captures its own enclosing var.
+    tulisp_assert! {
+        program: r#"
+        (defun outer (x)
+          (lambda (y)
+            (lambda (z) (+ x y z))))
+        (funcall (funcall (outer 100) 20) 3)
+        "#,
+        result: "123",
+    }
+
+    // Closure invoked after outer let scope has exited — captured slot
+    // must still hold the value.
+    tulisp_assert! {
+        program: r#"
+        (setq g (let ((k 7)) (lambda () k)))
+        (funcall g)
+        "#,
+        result: "7",
+    }
+
+    // setq on a captured variable inside a closure persists across
+    // invocations (classic counter pattern).
+    tulisp_assert! {
+        program: r#"
+        (defun make-counter ()
+          (let ((n 0))
+            (lambda () (setq n (+ n 1)) n)))
+        (setq c (make-counter))
+        (list (funcall c) (funcall c) (funcall c))
+        "#,
+        result: "'(1 2 3)",
+    }
+
+    // Two counters built from the same factory are independent.
+    tulisp_assert! {
+        program: r#"
+        (defun make-counter ()
+          (let ((n 0))
+            (lambda () (setq n (+ n 1)) n)))
+        (setq a (make-counter))
+        (setq b (make-counter))
+        (funcall a) (funcall a) (funcall b)
+        (list (funcall a) (funcall b))
+        "#,
+        result: "'(3 2)",
+    }
+
+    // A lambda parameter shadows an outer lex binding of the same name.
+    tulisp_assert! {
+        program: r#"
+        (let ((x 100))
+          (funcall (lambda (x) (* x 2)) 7))
+        "#,
+        result: "14",
+    }
+
+    // Quote inside backquote: 'a stays literal, ,b is substituted.
+    tulisp_assert! {
+        program: r#"
+        (let ((b 42))
+          `('a ,b))
+        "#,
+        result: "'('a 42)",
+    }
+
+    // let* sequential binding — later bindings see earlier ones.
+    tulisp_assert! {
+        program: r#"
+        (let* ((a 1) (b (+ a 10)) (c (+ a b))) (list a b c))
+        "#,
+        result: "'(1 11 12)",
+    }
+
+    // dolist under Emacs' `lexical-binding: t` binds the loop variable
+    // freshly at each iteration (roughly `(while tail (let ((i (car
+    // tail))) body))`), so each captured closure sees its own value.
+    tulisp_assert! {
+        program: r#"
+        (setq fns nil)
+        (dolist (i '(1 2 3))
+          (setq fns (cons (lambda () i) fns)))
+        (mapcar 'funcall fns)
+        "#,
+        result: "'(3 2 1)",
+    }
+
+    // dotimes behaves like dolist: fresh binding per iteration.
+    tulisp_assert! {
+        program: r#"
+        (setq fns nil)
+        (dotimes (j 3)
+          (setq fns (cons (lambda () j) fns)))
+        (mapcar 'funcall fns)
+        "#,
+        result: "'(2 1 0)",
+    }
+
+    // setq on a let-bound variable inside the let scope propagates to a
+    // closure that captured the same binding (Emacs behavior — the
+    // closure and the enclosing scope share the slot).
+    tulisp_assert! {
+        program: r#"
+        (let ((x 1))
+          (setq f (lambda () x))
+          (setq x 42))
+        (funcall f)
+        "#,
+        result: "42",
+    }
+
+    // setq on a defun parameter is visible to a closure constructed
+    // earlier inside the same defun.
+    tulisp_assert! {
+        program: r#"
+        (defun outer-mutating (x)
+          (let ((g (lambda () x)))
+            (setq x 99)
+            (funcall g)))
+        (outer-mutating 1)
+        "#,
+        result: "99",
+    }
+
+    // Two closures that captured the same let-binding share the slot,
+    // so `setq` in one is visible to the other.
+    tulisp_assert! {
+        program: r#"
+        (let ((n 0))
+          (setq inc (lambda () (setq n (+ n 1)) n))
+          (setq read-n (lambda () n)))
+        (funcall inc)
+        (funcall inc)
+        (funcall read-n)
+        "#,
+        result: "2",
+    }
+
+    // Backquote constructed in one scope, eval'd inside another
+    // function. The unquoted value is captured at construction time so
+    // the inner eval only needs to see already-resolved literals.
+    tulisp_assert! {
+        program: r#"
+        (defun run-eval (form) (eval form))
+        (let ((id 99))
+          (run-eval `(+ ,id 1)))
+        "#,
+        result: "100",
+    }
+
+    // Captured var reads the current value at capture time; later
+    // rebinding of the original symbol does not affect the closure.
+    tulisp_assert! {
+        program: r#"
+        (setq f (let ((x 1)) (lambda () x)))
+        (setq x 999)
+        (funcall f)
+        "#,
+        result: "1",
+    }
+
+    // A closure in a list can still be invoked via funcall after list
+    // operations (doesn't rely on stack-top semantics).
+    tulisp_assert! {
+        program: r#"
+        (setq fs (mapcar (lambda (n) (lambda () n)) '(10 20 30)))
+        (mapcar 'funcall fs)
+        "#,
+        result: "'(10 20 30)",
+    }
+
+    // Recursive defun sees its own lex params correctly across calls.
+    tulisp_assert! {
+        program: r#"
+        (defun fact (n)
+          (if (<= n 1) 1 (* n (fact (- n 1)))))
+        (fact 6)
+        "#,
+        result: "720",
+    }
+
+    // Regression: literal symbol in a backquote alist key position must
+    // NOT be rewritten even when it shares a name with a lambda param.
+    // With the bug present, `k` in `(k . literal)` would be substituted
+    // to a LexicalBinding wrapper, so `(assoc 'k entry)` would miss.
+    tulisp_assert! {
+        program: r#"
+        (defun make-entry (k v)
+          `((key . ,k) (value . ,v) (k . literal-k)))
+        (let ((entry (make-entry 'foo 42)))
+          (list (cdr (assoc 'key entry))
+                (cdr (assoc 'value entry))
+                (cdr (assoc 'k entry))))
+        "#,
+        result: "'(foo 42 literal-k)",
+    }
+
+    // Regression: `(quote X)` written as a list form must not be
+    // descended into for substitution, even if X names a defun param.
+    // With the bug present, `(quote key)` would rewrite the literal
+    // `key` symbol, breaking the subsequent `(assoc 'key ...)`.
+    tulisp_assert! {
+        program: r#"
+        (defun pick (key alist)
+          (cdr (assoc (quote key) alist)))
+        (pick 'ignored '((key . the-key-value) (other . o)))
+        "#,
+        result: "'the-key-value",
+    }
+
+    // Regression: a backquote whose unquoted data contains literal
+    // symbols matching enclosing lambda params must stay usable as a
+    // lambda form. The bug turned inner literal keys into
+    // LexicalBindings, which then errored when the stored form was
+    // re-evaluated by funcall.
+    tulisp_assert! {
+        program: r#"
+        (defun make-resetter (items)
+          `(lambda ()
+             (dolist (item (quote ,items))
+               (cdr (assoc 'value item)))))
+        (let ((form (make-resetter '(((value . 1)) ((value . 2))))))
+          (funcall (eval form))
+          'ok)
+        "#,
+        result: "'ok",
+    }
+
+    Ok(())
+}
+
+// `defvar`-declared variables are dynamic (special) — references resolve
+// through the symbol's own stack, so eval-in-a-different-scope sees the
+// enclosing binding. This matches Emacs' behavior under `lexical-binding: t`.
+#[test]
+fn test_defvar_dynamic_binding() -> Result<(), Error> {
+    // With defvar, eval in a different function scope sees the let
+    // binding through the symbol's dynamic stack — the let binding pushes onto
+    // the symbol's dynamic stack, and eval inside run-eval sees it.
+    tulisp_assert! {
+        program: r#"
+        (defvar xdyn nil)
+        (defun run-eval (form) (eval form))
+        (let ((xdyn 7))
+          (run-eval 'xdyn))
+        "#,
+        result: "7",
+    }
+
+    // The backquote-quoted-and-eval'd-later pattern — works once the
+    // variable is defvar'd so dynamic binding survives the scope jump.
+    tulisp_assert! {
+        program: r#"
+        (defvar xbq nil)
+        (defun run-eval (form) (eval form))
+        (let ((xbq 42))
+          (run-eval '`(+ ,xbq 1)))
+        "#,
+        result: "'(+ 42 1)",
+    }
+
+    // setq on a dynamic var in outer scope is visible after let scope
+    // exits: the global slot gets updated, not a fresh lex slot.
+    tulisp_assert! {
+        program: r#"
+        (defvar counter 0)
+        (defun bump () (setq counter (+ counter 1)))
+        (bump) (bump) (bump)
+        counter
+        "#,
+        result: "3",
+    }
+
+    // Dynamic binding unwinds properly on let exit — outer value is
+    // restored.
+    tulisp_assert! {
+        program: r#"
+        (defvar k 100)
+        (let ((k 1))
+          (let ((k 2)) k)
+          k)
+        "#,
+        result: "1",
+    }
+
+    // A closure referencing a dynamic var reads the current dynamic
+    // binding at call time, not a snapshot from capture time.
+    tulisp_assert! {
+        program: r#"
+        (defvar d 1)
+        (setq f (lambda () d))
+        (let ((d 99))
+          (funcall f))
+        "#,
+        result: "99",
+    }
+
+    // Defun/lambda parameters are lexically bound even when the name
+    // was declared `defvar` — matching Emacs' byte-compiler under
+    // `lexical-binding: t`. The param binding does not shadow the
+    // dynamic global, so another function that references the same
+    // symbol sees the outer dynamic value, not the caller's arg.
+    tulisp_assert! {
+        program: r#"
+        (defvar p 10)
+        (defun observe () p)
+        (defun with-p (p) (observe))
+        (with-p 55)
+        "#,
+        result: "10",
+    }
+
+    // Direct reference to the param inside the defun sees the lex
+    // binding even though the name is defvar'd.
+    tulisp_assert! {
+        program: r#"
+        (defvar p2 10)
+        (defun read-param (p2) p2)
+        (read-param 55)
+        "#,
+        result: "55",
+    }
+
     Ok(())
 }
 

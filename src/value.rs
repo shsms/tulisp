@@ -1,20 +1,21 @@
 use crate::{
     Number, TulispObject,
     cons::Cons,
-    context::Scope,
     error::Error,
     object::{
         Span,
         wrappers::{
             TulispFn,
-            generic::{Shared, SyncSend},
+            generic::{Shared, SharedMut, SyncSend},
         },
     },
 };
 use std::{
     any::Any,
+    cell::RefCell,
     convert::TryInto,
     fmt::{Display, Write},
+    sync::atomic::{AtomicU64, Ordering},
 };
 
 #[doc(hidden)]
@@ -38,7 +39,6 @@ impl std::fmt::Display for DefunParam {
 #[derive(Debug, Default, Clone)]
 pub struct DefunParams {
     params: Vec<DefunParam>,
-    scope: Scope,
 }
 
 impl std::fmt::Display for DefunParams {
@@ -74,7 +74,6 @@ impl TryFrom<TulispObject> for DefunParams {
                 is_rest = true;
                 continue;
             }
-            def_params.scope.scope.push(param.clone());
             def_params.params.push(DefunParam {
                 param,
                 is_rest,
@@ -98,8 +97,35 @@ impl DefunParams {
         self.params.iter()
     }
 
-    pub(crate) fn unbind(&self) -> Result<(), Error> {
-        self.scope.remove_all()
+    /// Replaces each raw-symbol param with a fresh `LexicalBinding` and
+    /// returns `(new_params, mappings)` where `mappings` is a list of
+    /// `(old_symbol, new_binding)` pairs suitable for
+    /// `substitute_lexical`. Callers are expected to run that
+    /// substitution on the function/macro body once at definition time,
+    /// so call-time evaluation only needs to push/pop values on each
+    /// binding's thread-local stack.
+    pub(crate) fn bind_as_lexical(
+        self,
+        allocator: &Shared<LexAllocator>,
+    ) -> (DefunParams, Vec<(TulispObject, TulispObject)>) {
+        let mut mappings = Vec::with_capacity(self.params.len());
+        let mut new_params = Vec::with_capacity(self.params.len());
+        for dp in self.params {
+            // Defun/lambda params are always lexically bound — even
+            // when the symbol has been declared `defvar` (special).
+            // Emacs under `lexical-binding: t` behaves this way: `let`
+            // of a special var binds dynamically, but function
+            // parameters stay lexical. Matching that keeps semantics
+            // consistent with Emacs' byte-compiler.
+            let lex = TulispObject::lexical_binding(allocator.clone(), dp.param.clone());
+            mappings.push((dp.param, lex.clone()));
+            new_params.push(DefunParam {
+                param: lex,
+                is_rest: dp.is_rest,
+                is_optional: dp.is_optional,
+            });
+        }
+        (DefunParams { params: new_params }, mappings)
     }
 }
 
@@ -107,6 +133,12 @@ impl DefunParams {
 pub struct SymbolBindings {
     name: String,
     constant: bool,
+    // "Special" (dynamic) in Emacs' terminology: `defvar`-declared.
+    // Once set, references to this symbol bypass lexical-binding
+    // rewrites (substitute_lexical / capture) and always use this
+    // symbol's own `items` stack, matching Emacs' behavior under
+    // `lexical-binding: t` for declared variables.
+    special: bool,
     has_global: bool,
     items: Vec<TulispObject>,
 }
@@ -156,16 +188,6 @@ impl SymbolBindings {
         }
         self.items.push(to_set);
         Ok(())
-    }
-
-    /// Sets the value without checking if the symbol is constant, or if it is
-    /// bound.
-    ///
-    /// For use in loops and other places where a set_scope has already been
-    /// done, and the symbol is known to be bound.
-    #[inline(always)]
-    pub(crate) fn set_unchecked(&mut self, to_set: TulispObject) {
-        *self.items.last_mut().unwrap() = to_set;
     }
 
     #[inline(always)]
@@ -223,6 +245,260 @@ impl SymbolBindings {
     pub(crate) fn is_constant(&self) -> bool {
         self.constant
     }
+
+    #[inline(always)]
+    pub(crate) fn is_special(&self) -> bool {
+        self.special
+    }
+
+    #[inline(always)]
+    pub(crate) fn set_special(&mut self) {
+        self.special = true;
+    }
+}
+
+// Thread-local item stacks for lexical bindings. A LexBinding is shared
+// across threads (one per defun/lambda param, allocated once at
+// creation); but each thread has its own push/pop stack indexed by the
+// binding's id. This lets concurrent calls into the same function —
+// e.g. tulisp-async timers — bind parameters independently, without
+// the cross-thread `Vec` aliasing that was Bug #3.
+//
+// Each stack entry is a `SharedMut<TulispObject>` — an actual cell
+// shared with any closures that captured this scope. `setq` mutates
+// the cell contents in place, so closures see the update (this is
+// what Emacs' `lexical-binding: t` semantics require, distinct from
+// snapshot-at-capture Scheme semantics). When the scope exits, the
+// stack pops the cell; any closures that cloned the `SharedMut` keep
+// it alive.
+//
+// The Vec grows to `max(id) + 1` per thread; see
+// docs/lexical-binding.md for the growth/cleanup tradeoffs we
+// explicitly accept (free-list is a deferred optimization).
+// Global monotonic id counter. Shared across all contexts so that
+// `LEX_STACKS` (thread-local, Vec-indexed by id) never sees collisions
+// when multiple contexts coexist. Atomic, not a mutex — no contention
+// concern. Growth is bounded in practice: each `LexAllocator` reuses
+// freed ids through its own free list before bumping this counter.
+static LEX_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Per-context allocator for LexBinding ids. Held by the context and
+/// by every `LexBinding` it creates (via a `Shared` ref on the
+/// binding), so dropping a binding returns its id to the free list —
+/// no global mutex needed. Under the default (non-`sync`) build this
+/// is a `RefCell` internally; under `sync` it's an `RwLock`.
+#[derive(Debug)]
+pub(crate) struct LexAllocator {
+    free_list: SharedMut<Vec<u64>>,
+}
+
+impl Default for LexAllocator {
+    fn default() -> Self {
+        LexAllocator {
+            free_list: SharedMut::new(Vec::new()),
+        }
+    }
+}
+
+impl LexAllocator {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
+    fn alloc(&self) -> u64 {
+        if let Some(id) = self.free_list.borrow_mut().pop() {
+            return id;
+        }
+        LEX_COUNTER.fetch_add(1, Ordering::Relaxed)
+    }
+
+    fn free(&self, id: u64) {
+        self.free_list.borrow_mut().push(id);
+    }
+}
+
+thread_local! {
+    static LEX_STACKS: RefCell<Vec<Vec<SharedMut<TulispObject>>>> =
+        const { RefCell::new(Vec::new()) };
+}
+
+#[inline(always)]
+fn with_lex_stack<R>(id: u64, f: impl FnOnce(&mut Vec<SharedMut<TulispObject>>) -> R) -> R {
+    LEX_STACKS.with(|s| {
+        let mut v = s.borrow_mut();
+        let idx = id as usize;
+        if v.len() <= idx {
+            v.resize_with(idx + 1, Vec::new);
+        }
+        f(&mut v[idx])
+    })
+}
+
+#[derive(Debug)]
+struct LexBindingInner {
+    id: u64,
+    name: String,
+    symbol: TulispObject,
+    // Captured bindings (from closures) hold a direct reference to the
+    // same shared slot that was on the enclosing scope's stack at
+    // capture time. Mutations to the enclosing scope's binding are
+    // therefore visible to the closure and vice-versa — matching
+    // Emacs' `lexical-binding: t` semantics. Param/let bindings leave
+    // this `None` and reach their slot through the thread-local stack
+    // indexed by `id`, which is faster and avoids cross-thread Vec
+    // aliasing (Bug #3).
+    captured: Option<SharedMut<TulispObject>>,
+    // Back-pointer to the allocator that minted this id. When the last
+    // `Shared<LexBindingInner>` reference drops, we return the id here
+    // so the next allocation can reuse it — keeping `LEX_STACKS` from
+    // growing indefinitely.
+    allocator: Shared<LexAllocator>,
+}
+
+impl Drop for LexBindingInner {
+    fn drop(&mut self) {
+        self.allocator.free(self.id);
+    }
+}
+
+#[doc(hidden)]
+#[derive(Clone, Debug)]
+pub struct LexBinding {
+    inner: Shared<LexBindingInner>,
+}
+
+impl LexBinding {
+    pub(crate) fn new(allocator: Shared<LexAllocator>, symbol: TulispObject) -> Self {
+        let id = allocator.alloc();
+        let name = symbol.to_string();
+        LexBinding {
+            inner: Shared::new_sized(LexBindingInner {
+                id,
+                name,
+                symbol,
+                captured: None,
+                allocator,
+            }),
+        }
+    }
+
+    /// Creates a captured binding that shares `slot` with the
+    /// originating scope. Used by lambda's `capture_variables`.
+    pub(crate) fn new_captured(
+        allocator: Shared<LexAllocator>,
+        symbol: TulispObject,
+        slot: SharedMut<TulispObject>,
+    ) -> Self {
+        let id = allocator.alloc();
+        let name = symbol.to_string();
+        LexBinding {
+            inner: Shared::new_sized(LexBindingInner {
+                id,
+                name,
+                symbol,
+                captured: Some(slot),
+                allocator,
+            }),
+        }
+    }
+
+    pub(crate) fn name(&self) -> &str {
+        &self.inner.name
+    }
+
+    pub(crate) fn symbol(&self) -> &TulispObject {
+        &self.inner.symbol
+    }
+
+    /// Returns the `SharedMut` slot that currently holds this
+    /// binding's value, or `None` if it's unbound. Used by closure
+    /// capture so the closure can share the slot rather than snapshot.
+    #[inline(always)]
+    pub(crate) fn current_slot(&self) -> Option<SharedMut<TulispObject>> {
+        if let Some(slot) = &self.inner.captured {
+            return Some(slot.clone());
+        }
+        with_lex_stack(self.inner.id, |s| s.last().cloned())
+    }
+
+    #[inline(always)]
+    pub(crate) fn push(&self, val: TulispObject) {
+        if let Some(slot) = &self.inner.captured {
+            *slot.borrow_mut() = val;
+            return;
+        }
+        with_lex_stack(self.inner.id, |s| s.push(SharedMut::new(val)));
+    }
+
+    #[inline(always)]
+    pub(crate) fn pop(&self) -> Result<(), Error> {
+        if self.inner.captured.is_some() {
+            return Ok(());
+        }
+        let popped = with_lex_stack(self.inner.id, |s| s.pop());
+        if popped.is_some() {
+            Ok(())
+        } else {
+            Err(Error::uninitialized(format!(
+                "Can't unbind from unassigned symbol: {}",
+                self.inner.name
+            )))
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn set(&self, val: TulispObject) -> Result<(), Error> {
+        if let Some(slot) = &self.inner.captured {
+            *slot.borrow_mut() = val;
+            return Ok(());
+        }
+        with_lex_stack(self.inner.id, |s| {
+            if let Some(last) = s.last() {
+                *last.borrow_mut() = val;
+            } else {
+                s.push(SharedMut::new(val));
+            }
+        });
+        Ok(())
+    }
+
+    #[inline(always)]
+    pub(crate) fn set_scope(&self, val: TulispObject) {
+        if let Some(slot) = &self.inner.captured {
+            *slot.borrow_mut() = val;
+            return;
+        }
+        with_lex_stack(self.inner.id, |s| s.push(SharedMut::new(val)));
+    }
+
+    #[inline(always)]
+    pub(crate) fn get(&self) -> Result<TulispObject, Error> {
+        if let Some(slot) = &self.inner.captured {
+            return Ok(slot.borrow().clone());
+        }
+        let got = with_lex_stack(self.inner.id, |s| s.last().map(|slot| slot.borrow().clone()));
+        got.ok_or_else(|| {
+            Error::uninitialized(format!("Variable definition is void: {}", self.inner.name))
+        })
+    }
+
+    #[inline(always)]
+    pub(crate) fn boundp(&self) -> bool {
+        if self.inner.captured.is_some() {
+            return true;
+        }
+        with_lex_stack(self.inner.id, |s| !s.is_empty())
+    }
+
+    #[inline(always)]
+    pub(crate) fn get_as_number(&self) -> Result<Number, Error> {
+        self.get()?.as_number()
+    }
+
+    #[inline(always)]
+    pub(crate) fn get_as_bool(&self) -> Result<bool, Error> {
+        Ok(self.get()?.is_truthy())
+    }
 }
 
 pub trait TulispAny: Any + Display + SyncSend {}
@@ -244,8 +520,7 @@ pub enum TulispValue {
         value: SymbolBindings,
     },
     LexicalBinding {
-        value: SymbolBindings,
-        symbol: TulispObject,
+        binding: LexBinding,
     },
     Number {
         value: Number,
@@ -297,10 +572,10 @@ impl std::fmt::Debug for TulispValue {
                 .field("name", &value.name)
                 .field("value", value)
                 .finish(),
-            Self::LexicalBinding { value, symbol } => f
+            Self::LexicalBinding { binding } => f
                 .debug_struct("LexicalBinding")
-                .field("symbol", symbol)
-                .field("value", value)
+                .field("symbol", binding.symbol())
+                .field("name", &binding.name())
                 .finish(),
             Self::Number { value } => f.debug_struct("Number").field("value", value).finish(),
             Self::String { value } => f.debug_struct("String").field("value", value).finish(),
@@ -390,7 +665,7 @@ impl std::fmt::Display for TulispValue {
             TulispValue::Bounce => f.write_str("Bounce"),
             TulispValue::Nil => f.write_str("nil"),
             TulispValue::Symbol { value } => f.write_str(&value.name),
-            TulispValue::LexicalBinding { value, .. } => f.write_str(&value.name),
+            TulispValue::LexicalBinding { binding } => f.write_str(binding.name()),
             TulispValue::Number { value, .. } => f.write_fmt(format_args!("{}", value)),
             TulispValue::String { value, .. } => f.write_fmt(format_args!(r#""{}""#, value)),
             vv @ TulispValue::List { .. } => {
@@ -419,6 +694,7 @@ impl TulispValue {
             value: SymbolBindings {
                 name,
                 constant,
+                special: false,
                 has_global: false,
                 items: Default::default(),
             },
@@ -426,77 +702,73 @@ impl TulispValue {
     }
 
     #[inline(always)]
-    pub(crate) fn lexical_binding(symbol: TulispObject) -> TulispValue {
-        let name = symbol.to_string();
+    pub(crate) fn lexical_binding(
+        allocator: Shared<LexAllocator>,
+        symbol: TulispObject,
+    ) -> TulispValue {
         TulispValue::LexicalBinding {
-            symbol,
-            value: SymbolBindings {
-                name,
-                constant: false,
-                has_global: false,
-                items: Default::default(),
-            },
+            binding: LexBinding::new(allocator, symbol),
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn lexical_binding_captured(
+        allocator: Shared<LexAllocator>,
+        symbol: TulispObject,
+        slot: SharedMut<TulispObject>,
+    ) -> TulispValue {
+        TulispValue::LexicalBinding {
+            binding: LexBinding::new_captured(allocator, symbol, slot),
         }
     }
 
     #[inline(always)]
     pub(crate) fn set(&mut self, to_set: TulispObject) -> Result<(), Error> {
-        if let TulispValue::Symbol { value, .. } | TulispValue::LexicalBinding { value, .. } = self
-        {
-            value.set(to_set)
-        } else {
-            Err(Error::type_mismatch(
+        match self {
+            TulispValue::Symbol { value } => value.set(to_set),
+            TulispValue::LexicalBinding { binding } => binding.set(to_set),
+            _ => Err(Error::type_mismatch(
                 "Can bind values only to Symbols".to_string(),
-            ))
+            )),
         }
     }
 
     #[inline(always)]
     pub(crate) fn set_global(&mut self, to_set: TulispObject) -> Result<(), Error> {
-        if let TulispValue::Symbol { value, .. } | TulispValue::LexicalBinding { value, .. } = self
-        {
-            value.set_global(to_set)
-        } else {
-            Err(Error::type_mismatch(
+        match self {
+            TulispValue::Symbol { value } => value.set_global(to_set),
+            // LexicalBindings have no "global" slot — setting the
+            // global cell of a lexical binding is nonsensical. Fall
+            // through to the same error as non-symbols.
+            _ => Err(Error::type_mismatch(
                 "Can bind values only to Symbols".to_string(),
-            ))
+            )),
         }
     }
 
     #[inline(always)]
     pub(crate) fn set_scope(&mut self, to_set: TulispObject) -> Result<(), Error> {
-        if let TulispValue::Symbol { value, .. } | TulispValue::LexicalBinding { value, .. } = self
-        {
-            value.set_scope(to_set)
-        } else {
-            Err(Error::type_mismatch(format!(
+        match self {
+            TulispValue::Symbol { value } => value.set_scope(to_set),
+            TulispValue::LexicalBinding { binding } => {
+                binding.set_scope(to_set);
+                Ok(())
+            }
+            _ => Err(Error::type_mismatch(format!(
                 "Expected Symbol: Can't assign to {self}"
-            )))
+            ))),
         }
     }
 
     /// Sets the value without checking if the symbol is constant, or if it is
-    /// bound.
-    ///
-    /// For use in loops and other places where a set_scope has already been
-    /// done, and the symbol is known to be bound.
-    #[inline(always)]
-    pub(crate) fn set_unchecked(&mut self, to_set: TulispObject) {
-        if let TulispValue::Symbol { value, .. } | TulispValue::LexicalBinding { value, .. } = self
-        {
-            value.set_unchecked(to_set)
-        }
-    }
-
     #[inline(always)]
     pub(crate) fn unset(&mut self) -> Result<(), Error> {
-        if let TulispValue::Symbol { value, .. } | TulispValue::LexicalBinding { value, .. } = self
-        {
-            value.unset()
-        } else {
-            Err(Error::type_mismatch(
+        match self {
+            TulispValue::Symbol { value } => value.unset(),
+            TulispValue::LexicalBinding { binding } => binding.pop(),
+            _ => Err(Error::type_mismatch(
                 "Can unbind only from Symbols".to_string(),
-            ))
+            )),
         }
     }
 
@@ -504,6 +776,9 @@ impl TulispValue {
     pub(crate) fn is_lexically_bound(&self) -> bool {
         match self {
             TulispValue::Symbol { value } => {
+                if value.special {
+                    return false;
+                }
                 (value.has_global && value.items.len() > 1)
                     || (!value.has_global && !value.items.is_empty())
             }
@@ -513,31 +788,54 @@ impl TulispValue {
     }
 
     #[inline(always)]
+    pub(crate) fn is_special(&self) -> bool {
+        match self {
+            TulispValue::Symbol { value } => value.is_special(),
+            _ => false,
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn set_special(&mut self) -> Result<(), Error> {
+        match self {
+            TulispValue::Symbol { value } => {
+                value.set_special();
+                Ok(())
+            }
+            _ => Err(Error::type_mismatch(
+                "set_special requires a symbol".to_string(),
+            )),
+        }
+    }
+
+    #[inline(always)]
     pub(crate) fn lex_symbol_eq(&self, other: &TulispObject) -> bool {
-        let TulispValue::LexicalBinding { symbol, .. } = self else {
+        let TulispValue::LexicalBinding { binding } = self else {
             return false;
         };
-        if let TulispValue::LexicalBinding { symbol: other, .. } = &other.inner_ref().0 {
-            symbol.eq(other)
+        let self_sym = binding.symbol();
+        if let TulispValue::LexicalBinding { binding: other_b } = &other.inner_ref().0 {
+            self_sym.eq(other_b.symbol())
         } else {
-            symbol.eq(other)
+            self_sym.eq(other)
         }
     }
 
     #[inline(always)]
     pub(crate) fn get(&self) -> Result<TulispObject, Error> {
-        if let TulispValue::Symbol { value, .. } | TulispValue::LexicalBinding { value, .. } = self
-        {
-            if value.is_constant() {
-                // Taking this path loses the span, so it should never be used.
-                // This check needs to be done in the object.
-                return Ok(self.clone().into_ref(None));
+        match self {
+            TulispValue::Symbol { value } => {
+                if value.is_constant() {
+                    // Taking this path loses the span, so it should never be
+                    // used. This check needs to be done in the object.
+                    return Ok(self.clone().into_ref(None));
+                }
+                value.get()
             }
-            value.get()
-        } else {
-            Err(Error::type_mismatch(
+            TulispValue::LexicalBinding { binding } => binding.get(),
+            _ => Err(Error::type_mismatch(
                 "Can get only from Symbols".to_string(),
-            ))
+            )),
         }
     }
 
@@ -552,11 +850,10 @@ impl TulispValue {
 
     #[inline(always)]
     pub(crate) fn boundp(&self) -> bool {
-        if let TulispValue::Symbol { value, .. } | TulispValue::LexicalBinding { value, .. } = self
-        {
-            value.boundp()
-        } else {
-            false
+        match self {
+            TulispValue::Symbol { value } => value.boundp(),
+            TulispValue::LexicalBinding { binding } => binding.boundp(),
+            _ => false,
         }
     }
 
@@ -621,9 +918,8 @@ impl TulispValue {
     #[inline(always)]
     pub(crate) fn as_symbol(&self) -> Result<String, Error> {
         match self {
-            TulispValue::Symbol { value } | TulispValue::LexicalBinding { value, .. } => {
-                Ok(value.name.to_string())
-            }
+            TulispValue::Symbol { value } => Ok(value.name.to_string()),
+            TulispValue::LexicalBinding { binding } => Ok(binding.name().to_string()),
             _ => Err(Error::type_mismatch(format!(
                 "Expected symbol, got: {}",
                 self

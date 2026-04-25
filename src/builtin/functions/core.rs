@@ -1,14 +1,15 @@
 use crate::TulispObject;
 use crate::TulispValue;
-use crate::context::Scope;
 use crate::context::TulispContext;
 use crate::destruct_eval_bind;
 use crate::error::Error;
 use crate::eval::DummyEval;
 use crate::eval::Eval;
 use crate::eval::EvalInto;
+use crate::eval::substitute_lexical;
 use crate::lists;
-use crate::value::DefunParams;
+use crate::object::wrappers::generic::{Shared, SharedMut};
+use crate::value::{DefunParams, LexAllocator};
 use crate::{destruct_bind, list};
 use std::convert::TryInto;
 
@@ -265,40 +266,86 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         },
     );
 
+    /// RAII guard that unwinds dynamic (`defvar`-declared) let bindings
+    /// on scope exit — including the error path when the body returns
+    /// `?` partway through. Lexical (non-special) let vars don't need a
+    /// guard: they own their slot directly via
+    /// `lexical_binding_captured`, so the slot drops with the binding.
+    struct DynamicScopeGuard {
+        names: Vec<TulispObject>,
+    }
+    impl Drop for DynamicScopeGuard {
+        fn drop(&mut self) {
+            for name in self.names.drain(..).rev() {
+                let _ = name.unset();
+            }
+        }
+    }
+
     fn impl_let(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
-        destruct_bind!((varlist &rest rest) = args);
-        if !rest.consp() {
+        destruct_bind!((varlist &rest body) = args);
+        if !body.consp() {
             return Err(Error::type_mismatch(
                 "let: expected varlist and body".to_string(),
             ));
         }
-        let mut local = Scope::default();
+        // For non-special vars, create a fresh LexicalBinding per
+        // evaluation that directly owns its slot (via
+        // `lexical_binding_captured`) and rewrite the body to reference
+        // it. The slot drops when the binding drops — no thread-local
+        // stack involvement, no per-call id→stack growth.
+        // For `defvar`-declared (special/dynamic) vars, push onto the
+        // symbol's own stack instead — matching Emacs' behavior under
+        // `lexical-binding: t` for declared variables. The dynamic guard
+        // unwinds those pushes on scope exit.
+        // Initializers are evaluated in the scope of previously-bound
+        // let vars (same as `let*` — tulisp has always had `let` behave
+        // this way).
+        let mut mappings: Vec<(TulispObject, TulispObject)> = Vec::new();
+        let mut dynamic_guard = DynamicScopeGuard { names: Vec::new() };
         for varitem in varlist.base_iter() {
-            if varitem.symbolp() {
-                local.set(varitem, TulispObject::nil())?;
+            let (name, initial) = if varitem.symbolp() {
+                (varitem, TulispObject::nil())
             } else if varitem.consp() {
                 destruct_bind!((&optional name value &rest rest) = varitem);
                 if name.null() {
                     return Err(Error::syntax_error("let varitem requires name".to_string()));
+                }
+                if !name.symbolp() {
+                    return Err(Error::type_mismatch(format!(
+                        "Expected Symbol: Can't assign to {name}"
+                    )));
                 }
                 if !rest.null() {
                     return Err(Error::syntax_error(
                         "let varitem has too many values".to_string(),
                     ));
                 }
-                local.set(name, ctx.eval(&value)?)?;
+                let value_expr = substitute_lexical(value, &mappings)?;
+                let initial = ctx.eval(&value_expr)?;
+                (name, initial)
             } else {
                 return Err(Error::syntax_error(format!(
                     "varitems inside a let-varlist should be a var or a binding: {}",
                     varitem
                 )));
             };
+            if name.is_special() {
+                name.set_scope(initial)?;
+                dynamic_guard.names.push(name);
+            } else {
+                let slot = SharedMut::new(initial);
+                let lex = TulispObject::lexical_binding_captured(
+                    ctx.lex_allocator.clone(),
+                    name.clone(),
+                    slot,
+                );
+                mappings.push((name, lex));
+            }
         }
 
-        let ret = ctx.eval_progn(&rest);
-        local.remove_all()?;
-
-        ret
+        let rewritten = substitute_lexical(body, &mappings)?;
+        ctx.eval_progn(&rewritten)
     }
     ctx.defspecial("let", impl_let);
     ctx.defspecial("let*", impl_let);
@@ -317,18 +364,22 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 println!("mark_tail_calls error: {:?}", e);
                 e
             })?;
+            // Pre-rewrite the body so each param reference points at a
+            // shared `LexicalBinding` allocated once here. Call-time
+            // evaluation then only push/pops values onto the binding's
+            // thread-local stack, avoiding per-call AST clones (fib was
+            // 10.6× slower without this).
+            let raw_params: DefunParams = params.try_into()?;
+            let (params, mappings) = raw_params.bind_as_lexical(&ctx.lex_allocator);
+            let body = substitute_lexical(body, &mappings)?;
             name.set_global(
-                TulispValue::Lambda {
-                    params: params.try_into()?,
-                    body,
-                }
-                .into_ref(None),
+                TulispValue::Lambda { params, body }.into_ref(None),
             )?;
             Ok(TulispObject::nil())
         }
     });
 
-    fn lambda(_ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+    fn lambda(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
         destruct_bind!((params &rest rest) = args);
         let body = if rest.car()?.as_string().is_ok() {
             rest.cdr()?
@@ -337,41 +388,6 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         };
         let params: DefunParams = params.try_into()?;
         let param_names: Vec<_> = params.iter().map(|x| x.param.clone()).collect();
-
-        fn capture_inside_quoted(
-            captured_vars: &mut Vec<(TulispObject, TulispObject)>,
-            exclude: &[TulispObject],
-            value: TulispObject,
-        ) -> Result<TulispObject, Error> {
-            let inner_ref = value.inner_ref();
-            let res = match &inner_ref.0 {
-                TulispValue::Backquote { value } => TulispValue::Backquote {
-                    value: capture_variables(captured_vars, exclude, value.clone())?,
-                }
-                .into_ref(value.span()),
-                TulispValue::Unquote { value } => TulispValue::Unquote {
-                    value: capture_variables(captured_vars, exclude, value.clone())?,
-                }
-                .into_ref(value.span()),
-                TulispValue::Splice { value } => TulispValue::Splice {
-                    value: capture_variables(captured_vars, exclude, value.clone())?,
-                }
-                .into_ref(value.span()),
-                TulispValue::Sharpquote { value } => TulispValue::Sharpquote {
-                    value: capture_variables(captured_vars, exclude, value.clone())?,
-                }
-                .into_ref(value.span()),
-                TulispValue::Quote { value } => TulispValue::Quote {
-                    value: capture_variables(captured_vars, exclude, value.clone())?,
-                }
-                .into_ref(value.span()),
-                _ => {
-                    drop(inner_ref);
-                    value
-                }
-            };
-            Ok(res)
-        }
 
         fn slice_contains(vec: &[TulispObject], item: &TulispObject) -> bool {
             for i in vec {
@@ -383,6 +399,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         }
 
         fn capture_symbol(
+            allocator: &Shared<LexAllocator>,
             captured_vars: &mut Vec<(TulispObject, TulispObject)>,
             exclude: &[TulispObject],
             symbol: TulispObject,
@@ -396,8 +413,30 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                         return Ok(to.clone().with_span(symbol.span()));
                     }
                 }
-                let new_var = TulispObject::lexical_binding(symbol.clone());
-                new_var.set(symbol.get()?)?;
+                // Share the enclosing scope's slot with the closure
+                // so `setq` on either side is visible to both —
+                // matching Emacs' `lexical-binding: t` semantics.
+                let slot_opt = {
+                    let inner = symbol.inner_ref();
+                    match &inner.0 {
+                        crate::value::TulispValue::LexicalBinding { binding } => {
+                            Some((binding.current_slot(), binding.name().to_string()))
+                        }
+                        _ => None,
+                    }
+                };
+                let slot = match slot_opt {
+                    Some((Some(slot), _)) => slot,
+                    Some((None, name)) => {
+                        return Err(Error::uninitialized(format!(
+                            "Variable definition is void: {}",
+                            name
+                        )));
+                    }
+                    None => return Ok(symbol),
+                };
+                let new_var =
+                    TulispObject::lexical_binding_captured(allocator.clone(), symbol.clone(), slot);
                 captured_vars.push((symbol, new_var.clone()));
                 return Ok(new_var);
             }
@@ -405,36 +444,113 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         }
 
         fn capture_variables(
+            allocator: &Shared<LexAllocator>,
+            captured_vars: &mut Vec<(TulispObject, TulispObject)>,
+            exclude: &[TulispObject],
+            body: TulispObject,
+        ) -> Result<TulispObject, Error> {
+            capture_variables_inner(allocator, captured_vars, exclude, body, 0)
+        }
+
+        // `quote_depth` tracks quasi-quote nesting: 0 = code context
+        // (substitute/capture vars); >0 = inside a backquote (data
+        // context — literal symbols are not var references). Unquote /
+        // splice decrement it (back to code), backquote increments.
+        fn capture_variables_inner(
+            allocator: &Shared<LexAllocator>,
             captured_vars: &mut Vec<(TulispObject, TulispObject)>,
             exclude: &[TulispObject],
             mut body: TulispObject,
+            quote_depth: u32,
         ) -> Result<TulispObject, Error> {
-            let result = TulispObject::nil().with_span(body.span());
             if !body.consp() {
-                if body.symbolp() {
-                    return capture_symbol(captured_vars, exclude, body);
-                }
-                return capture_inside_quoted(captured_vars, exclude, body);
+                let inner_ref = body.inner_ref();
+                return match &inner_ref.0 {
+                    TulispValue::Symbol { .. } | TulispValue::LexicalBinding { .. } => {
+                        drop(inner_ref);
+                        if quote_depth > 0 {
+                            Ok(body)
+                        } else {
+                            capture_symbol(allocator, captured_vars, exclude, body)
+                        }
+                    }
+                    TulispValue::Backquote { value } => Ok(TulispValue::Backquote {
+                        value: capture_variables_inner(
+                            allocator,
+                            captured_vars,
+                            exclude,
+                            value.clone(),
+                            quote_depth + 1,
+                        )?,
+                    }
+                    .into_ref(body.span())),
+                    TulispValue::Unquote { value } => Ok(TulispValue::Unquote {
+                        value: capture_variables_inner(
+                            allocator,
+                            captured_vars,
+                            exclude,
+                            value.clone(),
+                            quote_depth.saturating_sub(1),
+                        )?,
+                    }
+                    .into_ref(body.span())),
+                    TulispValue::Splice { value } => Ok(TulispValue::Splice {
+                        value: capture_variables_inner(
+                            allocator,
+                            captured_vars,
+                            exclude,
+                            value.clone(),
+                            quote_depth.saturating_sub(1),
+                        )?,
+                    }
+                    .into_ref(body.span())),
+                    TulispValue::Sharpquote { value } if quote_depth == 0 => {
+                        Ok(TulispValue::Sharpquote {
+                            value: capture_variables_inner(
+                                allocator,
+                                captured_vars,
+                                exclude,
+                                value.clone(),
+                                quote_depth,
+                            )?,
+                        }
+                        .into_ref(body.span()))
+                    }
+                    // `Quote` is always data — don't descend.
+                    _ => {
+                        drop(inner_ref);
+                        Ok(body)
+                    }
+                };
             }
 
+            // At code level, `(quote X)` written as a list form is
+            // data-only — don't descend into X.
+            if quote_depth == 0
+                && let Ok(car) = body.car()
+                && let Ok(name) = car.as_symbol()
+                && name == "quote"
+            {
+                return Ok(body);
+            }
+
+            let result = TulispObject::nil().with_span(body.span());
             loop {
                 let car = body.car()?;
-                if car.consp() {
-                    result.push(capture_variables(captured_vars, exclude, car)?)?;
-                } else if car.symbolp() {
-                    result.push(capture_symbol(captured_vars, exclude, car)?)?;
-                } else {
-                    result.push(capture_inside_quoted(captured_vars, exclude, car)?)?;
-                }
+                result
+                    .push(capture_variables_inner(allocator, captured_vars, exclude, car, quote_depth)?)?;
                 let cdr = body.cdr()?;
                 if cdr.null() {
                     break;
                 }
-                if cdr.symbolp() {
-                    result.append(capture_symbol(captured_vars, exclude, cdr)?)?;
-                    break;
-                } else if !cdr.consp() {
-                    result.append(capture_inside_quoted(captured_vars, exclude, cdr)?)?;
+                if !cdr.consp() {
+                    result.append(capture_variables_inner(
+                        allocator,
+                        captured_vars,
+                        exclude,
+                        cdr,
+                        quote_depth,
+                    )?)?;
                     break;
                 }
                 body = cdr;
@@ -442,24 +558,29 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             Ok(result)
         }
 
-        let body = capture_variables(&mut vec![], &param_names, body)?;
+        let body = capture_variables(&ctx.lex_allocator, &mut vec![], &param_names, body)?;
+        // After capture_variables, free vars in body point at captured
+        // LexicalBindings from the enclosing scope; param references
+        // are still raw symbols. Pre-rewrite them to the new
+        // per-param LexicalBindings so calls are push/pop only.
+        let (params, mappings) = params.bind_as_lexical(&ctx.lex_allocator);
+        let body = substitute_lexical(body, &mappings)?;
         Ok(TulispValue::Lambda { params, body }.into_ref(None))
     }
     ctx.defspecial("lambda", lambda);
 
-    ctx.defspecial("defmacro", |_ctx, args| {
+    ctx.defspecial("defmacro", |ctx, args| {
         destruct_bind!((name params &rest rest) = args);
         let body = if rest.car()?.as_string().is_ok() {
             rest.cdr()?
         } else {
             rest
         };
+        let raw_params: DefunParams = params.try_into()?;
+        let (params, mappings) = raw_params.bind_as_lexical(&ctx.lex_allocator);
+        let body = substitute_lexical(body, &mappings)?;
         name.set_scope(
-            TulispValue::Defmacro {
-                params: params.try_into()?,
-                body,
-            }
-            .into_ref(None),
+            TulispValue::Defmacro { params, body }.into_ref(None),
         )?;
         Ok(TulispObject::nil())
     });
@@ -511,28 +632,37 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defspecial("dolist", |ctx, args| {
         destruct_bind!((spec &rest body) = args);
         destruct_bind!((var list &optional result) = spec);
+        // Under Emacs' `lexical-binding: t`, dolist freshly binds the
+        // loop variable at each iteration — equivalent to `(while tail
+        // (let ((var (car tail))) body))`. So closures captured in
+        // different iterations get distinct slots. `result` is
+        // evaluated in the *outer* scope and does not see `var`.
+        let lex = TulispObject::lexical_binding(ctx.lex_allocator.clone(), var.clone());
+        let mappings = vec![(var, lex.clone())];
+        let body = substitute_lexical(body, &mappings)?;
         let mut list = ctx.eval(&list)?;
-        var.set_scope(list.car()?)?;
         while list.is_truthy() {
-            let eval_res = ctx.eval_progn(&body);
-            eval_res?;
+            lex.set_scope(list.car()?)?;
+            let res = ctx.eval_progn(&body);
+            lex.unset()?;
+            res?;
             list = list.cdr()?;
-            var.set_unchecked(list.car()?);
         }
-        var.unset()?;
         ctx.eval(&result)
     });
 
     ctx.defspecial("dotimes", |ctx, args| {
         destruct_bind!((spec &rest body) = args);
         destruct_bind!((var count &optional result) = spec);
-        var.set_scope(TulispObject::from(0))?;
+        let lex = TulispObject::lexical_binding(ctx.lex_allocator.clone(), var.clone());
+        let mappings = vec![(var, lex.clone())];
+        let body = substitute_lexical(body, &mappings)?;
         for counter in 0..count.as_int()? {
-            var.set_unchecked(TulispObject::from(counter));
-            let eval_res = ctx.eval_progn(&body);
-            eval_res?;
+            lex.set_scope(TulispObject::from(counter))?;
+            let res = ctx.eval_progn(&body);
+            lex.unset()?;
+            res?;
         }
-        var.unset()?;
         ctx.eval(&result)
     });
 
@@ -607,6 +737,11 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 "defvar: first argument must be a symbol".to_string(),
             ));
         }
+        // Flip the symbol's `special` flag so subsequent let/let* and
+        // reference-rewrite paths treat it as dynamic (Emacs' behavior
+        // under `lexical-binding: t`). Done before any initval eval so
+        // the flag is set even if initval errors.
+        name.set_special()?;
         if !name.boundp() {
             let val = ctx.eval(&initval)?;
             name.set(val)?;

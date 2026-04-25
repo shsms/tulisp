@@ -4,7 +4,8 @@ pub(crate) use eval_into::EvalInto;
 use std::borrow::Cow;
 
 use crate::{
-    TulispObject, TulispValue, context::TulispContext, error::Error, list, value::DefunParams,
+    TulispObject, TulispValue, context::TulispContext, error::Error, list,
+    value::{DefunParams, LexBinding},
 };
 
 pub(crate) trait Evaluator {
@@ -34,11 +35,12 @@ impl Evaluator for DummyEval {
     }
 }
 
-fn zip_function_args<E: Evaluator>(
+fn eval_function_args<E: Evaluator>(
     ctx: &mut TulispContext,
     params: &DefunParams,
     args: &TulispObject,
-) -> Result<(), Error> {
+) -> Result<Vec<TulispObject>, Error> {
+    let mut out = Vec::new();
     let mut args_iter = args.base_iter();
     for param in params.iter() {
         let val = if param.is_optional {
@@ -66,12 +68,56 @@ fn zip_function_args<E: Evaluator>(
         } else {
             return Err(Error::missing_argument("Too few arguments".to_string()));
         };
-        param.param.set_scope(val)?;
+        out.push(val);
     }
     if args_iter.next().is_some() {
         return Err(Error::invalid_argument("Too many arguments".to_string()));
     }
-    Ok(())
+    Ok(out)
+}
+
+/// RAII guard that pops values from each LexBinding's thread-local
+/// stack when the current call's scope exits (including via `?`). This
+/// keeps the stacks balanced when the body errors partway through.
+struct LexScopeGuard<'a> {
+    bindings: &'a [LexBinding],
+    pushed: usize,
+}
+
+impl<'a> LexScopeGuard<'a> {
+    fn new(bindings: &'a [LexBinding]) -> Self {
+        Self {
+            bindings,
+            pushed: 0,
+        }
+    }
+    fn push(&mut self, val: TulispObject) {
+        self.bindings[self.pushed].push(val);
+        self.pushed += 1;
+    }
+}
+
+impl<'a> Drop for LexScopeGuard<'a> {
+    fn drop(&mut self) {
+        for b in &self.bindings[..self.pushed] {
+            let _ = b.pop();
+        }
+    }
+}
+
+fn lex_bindings_of(params: &DefunParams) -> Result<Vec<LexBinding>, Error> {
+    let mut out = Vec::with_capacity(params.iter().len());
+    for param in params.iter() {
+        let inner = param.param.inner_ref();
+        let TulispValue::LexicalBinding { binding } = &inner.0 else {
+            return Err(Error::type_mismatch(format!(
+                "internal: defun/lambda param was not pre-rewritten to a LexicalBinding: {}",
+                param.param
+            )));
+        };
+        out.push(binding.clone());
+    }
+    Ok(out)
 }
 
 #[inline(always)]
@@ -81,10 +127,19 @@ fn eval_function<E: Evaluator>(
     body: &TulispObject,
     args: &TulispObject,
 ) -> Result<TulispObject, Error> {
-    zip_function_args::<E>(ctx, params, args)?;
-    let result = ctx.eval_progn(body)?;
-    params.unbind()?;
-    Ok(result)
+    let vals = eval_function_args::<E>(ctx, params, args)?;
+    // Params are pre-rewritten at defun/lambda/defmacro creation to
+    // carry a shared `LexicalBinding`; here we just push the arg values
+    // onto each binding's thread-local stack, run the body, and pop.
+    // Concurrent callers use independent stacks. Function parameters
+    // are always lexical — even for `defvar`-declared names — matching
+    // Emacs' byte-compiler under `lexical-binding: t`.
+    let bindings = lex_bindings_of(params)?;
+    let mut guard = LexScopeGuard::new(&bindings);
+    for val in vals {
+        guard.push(val);
+    }
+    ctx.eval_progn(body)
 }
 
 #[inline(always)]
@@ -231,12 +286,11 @@ pub(crate) fn eval_basic<'a>(
             if value.is_constant() {
                 return Ok(Cow::Borrowed(expr));
             }
-            Ok(Cow::Owned(
-                value.get().map_err(|e| e.with_trace(expr.clone()))?,
-            ))
+            let got = value.get().map_err(|e| e.with_trace(expr.clone()))?;
+            Ok(Cow::Owned(got))
         }
-        TulispValue::LexicalBinding { value, .. } => Ok(Cow::Owned(
-            value.get().map_err(|e| e.with_trace(expr.clone()))?,
+        TulispValue::LexicalBinding { binding } => Ok(Cow::Owned(
+            binding.get().map_err(|e| e.with_trace(expr.clone()))?,
         )),
         TulispValue::Number { .. }
         | TulispValue::String { .. }
@@ -306,4 +360,109 @@ pub fn macroexpand(ctx: &mut TulispContext, inp: TulispObject) -> Result<TulispO
     } else {
         Ok(x)
     }
+}
+
+/// Walk `body` and replace each occurrence of a symbol listed in
+/// `mappings` with its mapped replacement (typically a freshly-created
+/// `LexicalBinding`). Only substitutes at code positions — literals
+/// inside `'x`, `(quote x)`, or backquote-but-not-unquote positions
+/// are preserved so data literals (e.g. alist keys) are not corrupted.
+pub(crate) fn substitute_lexical(
+    body: TulispObject,
+    mappings: &[(TulispObject, TulispObject)],
+) -> Result<TulispObject, Error> {
+    substitute_lexical_inner(body, mappings, 0)
+}
+
+fn substitute_lexical_inner(
+    body: TulispObject,
+    mappings: &[(TulispObject, TulispObject)],
+    quote_depth: u32,
+) -> Result<TulispObject, Error> {
+    if mappings.is_empty() {
+        return Ok(body);
+    }
+    let inner_ref = body.inner_ref();
+    let span = body.span();
+    let res = match &inner_ref.0 {
+        TulispValue::Symbol { .. } | TulispValue::LexicalBinding { .. } => {
+            drop(inner_ref);
+            if quote_depth > 0 {
+                body
+            } else {
+                for (from, to) in mappings {
+                    if body.eq(from) {
+                        return Ok(to.clone().with_span(span));
+                    }
+                }
+                body
+            }
+        }
+        TulispValue::List { .. } => {
+            drop(inner_ref);
+            // At code level, `(quote X)` written as a list form is
+            // data-only — don't substitute inside X (alist key etc.).
+            if quote_depth == 0
+                && let Ok(car) = body.car()
+                && let Ok(name) = car.as_symbol()
+                && name == "quote"
+            {
+                return Ok(body);
+            }
+            // Preserve the outer list's ctxobj — it caches the function
+            // resolved at parse time for `(fn arg ...)` forms. Dropping
+            // it here would force a symbol lookup on every call.
+            let ctxobj = body.ctxobj();
+            let result = TulispObject::nil().with_span(span).with_ctxobj(ctxobj);
+            let mut cur = body;
+            loop {
+                let car = cur.car()?;
+                result.push(substitute_lexical_inner(car, mappings, quote_depth)?)?;
+                let cdr = cur.cdr()?;
+                if cdr.null() {
+                    break;
+                }
+                if !cdr.consp() {
+                    result.append(substitute_lexical_inner(cdr, mappings, quote_depth)?)?;
+                    break;
+                }
+                cur = cdr;
+            }
+            result
+        }
+        TulispValue::Backquote { value } => TulispValue::Backquote {
+            value: substitute_lexical_inner(value.clone(), mappings, quote_depth + 1)?,
+        }
+        .into_ref(span),
+        TulispValue::Unquote { value } => TulispValue::Unquote {
+            value: substitute_lexical_inner(
+                value.clone(),
+                mappings,
+                quote_depth.saturating_sub(1),
+            )?,
+        }
+        .into_ref(span),
+        TulispValue::Splice { value } => TulispValue::Splice {
+            value: substitute_lexical_inner(
+                value.clone(),
+                mappings,
+                quote_depth.saturating_sub(1),
+            )?,
+        }
+        .into_ref(span),
+        TulispValue::Sharpquote { value } if quote_depth == 0 => TulispValue::Sharpquote {
+            value: substitute_lexical_inner(value.clone(), mappings, quote_depth)?,
+        }
+        .into_ref(span),
+        // `Quote` intentionally does NOT descend — `'x` is a literal
+        // symbol reference (e.g. an alist key), not a variable use.
+        // Rewriting it to a `LexicalBinding` would corrupt data
+        // literals. Inside a backquote (quote_depth > 0) Sharpquote
+        // also stays literal.
+        _ => {
+            drop(inner_ref);
+            body
+        }
+    };
+    Ok(res)
 }

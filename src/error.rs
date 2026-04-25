@@ -79,11 +79,46 @@ ErrorKind!(
 ///
 /// Use [format](crate::Error::format) to produce a formatted representation of the error
 /// including backtraces and source code spans.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Error {
     kind: ErrorKind,
     desc: String,
     backtrace: Vec<TulispObject>,
+}
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ERR {}:", self.kind)?;
+        if !self.desc.is_empty() {
+            write!(f, " {}", self.desc)?;
+        }
+        for span_obj in &self.backtrace {
+            if span_obj.numberp() || span_obj.symbolp() || span_obj.stringp() {
+                continue;
+            }
+            let prefix = if let Some(span) = span_obj.span() {
+                format!(
+                    "<file {}>:{}.{}-{}.{}:",
+                    span.file_id, span.start.0, span.start.1, span.end.0, span.end.1
+                )
+            } else {
+                continue;
+            };
+            let string = span_obj.to_string().replace('\n', "\\n");
+            if string.len() > 80 {
+                write!(f, "\n{}  at {:.80}...", prefix, string)?;
+            } else {
+                write!(f, "\n{}  at {}", prefix, string)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl std::fmt::Debug for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self, f)
+    }
 }
 
 impl Error {

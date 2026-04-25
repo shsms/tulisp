@@ -6,7 +6,7 @@ use crate::{
     cons::{self, Cons},
     error::Error,
     object::wrappers::generic::{Shared, SharedMut, SharedRef},
-    value::TulispAny,
+    value::{LexAllocator, TulispAny},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
@@ -228,6 +228,26 @@ impl TulispObject {
             .map_err(|e| e.with_trace(self.clone()))
     }
 
+    /// Marks `self` as a "special" (dynamically-bound) variable. Once
+    /// set, references to this symbol bypass lexical-binding rewrites
+    /// and always resolve through the symbol's dynamic stack, matching
+    /// Emacs' `defvar` behavior under `lexical-binding: t`.
+    ///
+    /// Returns an Error if `self` is not a `Symbol`.
+    pub(crate) fn set_special(&self) -> Result<(), Error> {
+        self.rc
+            .borrow_mut()
+            .0
+            .set_special()
+            .map_err(|e| e.with_trace(self.clone()))
+    }
+
+    /// Returns `true` if `self` was declared with `defvar` (or otherwise
+    /// marked special). Non-symbols return `false`.
+    pub(crate) fn is_special(&self) -> bool {
+        self.rc.borrow().0.is_special()
+    }
+
     /// Unsets the value from the most recent scope.
     ///
     /// Returns an Error if `self` is not a `Symbol`.
@@ -375,9 +395,21 @@ impl TulispObject {
         TulispValue::symbol(name, constant).into_ref(None)
     }
 
-    pub(crate) fn lexical_binding(symbol: TulispObject) -> TulispObject {
+    pub(crate) fn lexical_binding(
+        allocator: Shared<LexAllocator>,
+        symbol: TulispObject,
+    ) -> TulispObject {
         let span = symbol.span();
-        TulispValue::lexical_binding(symbol).into_ref(span)
+        TulispValue::lexical_binding(allocator, symbol).into_ref(span)
+    }
+
+    pub(crate) fn lexical_binding_captured(
+        allocator: Shared<LexAllocator>,
+        symbol: TulispObject,
+        slot: SharedMut<TulispObject>,
+    ) -> TulispObject {
+        let span = symbol.span();
+        TulispValue::lexical_binding_captured(allocator, symbol, slot).into_ref(span)
     }
 
     pub(crate) fn new(vv: TulispValue, span: Option<Span>) -> TulispObject {
@@ -386,14 +418,6 @@ impl TulispObject {
         }
     }
 
-    /// Sets the value without checking if the symbol is constant, or if it is
-    /// bound.
-    ///
-    /// For use in loops and other places where a set_scope has already been
-    /// done, and the symbol is known to be bound.
-    pub(crate) fn set_unchecked(&self, to_set: TulispObject) {
-        self.rc.borrow_mut().0.set_unchecked(to_set)
-    }
 
     pub(crate) fn set_global(&self, to_set: TulispObject) -> Result<(), Error> {
         self.rc.borrow_mut().0.set_global(to_set)
