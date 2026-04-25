@@ -500,6 +500,7 @@ impl Machine {
                 }
                 Instruction::Call {
                     name,
+                    form,
                     function,
                     args_count,
                     optional_count,
@@ -513,7 +514,8 @@ impl Machine {
                             if *args_count < func.params.required.len() {
                                 return Err(Error::missing_argument(
                                     "Too few arguments".to_string(),
-                                ));
+                                )
+                                .with_trace(form.clone()));
                             }
                             if func.params.rest.is_none()
                                 && *args_count
@@ -521,7 +523,8 @@ impl Machine {
                             {
                                 return Err(Error::invalid_argument(
                                     "Too many arguments".to_string(),
-                                ));
+                                )
+                                .with_trace(form.clone()));
                             }
                             let left_args = *args_count - func.params.required.len();
                             if left_args > func.params.optional.len() {
@@ -543,9 +546,11 @@ impl Machine {
                             let args: Vec<TulispObject> =
                                 self.stack.drain(split_at..).collect();
                             let name = name.clone();
+                            let form = form.clone();
                             drop(instr_ref);
-                            let result =
-                                self.funcall_inline(ctx, &name, args, recursion_depth)?;
+                            let result = self
+                                .funcall_inline(ctx, &name, args, recursion_depth)
+                                .map_err(|e| e.with_trace(form))?;
                             self.stack.push(result);
                             instr_ref = program.borrow_mut();
                             pc += 1;
@@ -556,6 +561,7 @@ impl Machine {
                     let mut current_function = function.as_ref().unwrap().clone();
                     let mut current_optional = *optional_count;
                     let mut current_rest = *rest_count;
+                    let form = form.clone();
 
                     drop(instr_ref);
                     loop {
@@ -564,11 +570,13 @@ impl Machine {
                             &current_optional,
                             &current_rest,
                         );
-                        let tail = self.run_function(
-                            ctx,
-                            &current_function.instructions,
-                            recursion_depth + 1,
-                        )?;
+                        let tail = self
+                            .run_function(
+                                ctx,
+                                &current_function.instructions,
+                                recursion_depth + 1,
+                            )
+                            .map_err(|e| e.with_trace(form.clone()))?;
                         drop(params);
 
                         match tail {
@@ -584,6 +592,7 @@ impl Machine {
                 }
                 Instruction::TailCall {
                     name,
+                    form,
                     function,
                     args_count,
                     optional_count,
@@ -596,17 +605,19 @@ impl Machine {
                                 crate::ErrorKind::Undefined,
                                 format!("undefined function: {}", name),
                             )
-                            .with_trace(name.clone()));
+                            .with_trace(form.clone()));
                         };
                         let func = func.clone();
 
                         if *args_count < func.params.required.len() {
-                            return Err(Error::missing_argument("Too few arguments".to_string()));
+                            return Err(Error::missing_argument("Too few arguments".to_string())
+                                .with_trace(form.clone()));
                         }
                         if func.params.rest.is_none()
                             && *args_count > func.params.required.len() + func.params.optional.len()
                         {
-                            return Err(Error::invalid_argument("Too many arguments".to_string()));
+                            return Err(Error::invalid_argument("Too many arguments".to_string())
+                                .with_trace(form.clone()));
                         }
                         let left_args = *args_count - func.params.required.len();
                         if left_args > func.params.optional.len() {
@@ -642,15 +653,19 @@ impl Machine {
                     instr_ref = program.borrow_mut();
                 }
                 Instruction::RustCall {
-                    func, keep_result, ..
+                    form,
+                    func,
+                    keep_result,
+                    ..
                 } => {
                     let args = self.stack.pop().unwrap();
-                    let result = func(ctx, &args)?;
+                    let result = func(ctx, &args).map_err(|e| e.with_trace(form.clone()))?;
                     if *keep_result {
                         self.stack.push(result);
                     }
                 }
                 Instruction::RustCallTyped {
+                    form,
                     call,
                     args_count,
                     keep_result,
@@ -659,7 +674,7 @@ impl Machine {
                     let args_count = *args_count;
                     let split_at = self.stack.len() - args_count;
                     let args: Vec<TulispObject> = self.stack.drain(split_at..).collect();
-                    let result = call(ctx, &args)?;
+                    let result = call(ctx, &args).map_err(|e| e.with_trace(form.clone()))?;
                     if *keep_result {
                         self.stack.push(result);
                     }

@@ -164,6 +164,14 @@ fn compile_fn_defun_bounce_call(
         push_active_scope_endscopes(ctx, &mut result);
         result.push(Instruction::TailCall {
             name: name.clone(),
+            // `args` is the rewritten `(list Bounce f a b)` shape
+            // produced by `mark_tail_calls`. Its source span is set
+            // to the original tail-call form's span (see
+            // `mark_tail_calls`'s `with_span(span)` call), so using
+            // it as the trace anchor still highlights the right
+            // source range even though the text differs from the
+            // pre-rewrite form.
+            form: args.clone(),
             args_count,
             function: None,
             optional_count: 0,
@@ -259,8 +267,16 @@ pub(super) fn compile_fn_defun_call(
         result.append(&mut compile_expr_keep_result(ctx, &arg)?);
         args_count += 1;
     }
+    // Compile-time-only callers (`compile_form`) hold the source
+    // span of the original `(name args…)` AST; this entry point
+    // doesn't, so reconstruct a form from `name` and `args`. Without
+    // a span, runtime trace formatting skips the line — VM defun
+    // calls won't show their outer call-site in error backtraces.
+    // Threading `form_span` through `Compiler` would close that gap.
+    let synthetic_form = TulispObject::cons(name.clone(), args.clone());
     result.push(Instruction::Call {
         name: name.clone(),
+        form: synthetic_form,
         args_count,
         function: None,
         optional_count: 0,

@@ -109,6 +109,11 @@ pub(crate) enum Instruction {
     Label(TulispObject),
     RustCall {
         name: TulispObject,
+        /// Source AST of the full call form (`(name args…)`),
+        /// recorded so an error from `func` carries the same outer
+        /// `at (form)` trace line that `eval_basic`'s `with_trace`
+        /// adds in the TW path.
+        form: TulispObject,
         func: Shared<dyn TulispFn>,
         keep_result: bool,
     },
@@ -120,12 +125,16 @@ pub(crate) enum Instruction {
     /// because the closure never calls `ctx.eval`.
     RustCallTyped {
         name: TulispObject,
+        /// See `RustCall::form`.
+        form: TulispObject,
         call: Shared<dyn DefunFn>,
         args_count: usize,
         keep_result: bool,
     },
     Call {
         name: TulispObject,
+        /// See `RustCall::form`.
+        form: TulispObject,
         args_count: usize,
         function: Option<CompiledDefun>,
         optional_count: usize,
@@ -133,6 +142,8 @@ pub(crate) enum Instruction {
     },
     TailCall {
         name: TulispObject,
+        /// See `RustCall::form`.
+        form: TulispObject,
         args_count: usize,
         function: Option<CompiledDefun>,
         optional_count: usize,

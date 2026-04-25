@@ -140,6 +140,7 @@ pub(super) fn compile_form(
                     Instruction::Push(args.clone()),
                     Instruction::RustCall {
                         name: name.clone(),
+                        form: form.clone(),
                         func: func.clone(),
                         keep_result: compiler.keep_result,
                     },
@@ -181,6 +182,7 @@ pub(super) fn compile_form(
                 let keep_result = ctx.compiler.as_ref().unwrap().keep_result;
                 result.push(Instruction::RustCallTyped {
                     name: name.clone(),
+                    form: form.clone(),
                     call,
                     args_count,
                     keep_result,
