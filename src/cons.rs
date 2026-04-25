@@ -232,6 +232,26 @@ impl ListBuilder {
     pub(crate) fn build(self) -> TulispObject {
         self.head
     }
+
+    /// Consume the builder and return its head with `tail` linked
+    /// directly as the trailing cdr of the last cons (no copy, no
+    /// walk). For an empty builder, returns `tail` itself. Used by
+    /// `(append seqs..)` to share the last argument with the result,
+    /// matching Emacs' `append` semantics.
+    pub(crate) fn build_with_tail(self, tail: TulispObject) -> TulispObject {
+        match self.last_cons {
+            None => tail,
+            Some(last) => {
+                let last_car = last.car().expect("last_cons is always a List");
+                let last_ctxobj = last.ctxobj();
+                last.assign(TulispValue::List {
+                    cons: Cons::new(last_car, tail),
+                    ctxobj: last_ctxobj,
+                });
+                self.head
+            }
+        }
+    }
 }
 
 #[derive(Default)]

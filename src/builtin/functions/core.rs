@@ -647,11 +647,27 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     ctx.defun(
         "append",
-        |first: TulispObject, rest: crate::Rest<TulispObject>| -> Result<TulispObject, Error> {
-            for ele in rest {
-                first.append(ele.deep_copy()?)?;
+        |rest: crate::Rest<TulispObject>| -> Result<TulispObject, Error> {
+            // Emacs `append`: copy every list except the last; share
+            // the last argument's cells with the result. The last
+            // argument may be any value (it becomes the dotted tail
+            // when non-list, non-nil).
+            let mut args: Vec<TulispObject> = rest.into_iter().collect();
+            let Some(last) = args.pop() else {
+                return Ok(TulispObject::nil());
+            };
+            let mut builder = crate::cons::ListBuilder::new();
+            for arg in args {
+                if !arg.listp() {
+                    return Err(Error::type_mismatch(format!(
+                        "append: expected list, got: {arg}"
+                    )));
+                }
+                for elem in arg.base_iter() {
+                    builder.push(elem);
+                }
             }
-            Ok(first)
+            Ok(builder.build_with_tail(last))
         },
     );
 

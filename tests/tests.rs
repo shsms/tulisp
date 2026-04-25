@@ -683,6 +683,21 @@ fn test_lists() -> Result<(), Error> {
 "#
     }
 
+    // Emacs `append` semantics: empty / single-arg / shared last arg /
+    // dotted tail / no input mutation.
+    tulisp_assert! { program: "(append)", result: "nil" }
+    tulisp_assert! { program: "(append '(1 2 3))", result: "'(1 2 3)" }
+    tulisp_assert! { program: "(append nil 77)", result: "77" }
+    tulisp_assert! { program: "(append '(1 2) 3)", result: "'(1 2 . 3)" }
+    tulisp_assert! {
+        program: r##"
+            (let ((xs '(1 2)))
+              (append xs '(3 4))
+              xs)
+        "##,
+        result: "'(1 2)",
+    }
+
     tulisp_assert! {
         program: "(consp '(20))",
         result: "t",
@@ -914,13 +929,15 @@ fn test_rounding_operations() -> Result<(), Error> {
 
 #[test]
 fn test_let() -> Result<(), Error> {
+    // `(append nil x)` returns `x` directly under Emacs semantics —
+    // the last arg is shared, not wrapped.
     tulisp_assert! {
         program: "(let ((kk) (vv (+ 55 1)) (jj 20)) (append kk (+ vv jj 1)))",
-        result: "'(77)",
+        result: "77",
     }
     tulisp_assert! {
         program: "(let (kk (vv (+ 55 1)) (jj 20)) (append kk (+ vv jj 1)))",
-        result: "'(77)",
+        result: "77",
     }
     tulisp_assert! {
         program: r#"

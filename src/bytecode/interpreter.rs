@@ -765,11 +765,29 @@ impl Machine {
                     self.stack.push(list.into());
                 }
                 Instruction::Append(len) => {
-                    let mut builder = crate::cons::ListBuilder::new();
-                    for elt in self.stack.drain(self.stack.len() - *len..) {
-                        builder.append(elt.deep_copy().unwrap())?;
-                    }
-                    self.stack.push(builder.build().into());
+                    // Emacs `append`: copy every arg except the last;
+                    // share the last arg's cells with the result.
+                    let mut iter = self.stack.drain(self.stack.len() - *len..);
+                    let result = if let Some(last) = iter.next_back() {
+                        let last: TulispObject = last.into();
+                        let mut builder = crate::cons::ListBuilder::new();
+                        for arg in iter.by_ref() {
+                            let arg: TulispObject = arg.into();
+                            if !arg.listp() {
+                                return Err(Error::type_mismatch(format!(
+                                    "append: expected list, got: {arg}"
+                                )));
+                            }
+                            for elem in arg.base_iter() {
+                                builder.push(elem);
+                            }
+                        }
+                        builder.build_with_tail(last)
+                    } else {
+                        TulispObject::nil()
+                    };
+                    drop(iter);
+                    self.stack.push(result.into());
                 }
                 Instruction::Cxr(cxr) => {
                     let a: TulispObject = self.stack.pop().unwrap().into();
