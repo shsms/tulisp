@@ -496,10 +496,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(TulispObject::nil())
     });
 
-    ctx.defspecial("null", |ctx, args| {
-        destruct_eval_bind!(ctx, (arg) = args);
-        Ok(arg.null().into())
-    });
+    ctx.defun("null", |arg: TulispObject| -> bool { arg.null() });
 
     ctx.defspecial("eval", |ctx, args| {
         destruct_eval_bind!(ctx, (arg) = args);
@@ -636,17 +633,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     // predicates begin
     macro_rules! predicate_function {
         ($name: ident) => {
-            fn $name(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
-                if args.cdr_and_then(|x| Ok(x.is_truthy()))? {
-                    return Err(Error::type_mismatch(format!(
-                        "Expected exatly 1 argument for {}. Got args: {}",
-                        stringify!($name),
-                        args
-                    )));
-                }
-                args.car_and_then(|arg| ctx.eval_and_then(&arg, |_, x| Ok(x.$name().into())))
-            }
-            ctx.defspecial(stringify!($name), $name);
+            ctx.defun(stringify!($name), |arg: TulispObject| -> bool {
+                arg.$name()
+            });
         };
     }
     predicate_function!(consp);
