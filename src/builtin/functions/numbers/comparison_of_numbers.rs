@@ -1,78 +1,46 @@
-use crate::{
-    Error, Number, TulispContext, TulispObject, builtin::functions::core::reduce_with,
-    destruct_eval_bind, eval::EvalInto,
-};
+use crate::{Error, Number, Rest, TulispContext};
 
-#[inline(always)]
-fn compare_impl<F: Fn(&Number, &Number) -> bool>(
-    ctx: &mut TulispContext,
-    args: &TulispObject,
-    cmp: F,
-) -> Result<TulispObject, Error> {
-    if args.cdr_and_then(|x| Ok(x.consp()))? {
-        let first = args.car_and_then(|x| x.eval_into(ctx))?;
-        Ok(recursive_compare(ctx, first, args.cdr()?, cmp)?.into())
-    } else {
-        Err(Error::out_of_range(format!(
-            "Comparison requires at least 2 arguments"
-        )))
+fn compare_pairwise<F>(args: Rest<Number>, cmp: F) -> Result<bool, Error>
+where
+    F: Fn(&Number, &Number) -> bool,
+{
+    let args: Vec<Number> = args.into_iter().collect();
+    if args.len() < 2 {
+        return Err(Error::out_of_range(
+            "Comparison requires at least 2 arguments".to_string(),
+        ));
     }
-}
-
-fn recursive_compare<F: Fn(&Number, &Number) -> bool>(
-    ctx: &mut TulispContext,
-    first: Number,
-    args: TulispObject,
-    cmp: F,
-) -> Result<bool, Error> {
-    let second: Number = args.car()?.eval_into(ctx)?;
-    if cmp(&first, &second) {
-        if args.cdr_and_then(|x| Ok(x.consp()))? {
-            recursive_compare(ctx, second, args.cdr()?, cmp)
-        } else {
-            Ok(true)
+    for w in args.windows(2) {
+        if !cmp(&w[0], &w[1]) {
+            return Ok(false);
         }
-    } else {
-        Ok(false)
     }
+    Ok(true)
 }
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    ctx.defspecial("=", |ctx, args| {
-        compare_impl(ctx, args, std::cmp::PartialEq::eq)
-    });
+    ctx.defun("=", |args: Rest<Number>| compare_pairwise(args, PartialEq::eq));
+    ctx.defun(">", |args: Rest<Number>| compare_pairwise(args, PartialOrd::gt));
+    ctx.defun(">=", |args: Rest<Number>| compare_pairwise(args, PartialOrd::ge));
+    ctx.defun("<", |args: Rest<Number>| compare_pairwise(args, PartialOrd::lt));
+    ctx.defun("<=", |args: Rest<Number>| compare_pairwise(args, PartialOrd::le));
 
-    ctx.defspecial(">", |ctx, args| {
-        compare_impl(ctx, args, std::cmp::PartialOrd::gt)
-    });
+    ctx.defun(
+        "max",
+        |first: Number, rest: Rest<Number>| -> Number {
+            rest.into_iter()
+                .fold(first, |acc, n| if n > acc { n } else { acc })
+        },
+    );
+    ctx.defun(
+        "min",
+        |first: Number, rest: Rest<Number>| -> Number {
+            rest.into_iter()
+                .fold(first, |acc, n| if n < acc { n } else { acc })
+        },
+    );
 
-    ctx.defspecial(">=", |ctx, args| {
-        compare_impl(ctx, args, std::cmp::PartialOrd::ge)
-    });
-
-    ctx.defspecial("<", |ctx, args| {
-        compare_impl(ctx, args, std::cmp::PartialOrd::lt)
-    });
-
-    ctx.defspecial("<=", |ctx, args| {
-        compare_impl(ctx, args, std::cmp::PartialOrd::le)
-    });
-
-    fn max(ctx: &mut TulispContext, rest: &TulispObject) -> Result<TulispObject, Error> {
-        reduce_with(ctx, rest, |a, b| Ok(if a > b { a } else { b }))
-    }
-    ctx.defspecial("max", max);
-
-    fn min(ctx: &mut TulispContext, rest: &TulispObject) -> Result<TulispObject, Error> {
-        reduce_with(ctx, rest, |a, b| Ok(if a < b { a } else { b }))
-    }
-    ctx.defspecial("min", min);
-
-    ctx.defspecial("abs", |ctx, args| {
-        destruct_eval_bind!(ctx, (number) = args);
-
-        Ok(number.try_float()?.abs().into())
-    });
+    ctx.defun("abs", |n: f64| -> f64 { n.abs() });
 }
 
 #[cfg(test)]
