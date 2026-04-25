@@ -610,17 +610,11 @@ impl TulispContext {
     }
 
     pub fn vm_eval_file(&mut self, filename: &str) -> Result<TulispObject, Error> {
-        let start = std::time::Instant::now();
         let vv = self.parse_file(filename)?;
-        println!("Parsing took: {:?}", start.elapsed());
-        let start = std::time::Instant::now();
         let bytecode = compile(self, &vv)?;
-        println!("Compiling took: {:?}", start.elapsed());
-        let start = std::time::Instant::now();
         let vm = self.vm.clone();
         let res = vm.borrow_mut().run(self, bytecode);
         drop(vm);
-        println!("Running took: {:?}", start.elapsed());
         res
     }
 
