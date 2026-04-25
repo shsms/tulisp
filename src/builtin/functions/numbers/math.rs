@@ -1,35 +1,25 @@
-use crate::{TulispContext, destruct_eval_bind};
+use crate::{Error, TulispContext};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    ctx.defspecial("sqrt", |ctx, args| {
-        destruct_eval_bind!(ctx, (arg) = args);
-
-        let val: f64 = arg.try_float()?;
-        // TODO: switch to return NaN for negative inputs.
+    // TODO: switch to return NaN for negative inputs.
+    ctx.defun("sqrt", |val: f64| -> Result<f64, Error> {
         if val < 0.0 {
-            return Err(crate::Error::type_mismatch(format!(
+            return Err(Error::type_mismatch(format!(
                 "sqrt: cannot compute square root of negative number: {}",
                 val
-            ))
-            .with_trace(arg));
+            )));
         }
-        Ok(val.sqrt().into())
+        Ok(val.sqrt())
     });
 
-    ctx.defspecial("expt", |ctx, args| {
-        destruct_eval_bind!(ctx, (base exponent) = args);
-
-        let base_val: f64 = base.try_float()?;
-        let exponent_val: f64 = exponent.try_float()?;
-
-        // TODO: switch to return Inf for 0^negative.
-        if base_val == 0.0 && exponent_val < 0.0 {
-            return Err(crate::Error::out_of_range(
+    // TODO: switch to return Inf for 0^negative.
+    ctx.defun("expt", |base: f64, exponent: f64| -> Result<f64, Error> {
+        if base == 0.0 && exponent < 0.0 {
+            return Err(Error::out_of_range(
                 "expt: cannot compute with base 0 and negative exponent".to_string(),
             ));
         }
-
-        Ok(base_val.powf(exponent_val).into())
+        Ok(base.powf(exponent))
     });
 }
 
