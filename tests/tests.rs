@@ -1594,6 +1594,111 @@ fn test_self_tail_recursion_arity_checked_at_compile_time() -> Result<(), Error>
 }
 
 #[test]
+fn test_trace_distinguishes_call_sites_of_same_function() -> Result<(), Error> {
+    // Two call sites of `bad` in the same defun body, each at a
+    // different source position. When the error fires, the
+    // backtrace must name the *specific* call site that ran, not
+    // collapse them into a single representative entry. Pins both
+    // the TW path (`eval_basic`'s recursive `with_trace`) and the
+    // VM path (`strip_trace_markers` lifting per-form ranges) into
+    // exact match — which only works if both attribute the call
+    // form's distinct `TulispObject` (with its own span) for each
+    // hit.
+    //
+    // The leading newlines in the program string anchor the
+    // expected source positions: `bad` sits on line 2, `caller` on
+    // line 3, so the call sites have stable column ranges across
+    // runs.
+
+    // Error on the *second* call site `(bad 2)`.
+    let mut ctx = TulispContext::new();
+    ctx.eval_string(
+        r#"
+(defun bad (n) (if (= n 2) (error "boom-on-2") nil))
+(defun caller () (progn (bad 1) (bad 2) 'done))
+"#,
+    )?;
+    let expected_call2 = "ERR LispError: boom-on-2\n\
+        <eval_string>:2.28-2.46:  at (error \"boom-on-2\")\n\
+        <eval_string>:2.16-2.51:  at (if (= n 2) (error \"boom-on-2\") nil)\n\
+        <eval_string>:3.33-3.39:  at (bad 2)\n\
+        <eval_string>:3.18-3.46:  at (progn (bad 1) (bad 2) 'done)\n\
+        <eval_string>:1.1-1.8:  at (caller)\n";
+    assert_eq!(
+        ctx.eval_string("(caller)").unwrap_err().format(&ctx),
+        expected_call2,
+        "TW trace for boom-on-2"
+    );
+    assert_eq!(
+        ctx.vm_eval_string("(caller)").unwrap_err().format(&ctx),
+        expected_call2,
+        "VM trace for boom-on-2"
+    );
+
+    // Same shape, but error on the *first* call site `(bad 1)`.
+    // The expected backtrace differs only at the call-site frame:
+    // span and form text both move from `(bad 2)` to `(bad 1)`.
+    let mut ctx = TulispContext::new();
+    ctx.eval_string(
+        r#"
+(defun bad (n) (if (= n 1) (error "boom-on-1") nil))
+(defun caller () (progn (bad 1) (bad 2) 'done))
+"#,
+    )?;
+    let expected_call1 = "ERR LispError: boom-on-1\n\
+        <eval_string>:2.28-2.46:  at (error \"boom-on-1\")\n\
+        <eval_string>:2.16-2.51:  at (if (= n 1) (error \"boom-on-1\") nil)\n\
+        <eval_string>:3.25-3.31:  at (bad 1)\n\
+        <eval_string>:3.18-3.46:  at (progn (bad 1) (bad 2) 'done)\n\
+        <eval_string>:1.1-1.8:  at (caller)\n";
+    assert_eq!(
+        ctx.eval_string("(caller)").unwrap_err().format(&ctx),
+        expected_call1,
+        "TW trace for boom-on-1"
+    );
+    assert_eq!(
+        ctx.vm_eval_string("(caller)").unwrap_err().format(&ctx),
+        expected_call1,
+        "VM trace for boom-on-1"
+    );
+
+    // Nested same-function call: `(bad (bad -1))`. The inner
+    // `(bad -1)` is in argument position (non-tail) and the outer
+    // `(bad …)` is in tail position. The inner call's call-site
+    // form `(bad -1)` shows up in the trace; the outer collapses
+    // into the `mark_tail_calls`-rewritten `(list Bounce bad …)`
+    // form. (Tail-position call sites generally don't preserve
+    // their original `(NAME ARGS…)` text in traces because the
+    // rewrite replaces it with the Bounce shape — that's a
+    // pre-existing TW property the VM mirrors.)
+    let mut ctx = TulispContext::new();
+    ctx.eval_string(
+        r#"
+(defun bad (n) (if (= n -1) (error "nested-boom") n))
+(defun caller () (bad (bad -1)))
+"#,
+    )?;
+    let expected_nested = "ERR LispError: nested-boom\n\
+        <eval_string>:2.29-2.49:  at (error \"nested-boom\")\n\
+        <eval_string>:2.16-2.52:  at (if (= n -1) (error \"nested-boom\") n)\n\
+        <eval_string>:3.23-3.30:  at (bad -1)\n\
+        <eval_string>:3.18-3.31:  at (list Bounce bad (bad -1))\n\
+        <eval_string>:1.1-1.8:  at (caller)\n";
+    assert_eq!(
+        ctx.eval_string("(caller)").unwrap_err().format(&ctx),
+        expected_nested,
+        "TW trace for nested same-function call"
+    );
+    assert_eq!(
+        ctx.vm_eval_string("(caller)").unwrap_err().format(&ctx),
+        expected_nested,
+        "VM trace for nested same-function call"
+    );
+
+    Ok(())
+}
+
+#[test]
 fn test_typed_defun_arity_checked_before_arg_eval() -> Result<(), Error> {
     // `TulispValue::Defun` carries arity metadata so the dispatchers
     // (compile_form for VM, eval::funcall for TW) can reject
