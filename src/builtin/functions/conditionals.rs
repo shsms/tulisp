@@ -1,7 +1,7 @@
 use crate::eval::EvalInto;
 
 use crate::{
-    Error, TulispContext, TulispObject, destruct_bind, destruct_eval_bind,
+    Error, TulispContext, TulispObject, destruct_bind,
     eval::eval_basic,
     list,
     lists::{last, length},
@@ -42,18 +42,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     });
 
     // Constructs for combining conditions
-    ctx.defspecial("not", |ctx, args| {
-        if args.cdr_and_then(|x| Ok(!x.null()))? {
-            return Err(Error::syntax_error(
-                "not: expected one argument".to_string(),
-            ));
-        }
-
-        args.car_and_then(|x| {
-            let not: bool = !x.eval_into(ctx)?;
-            Ok(not.into())
-        })
-    });
+    ctx.defun("not", |x: TulispObject| -> bool { x.null() });
 
     ctx.defspecial("and", |ctx, args| {
         let mut ret = TulispObject::nil();
@@ -89,16 +78,18 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(TulispObject::nil())
     });
 
-    ctx.defspecial("xor", |ctx, args| {
-        destruct_eval_bind!(ctx, (cond1 cond2) = args);
-        if cond1.null() {
-            Ok(cond2)
-        } else if cond2.null() {
-            Ok(cond1)
-        } else {
-            Ok(TulispObject::nil())
-        }
-    });
+    ctx.defun(
+        "xor",
+        |cond1: TulispObject, cond2: TulispObject| -> TulispObject {
+            if cond1.null() {
+                cond2
+            } else if cond2.null() {
+                cond1
+            } else {
+                TulispObject::nil()
+            }
+        },
+    );
 
     ctx.defmacro("if-let*", |ctx, args| {
         destruct_bind!((varlist then &rest body) = args);
