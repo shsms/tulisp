@@ -608,9 +608,16 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         destruct_bind!((name &rest rest) = args);
         let name = ctx.eval(&name)?;
         let name = ctx.eval(&name)?;
+        // Lambda / Defun / CompiledDefun all expect their args to be
+        // already-evaluated values. Pass through `Eval` so the rest
+        // list is evaluated before dispatch. Func-style defspecials
+        // are the only callers that want the raw, unevaluated arg
+        // list — those keep the `DummyEval` path.
         if matches!(
             &name.inner_ref().0,
-            TulispValue::Lambda { .. } | TulispValue::Defun { .. }
+            TulispValue::Lambda { .. }
+                | TulispValue::Defun { .. }
+                | TulispValue::CompiledDefun { .. }
         ) {
             crate::eval::funcall::<Eval>(ctx, &name, &rest)
         } else {

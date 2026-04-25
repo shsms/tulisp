@@ -1333,6 +1333,51 @@ fn test_lexical_binding() -> Result<(), Error> {
     Ok(())
 }
 
+#[test]
+fn test_funcall_compiled_defun_through_tw() -> Result<(), Error> {
+    // Regression for the cross-path bug: a lambda stored on a symbol
+    // via VM evaluation materializes as a `CompiledDefun`. Then
+    // calling a TW-evaluated defun (here: via `ctx.funcall` from
+    // Rust) whose body funcalls through `(symbol-value '…)` exposed
+    // the bug — the TW `funcall` defspecial was dispatching
+    // `CompiledDefun` through `DummyEval`, leaving `LexicalBinding`
+    // AST nodes in the args. The VM then `set_scope`'d the
+    // CompiledDefun's params with those LexicalBindings, and the
+    // first typed-arg call downstream surfaced as
+    // `TypeMismatch: Expected number, got: <name>`.
+    //
+    // Single-path tulisp_assert! can't reproduce this — VM funcalls
+    // go through `funcall_inline` (which handles values correctly),
+    // and TW evaluation of `(lambda …)` produces a `Lambda` not a
+    // `CompiledDefun`. The cross-path is unique to "VM-eval the
+    // setup, then TW-eval the call" — exactly what microsim does
+    // when its gRPC handlers `ctx.funcall(set-power-active, …)`.
+    let mut ctx = TulispContext::new();
+    ctx.defun("rust-needs-num", |v: f64| -> f64 { v });
+    // VM-eval: `inner-fn` ends up holding a `CompiledDefun`
+    // (materialized by `Instruction::MakeLambda` at runtime), and
+    // `outer` is set up via the TW `defun` defspecial during parse
+    // so calling it through `ctx.funcall` runs the TW path.
+    ctx.vm_eval_string(
+        r#"
+        (set 'inner-fn (lambda (x) (rust-needs-num x)))
+        (defun outer (id v)
+          (funcall (symbol-value 'inner-fn) v))
+        "#,
+    )?;
+    let outer = ctx.intern("outer");
+    let args = TulispObject::nil();
+    args.push(1i64.into())?;
+    args.push(42.0_f64.into())?;
+    let result = ctx.funcall(&outer, &args)?;
+    assert!(
+        result.equal(&42.0_f64.into()),
+        "expected 42, got {}",
+        result
+    );
+    Ok(())
+}
+
 // `defvar`-declared variables are dynamic (special) — references resolve
 // through the symbol's own stack, so eval-in-a-different-scope sees the
 // enclosing binding. This matches Emacs' behavior under `lexical-binding: t`.
