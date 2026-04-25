@@ -1,4 +1,4 @@
-use crate::{Error, TulispContext, TulispObject, destruct_eval_bind};
+use crate::{Error, TulispContext, TulispObject};
 use std::time::Duration;
 
 pub(crate) fn add(ctx: &mut TulispContext) {
@@ -78,9 +78,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     // Formatting spec defined here:
     // https://www.gnu.org/software/emacs/manual/html_node/elisp/Time-Parsing.html#index-format_002dseconds
     fn format_seconds(
-        format_string: TulispObject,
+        fmt_string: String,
         seconds: TulispObject,
-    ) -> Result<TulispObject, Error> {
+    ) -> Result<String, Error> {
         let (ticks, hz) = ticks_hz_from_obj(&seconds)?;
         let duration = Duration::new(
             (ticks / hz) as u64,
@@ -89,9 +89,6 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
         let mut output = String::new();
 
-        let fmt_string = format_string
-            .as_string()
-            .map_err(|e| e.with_trace(format_string.clone()))?;
         let mut format_chars = fmt_string.chars();
 
         while let Some(ch) = format_chars.next() {
@@ -122,8 +119,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                             return Err(Error::syntax_error(
                                 "Invalid format operation: '.' allowed only in the first place."
                                     .to_string(),
-                            )
-                            .with_trace(format_string.clone()));
+                            ));
                         }
                         has_dot = true;
                         continue;
@@ -133,8 +129,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                             return Err(Error::syntax_error(
                                 "Invalid format operation: ',' allowed only in the first place."
                                     .to_string(),
-                            )
-                            .with_trace(format_string.clone()));
+                            ));
                         }
                         has_comma = true;
                         continue;
@@ -149,7 +144,6 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 let padding = if !prefix.is_empty() {
                     prefix.parse::<usize>().map_err(|_| {
                         Error::syntax_error(format!("Invalid padding number: {}", prefix))
-                            .with_trace(format_string.clone())
                     })?
                 } else {
                     0
@@ -178,13 +172,15 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 break;
             }
         }
-        Ok(output.into())
+        Ok(output)
     }
 
-    ctx.defspecial("format-seconds", |ctx, args| {
-        destruct_eval_bind!(ctx, (format_string seconds) = args);
-        format_seconds(format_string, seconds)
-    });
+    ctx.defun(
+        "format-seconds",
+        |format_string: String, seconds: TulispObject| -> Result<String, Error> {
+            format_seconds(format_string, seconds)
+        },
+    );
 }
 
 #[cfg(test)]
