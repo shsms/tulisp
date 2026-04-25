@@ -801,6 +801,73 @@ fn test_backquotes() -> Result<(), Error> {
 "#,
     }
 
+    // Nested backquote: `,,x` (depth 2 → 1 → 0) evaluates `x` at the
+    // outer backquote level; `,y` at depth 2 reduces to depth 1 and
+    // is preserved for the inner backquote to resolve later.
+    // Matches Emacs (verified with `emacs --batch`).
+    tulisp_assert! {
+        program: r#"
+        (let ((x 1) (y 2))
+          `(a `(b ,,x ,y) c))
+        "#,
+        result: r#"'(a `(b ,1 ,y) c)"#,
+    }
+
+    // Single-comma at depth 2 stays as data (no eval) — both `,x`
+    // and `,y` reduce to depth 1, preserved for the inner backquote.
+    tulisp_assert! {
+        program: r#"
+        (let ((x 1) (y 2))
+          `(a `(b ,x ,y) c))
+        "#,
+        result: r#"'(a `(b ,x ,y) c)"#,
+    }
+
+    // Dotted-tail double-comma resolves at the outer level.
+    tulisp_assert! {
+        program: r#"
+        (let ((x 1))
+          `(a `(b . ,,x)))
+        "#,
+        result: r#"'(a `(b . ,1))"#,
+    }
+
+    // `,x` inside `(quote ...)` inside outer backquote: the quote's
+    // content is walked, `,x` evaluates at the outer level, and the
+    // result wraps in a Quote. Matches Emacs.
+    tulisp_assert! {
+        program: r#"
+        (let ((x 1))
+          `(a (quote (,x)) c))
+        "#,
+        result: r#"'(a (quote (1)) c)"#,
+    }
+
+    // Outer `'` makes everything inside data: nothing evaluates, no
+    // matter how deeply nested the backquote / unquote forms are.
+    // `(let ((x 5)) '...)` shows the let-bound `x` is *not* picked
+    // up by `,,x` inside the quote.
+    tulisp_assert! {
+        program: r#"
+        (let ((x 5))
+          '(`(,,x)))
+        "#,
+        result: r#"'(`(,,x))"#,
+    }
+
+    // Nested-backquote double-comma evaluating a `CompiledDefun`
+    // (anonymous lambdas compiled by the VM): the runtime
+    // `EvalBackquote` fallback must compile + run the unquoted
+    // expression on the *current* machine, not via `ctx.eval` —
+    // which would re-borrow `ctx.vm` and panic.
+    tulisp_assert! {
+        program: r#"
+        (setq f (lambda () 42))
+        ``(,,(funcall f))
+        "#,
+        result: r#"'`(,42)"#,
+    }
+
     Ok(())
 }
 

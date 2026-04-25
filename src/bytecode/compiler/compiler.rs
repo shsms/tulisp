@@ -230,9 +230,22 @@ pub(crate) fn compile_progn_keep_result(
     ret
 }
 
+/// Compile a backquoted form at quasi-quote `depth` (1 inside the
+/// outer `\``, bumped by inner `\``, decremented by `,` / `,@`).
+/// At depth 1 unquote/splice expressions are evaluated and their
+/// values become list elements (or, for splice, multiple elements).
+/// At depth > 1 they're treated as data: the inner expression is
+/// compiled at `depth - 1` and the result is wrapped back in a
+/// `Backquote` / `Unquote` / `Splice` cell with the matching `Wrap*`
+/// instruction. This native compilation matches Emacs' nested
+/// backquote semantics — `\`(a \`(b ,,x ,y) c)` with `x = 1`
+/// produces `(a \`(b ,1 ,y) c)` — without falling back to a TW
+/// runtime helper that would re-borrow `ctx.vm` on `CompiledDefun`
+/// callees.
 fn compile_back_quote(
     ctx: &mut TulispContext,
     value: &TulispObject,
+    depth: u32,
 ) -> Result<Vec<Instruction>, Error> {
     let compiler = ctx.compiler.as_mut().unwrap();
     if !compiler.keep_result {
@@ -240,19 +253,36 @@ fn compile_back_quote(
     }
     match &*value.inner_ref() {
         (TulispValue::Quote { value }, _) => {
-            return compile_back_quote(ctx, value).map(|mut v| {
+            // `'X` inside a backquote is data — descend at the same
+            // depth so nested unquotes inside still resolve.
+            return compile_back_quote(ctx, value, depth).map(|mut v| {
                 v.push(Instruction::Quote);
                 v
             });
         }
         (TulispValue::Unquote { value }, _) => {
-            return compile_expr(ctx, value).map_err(|e| e.with_trace(value.clone()));
+            if depth == 1 {
+                return compile_expr(ctx, value).map_err(|e| e.with_trace(value.clone()));
+            }
+            let mut v = compile_back_quote(ctx, value, depth - 1)?;
+            v.push(Instruction::WrapUnquote);
+            return Ok(v);
         }
-        (TulispValue::Splice { .. }, _) => {
-            return Err(Error::new(
-                crate::ErrorKind::SyntaxError,
-                "Splice must be within a backquoted list.".to_string(),
-            ));
+        (TulispValue::Splice { value }, _) => {
+            if depth == 1 {
+                return Err(Error::new(
+                    crate::ErrorKind::SyntaxError,
+                    "Splice must be within a backquoted list.".to_string(),
+                ));
+            }
+            let mut v = compile_back_quote(ctx, value, depth - 1)?;
+            v.push(Instruction::WrapSplice);
+            return Ok(v);
+        }
+        (TulispValue::Backquote { value }, _) => {
+            let mut v = compile_back_quote(ctx, value, depth + 1)?;
+            v.push(Instruction::WrapBackquote);
+            return Ok(v);
         }
         (TulispValue::List { .. }, _) => {}
         _ => return Ok(vec![Instruction::Push(value.clone())]),
@@ -268,54 +298,78 @@ fn compile_back_quote(
             let first_inner = &*first.inner_ref();
             if let (TulispValue::Unquote { value }, _) = first_inner {
                 items += 1;
-                result.append(
-                    &mut compile_expr(ctx, value).map_err(|e| e.with_trace(first.clone()))?,
-                );
-            } else if let (TulispValue::Splice { value }, _) = first_inner {
-                let mut splice_result = compile_expr(ctx, value)?;
-                let list_inst = splice_result.pop().unwrap();
-                if let Instruction::List(n) = list_inst {
-                    result.append(&mut splice_result);
-                    items += n;
-                } else if let Instruction::Load(idx) = list_inst {
-                    result.append(&mut splice_result);
-                    result.push(Instruction::List(items));
-                    if need_append {
-                        result.push(Instruction::Append(2));
-                    }
-                    result.append(&mut vec![Instruction::Load(idx), Instruction::Append(2)]);
-                    need_append = true;
-                    items = 0;
+                if depth == 1 {
+                    result.append(
+                        &mut compile_expr(ctx, value).map_err(|e| e.with_trace(first.clone()))?,
+                    );
                 } else {
-                    if !value.consp() {
-                        return Err(Error::new(
-                            ErrorKind::SyntaxError,
-                            format!(
-                                "Can only splice an inplace-list or a variable binding: {}",
-                                value
-                            ),
-                        )
-                        .with_trace(first.clone()));
-                    }
-                    result.push(Instruction::List(items));
-                    if need_append {
-                        result.push(Instruction::Append(2));
-                    }
-                    result.append(&mut splice_result);
-                    result.push(list_inst);
-                    result.push(Instruction::Append(2));
-                    need_append = true;
-                    items = 0;
+                    result.append(&mut compile_back_quote(ctx, value, depth - 1)?);
+                    result.push(Instruction::WrapUnquote);
                 }
+            } else if let (TulispValue::Splice { value }, _) = first_inner {
+                if depth == 1 {
+                    let mut splice_result = compile_expr(ctx, value)?;
+                    let list_inst = splice_result.pop().unwrap();
+                    if let Instruction::List(n) = list_inst {
+                        result.append(&mut splice_result);
+                        items += n;
+                    } else if let Instruction::Load(idx) = list_inst {
+                        result.append(&mut splice_result);
+                        result.push(Instruction::List(items));
+                        if need_append {
+                            result.push(Instruction::Append(2));
+                        }
+                        result.append(&mut vec![Instruction::Load(idx), Instruction::Append(2)]);
+                        need_append = true;
+                        items = 0;
+                    } else {
+                        if !value.consp() {
+                            return Err(Error::new(
+                                ErrorKind::SyntaxError,
+                                format!(
+                                    "Can only splice an inplace-list or a variable binding: {}",
+                                    value
+                                ),
+                            )
+                            .with_trace(first.clone()));
+                        }
+                        result.push(Instruction::List(items));
+                        if need_append {
+                            result.push(Instruction::Append(2));
+                        }
+                        result.append(&mut splice_result);
+                        result.push(list_inst);
+                        result.push(Instruction::Append(2));
+                        need_append = true;
+                        items = 0;
+                    }
+                } else {
+                    // depth > 1: splice at this level is just data —
+                    // wrap as a Splice value and treat as one element.
+                    items += 1;
+                    result.append(&mut compile_back_quote(ctx, value, depth - 1)?);
+                    result.push(Instruction::WrapSplice);
+                }
+            } else if let (TulispValue::Backquote { value }, _) = first_inner {
+                items += 1;
+                result.append(&mut compile_back_quote(ctx, value, depth + 1)?);
+                result.push(Instruction::WrapBackquote);
             } else {
                 items += 1;
-                result.append(&mut compile_back_quote(ctx, first)?);
+                result.append(&mut compile_back_quote(ctx, first, depth)?);
             }
             Ok(())
         })?;
         let rest = value.cdr()?;
         if let (TulispValue::Unquote { value }, _) = &*rest.inner_ref() {
-            result.append(&mut compile_expr(ctx, value)?);
+            if depth == 1 {
+                result.append(&mut compile_expr(ctx, value)?);
+                result.push(Instruction::Cons);
+                need_list = false;
+                break;
+            }
+            result.append(&mut compile_back_quote(ctx, value, depth - 1)?);
+            result.push(Instruction::WrapUnquote);
             result.push(Instruction::Cons);
             need_list = false;
             break;
@@ -389,7 +443,7 @@ pub(crate) fn compile_expr(
         | (TulispValue::Bounce, _) => Ok(vec![]),
 
         (TulispValue::Backquote { value }, _) => {
-            compile_back_quote(ctx, value).map_err(|e| e.with_trace(expr.clone()))
+            compile_back_quote(ctx, value, 1).map_err(|e| e.with_trace(expr.clone()))
         }
         (TulispValue::Quote { value }, _) | (TulispValue::Sharpquote { value }, _) => {
             if compiler.keep_result {

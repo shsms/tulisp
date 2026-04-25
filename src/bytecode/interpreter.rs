@@ -793,7 +793,22 @@ impl Machine {
                 Instruction::Quote => {
                     let a = self.stack.pop().unwrap();
                     self.stack
-                        .push(TulispValue::Quote { value: a.clone() }.into_ref(None));
+                        .push(TulispValue::Quote { value: a }.into_ref(None));
+                }
+                Instruction::WrapBackquote => {
+                    let a = self.stack.pop().unwrap();
+                    self.stack
+                        .push(TulispValue::Backquote { value: a }.into_ref(None));
+                }
+                Instruction::WrapUnquote => {
+                    let a = self.stack.pop().unwrap();
+                    self.stack
+                        .push(TulispValue::Unquote { value: a }.into_ref(None));
+                }
+                Instruction::WrapSplice => {
+                    let a = self.stack.pop().unwrap();
+                    self.stack
+                        .push(TulispValue::Splice { value: a }.into_ref(None));
                 }
             }
             pc += 1;

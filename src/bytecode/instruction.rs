@@ -180,6 +180,19 @@ pub(crate) enum Instruction {
     PlistGet,
     // values
     Quote,
+    /// Pop one value and push it wrapped in a `TulispValue::Backquote`.
+    /// Emitted for nested backquotes — the inner `\`X` becomes
+    /// `WrapBackquote` after compiling `X` at the bumped quasi-quote
+    /// depth.
+    WrapBackquote,
+    /// Pop one value and push it wrapped in `TulispValue::Unquote`.
+    /// Emitted at quasi-quote depth ≥ 2 for `,X` — the inner is
+    /// compiled at `depth - 1` and the wrap re-emits the comma at
+    /// the outer level.
+    WrapUnquote,
+    /// Pop one value and push it wrapped in `TulispValue::Splice`.
+    /// Same as `WrapUnquote` but for `,@X` at quasi-quote depth ≥ 2.
+    WrapSplice,
 }
 
 impl std::fmt::Display for Instruction {
@@ -269,6 +282,9 @@ impl std::fmt::Display for Instruction {
             },
             Instruction::PlistGet => write!(f, "    plist_get"),
             Instruction::Quote => write!(f, "    quote"),
+            Instruction::WrapBackquote => write!(f, "    wrap_backquote"),
+            Instruction::WrapUnquote => write!(f, "    wrap_unquote"),
+            Instruction::WrapSplice => write!(f, "    wrap_splice"),
         }
     }
 }

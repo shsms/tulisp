@@ -301,27 +301,74 @@ pub(crate) fn eval_form<E: Evaluator>(
     funcall::<E>(ctx, &func, &val.cdr()?)
 }
 
-fn eval_back_quote(ctx: &mut TulispContext, mut vv: TulispObject) -> Result<TulispObject, Error> {
+/// Evaluate a backquote form. `depth` tracks quasi-quote nesting:
+/// the outer `\`X` enters at depth 1, each inner `\`Y` bumps it,
+/// and each `,Z` / `,@Z` decrements. An unquote/splice only
+/// triggers evaluation when `depth == 1`; at deeper levels it is
+/// preserved as data with its content walked at `depth - 1`.
+/// Matches Emacs' nested-backquote semantics: `\`(a \`(b ,,x ,y) c)`
+/// with `x = 1` evaluates `,,x` at the outer level (depth 1 after
+/// two commas) and leaves the single-comma `,y` for the inner
+/// backquote to resolve.
+fn eval_back_quote(
+    ctx: &mut TulispContext,
+    mut vv: TulispObject,
+    depth: u32,
+) -> Result<TulispObject, Error> {
     if !vv.consp() {
         let inner = vv.inner_ref();
+        let span = vv.span();
         if let TulispValue::Unquote { value } = &inner.0 {
-            return ctx
-                .eval(value)
-                .map_err(|e| e.with_trace(vv.clone()))
-                .map(|x| x.with_span(value.span()));
+            if depth == 1 {
+                let v = value.clone();
+                drop(inner);
+                return ctx
+                    .eval(&v)
+                    .map_err(|e| e.with_trace(vv.clone()))
+                    .map(|x| x.with_span(v.span()));
+            }
+            let inner_span = value.span();
+            let value = value.clone();
+            drop(inner);
+            return Ok(TulispValue::Unquote {
+                value: eval_back_quote(ctx, value, depth - 1)?,
+            }
+            .into_ref(span.or(inner_span)));
         } else if let TulispValue::Splice { value } = &inner.0 {
-            return ctx
-                .eval(value)
-                .map_err(|e| e.with_trace(vv.clone()))?
-                .deep_copy()
-                .map_err(|e| e.with_trace(vv.clone()))
-                .map(|value| value.with_span(value.span()));
+            if depth == 1 {
+                let v = value.clone();
+                drop(inner);
+                return ctx
+                    .eval(&v)
+                    .map_err(|e| e.with_trace(vv.clone()))?
+                    .deep_copy()
+                    .map_err(|e| e.with_trace(vv.clone()))
+                    .map(|val| val.with_span(v.span()));
+            }
+            let inner_span = value.span();
+            let value = value.clone();
+            drop(inner);
+            return Ok(TulispValue::Splice {
+                value: eval_back_quote(ctx, value, depth - 1)?,
+            }
+            .into_ref(span.or(inner_span)));
+        } else if let TulispValue::Backquote { value } = &inner.0 {
+            let inner_span = value.span();
+            let value = value.clone();
+            drop(inner);
+            return Ok(TulispValue::Backquote {
+                value: eval_back_quote(ctx, value, depth + 1)?,
+            }
+            .into_ref(span.or(inner_span)));
         } else if let TulispValue::Quote { value } = &inner.0 {
+            let inner_span = value.span();
+            let value = value.clone();
+            drop(inner);
             return Ok(TulispValue::Quote {
-                value: eval_back_quote(ctx, value.clone())?,
+                value: eval_back_quote(ctx, value, depth)?,
             }
             .into_ref(None)
-            .with_span(value.span()));
+            .with_span(inner_span));
         }
         drop(inner);
         return Ok(vv);
@@ -333,40 +380,65 @@ fn eval_back_quote(ctx: &mut TulispContext, mut vv: TulispObject) -> Result<Tuli
         vv.car_and_then(|first| {
             let first_inner = &first.inner_ref().0;
             if let TulispValue::Unquote { value } = first_inner {
-                builder.push(
-                    ctx.eval(value)
-                        .map_err(|e| e.with_trace(first.clone()))?
-                        .with_span(value.span()),
-                );
-            } else if let TulispValue::Splice { value } = first_inner {
-                builder
-                    .append(
+                if depth == 1 {
+                    builder.push(
                         ctx.eval(value)
                             .map_err(|e| e.with_trace(first.clone()))?
-                            .deep_copy()
-                            .map_err(|e| e.with_trace(first.clone()))?
                             .with_span(value.span()),
-                    )
-                    .map_err(|e| e.with_trace(first.clone()))?;
+                    );
+                } else {
+                    let inner_span = value.span();
+                    let walked = eval_back_quote(ctx, value.clone(), depth - 1)?;
+                    builder.push(
+                        TulispValue::Unquote { value: walked }
+                            .into_ref(first.span().or(inner_span)),
+                    );
+                }
+            } else if let TulispValue::Splice { value } = first_inner {
+                if depth == 1 {
+                    builder
+                        .append(
+                            ctx.eval(value)
+                                .map_err(|e| e.with_trace(first.clone()))?
+                                .deep_copy()
+                                .map_err(|e| e.with_trace(first.clone()))?
+                                .with_span(value.span()),
+                        )
+                        .map_err(|e| e.with_trace(first.clone()))?;
+                } else {
+                    let inner_span = value.span();
+                    let walked = eval_back_quote(ctx, value.clone(), depth - 1)?;
+                    builder.push(
+                        TulispValue::Splice { value: walked }.into_ref(first.span().or(inner_span)),
+                    );
+                }
             } else {
-                builder.push(eval_back_quote(ctx, first.clone())?);
+                builder.push(eval_back_quote(ctx, first.clone(), depth)?);
             }
             Ok(())
         })?;
         // TODO: is Nil check necessary
         let rest = vv.cdr()?;
         if let TulispValue::Unquote { value } = &rest.inner_ref().0 {
-            builder
-                .append(
-                    ctx.eval(value)
-                        .map_err(|e| e.with_trace(rest.clone()))?
-                        .with_span(value.span()),
-                )
-                .map_err(|e| e.with_trace(rest.clone()))?;
+            if depth == 1 {
+                builder
+                    .append(
+                        ctx.eval(value)
+                            .map_err(|e| e.with_trace(rest.clone()))?
+                            .with_span(value.span()),
+                    )
+                    .map_err(|e| e.with_trace(rest.clone()))?;
+                return Ok(builder.build().with_span(span));
+            }
+            let inner_span = value.span();
+            let walked = eval_back_quote(ctx, value.clone(), depth - 1)?;
+            builder.append(
+                TulispValue::Unquote { value: walked }.into_ref(rest.span().or(inner_span)),
+            )?;
             return Ok(builder.build().with_span(span));
         }
         if !rest.consp() {
-            builder.append(rest)?;
+            builder.append(eval_back_quote(ctx, rest, depth)?)?;
             return Ok(builder.build().with_span(span));
         }
         vv = rest;
@@ -406,7 +478,7 @@ pub(crate) fn eval_basic<'a>(
         | TulispValue::T => Ok(Cow::Borrowed(expr)),
         TulispValue::Quote { value, .. } => Ok(Cow::Owned(value.clone())),
         TulispValue::Backquote { value } => Ok(Cow::Owned(
-            eval_back_quote(ctx, value.clone()).map_err(|e| e.with_trace(expr.clone()))?,
+            eval_back_quote(ctx, value.clone(), 1).map_err(|e| e.with_trace(expr.clone()))?,
         )),
         TulispValue::Unquote { .. } => {
             Err(Error::syntax_error("Unquote without backquote".to_string()))
