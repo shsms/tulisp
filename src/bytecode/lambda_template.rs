@@ -1,4 +1,4 @@
-use super::Instruction;
+use super::{Instruction, bytecode::TraceRange};
 use crate::{bytecode::compiler::VMDefunParams, TulispObject};
 
 /// Eagerly-compiled form of a `(lambda …)` body. The body is compiled
@@ -15,6 +15,12 @@ use crate::{bytecode::compiler::VMDefunParams, TulispObject};
 /// the AST walk.
 pub(crate) struct LambdaTemplate {
     pub(crate) instructions: Vec<Instruction>,
+    /// Trace ranges paired with `instructions`. `make_lambda_from_template`
+    /// clones this alongside the instruction vector — instruction PCs
+    /// are stable under the rewrite pass (which only swaps placeholder
+    /// objects for fresh bindings, never adds or removes instructions),
+    /// so the same ranges remain valid for the materialized closure.
+    pub(crate) trace_ranges: Vec<TraceRange>,
     /// Param placeholders, in declaration order. Arity info mirrors
     /// this via `params`.
     pub(crate) param_placeholders: Vec<TulispObject>,

@@ -382,9 +382,15 @@ pub(super) fn compile_fn_defun(
         compiler.active_let_scopes = prev_scopes;
         Ok(result)
     })?;
+    // Lift the body's `PushTrace` / `PopTrace` markers into a
+    // side table. Stripping happens at the `CompiledDefun`
+    // boundary so the runtime never executes these markers — see
+    // `strip_trace_markers`.
+    let (res, trace_ranges) = crate::bytecode::bytecode::strip_trace_markers(res);
     let function = CompiledDefun {
         name: fn_name.clone(),
         instructions: SharedMut::new(res),
+        trace_ranges: crate::object::wrappers::generic::Shared::new_sized(trace_ranges),
         params: defun_params,
     };
     let compiler = ctx.compiler.as_mut().unwrap();

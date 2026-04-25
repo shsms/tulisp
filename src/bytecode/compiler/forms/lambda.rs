@@ -170,8 +170,18 @@ pub(super) fn compile_fn_lambda(
         let mut instructions = body_result?;
         instructions.push(Instruction::Ret);
 
+        // Strip the form-trace markers and lift them into a side
+        // table so the lambda's runtime path pays nothing on the
+        // happy path. The same vector is later rewritten by
+        // `make_lambda_from_template`, which preserves PCs (it only
+        // swaps placeholder objects, not positions), so the ranges
+        // stay valid for the materialized closure.
+        let (instructions, trace_ranges) =
+            crate::bytecode::bytecode::strip_trace_markers(instructions);
+
         let template = LambdaTemplate {
             instructions,
+            trace_ranges,
             param_placeholders,
             params: vm_params,
             free_vars,

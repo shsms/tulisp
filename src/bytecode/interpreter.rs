@@ -1,6 +1,6 @@
 use super::{
-    bytecode::Bytecode, bytecode::CompiledDefun, compiler::VMDefunParams, Instruction,
-    LambdaTemplate,
+    bytecode::Bytecode, bytecode::CompiledDefun, bytecode::TraceRange,
+    compiler::VMDefunParams, Instruction, LambdaTemplate,
 };
 use crate::{
     bytecode::Pos, lists, object::wrappers::generic::SharedMut, Error, TulispContext, TulispObject,
@@ -106,13 +106,6 @@ pub struct Machine {
     stack: Vec<TulispObject>,
     bytecode: Bytecode,
     labels: HashMap<usize, usize>, // TulispObject.addr -> instruction index
-    /// Forms whose `PushTrace` ran but whose matching `PopTrace`
-    /// hasn't yet — i.e., forms currently being evaluated. When a
-    /// `run_impl` invocation returns `Err`, the wrapper restores
-    /// `trace_stack` down to the level it had at entry and applies
-    /// each popped form to the error's backtrace, mirroring TW's
-    /// recursive `eval_basic` `with_trace(expr)` calls.
-    trace_stack: Vec<TulispObject>,
 }
 
 macro_rules! jump_to_pos {
@@ -141,7 +134,6 @@ impl Machine {
             stack: Vec::new(),
             bytecode: Bytecode::new(),
             labels: HashMap::new(),
-            trace_stack: Vec::new(),
         }
     }
 
@@ -196,7 +188,10 @@ impl Machine {
         self.labels.extend(labels);
         self.bytecode.import_functions(&bytecode);
         self.bytecode.global = bytecode.global;
-        self.run_impl(ctx, &self.bytecode.global.clone(), 0)?;
+        self.bytecode.global_trace_ranges = bytecode.global_trace_ranges;
+        let global_program = self.bytecode.global.clone();
+        let global_ranges = self.bytecode.global_trace_ranges.clone();
+        self.run_impl(ctx, &global_program, global_ranges.as_slice(), 0)?;
         // When the top-level form has no value (e.g., a program of
         // only `defun`s), the compiler emits no trailing Push — the
         // stack is empty, not underflowed. Return nil in that case.
@@ -246,7 +241,12 @@ impl Machine {
         let mut current_rest = rest_count;
         loop {
             let params = self.init_defun_args(&current.params, &current_optional, &current_rest);
-            let tail = self.run_function(ctx, &current.instructions, 1)?;
+            let tail = self.run_function(
+                ctx,
+                &current.instructions,
+                current.trace_ranges.as_slice(),
+                1,
+            )?;
             drop(params);
             match tail {
                 Some(info) => {
@@ -262,29 +262,41 @@ impl Machine {
     }
 
     /// Wrapper around `run_impl_inner` that applies form-trace
-    /// bookkeeping. On entry the current `trace_stack` length is
-    /// recorded; on exit it is truncated back to that level.
-    /// On `Err`, every form pushed by a `PushTrace` instruction
-    /// during this invocation (and not yet popped) is appended to
-    /// the error's backtrace via `with_trace`, in pop-order
-    /// (innermost first), so the resulting trace mirrors TW's
-    /// recursive `eval_basic` shape.
+    /// information from the bytecode's side-table on the error
+    /// path only. The happy path runs the inner loop with no extra
+    /// bookkeeping. When the inner loop returns `Err`, every range
+    /// in `trace_ranges` whose `[start_pc, end_pc)` contains the
+    /// failing PC contributes a `with_trace(form)` call (innermost
+    /// first), reproducing TW's recursive `eval_basic` shape.
+    ///
+    /// `Error::with_trace` already de-duplicates same-form entries,
+    /// so an inner call instruction whose handler attached its own
+    /// `with_trace(form)` is collapsed against the matching range.
     fn run_impl(
         &mut self,
         ctx: &mut TulispContext,
         program: &SharedMut<Vec<Instruction>>,
+        trace_ranges: &[TraceRange],
         recursion_depth: u32,
     ) -> Result<Option<TailCallInfo>, Error> {
-        let trace_snapshot = self.trace_stack.len();
-        match self.run_impl_inner(ctx, program, recursion_depth) {
-            Ok(v) => {
-                self.trace_stack.truncate(trace_snapshot);
-                Ok(v)
-            }
+        let mut pc: usize = 0;
+        match self.run_impl_inner(ctx, program, &mut pc, recursion_depth) {
+            Ok(v) => Ok(v),
             Err(mut e) => {
-                while self.trace_stack.len() > trace_snapshot {
-                    let form = self.trace_stack.pop().unwrap();
-                    e = e.with_trace(form);
+                // `strip_trace_markers` pushes ranges as it encounters
+                // each closing `PopTrace`, so the vector is sorted
+                // innermost-first. Walking forward applies the
+                // innermost form first, matching TW's recursive
+                // `eval_basic` shape (the innermost wrapper runs
+                // closest to the failure). Inner-first also lets
+                // `Error::with_trace`'s last-entry dedup collapse
+                // duplicates with whatever the inner call
+                // instruction's own `with_trace(form)` already
+                // attached.
+                for range in trace_ranges.iter() {
+                    if range.start_pc <= pc && pc < range.end_pc {
+                        e = e.with_trace(range.form.clone());
+                    }
                 }
                 Err(e)
             }
@@ -295,6 +307,7 @@ impl Machine {
         &mut self,
         ctx: &mut TulispContext,
         program: &SharedMut<Vec<Instruction>>,
+        pc_out: &mut usize,
         recursion_depth: u32,
     ) -> Result<Option<TailCallInfo>, Error> {
         let mut pc: usize = 0;
@@ -304,6 +317,13 @@ impl Machine {
             // drop(instr_ref);
             // self.print_stack(func, pc, recursion_depth);
             // instr_ref = program.borrow_mut();
+
+            // Mirror the loop's `pc` into the caller's pc_out so
+            // that `run_impl` knows which instruction was active
+            // when an error propagates out via `?`. One usize write
+            // per dispatch — the trace ranges themselves cost
+            // nothing on the happy path.
+            *pc_out = pc;
 
             let instr = &mut instr_ref[pc];
             match instr {
@@ -612,6 +632,7 @@ impl Machine {
                             .run_function(
                                 ctx,
                                 &current_function.instructions,
+                                current_function.trace_ranges.as_slice(),
                                 recursion_depth + 1,
                             )
                             .map_err(|e| e.with_trace(form.clone()))?;
@@ -717,11 +738,16 @@ impl Machine {
                         self.stack.push(result);
                     }
                 }
-                Instruction::PushTrace(form) => {
-                    self.trace_stack.push(form.clone());
-                }
-                Instruction::PopTrace => {
-                    self.trace_stack.pop();
+                // `PushTrace` / `PopTrace` should never reach the
+                // interpreter: `strip_trace_markers` removes them
+                // at compile time and lifts the form spans into a
+                // `TraceRange` side-table consulted by `run_impl`
+                // on the error path.
+                Instruction::PushTrace(_) | Instruction::PopTrace => {
+                    debug_assert!(
+                        false,
+                        "trace marker reached interpreter; strip_trace_markers should have lifted it",
+                    );
                 }
                 Instruction::Label(_) => {}
                 Instruction::Cons => {
@@ -843,9 +869,10 @@ impl Machine {
         &mut self,
         ctx: &mut TulispContext,
         instructions: &SharedMut<Vec<Instruction>>,
+        trace_ranges: &[TraceRange],
         recursion_depth: u32,
     ) -> Result<Option<TailCallInfo>, Error> {
-        self.run_impl(ctx, instructions, recursion_depth)
+        self.run_impl(ctx, instructions, trace_ranges, recursion_depth)
     }
 
     /// In-VM `funcall` dispatch used by `Instruction::Funcall`. Args are
@@ -951,7 +978,12 @@ impl Machine {
         loop {
             let params =
                 self.init_defun_args(&current.params, &current_optional, &current_rest);
-            let tail = self.run_function(ctx, &current.instructions, recursion_depth + 1)?;
+            let tail = self.run_function(
+                ctx,
+                &current.instructions,
+                current.trace_ranges.as_slice(),
+                recursion_depth + 1,
+            )?;
             drop(params);
             match tail {
                 Some(info) => {
@@ -982,7 +1014,8 @@ fn vm_eval_file_inline(
     machine.labels.extend(labels);
     machine.bytecode.import_functions(&bytecode);
     let sub_global = bytecode.global.clone();
-    machine.run_impl(ctx, &sub_global, 1)?;
+    let sub_ranges = bytecode.global_trace_ranges.clone();
+    machine.run_impl(ctx, &sub_global, sub_ranges.as_slice(), 1)?;
     // `compile_progn` only keeps the result of the last form on the
     // stack; for forms that produced no value (e.g., a `defun`) we
     // return nil.
@@ -1092,6 +1125,14 @@ fn make_lambda_from_template(
     let cd = CompiledDefun {
         name: TulispObject::nil(),
         instructions: SharedMut::new(instructions),
+        // PCs are unchanged by `rewrite_instruction` (it only
+        // swaps placeholder objects, never adds or removes
+        // instructions), so the template's trace ranges remain
+        // valid for the materialized closure. Wrap in a `Shared`
+        // since `LambdaTemplate::trace_ranges` is owned.
+        trace_ranges: crate::object::wrappers::generic::Shared::new_sized(
+            template.trace_ranges.clone(),
+        ),
         params,
     };
     Ok(TulispValue::CompiledDefun { value: cd }.into_ref(None))
@@ -1232,6 +1273,9 @@ fn rewrite_template(
 
     LambdaTemplate {
         instructions: new_instructions,
+        // `rewrite_instruction` swaps in-place; PCs are stable so
+        // the inner template's trace ranges still apply.
+        trace_ranges: template.trace_ranges.clone(),
         param_placeholders: template.param_placeholders.clone(),
         params: template.params.clone(),
         free_vars: new_free_vars,

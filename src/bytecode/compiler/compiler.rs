@@ -75,8 +75,17 @@ pub fn compile(ctx: &mut TulispContext, value: &TulispObject) -> Result<Bytecode
         .copied()
         .collect();
     let output = compile_progn(ctx, value)?;
+    // Lift the form-trace markers in the global instruction
+    // stream into a side table. Per-function bodies were already
+    // stripped at their `CompiledDefun` boundary inside
+    // `compile_fn_defun`.
+    let (output, global_trace_ranges) =
+        crate::bytecode::bytecode::strip_trace_markers(output);
+    let global_trace_ranges =
+        crate::object::wrappers::generic::Shared::new_sized(global_trace_ranges);
     let compiler = ctx.compiler.as_mut().unwrap();
     compiler.bytecode.global = SharedMut::new(output);
+    compiler.bytecode.global_trace_ranges = global_trace_ranges.clone();
     let new_functions = compiler
         .bytecode
         .functions
@@ -86,6 +95,7 @@ pub fn compile(ctx: &mut TulispContext, value: &TulispObject) -> Result<Bytecode
         .collect();
     Ok(Bytecode {
         global: compiler.bytecode.global.clone(),
+        global_trace_ranges,
         functions: new_functions,
     })
 }
@@ -390,13 +400,12 @@ pub(crate) fn compile_expr(
         (TulispValue::List { .. }, _) => {
             drop(expr_ref);
             // Wrap the form's compiled bytecode with `PushTrace` /
-            // `PopTrace` so that runtime errors propagating out of
-            // the form pick up `expr` as a backtrace entry — same
-            // shape TW's recursive `eval_basic` produces via its
-            // `with_trace(expr)` on the list arm. The dedup logic
-            // in `Error::with_trace` collapses duplicates when an
-            // inner call instruction (`Call` / `RustCall` /
-            // `RustCallTyped`) already attached the same form.
+            // `PopTrace` markers. `strip_trace_markers` lifts these
+            // into a side-table at compile time so the runtime
+            // pays nothing for them on the happy path; on the
+            // error path, `run_impl` looks up which ranges contain
+            // the failing PC and applies their forms via
+            // `with_trace`. Same shape TW's `eval_basic` produces.
             let mut inner = compile_form(ctx, expr).map_err(|e| e.with_trace(expr.clone()))?;
             if inner.is_empty() {
                 return Ok(inner);
