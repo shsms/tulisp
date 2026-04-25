@@ -2,9 +2,9 @@ use std::{collections::HashMap, fmt};
 
 use super::Instruction;
 use crate::{
+    TulispObject,
     bytecode::compiler::VMDefunParams,
     object::wrappers::generic::{Shared, SharedMut},
-    TulispObject,
 };
 
 /// One source-form span pinned to a half-open instruction range
@@ -113,10 +113,7 @@ pub(crate) fn strip_trace_markers(input: Vec<Instruction>) -> (Vec<Instruction>,
     let mut cumulative = 0usize;
     for instr in &input {
         shift.push(cumulative);
-        if matches!(
-            instr,
-            Instruction::PushTrace(_) | Instruction::PopTrace
-        ) {
+        if matches!(instr, Instruction::PushTrace(_) | Instruction::PopTrace) {
             cumulative += 1;
         }
     }

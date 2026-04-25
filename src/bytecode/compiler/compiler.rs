@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 
 use crate::{
+    Error, ErrorKind, TulispContext, TulispObject, TulispValue,
     bytecode::{Bytecode, Instruction},
     object::wrappers::generic::SharedMut,
-    Error, ErrorKind, TulispContext, TulispObject, TulispValue,
 };
 
-use super::forms::{compile_form, VMCompilers};
+use super::forms::{VMCompilers, compile_form};
 
 #[derive(Default, Clone)]
 pub(crate) struct VMDefunParams {
@@ -79,8 +79,7 @@ pub fn compile(ctx: &mut TulispContext, value: &TulispObject) -> Result<Bytecode
     // stream into a side table. Per-function bodies were already
     // stripped at their `CompiledDefun` boundary inside
     // `compile_fn_defun`.
-    let (output, global_trace_ranges) =
-        crate::bytecode::bytecode::strip_trace_markers(output);
+    let (output, global_trace_ranges) = crate::bytecode::bytecode::strip_trace_markers(output);
     let global_trace_ranges =
         crate::object::wrappers::generic::Shared::new_sized(global_trace_ranges);
     let compiler = ctx.compiler.as_mut().unwrap();
@@ -244,7 +243,7 @@ fn compile_back_quote(
             return compile_back_quote(ctx, value).map(|mut v| {
                 v.push(Instruction::Quote);
                 v
-            })
+            });
         }
         (TulispValue::Unquote { value }, _) => {
             return compile_expr(ctx, value).map_err(|e| e.with_trace(value.clone()));
@@ -428,11 +427,9 @@ pub(crate) fn compile_expr(
                 Instruction::Load(expr.clone())
             }])
         }
-        (TulispValue::Unquote { .. }, _) | (TulispValue::Splice { .. }, _) => {
-            Err(Error::new(
-                crate::ErrorKind::SyntaxError,
-                "Unquote without backquote".to_string(),
-            ))
-        }
+        (TulispValue::Unquote { .. }, _) | (TulispValue::Splice { .. }, _) => Err(Error::new(
+            crate::ErrorKind::SyntaxError,
+            "Unquote without backquote".to_string(),
+        )),
     }
 }

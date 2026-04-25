@@ -35,9 +35,11 @@ fn mark_tail_calls(
     let tail_ident = tail.car()?;
     let tail_name_str = tail_ident.as_symbol()?;
     let is_self_call = self_name.is_some_and(|n| n.eq(&tail_ident));
-    let new_tail = if is_self_call || ctx.eval(&tail_ident).is_ok_and(|f| {
-        matches!(f.inner_ref().0, TulispValue::Lambda { .. })
-    }) {
+    let new_tail = if is_self_call
+        || ctx
+            .eval(&tail_ident)
+            .is_ok_and(|f| matches!(f.inner_ref().0, TulispValue::Lambda { .. }))
+    {
         let ret_tail = TulispObject::nil().append(tail.cdr()?)?.to_owned();
         list!(,ctx.intern("list")
             ,TulispValue::Bounce.into_ref(None)
@@ -85,9 +87,10 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         ctx.eval_file(full_path)
     });
 
-    ctx.defun("intern", |ctx: &mut TulispContext, name: String| -> TulispObject {
-        ctx.intern(&name)
-    });
+    ctx.defun(
+        "intern",
+        |ctx: &mut TulispContext, name: String| -> TulispObject { ctx.intern(&name) },
+    );
 
     ctx.defun(
         "symbol-value",
@@ -144,98 +147,103 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         },
     );
 
-    ctx.defun("format", |in_string: String, rest: crate::Rest<TulispObject>| -> Result<String, Error> {
-        let rest: Vec<TulispObject> = rest.into_iter().collect();
-        let mut args = rest.iter();
-        let mut output = String::new();
-        let mut in_chars = in_string.chars().peekable();
-        // Supports `%[-][0]WIDTHTYPE` where TYPE is one of `s S d f`, plus
-        // `%%` for a literal percent. The `-` flag left-aligns and the `0`
-        // flag pads numerics with zeros. See the Emacs manual for the full
-        // format-spec grammar:
-        // https://www.gnu.org/software/emacs/manual/html_node/elisp/Formatting-Strings.html
-        while let Some(ch) = in_chars.next() {
-            if ch != '%' {
-                output.push(ch);
-                continue;
-            }
-            let mut left_align = false;
-            let mut zero_pad = false;
-            let mut width: usize = 0;
-            loop {
-                match in_chars.peek() {
-                    Some('-') => {
-                        left_align = true;
-                        in_chars.next();
-                    }
-                    Some('0') if width == 0 => {
-                        zero_pad = true;
-                        in_chars.next();
-                    }
-                    Some(c) if c.is_ascii_digit() => {
-                        width = width * 10 + (*c as usize - '0' as usize);
-                        in_chars.next();
-                    }
-                    _ => break,
+    ctx.defun(
+        "format",
+        |in_string: String, rest: crate::Rest<TulispObject>| -> Result<String, Error> {
+            let rest: Vec<TulispObject> = rest.into_iter().collect();
+            let mut args = rest.iter();
+            let mut output = String::new();
+            let mut in_chars = in_string.chars().peekable();
+            // Supports `%[-][0]WIDTHTYPE` where TYPE is one of `s S d f`, plus
+            // `%%` for a literal percent. The `-` flag left-aligns and the `0`
+            // flag pads numerics with zeros. See the Emacs manual for the full
+            // format-spec grammar:
+            // https://www.gnu.org/software/emacs/manual/html_node/elisp/Formatting-Strings.html
+            while let Some(ch) = in_chars.next() {
+                if ch != '%' {
+                    output.push(ch);
+                    continue;
                 }
-            }
-            let type_char = match in_chars.next() {
-                Some(c) => c,
-                None => {
-                    return Err(Error::syntax_error(
-                        "format: unterminated % spec".to_string(),
-                    ));
+                let mut left_align = false;
+                let mut zero_pad = false;
+                let mut width: usize = 0;
+                loop {
+                    match in_chars.peek() {
+                        Some('-') => {
+                            left_align = true;
+                            in_chars.next();
+                        }
+                        Some('0') if width == 0 => {
+                            zero_pad = true;
+                            in_chars.next();
+                        }
+                        Some(c) if c.is_ascii_digit() => {
+                            width = width * 10 + (*c as usize - '0' as usize);
+                            in_chars.next();
+                        }
+                        _ => break,
+                    }
                 }
-            };
-            if type_char == '%' {
-                output.push('%');
-                continue;
-            }
-            let Some(next_arg) = args.next() else {
-                return Err(Error::missing_argument(
-                    "format has missing args".to_string(),
-                ));
-            };
-            let formatted = match type_char {
-                's' => next_arg.fmt_string(),
-                'S' => next_arg.to_string(),
-                'd' => next_arg.try_int()?.to_string(),
-                'f' => next_arg.try_float()?.to_string(),
-                _ => {
-                    return Err(Error::syntax_error(format!(
-                        "Invalid format operation: %{}",
-                        type_char
-                    )));
-                }
-            };
-            let len = formatted.chars().count();
-            if width > len {
-                let pad_char = if zero_pad && !left_align && matches!(type_char, 'd' | 'f') {
-                    '0'
-                } else {
-                    ' '
+                let type_char = match in_chars.next() {
+                    Some(c) => c,
+                    None => {
+                        return Err(Error::syntax_error(
+                            "format: unterminated % spec".to_string(),
+                        ));
+                    }
                 };
-                let pad = pad_char.to_string().repeat(width - len);
-                if left_align {
-                    output.push_str(&formatted);
-                    output.push_str(&pad);
+                if type_char == '%' {
+                    output.push('%');
+                    continue;
+                }
+                let Some(next_arg) = args.next() else {
+                    return Err(Error::missing_argument(
+                        "format has missing args".to_string(),
+                    ));
+                };
+                let formatted = match type_char {
+                    's' => next_arg.fmt_string(),
+                    'S' => next_arg.to_string(),
+                    'd' => next_arg.try_int()?.to_string(),
+                    'f' => next_arg.try_float()?.to_string(),
+                    _ => {
+                        return Err(Error::syntax_error(format!(
+                            "Invalid format operation: %{}",
+                            type_char
+                        )));
+                    }
+                };
+                let len = formatted.chars().count();
+                if width > len {
+                    let pad_char = if zero_pad && !left_align && matches!(type_char, 'd' | 'f') {
+                        '0'
+                    } else {
+                        ' '
+                    };
+                    let pad = pad_char.to_string().repeat(width - len);
+                    if left_align {
+                        output.push_str(&formatted);
+                        output.push_str(&pad);
+                    } else {
+                        output.push_str(&pad);
+                        output.push_str(&formatted);
+                    }
                 } else {
-                    output.push_str(&pad);
                     output.push_str(&formatted);
                 }
-            } else {
-                output.push_str(&formatted);
             }
-        }
-        Ok(output)
-    });
+            Ok(output)
+        },
+    );
 
     ctx.defun("print", |val: TulispObject| -> TulispObject {
         println!("{}", val.fmt_string());
         val
     });
 
-    ctx.defun("prin1-to-string", |arg: TulispObject| -> String { arg.fmt_string() });
+    ctx.defun("prin1-to-string", |arg: TulispObject| -> String {
+        arg.fmt_string()
+    });
 
     ctx.defun("princ", |val: TulispObject| -> TulispObject {
         println!("{}", val.fmt_string());
@@ -382,9 +390,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             let raw_params: DefunParams = params.try_into()?;
             let (params, mappings) = raw_params.bind_as_lexical(&ctx.lex_allocator);
             let body = substitute_lexical(body, &mappings)?;
-            name.set_global(
-                TulispValue::Lambda { params, body }.into_ref(None),
-            )?;
+            name.set_global(TulispValue::Lambda { params, body }.into_ref(None))?;
             Ok(TulispObject::nil())
         }
     });
@@ -595,9 +601,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         let raw_params: DefunParams = params.try_into()?;
         let (params, mappings) = raw_params.bind_as_lexical(&ctx.lex_allocator);
         let body = substitute_lexical(body, &mappings)?;
-        name.set_scope(
-            TulispValue::Defmacro { params, body }.into_ref(None),
-        )?;
+        name.set_scope(TulispValue::Defmacro { params, body }.into_ref(None))?;
         Ok(TulispObject::nil())
     });
 
@@ -708,10 +712,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         ctx.eval(&result)
     });
 
-    ctx.defun(
-        "list",
-        |args: crate::Rest<TulispObject>| -> TulispObject { args.into_iter().collect() },
-    );
+    ctx.defun("list", |args: crate::Rest<TulispObject>| -> TulispObject {
+        args.into_iter().collect()
+    });
 
     ctx.defun(
         "assoc",

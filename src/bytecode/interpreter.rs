@@ -1,10 +1,10 @@
 use super::{
-    bytecode::Bytecode, bytecode::CompiledDefun, bytecode::TraceRange,
-    compiler::VMDefunParams, Instruction, LambdaTemplate,
+    Instruction, LambdaTemplate, bytecode::Bytecode, bytecode::CompiledDefun, bytecode::TraceRange,
+    compiler::VMDefunParams,
 };
 use crate::{
-    bytecode::Pos, lists, object::wrappers::generic::SharedMut, Error, TulispContext, TulispObject,
-    TulispValue,
+    Error, TulispContext, TulispObject, TulispValue, bytecode::Pos, lists,
+    object::wrappers::generic::SharedMut,
 };
 use std::collections::HashMap;
 
@@ -195,9 +195,7 @@ impl Machine {
         // When the top-level form has no value (e.g., a program of
         // only `defun`s), the compiler emits no trailing Push — the
         // stack is empty, not underflowed. Return nil in that case.
-        Ok(self
-            .stack
-            .pop().unwrap_or_else(TulispObject::nil))
+        Ok(self.stack.pop().unwrap_or_else(TulispObject::nil))
     }
 
     /// Invoke a VM-compiled lambda with already-evaluated args. Used by
@@ -599,8 +597,7 @@ impl Machine {
                             // dispatch the inline `Funcall` uses.
                             let args_count = *args_count;
                             let split_at = self.stack.len() - args_count;
-                            let args: Vec<TulispObject> =
-                                self.stack.drain(split_at..).collect();
+                            let args: Vec<TulispObject> = self.stack.drain(split_at..).collect();
                             let name = name.clone();
                             let form = form.clone();
                             drop(instr_ref);
@@ -751,8 +748,7 @@ impl Machine {
                 Instruction::Cons => {
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
-                    self.stack
-                        .push(TulispObject::cons(a, b));
+                    self.stack.push(TulispObject::cons(a, b));
                 }
                 Instruction::List(len) => {
                     let mut list = TulispObject::nil();
@@ -989,8 +985,7 @@ impl Machine {
         let mut current_optional = optional_count;
         let mut current_rest = rest_count;
         loop {
-            let params =
-                self.init_defun_args(&current.params, &current_optional, &current_rest);
+            let params = self.init_defun_args(&current.params, &current_optional, &current_rest);
             let tail = self.run_function(
                 ctx,
                 &current.instructions,
@@ -1189,10 +1184,7 @@ fn rewrite_instruction(
 /// Quick check: does `obj` or any cons-cell descendant reference a
 /// placeholder? Avoids the expensive deep-copy when Push holds plain
 /// literals (numbers, strings, etc.).
-fn ast_contains_placeholder(
-    obj: &TulispObject,
-    mapping: &HashMap<usize, TulispObject>,
-) -> bool {
+fn ast_contains_placeholder(obj: &TulispObject, mapping: &HashMap<usize, TulispObject>) -> bool {
     if mapping.contains_key(&obj.addr_as_usize()) {
         return true;
     }
@@ -1219,10 +1211,7 @@ fn ast_contains_placeholder(
 /// Deep-clone `obj`, substituting any placeholder reference with the
 /// mapped binding. Only descends through cons lists; quoted literals
 /// and other value kinds pass through unchanged.
-fn rewrite_ast(
-    obj: &TulispObject,
-    mapping: &HashMap<usize, TulispObject>,
-) -> TulispObject {
+fn rewrite_ast(obj: &TulispObject, mapping: &HashMap<usize, TulispObject>) -> TulispObject {
     if let Some(replacement) = mapping.get(&obj.addr_as_usize()) {
         return replacement.clone();
     }

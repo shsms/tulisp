@@ -1,6 +1,6 @@
 use crate::{
-    bytecode::{compiler::compiler::compile_expr, instruction::Cxr, Instruction},
     Error, ErrorKind, TulispContext, TulispObject,
+    bytecode::{Instruction, compiler::compiler::compile_expr, instruction::Cxr},
 };
 
 pub(super) fn compile_fn_cxr(

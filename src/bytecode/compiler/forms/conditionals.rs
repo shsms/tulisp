@@ -1,12 +1,12 @@
 use crate::{
+    Error, ErrorKind, TulispContext, TulispObject,
     bytecode::{
+        Instruction, Pos,
         compiler::compiler::{compile_expr, compile_expr_keep_result, compile_progn},
         instruction::Cxr,
-        Instruction, Pos,
     },
     destruct_bind,
     eval::substitute_lexical,
-    Error, ErrorKind, TulispContext, TulispObject,
 };
 
 fn optimize_jump_if_nil(result: &mut Vec<Instruction>, tgt_pos: Pos) -> Instruction {
@@ -226,8 +226,7 @@ pub(super) fn compile_fn_dotimes(
         let mut result = compile_expr_keep_result(ctx, &count)?;
         result.push(Instruction::BeginScope(limit_bind.clone()));
         let counter_sym = ctx.intern(":dotimes-counter");
-        let counter_bind =
-            TulispObject::lexical_binding(ctx.lex_allocator.clone(), counter_sym);
+        let counter_bind = TulispObject::lexical_binding(ctx.lex_allocator.clone(), counter_sym);
         result.push(Instruction::Push(TulispObject::from(0i64)));
         result.push(Instruction::BeginScope(counter_bind.clone()));
 
@@ -257,7 +256,9 @@ pub(super) fn compile_fn_dotimes(
 
         result.push(Instruction::Load(counter_bind.clone()));
         result.push(Instruction::Push(TulispObject::from(1i64)));
-        result.push(Instruction::BinaryOp(crate::bytecode::instruction::BinaryOp::Add));
+        result.push(Instruction::BinaryOp(
+            crate::bytecode::instruction::BinaryOp::Add,
+        ));
         result.push(Instruction::StorePop(counter_bind.clone()));
         result.push(Instruction::Jump(Pos::Label(loop_start)));
         result.push(Instruction::Label(loop_end));

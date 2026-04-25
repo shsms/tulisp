@@ -1,6 +1,6 @@
 use crate::{
-    bytecode::{compiler::compiler::compile_expr, instruction::BinaryOp, Instruction},
     Error, TulispContext, TulispObject,
+    bytecode::{Instruction, compiler::compiler::compile_expr, instruction::BinaryOp},
 };
 
 pub(super) fn compile_fn_plus(

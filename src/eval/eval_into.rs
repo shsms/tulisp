@@ -74,9 +74,9 @@ impl EvalInto<bool> for TulispObject {
                 }
                 sym.get_as_bool().map_err(|e| e.with_trace(self.clone()))
             }
-            TulispValue::LexicalBinding { binding } => {
-                binding.get_as_bool().map_err(|e| e.with_trace(self.clone()))
-            }
+            TulispValue::LexicalBinding { binding } => binding
+                .get_as_bool()
+                .map_err(|e| e.with_trace(self.clone())),
             TulispValue::List { .. } => Ok(eval_form::<Eval>(ctx, self)
                 .map_err(|e| e.with_trace(self.clone()))?
                 .is_truthy()),

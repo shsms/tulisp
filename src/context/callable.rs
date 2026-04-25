@@ -574,11 +574,19 @@ mod plist_args {
     {
         #[track_caller]
         fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
-            ctx.define_typed_defun(name, crate::value::DefunArity { required: 0, optional: 0, has_rest: true }, move |ctx, args| {
-                let obj = build_plist_obj(args)?;
-                let res = (self)(Plist::new(ctx, &obj)?);
-                Ok(crate::TulispConvertible::into_tulisp(res))
-            });
+            ctx.define_typed_defun(
+                name,
+                crate::value::DefunArity {
+                    required: 0,
+                    optional: 0,
+                    has_rest: true,
+                },
+                move |ctx, args| {
+                    let obj = build_plist_obj(args)?;
+                    let res = (self)(Plist::new(ctx, &obj)?);
+                    Ok(crate::TulispConvertible::into_tulisp(res))
+                },
+            );
         }
     }
     #[allow(nonstandard_style)]
@@ -589,11 +597,19 @@ mod plist_args {
     {
         #[track_caller]
         fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
-            ctx.define_typed_defun(name, crate::value::DefunArity { required: 0, optional: 0, has_rest: true }, move |ctx, args| {
-                let obj = build_plist_obj(args)?;
-                (self)(Plist::new(ctx, &obj)?);
-                Ok(TulispObject::nil())
-            });
+            ctx.define_typed_defun(
+                name,
+                crate::value::DefunArity {
+                    required: 0,
+                    optional: 0,
+                    has_rest: true,
+                },
+                move |ctx, args| {
+                    let obj = build_plist_obj(args)?;
+                    (self)(Plist::new(ctx, &obj)?);
+                    Ok(TulispObject::nil())
+                },
+            );
         }
     }
     #[allow(nonstandard_style)]
@@ -606,12 +622,20 @@ mod plist_args {
     {
         #[track_caller]
         fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
-            ctx.define_typed_defun(name, crate::value::DefunArity { required: 0, optional: 0, has_rest: true }, move |ctx, args| {
-                let obj = build_plist_obj(args)?;
-                let plist = Plist::new(ctx, &obj)?;
-                let res = (self)(ctx, plist);
-                Ok(crate::TulispConvertible::into_tulisp(res))
-            });
+            ctx.define_typed_defun(
+                name,
+                crate::value::DefunArity {
+                    required: 0,
+                    optional: 0,
+                    has_rest: true,
+                },
+                move |ctx, args| {
+                    let obj = build_plist_obj(args)?;
+                    let plist = Plist::new(ctx, &obj)?;
+                    let res = (self)(ctx, plist);
+                    Ok(crate::TulispConvertible::into_tulisp(res))
+                },
+            );
         }
     }
     #[allow(nonstandard_style)]
@@ -622,12 +646,20 @@ mod plist_args {
     {
         #[track_caller]
         fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
-            ctx.define_typed_defun(name, crate::value::DefunArity { required: 0, optional: 0, has_rest: true }, move |ctx, args| {
-                let obj = build_plist_obj(args)?;
-                let plist = Plist::new(ctx, &obj)?;
-                (self)(ctx, plist);
-                Ok(TulispObject::nil())
-            });
+            ctx.define_typed_defun(
+                name,
+                crate::value::DefunArity {
+                    required: 0,
+                    optional: 0,
+                    has_rest: true,
+                },
+                move |ctx, args| {
+                    let obj = build_plist_obj(args)?;
+                    let plist = Plist::new(ctx, &obj)?;
+                    (self)(ctx, plist);
+                    Ok(TulispObject::nil())
+                },
+            );
         }
     }
     #[allow(nonstandard_style)]
@@ -640,12 +672,20 @@ mod plist_args {
     {
         #[track_caller]
         fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
-            ctx.define_typed_defun(name, crate::value::DefunArity { required: 0, optional: 0, has_rest: true }, move |ctx, args| {
-                let obj = build_plist_obj(args)?;
-                let plist = Plist::new(ctx, &obj)?;
-                let res = (self)(plist);
-                res.map(|x| x.into_tulisp())
-            });
+            ctx.define_typed_defun(
+                name,
+                crate::value::DefunArity {
+                    required: 0,
+                    optional: 0,
+                    has_rest: true,
+                },
+                move |ctx, args| {
+                    let obj = build_plist_obj(args)?;
+                    let plist = Plist::new(ctx, &obj)?;
+                    let res = (self)(plist);
+                    res.map(|x| x.into_tulisp())
+                },
+            );
         }
     }
     #[allow(nonstandard_style)]
@@ -657,12 +697,20 @@ mod plist_args {
     {
         #[track_caller]
         fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
-            ctx.define_typed_defun(name, crate::value::DefunArity { required: 0, optional: 0, has_rest: true }, move |ctx, args| {
-                let obj = build_plist_obj(args)?;
-                let plist = Plist::new(ctx, &obj)?;
-                let res = (self)(ctx, plist);
-                res.map(|x| x.into_tulisp())
-            });
+            ctx.define_typed_defun(
+                name,
+                crate::value::DefunArity {
+                    required: 0,
+                    optional: 0,
+                    has_rest: true,
+                },
+                move |ctx, args| {
+                    let obj = build_plist_obj(args)?;
+                    let plist = Plist::new(ctx, &obj)?;
+                    let res = (self)(ctx, plist);
+                    res.map(|x| x.into_tulisp())
+                },
+            );
         }
     }
 }

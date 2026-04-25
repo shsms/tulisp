@@ -1,6 +1,6 @@
 use crate::{
-    bytecode::{compiler::compiler::compile_expr, Instruction},
     Error, TulispContext, TulispObject,
+    bytecode::{Instruction, compiler::compiler::compile_expr},
 };
 
 pub(super) fn compile_fn_plist_get(

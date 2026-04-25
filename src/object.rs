@@ -421,7 +421,6 @@ impl TulispObject {
         }
     }
 
-
     pub(crate) fn set_global(&self, to_set: TulispObject) -> Result<(), Error> {
         self.rc.borrow_mut().0.set_global(to_set)
     }

@@ -16,9 +16,7 @@ impl<T> TulispFn for T where
 /// dispatch), so the closure never re-enters `ctx.eval` and cannot
 /// re-borrow `ctx.vm` mid-run.
 pub trait DefunFn:
-    Fn(&mut TulispContext, &[TulispObject]) -> Result<TulispObject, Error>
-    + generic::SyncSend
-    + 'static
+    Fn(&mut TulispContext, &[TulispObject]) -> Result<TulispObject, Error> + generic::SyncSend + 'static
 {
 }
 impl<T> DefunFn for T where

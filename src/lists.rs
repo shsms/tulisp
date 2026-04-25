@@ -186,9 +186,7 @@ mod tests {
             (c.clone(), 40.into()),
         ]);
         assert!(alist_get(&mut ctx, &b, &list, None, None, None)?.equal(&30.into()));
-        assert!(
-            alist_get(&mut ctx, &d, &list, None, None, None)?.null()
-        );
+        assert!(alist_get(&mut ctx, &d, &list, None, None, None)?.null());
         Ok(())
     }
 

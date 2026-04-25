@@ -30,8 +30,8 @@ pub use value::debug_lex_stacks_total;
 
 mod object;
 pub use {
-    object::TulispObject, object::conversions::TulispConvertible, object::wrappers::generic::Shared,
-    object::wrappers::generic::SharedMut,
+    object::TulispObject, object::conversions::TulispConvertible,
+    object::wrappers::generic::Shared, object::wrappers::generic::SharedMut,
 };
 
 #[cfg(test)]
@@ -117,13 +117,7 @@ mod test_utils {
     pub(crate) fn eval_assert_not(ctx: &mut crate::TulispContext, a: &str) {
         for kind in [EvalKind::Tw, EvalKind::Vm] {
             let av = must_eval_string(ctx, kind, a);
-            assert!(
-                av.null(),
-                "[{}] {}(=> {}) is not nil",
-                kind.name(),
-                a,
-                av
-            );
+            assert!(av.null(), "[{}] {}(=> {}) is not nil", kind.name(), a, av);
         }
     }
 

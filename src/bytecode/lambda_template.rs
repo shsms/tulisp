@@ -1,5 +1,5 @@
 use super::{Instruction, bytecode::TraceRange};
-use crate::{bytecode::compiler::VMDefunParams, TulispObject};
+use crate::{TulispObject, bytecode::compiler::VMDefunParams};
 
 /// Eagerly-compiled form of a `(lambda …)` body. The body is compiled
 /// once at VM-compile time using *placeholder* LexicalBindings for

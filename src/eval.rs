@@ -235,7 +235,7 @@ pub(crate) fn funcall<E: Evaluator>(
             // `Machine::run_lambda` instead of returning to the TW.
             let evaluated = eval_args_for_vm::<E>(ctx, &value.params, args)?;
             let vm = ctx.vm.clone();
-            
+
             vm.borrow_mut().run_lambda(ctx, value, &evaluated)
         }
         TulispValue::Macro(_) | TulispValue::Defmacro { .. } => {
@@ -591,7 +591,12 @@ fn substitute_binding_form(
             if !cur.null() {
                 builder.append(substitute_lexical_inner(cur, mappings, quote_depth)?)?;
             }
-            Ok(Some(builder.build().with_span(body_span).with_ctxobj(body_ctxobj)))
+            Ok(Some(
+                builder
+                    .build()
+                    .with_span(body_span)
+                    .with_ctxobj(body_ctxobj),
+            ))
         }
         // (dolist (var list-expr [result-expr]) BODY...)
         // (dotimes (var count-expr [result-expr]) BODY...)
@@ -620,7 +625,12 @@ fn substitute_binding_form(
             if !cur.null() {
                 builder.append(substitute_lexical_inner(cur, mappings, quote_depth)?)?;
             }
-            Ok(Some(builder.build().with_span(body_span).with_ctxobj(body_ctxobj)))
+            Ok(Some(
+                builder
+                    .build()
+                    .with_span(body_span)
+                    .with_ctxobj(body_ctxobj),
+            ))
         }
         _ => Ok(None),
     }

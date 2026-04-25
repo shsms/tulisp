@@ -1453,9 +1453,7 @@ fn test_plist_defun_callable_from_vm_run() -> Result<(), Error> {
     // Also exercise the inverse path: TW-eval the call to make sure
     // the typed-arg path also works through `eval::funcall`'s
     // `Defun` arm.
-    let tw_result = ctx.eval_string(
-        r#"(cfg-summary :x 1 :y 2 :tag "tw" :xs '(4 5 6))"#,
-    )?;
+    let tw_result = ctx.eval_string(r#"(cfg-summary :x 1 :y 2 :tag "tw" :xs '(4 5 6))"#)?;
     assert_eq!(tw_result.as_string()?, "tw=3(3 sum=15)");
 
     Ok(())

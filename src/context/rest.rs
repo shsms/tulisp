@@ -1,4 +1,4 @@
-use crate::{cons, TulispConvertible, TulispObject};
+use crate::{TulispConvertible, TulispObject, cons};
 
 /// A variadic tail argument in a [`defun`](crate::TulispContext::defun) function.
 ///

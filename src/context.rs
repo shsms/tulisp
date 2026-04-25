@@ -19,7 +19,10 @@ use crate::{
     error::Error,
     eval::{DummyEval, eval_basic, funcall},
     list,
-    object::wrappers::{DefunFn, TulispFn, generic::{Shared, SharedMut}},
+    object::wrappers::{
+        DefunFn, TulispFn,
+        generic::{Shared, SharedMut},
+    },
     parse::parse,
     value::LexAllocator,
 };
@@ -592,11 +595,7 @@ impl TulispContext {
     /// dedicated file id so any error trace from inside those defuns
     /// cites the given `filename` instead of the shared
     /// `<eval_string>` bucket.
-    fn vm_eval_prelude(
-        &mut self,
-        filename: &str,
-        program: &str,
-    ) -> Result<TulispObject, Error> {
+    fn vm_eval_prelude(&mut self, filename: &str, program: &str) -> Result<TulispObject, Error> {
         let file_id = self
             .filenames
             .iter()
@@ -618,7 +617,6 @@ impl TulispContext {
         drop(vm);
         res
     }
-
 
     pub(crate) fn get_filename(&self, file_id: usize) -> String {
         // Spans can cross context boundaries (e.g. a lambda parsed in the

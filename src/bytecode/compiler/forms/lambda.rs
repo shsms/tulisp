@@ -1,15 +1,15 @@
 use crate::{
+    Error, ErrorKind, TulispContext, TulispObject,
     bytecode::{
+        Instruction, LambdaTemplate,
         compiler::{
+            VMDefunParams,
             compiler::{compile_expr_keep_result, compile_progn_keep_result},
             free_vars::classify_free_vars,
-            VMDefunParams,
         },
-        Instruction, LambdaTemplate,
     },
     eval::substitute_lexical,
     object::wrappers::generic::Shared,
-    Error, ErrorKind, TulispContext, TulispObject,
 };
 
 /// VM compiler for `(lambda (params…) body…)` forms.
@@ -65,11 +65,10 @@ pub(super) fn compile_fn_lambda(
             }
             if p.eq(&ctx.keywords.amp_rest) {
                 if seen_rest {
-                    return Err(Error::new(
-                        ErrorKind::Undefined,
-                        "rest after rest".to_string(),
-                    )
-                    .with_trace(p));
+                    return Err(
+                        Error::new(ErrorKind::Undefined, "rest after rest".to_string())
+                            .with_trace(p),
+                    );
                 }
                 seen_rest = true;
                 continue;
@@ -124,8 +123,7 @@ pub(super) fn compile_fn_lambda(
             }
         }
 
-        let mut free_vars: Vec<(TulispObject, TulispObject)> =
-            Vec::with_capacity(free.len());
+        let mut free_vars: Vec<(TulispObject, TulispObject)> = Vec::with_capacity(free.len());
         for orig in free {
             // The placeholder is an identity token rewritten at phase
             // 2 — its `symbol` field is not used for slot lookup.
@@ -159,9 +157,7 @@ pub(super) fn compile_fn_lambda(
         // scopes from whatever surrounding code is being compiled.
         // Stash and clear `active_let_scopes` for the body compile,
         // then restore it.
-        let prev_scopes = std::mem::take(
-            &mut ctx.compiler.as_mut().unwrap().active_let_scopes,
-        );
+        let prev_scopes = std::mem::take(&mut ctx.compiler.as_mut().unwrap().active_let_scopes);
 
         // Compile the substituted body with `keep_result` so the last
         // form leaves its value on the stack; `Ret` returns it.

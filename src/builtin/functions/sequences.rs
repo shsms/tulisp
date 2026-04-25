@@ -6,9 +6,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     });
 
     ctx.defun("reverse", |list: TulispObject| {
-        Ok(list
-            .base_iter()
-            .fold(TulispObject::nil(), |acc, item| TulispObject::cons(item, acc)))
+        Ok(list.base_iter().fold(TulispObject::nil(), |acc, item| {
+            TulispObject::cons(item, acc)
+        }))
     });
 
     ctx.defun(
@@ -104,7 +104,6 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         }
         Ok(TulispObject::nil())
     });
-
 }
 
 #[cfg(test)]
@@ -183,11 +182,7 @@ mod tests {
     #[test]
     fn test_member() {
         let ctx = &mut TulispContext::new();
-        eval_assert_equal(
-            ctx,
-            r#"(member "b" '("a" "b" "c"))"#,
-            r#"'("b" "c")"#,
-        );
+        eval_assert_equal(ctx, r#"(member "b" '("a" "b" "c"))"#, r#"'("b" "c")"#);
         eval_assert_equal(ctx, r#"(member "z" '("a" "b"))"#, "nil");
     }
 

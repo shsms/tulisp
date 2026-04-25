@@ -77,10 +77,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     // Formatting spec defined here:
     // https://www.gnu.org/software/emacs/manual/html_node/elisp/Time-Parsing.html#index-format_002dseconds
-    fn format_seconds(
-        fmt_string: String,
-        seconds: TulispObject,
-    ) -> Result<String, Error> {
+    fn format_seconds(fmt_string: String, seconds: TulispObject) -> Result<String, Error> {
         let (ticks, hz) = ticks_hz_from_obj(&seconds)?;
         let duration = Duration::new(
             (ticks / hz) as u64,

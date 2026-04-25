@@ -1,6 +1,6 @@
 use crate::{
-    bytecode::{compiler::compiler::compile_expr, Instruction, Pos},
     Error, TulispContext, TulispObject,
+    bytecode::{Instruction, Pos, compiler::compiler::compile_expr},
 };
 
 fn compile_fn_compare(

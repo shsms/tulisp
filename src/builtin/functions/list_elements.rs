@@ -13,7 +13,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     ctx.defun(
         "last",
-        |list: TulispObject, n: Option<i64>| -> Result<TulispObject, Error> { lists::last(&list, n) },
+        |list: TulispObject, n: Option<i64>| -> Result<TulispObject, Error> {
+            lists::last(&list, n)
+        },
     );
 
     macro_rules! impl_all_cxr {

@@ -1,6 +1,6 @@
 use crate::{
-    object::wrappers::{generic::Shared, DefunFn, TulispFn},
     TulispObject,
+    object::wrappers::{DefunFn, TulispFn, generic::Shared},
 };
 
 use super::bytecode::CompiledDefun;
@@ -160,7 +160,9 @@ pub(crate) enum Instruction {
     /// the top of stack is the last arg, `args_count + 1` below it is
     /// the function). Used to keep nested calls inside a VM run from
     /// re-entering `eval::funcall` (which would re-borrow `ctx.vm`).
-    Funcall { args_count: usize },
+    Funcall {
+        args_count: usize,
+    },
     Ret,
     /// Push `form` onto the machine's `trace_stack`. Errors that
     /// propagate out of any subsequent instruction (until a matching

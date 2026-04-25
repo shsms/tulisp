@@ -1,4 +1,4 @@
-use crate::{destruct_bind, Error, TulispObject, TulispValue};
+use crate::{Error, TulispObject, TulispValue, destruct_bind};
 
 /// Classify symbol references in a lambda body.
 ///
@@ -24,9 +24,7 @@ pub(crate) fn classify_free_vars(
 }
 
 fn is_bound(scopes: &[Vec<TulispObject>], sym: &TulispObject) -> bool {
-    scopes
-        .iter()
-        .any(|scope| scope.iter().any(|b| b.eq(sym)))
+    scopes.iter().any(|scope| scope.iter().any(|b| b.eq(sym)))
 }
 
 fn note_free(free: &mut Vec<TulispObject>, sym: TulispObject) {
@@ -89,16 +87,17 @@ fn visit(
     // Special scoping forms we need to understand.
     if quote_depth == 0
         && let Ok(car) = obj.car()
-            && let Ok(name) = car.as_symbol() {
-                match name.as_str() {
-                    "let" | "let*" => return visit_let(obj, free, scopes, quote_depth),
-                    "lambda" => return visit_lambda(obj, free, scopes, quote_depth),
-                    "dolist" | "dotimes" => {
-                        return visit_dolist_dotimes(obj, free, scopes, quote_depth);
-                    }
-                    _ => {}
-                }
+        && let Ok(name) = car.as_symbol()
+    {
+        match name.as_str() {
+            "let" | "let*" => return visit_let(obj, free, scopes, quote_depth),
+            "lambda" => return visit_lambda(obj, free, scopes, quote_depth),
+            "dolist" | "dotimes" => {
+                return visit_dolist_dotimes(obj, free, scopes, quote_depth);
             }
+            _ => {}
+        }
+    }
 
     // Generic list: walk each element.
     for item in obj.base_iter() {

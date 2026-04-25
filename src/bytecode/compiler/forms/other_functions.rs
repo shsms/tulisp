@@ -1,19 +1,19 @@
 use crate::{
+    Error, ErrorKind, TulispContext, TulispObject,
     bytecode::{
+        Instruction, Pos,
         bytecode::CompiledDefun,
         compiler::{
+            VMDefunParams,
             compiler::{
                 compile_expr, compile_expr_keep_result, compile_progn, compile_progn_keep_result,
             },
-            VMDefunParams,
         },
-        Instruction, Pos,
     },
     eval::substitute_lexical,
     list,
     object::wrappers::generic::SharedMut,
     parse::mark_tail_calls,
-    Error, ErrorKind, TulispContext, TulispObject,
 };
 
 pub(super) fn compile_fn_print(
@@ -109,10 +109,7 @@ fn compile_fn_defun_bounce_call(
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
     let compiler = ctx.compiler.as_mut().unwrap();
-    let is_self = compiler
-        .current_defun
-        .as_ref()
-        .is_some_and(|n| n.eq(name));
+    let is_self = compiler.current_defun.as_ref().is_some_and(|n| n.eq(name));
 
     if !is_self {
         let mut result = vec![];
@@ -144,9 +141,7 @@ fn compile_fn_defun_bounce_call(
                 ))
                 .with_trace(args.clone()));
             }
-            if params.rest.is_none()
-                && args_count > params.required.len() + params.optional.len()
-            {
+            if params.rest.is_none() && args_count > params.required.len() + params.optional.len() {
                 return Err(Error::arity_mismatch(format!(
                     "tail call to {}: too many arguments. expected: {} got: {}",
                     name,
@@ -330,8 +325,7 @@ pub(super) fn compile_fn_defun(
                 is_optional = false;
                 is_rest = true;
             } else {
-                let lex =
-                    TulispObject::lexical_binding(ctx.lex_allocator.clone(), arg.clone());
+                let lex = TulispObject::lexical_binding(ctx.lex_allocator.clone(), arg.clone());
                 mappings.push((arg.clone(), lex.clone()));
                 if is_optional {
                     defun_params.optional.push(lex);

@@ -1,4 +1,4 @@
-use crate::{bytecode::Instruction, Error, TulispContext, TulispObject, TulispValue};
+use crate::{Error, TulispContext, TulispObject, TulispValue, bytecode::Instruction};
 
 impl TulispContext {
     pub(crate) fn compile_1_arg_call(

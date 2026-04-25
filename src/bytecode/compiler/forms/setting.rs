@@ -1,11 +1,11 @@
 use crate::{
+    Error, ErrorKind, TulispContext, TulispObject,
     bytecode::{
-        compiler::compiler::{compile_expr_keep_result, compile_progn},
         Instruction,
+        compiler::compiler::{compile_expr_keep_result, compile_progn},
     },
     destruct_bind,
     eval::substitute_lexical,
-    Error, ErrorKind, TulispContext, TulispObject,
 };
 
 pub(super) fn compile_fn_setq(

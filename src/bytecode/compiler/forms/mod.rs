@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    bytecode::Instruction, eval::macroexpand, Error, TulispContext, TulispObject, TulispValue,
+    Error, TulispContext, TulispObject, TulispValue, bytecode::Instruction, eval::macroexpand,
 };
 
 use super::compiler::compile_expr;
@@ -168,16 +168,16 @@ pub(super) fn compile_form(
                 // counts here would only differ from the runtime
                 // path's wording.
                 if args_count < arity.required {
-                    return Err(crate::Error::missing_argument(
-                        "Too few arguments".to_string(),
-                    )
-                    .with_trace(form.clone()));
+                    return Err(
+                        crate::Error::missing_argument("Too few arguments".to_string())
+                            .with_trace(form.clone()),
+                    );
                 }
                 if !arity.has_rest && args_count > arity.required + arity.optional {
-                    return Err(crate::Error::invalid_argument(
-                        "Too many arguments".to_string(),
-                    )
-                    .with_trace(form.clone()));
+                    return Err(
+                        crate::Error::invalid_argument("Too many arguments".to_string())
+                            .with_trace(form.clone()),
+                    );
                 }
                 let keep_result = ctx.compiler.as_ref().unwrap().keep_result;
                 result.push(Instruction::RustCallTyped {

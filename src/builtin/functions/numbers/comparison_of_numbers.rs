@@ -19,26 +19,30 @@ where
 }
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    ctx.defun("=", |args: Rest<Number>| compare_pairwise(args, PartialEq::eq));
-    ctx.defun(">", |args: Rest<Number>| compare_pairwise(args, PartialOrd::gt));
-    ctx.defun(">=", |args: Rest<Number>| compare_pairwise(args, PartialOrd::ge));
-    ctx.defun("<", |args: Rest<Number>| compare_pairwise(args, PartialOrd::lt));
-    ctx.defun("<=", |args: Rest<Number>| compare_pairwise(args, PartialOrd::le));
+    ctx.defun("=", |args: Rest<Number>| {
+        compare_pairwise(args, PartialEq::eq)
+    });
+    ctx.defun(">", |args: Rest<Number>| {
+        compare_pairwise(args, PartialOrd::gt)
+    });
+    ctx.defun(">=", |args: Rest<Number>| {
+        compare_pairwise(args, PartialOrd::ge)
+    });
+    ctx.defun("<", |args: Rest<Number>| {
+        compare_pairwise(args, PartialOrd::lt)
+    });
+    ctx.defun("<=", |args: Rest<Number>| {
+        compare_pairwise(args, PartialOrd::le)
+    });
 
-    ctx.defun(
-        "max",
-        |first: Number, rest: Rest<Number>| -> Number {
-            rest.into_iter()
-                .fold(first, |acc, n| if n > acc { n } else { acc })
-        },
-    );
-    ctx.defun(
-        "min",
-        |first: Number, rest: Rest<Number>| -> Number {
-            rest.into_iter()
-                .fold(first, |acc, n| if n < acc { n } else { acc })
-        },
-    );
+    ctx.defun("max", |first: Number, rest: Rest<Number>| -> Number {
+        rest.into_iter()
+            .fold(first, |acc, n| if n > acc { n } else { acc })
+    });
+    ctx.defun("min", |first: Number, rest: Rest<Number>| -> Number {
+        rest.into_iter()
+            .fold(first, |acc, n| if n < acc { n } else { acc })
+    });
 
     ctx.defun("abs", |n: f64| -> f64 { n.abs() });
 }
