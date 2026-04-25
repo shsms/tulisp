@@ -235,8 +235,8 @@ pub(crate) fn funcall<E: Evaluator>(
             // `Machine::run_lambda` instead of returning to the TW.
             let evaluated = eval_args_for_vm::<E>(ctx, &value.params, args)?;
             let vm = ctx.vm.clone();
-            let result = vm.borrow_mut().run_lambda(ctx, value, &evaluated);
-            result
+            
+            vm.borrow_mut().run_lambda(ctx, value, &evaluated)
         }
         TulispValue::Macro(_) | TulispValue::Defmacro { .. } => {
             let expanded = macroexpand(ctx, list!(func.clone() ,@args.clone())?)?;

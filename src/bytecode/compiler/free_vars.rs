@@ -87,9 +87,9 @@ fn visit(
     }
 
     // Special scoping forms we need to understand.
-    if quote_depth == 0 {
-        if let Ok(car) = obj.car() {
-            if let Ok(name) = car.as_symbol() {
+    if quote_depth == 0
+        && let Ok(car) = obj.car()
+            && let Ok(name) = car.as_symbol() {
                 match name.as_str() {
                     "let" | "let*" => return visit_let(obj, free, scopes, quote_depth),
                     "lambda" => return visit_lambda(obj, free, scopes, quote_depth),
@@ -99,8 +99,6 @@ fn visit(
                     _ => {}
                 }
             }
-        }
-    }
 
     // Generic list: walk each element.
     for item in obj.base_iter() {

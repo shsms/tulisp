@@ -318,7 +318,7 @@ pub(super) fn compile_fn_and(
         if keep_result {
             result.pop();
         }
-        result.push(Instruction::Label(label.into()));
+        result.push(Instruction::Label(label));
     }
     Ok(result)
 }
@@ -349,7 +349,7 @@ pub(super) fn compile_fn_or(
         if keep_result {
             result.push(Instruction::Push(false.into()))
         }
-        result.push(Instruction::Label(label.into()));
+        result.push(Instruction::Label(label));
     }
     Ok(result)
 }

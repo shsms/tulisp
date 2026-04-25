@@ -241,7 +241,7 @@ mod tests {
 
         let program = "(eq (setq a 'w) 'w)";
         let bytecode = ctx.compile_string(program, false).unwrap();
-        println!("{}", bytecode.to_string());
+        println!("{}", bytecode);
         assert_eq!(
             bytecode.to_string(),
             r#"

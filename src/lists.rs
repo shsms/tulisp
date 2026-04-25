@@ -186,9 +186,8 @@ mod tests {
             (c.clone(), 40.into()),
         ]);
         assert!(alist_get(&mut ctx, &b, &list, None, None, None)?.equal(&30.into()));
-        assert_eq!(
-            alist_get(&mut ctx, &d, &list, None, None, None)?.null(),
-            true
+        assert!(
+            alist_get(&mut ctx, &d, &list, None, None, None)?.null()
         );
         Ok(())
     }
@@ -206,7 +205,7 @@ mod tests {
             (c.clone(), 40.into()),
         ]);
         assert!(plist_get(&list, &b)?.equal(&30.into()));
-        assert_eq!(plist_get(&list, &d)?.null(), true);
+        assert!(plist_get(&list, &d)?.null());
         Ok(())
     }
 }

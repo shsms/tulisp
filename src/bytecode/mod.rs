@@ -1,3 +1,4 @@
+#[allow(clippy::module_inception)]
 mod bytecode;
 pub(crate) use bytecode::{Bytecode, CompiledDefun};
 

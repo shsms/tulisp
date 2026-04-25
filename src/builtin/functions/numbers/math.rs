@@ -55,7 +55,7 @@ mod tests {
         eval_assert_equal(ctx, "(expt 0 2)", "0.0");
         eval_assert_equal(ctx, "(expt 0 0)", "1.0");
         assert_eq!(
-            ctx.eval_string("(expt 0 -2)").unwrap_err().format(&ctx),
+            ctx.eval_string("(expt 0 -2)").unwrap_err().format(ctx),
             r#"ERR OutOfRange: expt: cannot compute with base 0 and negative exponent
 <eval_string>:1.1-1.11:  at (expt 0 -2)
 "#

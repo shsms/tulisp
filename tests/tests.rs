@@ -2405,7 +2405,7 @@ fn test_owned_method() -> Result<(), Error> {
 
 #[test]
 fn test_from_iter() -> Result<(), Error> {
-    let obj: TulispObject = (1..10).into_iter().map(|x| (x * 2).into()).collect();
+    let obj: TulispObject = (1..10).map(|x| (x * 2).into()).collect();
     assert_eq!(obj.to_string(), "(2 4 6 8 10 12 14 16 18)");
     Ok(())
 }
@@ -2481,7 +2481,7 @@ fn test_any() -> Result<(), Error> {
         if maybe_num.null() {
             return Ok(value);
         }
-        return Ok(value + i64::try_from(maybe_num)?);
+        Ok(value + i64::try_from(maybe_num)?)
     });
 
     tulisp_assert! {

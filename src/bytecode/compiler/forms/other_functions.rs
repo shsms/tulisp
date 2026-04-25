@@ -40,9 +40,9 @@ pub(super) fn compile_fn_quote(
     ctx.compile_1_arg_call(name, args, false, |ctx, arg, _| {
         let compiler = ctx.compiler.as_mut().unwrap();
         if compiler.keep_result {
-            return Ok(vec![Instruction::Push(arg.clone().into())]);
+            Ok(vec![Instruction::Push(arg.clone())])
         } else {
-            return Ok(vec![]);
+            Ok(vec![])
         }
     })
 }
@@ -238,7 +238,7 @@ fn compile_fn_defun_bounce_call(
     // depths.
     push_active_scope_endscopes(ctx, &mut result);
     result.push(Instruction::Jump(Pos::Abs(0)));
-    return Ok(result);
+    Ok(result)
 }
 
 /// Emit `EndScope` instructions for every active `let` / `let*`
@@ -406,7 +406,7 @@ pub(super) fn compile_fn_progn(
     _name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    Ok(compile_progn(ctx, args)?)
+    compile_progn(ctx, args)
 }
 
 pub(super) fn compile_fn_load_file(
@@ -415,7 +415,7 @@ pub(super) fn compile_fn_load_file(
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
     ctx.compile_1_arg_call(_name, args, true, |ctx, arg, _| {
-        let mut result = compile_expr_keep_result(ctx, &arg)?;
+        let mut result = compile_expr_keep_result(ctx, arg)?;
         result.push(Instruction::LoadFile);
         Ok(result)
     })

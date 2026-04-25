@@ -145,7 +145,7 @@ impl Machine {
                 labels.insert(name.addr_as_usize(), i + 1);
             }
         }
-        for (_, func) in &bytecode.functions {
+        for func in bytecode.functions.values() {
             for (i, instr) in func.instructions.borrow().iter().enumerate() {
                 if let Instruction::Label(name) = instr {
                     labels.insert(name.addr_as_usize(), i + 1);
@@ -197,9 +197,7 @@ impl Machine {
         // stack is empty, not underflowed. Return nil in that case.
         Ok(self
             .stack
-            .pop()
-            .map(Into::into)
-            .unwrap_or_else(TulispObject::nil))
+            .pop().unwrap_or_else(TulispObject::nil))
     }
 
     /// Invoke a VM-compiled lambda with already-evaluated args. Used by
@@ -378,7 +376,7 @@ impl Machine {
                     drop(instr_ref);
                     let result = vm_eval_file_inline(ctx, self, full_path)?;
                     instr_ref = program.borrow_mut();
-                    self.stack.push(result.into());
+                    self.stack.push(result);
                 }
                 Instruction::PrintPop => {
                     let a = self.stack.pop().unwrap();
@@ -429,7 +427,7 @@ impl Machine {
                     let [ref b, ref a] = self.stack[minus2..] else {
                         unreachable!()
                     };
-                    let cmp = !a.eq(&b);
+                    let cmp = !a.eq(b);
                     self.stack.truncate(minus2);
                     if cmp {
                         jump_to_pos!(self, pc, pos);
@@ -538,19 +536,19 @@ impl Machine {
                 }
                 Instruction::StorePop(obj) => {
                     let a = self.stack.pop().unwrap();
-                    obj.set(a.into()).unwrap();
+                    obj.set(a).unwrap();
                 }
                 Instruction::Store(obj) => {
                     let a = self.stack.last().unwrap();
-                    obj.set(a.clone().into()).unwrap();
+                    obj.set(a.clone()).unwrap();
                 }
                 Instruction::Load(obj) => {
                     let a = obj.get().map_err(|e| e.with_trace(obj.clone()))?;
-                    self.stack.push(a.into());
+                    self.stack.push(a);
                 }
                 Instruction::BeginScope(obj) => {
                     let a = self.stack.last().unwrap();
-                    obj.set_scope(a.clone().into()).unwrap();
+                    obj.set_scope(a.clone()).unwrap();
                     self.stack.truncate(self.stack.len() - 1);
                 }
                 Instruction::EndScope(obj) => {
@@ -754,25 +752,25 @@ impl Machine {
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
                     self.stack
-                        .push(TulispObject::cons(a.into(), b.into()).into());
+                        .push(TulispObject::cons(a, b));
                 }
                 Instruction::List(len) => {
                     let mut list = TulispObject::nil();
                     for _ in 0..*len {
                         let a = self.stack.pop().unwrap();
-                        list = TulispObject::cons(a.into(), list);
+                        list = TulispObject::cons(a, list);
                     }
-                    self.stack.push(list.into());
+                    self.stack.push(list);
                 }
                 Instruction::Append(len) => {
                     // Emacs `append`: copy every arg except the last;
                     // share the last arg's cells with the result.
                     let mut iter = self.stack.drain(self.stack.len() - *len..);
                     let result = if let Some(last) = iter.next_back() {
-                        let last: TulispObject = last.into();
+                        let last: TulispObject = last;
                         let mut builder = crate::cons::ListBuilder::new();
                         for arg in iter.by_ref() {
-                            let arg: TulispObject = arg.into();
+                            let arg: TulispObject = arg;
                             if !arg.listp() {
                                 return Err(Error::type_mismatch(format!(
                                     "append: expected list, got: {arg}"
@@ -787,10 +785,10 @@ impl Machine {
                         TulispObject::nil()
                     };
                     drop(iter);
-                    self.stack.push(result.into());
+                    self.stack.push(result);
                 }
                 Instruction::Cxr(cxr) => {
-                    let a: TulispObject = self.stack.pop().unwrap().into();
+                    let a: TulispObject = self.stack.pop().unwrap();
 
                     self.stack.push({
                         use crate::bytecode::instruction::Cxr::*;
@@ -921,9 +919,7 @@ impl Machine {
         // resolves to its bound function; a list such as `(lambda …)`
         // passed as-is (from `(funcall '(lambda …) …)`) needs the
         // inner form executed to become a Lambda value.
-        let resolved = if func.symbolp() && !func.keywordp() {
-            ctx.eval(func)?
-        } else if func.consp() {
+        let resolved = if (func.symbolp() && !func.keywordp()) || func.consp() {
             ctx.eval(func)?
         } else {
             func.clone()
@@ -1171,7 +1167,7 @@ fn rewrite_instruction(
         | Instruction::StorePop(o)
         | Instruction::BeginScope(o)
         | Instruction::EndScope(o) => rewrite(o),
-        Instruction::Push(o) => {
+        Instruction::Push(o)
             // `Push` can carry an AST subtree — notably the args list
             // of a `RustCall`-dispatched defun call — that may contain
             // placeholder LexicalBinding references inside cons cells.
@@ -1179,10 +1175,9 @@ fn rewrite_instruction(
             // placeholders substituted; the original AST is shared
             // across all closures from this template, so we must not
             // mutate in place.
-            if ast_contains_placeholder(o, mapping) {
+            if ast_contains_placeholder(o, mapping) => {
                 *o = rewrite_ast(o, mapping);
             }
-        }
         Instruction::MakeLambda(template) => {
             let rebuilt = rewrite_template(template, mapping);
             *template = crate::object::wrappers::generic::Shared::new_sized(rebuilt);

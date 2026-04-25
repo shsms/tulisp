@@ -816,7 +816,7 @@ mod tests {
                 }
                 let joined = query_params.into_iter().collect::<Vec<_>>().join("&");
                 if !joined.is_empty() {
-                    url.push_str("?");
+                    url.push('?');
                     url.push_str(&joined);
                 }
                 url
