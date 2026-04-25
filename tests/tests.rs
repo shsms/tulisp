@@ -543,13 +543,13 @@ fn test_cons() -> Result<(), Error> {
     };
     tulisp_assert! {
         program: "(cons 1)",
-        error: r#"ERR TypeMismatch: cons requires exactly 2 arguments
+        error: r#"ERR MissingArgument: Too few arguments
 <eval_string>:1.1-1.8:  at (cons 1)
 "#
     };
     tulisp_assert! {
         program: "(cons 1 2 3)",
-        error: r#"ERR TypeMismatch: cons requires exactly 2 arguments
+        error: r#"ERR InvalidArgument: Too many arguments
 <eval_string>:1.1-1.12:  at (cons 1 2 3)
 "#
     };

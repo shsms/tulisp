@@ -1,6 +1,5 @@
 use crate::TulispObject;
 use crate::TulispValue;
-use crate::cons::Cons;
 use crate::context::Scope;
 use crate::context::TulispContext;
 use crate::destruct_eval_bind;
@@ -258,27 +257,13 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(value)
     });
 
-    ctx.defspecial("set", |ctx, args| {
-        let value = args.cdr_and_then(|args| {
-            if args.null() {
-                return Err(Error::type_mismatch(
-                    "set requires exactly 2 arguments".to_string(),
-                ));
-            }
-            args.cdr_and_then(|x| {
-                if !x.null() {
-                    return Err(Error::type_mismatch(
-                        "set requires exactly 2 arguments".to_string(),
-                    ));
-                }
-                args.car_and_then(|arg| ctx.eval(arg))
-            })
-        })?;
-        args.car_and_then(|name_sym| {
-            ctx.eval_and_then(name_sym, |_, name| name.set(value.clone()))
-        })?;
-        Ok(value)
-    });
+    ctx.defun(
+        "set",
+        |name: TulispObject, value: TulispObject| -> Result<TulispObject, Error> {
+            name.set(value.clone())?;
+            Ok(value)
+        },
+    );
 
     fn impl_let(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
         destruct_bind!((varlist &rest rest) = args);
@@ -508,33 +493,20 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     // List functions
 
-    ctx.defspecial("cons", |ctx, args| {
-        let cdr = args.cdr_and_then(|args| {
-            if args.null() {
-                return Err(Error::type_mismatch(
-                    "cons requires exactly 2 arguments".to_string(),
-                ));
-            }
-            args.cdr_and_then(|x| {
-                if !x.null() {
-                    return Err(Error::type_mismatch(
-                        "cons requires exactly 2 arguments".to_string(),
-                    ));
-                }
-                args.car_and_then(|arg| ctx.eval(arg))
-            })
-        })?;
-        let car = args.car_and_then(|arg| ctx.eval(arg))?;
-        Ok(TulispObject::cons(car, cdr))
-    });
+    ctx.defun(
+        "cons",
+        |car: TulispObject, cdr: TulispObject| -> TulispObject { TulispObject::cons(car, cdr) },
+    );
 
-    ctx.defspecial("append", |ctx, args| {
-        destruct_eval_bind!(ctx, (first &rest rest) = args);
-        for ele in rest.base_iter() {
-            first.append(ele.deep_copy()?)?;
-        }
-        Ok(first)
-    });
+    ctx.defun(
+        "append",
+        |first: TulispObject, rest: crate::Rest<TulispObject>| -> Result<TulispObject, Error> {
+            for ele in rest {
+                first.append(ele.deep_copy()?)?;
+            }
+            Ok(first)
+        },
+    );
 
     ctx.defspecial("dolist", |ctx, args| {
         destruct_bind!((spec &rest body) = args);
@@ -564,58 +536,45 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         ctx.eval(&result)
     });
 
-    ctx.defspecial("list", |ctx, args| {
-        let (ctxobj, span) = (args.ctxobj(), args.span());
-        let mut cons: Option<Cons> = None;
-        for ele in args.base_iter() {
-            match cons {
-                Some(ref mut cons) => {
-                    cons.push(ctx.eval(&ele)?)?;
-                }
-                None => cons = Some(Cons::new(ctx.eval(&ele)?, TulispObject::nil())),
-            }
-        }
-        match cons {
-            Some(cons) => Ok(TulispValue::List { cons, ctxobj }.into_ref(span)),
-            None => Ok(TulispObject::nil()),
-        }
-    });
+    ctx.defun(
+        "list",
+        |args: crate::Rest<TulispObject>| -> TulispObject { args.into_iter().collect() },
+    );
 
     ctx.defspecial("mapcar", |ctx, args| {
         destruct_eval_bind!(ctx, (func seq) = args);
         ctx.map(&func, &seq)
     });
 
-    ctx.defspecial("assoc", |ctx, args| {
-        destruct_eval_bind!(ctx, (key alist &optional testfn) = args);
-        lists::assoc(
-            ctx,
-            &key,
-            &alist,
-            if testfn.null() { None } else { Some(testfn) },
-        )
-    });
+    ctx.defun(
+        "assoc",
+        |ctx: &mut TulispContext,
+         key: TulispObject,
+         alist: TulispObject,
+         testfn: Option<TulispObject>|
+         -> Result<TulispObject, Error> { lists::assoc(ctx, &key, &alist, testfn) },
+    );
 
-    ctx.defspecial("alist-get", |ctx, args| {
-        destruct_eval_bind!(ctx, (key alist &optional default_value remove testfn) = args);
-        lists::alist_get(
-            ctx,
-            &key,
-            &alist,
-            if default_value.null() {
-                None
-            } else {
-                Some(default_value)
-            },
-            if remove.null() { None } else { Some(remove) }, // TODO: implement after setf
-            if testfn.null() { None } else { Some(testfn) },
-        )
-    });
+    ctx.defun(
+        "alist-get",
+        |ctx: &mut TulispContext,
+         key: TulispObject,
+         alist: TulispObject,
+         default_value: Option<TulispObject>,
+         remove: Option<TulispObject>,
+         testfn: Option<TulispObject>|
+         -> Result<TulispObject, Error> {
+            // TODO: implement remove after `setf`.
+            lists::alist_get(ctx, &key, &alist, default_value, remove, testfn)
+        },
+    );
 
-    ctx.defspecial("plist-get", |ctx, args| {
-        destruct_eval_bind!(ctx, (plist property) = args);
-        lists::plist_get(&plist, &property)
-    });
+    ctx.defun(
+        "plist-get",
+        |plist: TulispObject, property: TulispObject| -> Result<TulispObject, Error> {
+            lists::plist_get(&plist, &property)
+        },
+    );
 
     // predicates begin
     macro_rules! predicate_function {
