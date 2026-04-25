@@ -19,10 +19,7 @@ use crate::{
     error::Error,
     eval::{DummyEval, eval_basic, funcall},
     list,
-    object::wrappers::{
-        DefunFn, TulispFn,
-        generic::{Shared, SharedMut},
-    },
+    object::wrappers::{DefunFn, TulispFn, generic::Shared},
     parse::parse,
     value::LexAllocator,
 };
@@ -82,7 +79,19 @@ pub struct TulispContext {
     pub(crate) filenames: Vec<String>,
     pub(crate) compiler: Option<Compiler>,
     pub(crate) keywords: Keywords,
-    pub(crate) vm: SharedMut<bytecode::Machine>,
+    /// Wrapped in `Option` so callers can `take()` the machine out
+    /// for the duration of a `run` call. `&mut Machine` and
+    /// `&mut TulispContext` need to coexist (the machine's dispatch
+    /// loop reaches into `ctx` for parse / compile / symbol
+    /// lookup), and Rust won't let us re-borrow `self.vm` and pass
+    /// `&mut self` simultaneously, so we hand ownership of the
+    /// machine to the caller's stack frame and slot it back in
+    /// when the run returns. While taken, `self.vm` is `None`;
+    /// any path that would re-enter the VM from within this run
+    /// (for example, TW `funcall` hitting a `CompiledDefun`) gets
+    /// `None` instead of a deadlock-style RefCell panic and can
+    /// signal the failure cleanly.
+    pub(crate) vm: Option<bytecode::Machine>,
     pub(crate) load_path: Option<PathBuf>,
     pub(crate) lex_allocator: Shared<LexAllocator>,
     #[cfg(feature = "etags")]
@@ -105,7 +114,7 @@ impl TulispContext {
             filenames: vec!["<eval_string>".to_string()],
             compiler: None,
             keywords,
-            vm: SharedMut::new(bytecode::Machine::new()),
+            vm: Some(bytecode::Machine::new()),
             load_path: None,
             lex_allocator: Shared::new_sized(LexAllocator::new()),
             #[cfg(feature = "etags")]
@@ -528,9 +537,12 @@ impl TulispContext {
             false,
         )?;
         let bytecode = compile(self, &vv)?;
-        let vm = self.vm.clone();
-        let res = vm.borrow_mut().run(self, bytecode);
-        drop(vm);
+        let mut vm = self
+            .vm
+            .take()
+            .expect("ctx.vm taken twice — VM re-entered during a run");
+        let res = vm.run(self, bytecode);
+        self.vm = Some(vm);
         res
     }
 
@@ -585,9 +597,12 @@ impl TulispContext {
     pub fn eval_file(&mut self, filename: &str) -> Result<TulispObject, Error> {
         let vv = self.parse_file(filename)?;
         let bytecode = compile(self, &vv)?;
-        let vm = self.vm.clone();
-        let res = vm.borrow_mut().run(self, bytecode);
-        drop(vm);
+        let mut vm = self
+            .vm
+            .take()
+            .expect("ctx.vm taken twice — VM re-entered during a run");
+        let res = vm.run(self, bytecode);
+        self.vm = Some(vm);
         res
     }
 
@@ -612,9 +627,12 @@ impl TulispContext {
             false,
         )?;
         let bytecode = compile(self, &vv)?;
-        let vm = self.vm.clone();
-        let res = vm.borrow_mut().run(self, bytecode);
-        drop(vm);
+        let mut vm = self
+            .vm
+            .take()
+            .expect("ctx.vm taken twice — VM re-entered during a run");
+        let res = vm.run(self, bytecode);
+        self.vm = Some(vm);
         res
     }
 
@@ -668,9 +686,12 @@ impl TulispContext {
 
     #[allow(dead_code)]
     pub(crate) fn run_bytecode(&mut self, bytecode: Bytecode) -> Result<TulispObject, Error> {
-        let vm = self.vm.clone();
-        let res = vm.borrow_mut().run(self, bytecode);
-        drop(vm);
+        let mut vm = self
+            .vm
+            .take()
+            .expect("ctx.vm taken twice — VM re-entered during a run");
+        let res = vm.run(self, bytecode);
+        self.vm = Some(vm);
         res
     }
 }

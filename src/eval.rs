@@ -163,10 +163,15 @@ fn eval_lambda<E: Evaluator>(
             }
             TulispValue::CompiledDefun { value } => {
                 let evaluated = eval_args_for_vm::<DummyEval>(ctx, &value.params, &bounce_args)?;
-                let vm = ctx.vm.clone();
                 let value = value.clone();
                 drop(inner);
-                vm.borrow_mut().run_lambda(ctx, &value, &evaluated)?
+                let mut vm = ctx
+                    .vm
+                    .take()
+                    .expect("ctx.vm taken twice — VM re-entered during a run");
+                let res = vm.run_lambda(ctx, &value, &evaluated);
+                ctx.vm = Some(vm);
+                res?
             }
             TulispValue::Func(f) => f(ctx, &bounce_args)?,
             TulispValue::Defun { call, .. } => {
@@ -233,10 +238,15 @@ pub(crate) fn funcall<E: Evaluator>(
             // Anonymous lambdas compiled by the VM land here. Evaluate
             // args honoring &optional / &rest layout, then dispatch to
             // `Machine::run_lambda` instead of returning to the TW.
+            let value = value.clone();
             let evaluated = eval_args_for_vm::<E>(ctx, &value.params, args)?;
-            let vm = ctx.vm.clone();
-
-            vm.borrow_mut().run_lambda(ctx, value, &evaluated)
+            let mut vm = ctx
+                .vm
+                .take()
+                .expect("ctx.vm taken twice — VM re-entered during a run");
+            let res = vm.run_lambda(ctx, &value, &evaluated);
+            ctx.vm = Some(vm);
+            res
         }
         TulispValue::Macro(_) | TulispValue::Defmacro { .. } => {
             let expanded = macroexpand(ctx, list!(func.clone() ,@args.clone())?)?;
