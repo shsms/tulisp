@@ -6,11 +6,11 @@ use tulisp::{
 
 macro_rules! tulisp_assert {
     (@impl $ctx: expr, program:$input:expr, result:$result:expr $(,)?) => {
-        let output = $ctx.eval_string($input).map_err(|err| {
+        let output = $ctx.tw_eval_string($input).map_err(|err| {
             panic!("{}:{}: execution failed: {}", file!(), line!(),err.format(&$ctx));
 
         })?;
-        let expected = $ctx.eval_string($result)?;
+        let expected = $ctx.tw_eval_string($result)?;
         assert!(
             output.equal(&expected),
             "\n{}:{}: program: {}\n  output: {},\n  expected: {}\n",
@@ -23,11 +23,11 @@ macro_rules! tulisp_assert {
     };
 
     (@impl_vm $ctx: expr, program:$input:expr, result:$result:expr $(,)?) => {
-        let output = $ctx.vm_eval_string($input).map_err(|err| {
+        let output = $ctx.eval_string($input).map_err(|err| {
             panic!("{}:{}: execution failed: {}", file!(), line!(),err.format(&$ctx));
 
         })?;
-        let expected = $ctx.vm_eval_string($result)?;
+        let expected = $ctx.eval_string($result)?;
         assert!(
             output.equal(&expected),
             "\n{}:{}: program: {}\n  vm output: {},\n  expected: {}\n",
@@ -40,11 +40,11 @@ macro_rules! tulisp_assert {
     };
 
     (@impl $ctx: expr, program:$input:expr, result_str:$result:expr $(,)?) => {
-        let output = $ctx.eval_string($input).map_err(|err| {
+        let output = $ctx.tw_eval_string($input).map_err(|err| {
             println!("{}:{}: execution failed: {}", file!(), line!(),err.format(&$ctx));
             err
         })?;
-        let expected = $ctx.eval_string($result)?;
+        let expected = $ctx.tw_eval_string($result)?;
         assert_eq!(output.to_string(), expected.to_string(),
             "\n{}:{}: program: {}\n  output: {},\n  expected: {}\n",
             file!(),
@@ -56,11 +56,11 @@ macro_rules! tulisp_assert {
     };
 
     (@impl_vm $ctx: expr, program:$input:expr, result_str:$result:expr $(,)?) => {
-        let output = $ctx.vm_eval_string($input).map_err(|err| {
+        let output = $ctx.eval_string($input).map_err(|err| {
             println!("{}:{}: execution failed: {}", file!(), line!(),err.format(&$ctx));
             err
         })?;
-        let expected = $ctx.vm_eval_string($result)?;
+        let expected = $ctx.eval_string($result)?;
         assert_eq!(output.to_string(), expected.to_string(),
             "\n{}:{}: program: {}\n  vm output: {},\n  expected: {}\n",
             file!(),
@@ -72,13 +72,13 @@ macro_rules! tulisp_assert {
     };
 
     (@impl $ctx: expr, program:$input:expr, error:$desc:expr $(,)?) => {
-        let output = $ctx.eval_string($input);
+        let output = $ctx.tw_eval_string($input);
         assert!(output.is_err());
         assert_eq!(output.unwrap_err().format(&$ctx), $desc);
     };
 
     (@impl_vm $ctx: expr, program:$input:expr, error:$desc:expr $(,)?) => {
-        let output = $ctx.vm_eval_string($input);
+        let output = $ctx.eval_string($input);
         assert!(output.is_err());
         let output = output.unwrap_err().format(&$ctx);
         assert!(
@@ -1376,7 +1376,7 @@ fn test_funcall_compiled_defun_through_tw() -> Result<(), Error> {
     // (materialized by `Instruction::MakeLambda` at runtime), and
     // `outer` is set up via the TW `defun` defspecial during parse
     // so calling it through `ctx.funcall` runs the TW path.
-    ctx.vm_eval_string(
+    ctx.eval_string(
         r#"
         (set 'inner-fn (lambda (x) (rust-needs-num x)))
         (defun outer (id v)
@@ -1442,7 +1442,7 @@ fn test_plist_defun_callable_from_vm_run() -> Result<(), Error> {
     // `(defun mktag () "answer")` would strip the string as a
     // docstring and leave the body empty. Use `progn` to force the
     // string to be the actual return value.
-    ctx.vm_eval_string(
+    ctx.eval_string(
         r#"
         (defun mkx () 10)
         (defun mky () 32)
@@ -1481,7 +1481,7 @@ fn test_mutual_tail_recursion_is_tco() -> Result<(), Error> {
     // stack: 200,000 alternations of even?/odd? = 200,000 hops.
     // Without TCO the test thread's stack overflows.
     let mut ctx = TulispContext::new();
-    ctx.vm_eval_string(
+    ctx.eval_string(
         r#"
         (defun even? (n)
           (if (= n 0) t (odd? (- n 1))))
@@ -1489,9 +1489,9 @@ fn test_mutual_tail_recursion_is_tco() -> Result<(), Error> {
           (if (= n 0) nil (even? (- n 1))))
         "#,
     )?;
-    let r = ctx.vm_eval_string("(even? 200000)")?;
+    let r = ctx.eval_string("(even? 200000)")?;
     assert!(r.is_truthy(), "even? 200000 should be true, got {}", r);
-    let r = ctx.vm_eval_string("(odd? 200001)")?;
+    let r = ctx.eval_string("(odd? 200001)")?;
     assert!(r.is_truthy(), "odd? 200001 should be true, got {}", r);
 
     Ok(())
@@ -1506,7 +1506,7 @@ fn test_mutual_tail_call_arity_checked_at_compile_time() -> Result<(), Error> {
 
     // Too few: helper takes 2, called with 1 in tail position.
     let mut ctx = TulispContext::new();
-    let err = ctx.vm_eval_string(
+    let err = ctx.eval_string(
         r#"
         (defun helper (a b) (+ a b))
         (defun caller () (helper 1))
@@ -1521,7 +1521,7 @@ fn test_mutual_tail_call_arity_checked_at_compile_time() -> Result<(), Error> {
 
     // Too many: helper takes 1, called with 3.
     let mut ctx = TulispContext::new();
-    let err = ctx.vm_eval_string(
+    let err = ctx.eval_string(
         r#"
         (defun helper (a) a)
         (defun caller () (helper 1 2 3))
@@ -1539,7 +1539,7 @@ fn test_mutual_tail_call_arity_checked_at_compile_time() -> Result<(), Error> {
     // mark_tail_calls catches mismatches whichever direction is
     // wrong.
     let mut ctx = TulispContext::new();
-    let err = ctx.vm_eval_string(
+    let err = ctx.eval_string(
         r#"
         (defun a (n) (if (= n 0) 'done (b)))     ; b takes 1, called with 0
         (defun b (n) (if (= n 0) 'done (a (- n 1))))
@@ -1566,7 +1566,7 @@ fn test_self_tail_recursion_arity_checked_at_compile_time() -> Result<(), Error>
 
     // Too many: 2 required, called with 3.
     let mut ctx = TulispContext::new();
-    let err = ctx.vm_eval_string(
+    let err = ctx.eval_string(
         r#"
         (defun f (a b)
           (if (= a 0) b (f (- a 1) (+ b a) (* b 2))))
@@ -1583,7 +1583,7 @@ fn test_self_tail_recursion_arity_checked_at_compile_time() -> Result<(), Error>
     // `args_count - params.required.len()` (usize) and surfaced a
     // misleading "too many" error in release mode.
     let mut ctx = TulispContext::new();
-    let err = ctx.vm_eval_string(
+    let err = ctx.eval_string(
         r#"
         (defun f (a b)
           (if (= a 0) b (f (- a 1))))
@@ -1598,7 +1598,7 @@ fn test_self_tail_recursion_arity_checked_at_compile_time() -> Result<(), Error>
 
     // Sanity: matching arity compiles + runs cleanly.
     let mut ctx = TulispContext::new();
-    let r = ctx.vm_eval_string(
+    let r = ctx.eval_string(
         r#"
         (defun sum-to (n acc)
           (if (= n 0) acc (sum-to (- n 1) (+ acc n))))
@@ -1647,7 +1647,7 @@ fn test_trace_distinguishes_call_sites_of_same_function() -> Result<(), Error> {
         "TW trace for boom-on-2"
     );
     assert_eq!(
-        ctx.vm_eval_string("(caller)").unwrap_err().format(&ctx),
+        ctx.eval_string("(caller)").unwrap_err().format(&ctx),
         expected_call2,
         "VM trace for boom-on-2"
     );
@@ -1674,7 +1674,7 @@ fn test_trace_distinguishes_call_sites_of_same_function() -> Result<(), Error> {
         "TW trace for boom-on-1"
     );
     assert_eq!(
-        ctx.vm_eval_string("(caller)").unwrap_err().format(&ctx),
+        ctx.eval_string("(caller)").unwrap_err().format(&ctx),
         expected_call1,
         "VM trace for boom-on-1"
     );
@@ -1707,7 +1707,7 @@ fn test_trace_distinguishes_call_sites_of_same_function() -> Result<(), Error> {
         "TW trace for nested same-function call"
     );
     assert_eq!(
-        ctx.vm_eval_string("(caller)").unwrap_err().format(&ctx),
+        ctx.eval_string("(caller)").unwrap_err().format(&ctx),
         expected_nested,
         "VM trace for nested same-function call"
     );
@@ -1781,7 +1781,7 @@ fn test_typed_defun_arity_checked_before_arg_eval() -> Result<(), Error> {
     // VM path: the same call expressed via `vm_eval_string` should
     // be rejected at compile time, also before any arg side-effects.
     counter.store(0, Ordering::Relaxed);
-    let err = ctx.vm_eval_string("(narrow (bump 1) (bump 2) (bump 3))");
+    let err = ctx.eval_string("(narrow (bump 1) (bump 2) (bump 3))");
     let msg = err.unwrap_err().format(&ctx);
     assert!(
         msg.starts_with("ERR InvalidArgument: Too many arguments"),
@@ -1888,7 +1888,7 @@ fn test_substitute_lexical_skips_binders() -> Result<(), Error> {
 fn assert_no_lex_stack_leak(ctx: &mut TulispContext, prog: &str, call: &str, label: &str) {
     let s0 = tulisp::debug_lex_stacks_total();
     for _ in 0..1000 {
-        ctx.vm_eval_string(call).unwrap_or_else(|e| {
+        ctx.eval_string(call).unwrap_or_else(|e| {
             panic!("{}: eval failed: {}", label, e.format(ctx));
         });
     }
@@ -2029,10 +2029,10 @@ fn test_tail_call_does_not_leak_lex_stack() -> Result<(), Error> {
     for (label, prog, call) in cases {
         let mut ctx = TulispContext::new();
         eprintln!("case: {}", label);
-        ctx.vm_eval_string(prog)
+        ctx.eval_string(prog)
             .unwrap_or_else(|e| panic!("{} setup failed: {}", label, e.format(&ctx)));
         // First, sanity-check: a single call works without panicking.
-        ctx.vm_eval_string(call)
+        ctx.eval_string(call)
             .unwrap_or_else(|e| panic!("{} sanity call failed: {}", label, e.format(&ctx)));
         assert_no_lex_stack_leak(&mut ctx, prog, call, label);
     }

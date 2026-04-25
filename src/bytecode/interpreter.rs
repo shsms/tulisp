@@ -1015,10 +1015,10 @@ impl Machine {
     }
 }
 
-/// In-VM version of `ctx.vm_eval_file` — parses & compiles the given
+/// In-VM version of `ctx.eval_file` — parses & compiles the given
 /// file, merges its labels + `bytecode.functions` into the running
 /// machine, and evaluates its top-level forms on the current stack.
-/// Unlike the external `vm_eval_file`, this doesn't call
+/// Unlike the external `eval_file`, this doesn't call
 /// `vm.borrow_mut().run(…)` — we're already holding `&mut self`.
 fn vm_eval_file_inline(
     ctx: &mut TulispContext,

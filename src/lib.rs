@@ -64,8 +64,8 @@ mod test_utils {
         s: &str,
     ) -> Result<crate::TulispObject, String> {
         let res = match kind {
-            EvalKind::Tw => ctx.eval_string(s),
-            EvalKind::Vm => ctx.vm_eval_string(s),
+            EvalKind::Tw => ctx.tw_eval_string(s),
+            EvalKind::Vm => ctx.eval_string(s),
         };
         res.map_err(|e| e.format(ctx))
     }

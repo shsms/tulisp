@@ -515,7 +515,28 @@ impl TulispContext {
     }
 
     /// Parses and evaluates the given string, and returns the result.
+    /// Routed through the bytecode VM.
     pub fn eval_string(&mut self, string: &str) -> Result<TulispObject, Error> {
+        let vv = parse(
+            self,
+            0,
+            string,
+            #[cfg(feature = "etags")]
+            false,
+        )?;
+        let bytecode = compile(self, &vv)?;
+        let vm = self.vm.clone();
+        let res = vm.borrow_mut().run(self, bytecode);
+        drop(vm);
+        res
+    }
+
+    /// Tree-walker variant of [`eval_string`]. Kept (`#[doc(hidden)]`)
+    /// for cross-path test coverage so behavioral divergences between
+    /// the VM and TW paths surface as a regression. Not part of the
+    /// stable public API — may be removed without notice.
+    #[doc(hidden)]
+    pub fn tw_eval_string(&mut self, string: &str) -> Result<TulispObject, Error> {
         let vv = parse(
             self,
             0,
@@ -557,20 +578,9 @@ impl TulispContext {
     }
 
     /// Parses and evaluates the contents of the given file and returns the
-    /// value.
+    /// value. Routed through the bytecode VM.
     pub fn eval_file(&mut self, filename: &str) -> Result<TulispObject, Error> {
         let vv = self.parse_file(filename)?;
-        self.eval_progn(&vv)
-    }
-
-    pub fn vm_eval_string(&mut self, string: &str) -> Result<TulispObject, Error> {
-        let vv = parse(
-            self,
-            0,
-            string,
-            #[cfg(feature = "etags")]
-            false,
-        )?;
         let bytecode = compile(self, &vv)?;
         let vm = self.vm.clone();
         let res = vm.borrow_mut().run(self, bytecode);
@@ -609,14 +619,6 @@ impl TulispContext {
         res
     }
 
-    pub fn vm_eval_file(&mut self, filename: &str) -> Result<TulispObject, Error> {
-        let vv = self.parse_file(filename)?;
-        let bytecode = compile(self, &vv)?;
-        let vm = self.vm.clone();
-        let res = vm.borrow_mut().run(self, bytecode);
-        drop(vm);
-        res
-    }
 
     pub(crate) fn get_filename(&self, file_id: usize) -> String {
         // Spans can cross context boundaries (e.g. a lambda parsed in the
