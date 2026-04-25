@@ -145,6 +145,27 @@ pub(super) fn compile_form(
                     },
                 ]);
             }
+            (TulispValue::Defun { call }, _) => {
+                let call = call.clone();
+                drop(func.inner_ref());
+                let mut result = Vec::new();
+                let mut args_count = 0usize;
+                let mut rest = args.clone();
+                while rest.consp() {
+                    let arg = rest.car()?;
+                    result.append(&mut super::compiler::compile_expr_keep_result(ctx, &arg)?);
+                    args_count += 1;
+                    rest = rest.cdr()?;
+                }
+                let keep_result = ctx.compiler.as_ref().unwrap().keep_result;
+                result.push(Instruction::RustCallTyped {
+                    name: name.clone(),
+                    call,
+                    args_count,
+                    keep_result,
+                });
+                return Ok(result);
+            }
             (TulispValue::Defmacro { .. }, _) | (TulispValue::Macro(..), _) => {
                 // TODO: this should not be necessary, this should be
                 // handled in the parser instead.
