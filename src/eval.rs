@@ -189,6 +189,21 @@ pub(crate) fn funcall<E: Evaluator>(
 ) -> Result<TulispObject, Error> {
     match &func.inner_ref().0 {
         TulispValue::Func(func) => func(ctx, args),
+        TulispValue::Defun { call } => {
+            // `ctx.defun`-registered closures take args already
+            // evaluated. Walk the source-order args, eval each, and
+            // hand the slice to the closure — which validates arity
+            // and does TulispConvertible coercion internally.
+            let call = call.clone();
+            let mut evaluated = Vec::new();
+            for arg in args.base_iter() {
+                evaluated.push(match E::eval(ctx, &arg)? {
+                    Cow::Borrowed(_) => arg,
+                    Cow::Owned(o) => o,
+                });
+            }
+            call(ctx, &evaluated)
+        }
         TulispValue::Lambda { params, body } => eval_lambda::<E>(ctx, params, body, args),
         TulispValue::CompiledDefun { value } => {
             // Anonymous lambdas compiled by the VM land here. Evaluate

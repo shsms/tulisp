@@ -19,7 +19,7 @@ use crate::{
     error::Error,
     eval::{DummyEval, eval_basic, funcall},
     list,
-    object::wrappers::{TulispFn, generic::{Shared, SharedMut}},
+    object::wrappers::{DefunFn, TulispFn, generic::{Shared, SharedMut}},
     parse::parse,
     value::LexAllocator,
 };
@@ -275,6 +275,34 @@ impl TulispContext {
 
         self.intern(name)
             .set_global(TulispValue::Func(Shared::new_tulisp_fn(func)).into_ref(None))
+            .unwrap();
+    }
+
+    /// Internal: register a `ctx.defun`-style typed-args closure as a
+    /// `TulispValue::Defun` on the named symbol's global slot. Args
+    /// arrive already evaluated; the closure is responsible for arity
+    /// validation and `TulispConvertible` coercion. Used by the
+    /// `impl_tulisp_callable!` macro arms — not exposed publicly.
+    #[inline(always)]
+    #[track_caller]
+    pub(crate) fn define_typed_defun(&mut self, name: &str, func: impl DefunFn + std::any::Any) {
+        #[cfg(feature = "etags")]
+        {
+            let caller = std::panic::Location::caller();
+
+            self.tags_table
+                .entry(caller.file().to_owned())
+                .or_default()
+                .insert(name.to_owned(), caller.line() as usize);
+        }
+
+        self.intern(name)
+            .set_global(
+                TulispValue::Defun {
+                    call: Shared::new_defun_fn(func),
+                }
+                .into_ref(None),
+            )
             .unwrap();
     }
 
