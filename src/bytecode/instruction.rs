@@ -162,6 +162,14 @@ pub(crate) enum Instruction {
     /// re-entering `eval::funcall` (which would re-borrow `ctx.vm`).
     Funcall { args_count: usize },
     Ret,
+    /// Push `form` onto the machine's `trace_stack`. Errors that
+    /// propagate out of any subsequent instruction (until a matching
+    /// `PopTrace`) get `form` appended to their backtrace by the
+    /// `run_impl` wrapper. Mirrors how TW's `eval_basic` wraps every
+    /// list-form evaluation with `with_trace(expr)`. Emitted by
+    /// `compile_expr` around every list-form's compiled bytecode.
+    PushTrace(TulispObject),
+    PopTrace,
     // lists
     Cons,
     List(usize),
@@ -215,6 +223,8 @@ impl std::fmt::Display for Instruction {
             Instruction::MakeLambda(_) => write!(f, "    make_lambda"),
             Instruction::Funcall { args_count } => write!(f, "    funcall {}", args_count),
             Instruction::Ret => write!(f, "    ret"),
+            Instruction::PushTrace(obj) => write!(f, "    push_trace {}", obj),
+            Instruction::PopTrace => write!(f, "    pop_trace"),
             Instruction::RustCall { name, .. } => write!(f, "    rustcall {}", name),
             Instruction::RustCallTyped {
                 name, args_count, ..

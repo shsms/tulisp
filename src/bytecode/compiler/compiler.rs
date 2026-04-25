@@ -389,7 +389,23 @@ pub(crate) fn compile_expr(
         }
         (TulispValue::List { .. }, _) => {
             drop(expr_ref);
-            compile_form(ctx, expr).map_err(|e| e.with_trace(expr.clone()))
+            // Wrap the form's compiled bytecode with `PushTrace` /
+            // `PopTrace` so that runtime errors propagating out of
+            // the form pick up `expr` as a backtrace entry — same
+            // shape TW's recursive `eval_basic` produces via its
+            // `with_trace(expr)` on the list arm. The dedup logic
+            // in `Error::with_trace` collapses duplicates when an
+            // inner call instruction (`Call` / `RustCall` /
+            // `RustCallTyped`) already attached the same form.
+            let mut inner = compile_form(ctx, expr).map_err(|e| e.with_trace(expr.clone()))?;
+            if inner.is_empty() {
+                return Ok(inner);
+            }
+            let mut wrapped = Vec::with_capacity(inner.len() + 2);
+            wrapped.push(Instruction::PushTrace(expr.clone()));
+            wrapped.append(&mut inner);
+            wrapped.push(Instruction::PopTrace);
+            Ok(wrapped)
         }
         (TulispValue::Symbol { .. }, _) | (TulispValue::LexicalBinding { .. }, _) => {
             if !compiler.keep_result {

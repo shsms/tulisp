@@ -119,9 +119,11 @@ mod tests {
         assert_eq!(
             bytecode.to_string(),
             r#"
-    push 10                                # 0
-    push 15                                # 1
-    cgt                                    # 2"#
+    push_trace (> 15 10)                   # 0
+    push 10                                # 1
+    push 15                                # 2
+    cgt                                    # 3
+    pop_trace                              # 4"#
         );
         let output = ctx.run_bytecode(bytecode).unwrap();
         assert!(output.equal(&TulispObject::t()));
@@ -149,18 +151,20 @@ mod tests {
         assert_eq!(
             bytecode.to_string(),
             r#"
-    load b                                 # 0
-    load a                                 # 1
-    clt                                    # 2
-    jnil_else_pop :2                       # 3
-    load c                                 # 4
-    load b                                 # 5
-    clt                                    # 6
-    jnil_else_pop :2                       # 7
-    push 10                                # 8
-    load c                                 # 9
-    clt                                    # 10
-:2                                         # 11"#
+    push_trace (< a b c 10)                # 0
+    load b                                 # 1
+    load a                                 # 2
+    clt                                    # 3
+    jnil_else_pop :2                       # 4
+    load c                                 # 5
+    load b                                 # 6
+    clt                                    # 7
+    jnil_else_pop :2                       # 8
+    push 10                                # 9
+    load c                                 # 10
+    clt                                    # 11
+:2                                         # 12
+    pop_trace                              # 13"#
         );
     }
 
@@ -173,23 +177,31 @@ mod tests {
         assert_eq!(
             bytecode.to_string(),
             r#"
-    push 5                                 # 0
-    store_pop a                            # 1"#
+    push_trace (<= (setq a 5) 8 10)        # 0
+    push_trace (setq a 5)                  # 1
+    push 5                                 # 2
+    store_pop a                            # 3
+    pop_trace                              # 4
+    pop_trace                              # 5"#
         );
 
         let bytecode = ctx.compile_string(program, true).unwrap();
         assert_eq!(
             bytecode.to_string(),
             r#"
-    push 8                                 # 0
-    push 5                                 # 1
-    store a                                # 2
-    cle                                    # 3
-    jnil_else_pop :2                       # 4
-    push 10                                # 5
-    push 8                                 # 6
-    cle                                    # 7
-:2                                         # 8"#
+    push_trace (<= (setq a 5) 8 10)        # 0
+    push 8                                 # 1
+    push_trace (setq a 5)                  # 2
+    push 5                                 # 3
+    store a                                # 4
+    pop_trace                              # 5
+    cle                                    # 6
+    jnil_else_pop :2                       # 7
+    push 10                                # 8
+    push 8                                 # 9
+    cle                                    # 10
+:2                                         # 11
+    pop_trace                              # 12"#
         );
 
         let output = ctx.run_bytecode(bytecode).unwrap();
@@ -210,9 +222,11 @@ mod tests {
         assert_eq!(
             bytecode.to_string(),
             r#"
-    push a                                 # 0
+    push_trace (eq 'a 'a)                  # 0
     push a                                 # 1
-    ceq                                    # 2"#
+    push a                                 # 2
+    ceq                                    # 3
+    pop_trace                              # 4"#
         );
         let output = ctx.run_bytecode(bytecode).unwrap();
         assert!(output.equal(&TulispObject::t()));
@@ -222,9 +236,11 @@ mod tests {
         assert_eq!(
             bytecode.to_string(),
             r#"
-    push b                                 # 0
-    push a                                 # 1
-    ceq                                    # 2"#
+    push_trace (eq 'a 'b)                  # 0
+    push b                                 # 1
+    push a                                 # 2
+    ceq                                    # 3
+    pop_trace                              # 4"#
         );
         let output = ctx.run_bytecode(bytecode).unwrap();
         assert!(output.equal(&TulispObject::nil()));
@@ -245,18 +261,26 @@ mod tests {
         assert_eq!(
             bytecode.to_string(),
             r#"
-    push w                                 # 0
-    store_pop a                            # 1"#
+    push_trace (eq (setq a 'w) 'w)         # 0
+    push_trace (setq a 'w)                 # 1
+    push w                                 # 2
+    store_pop a                            # 3
+    pop_trace                              # 4
+    pop_trace                              # 5"#
         );
 
         let bytecode = ctx.compile_string(program, true).unwrap();
         assert_eq!(
             bytecode.to_string(),
             r#"
-    push w                                 # 0
+    push_trace (eq (setq a 'w) 'w)         # 0
     push w                                 # 1
-    store a                                # 2
-    ceq                                    # 3"#
+    push_trace (setq a 'w)                 # 2
+    push w                                 # 3
+    store a                                # 4
+    pop_trace                              # 5
+    ceq                                    # 6
+    pop_trace                              # 7"#
         );
 
         let output = ctx.run_bytecode(bytecode).unwrap();
@@ -277,9 +301,11 @@ mod tests {
         assert_eq!(
             bytecode.to_string(),
             r#"
-    push 5                                 # 0
+    push_trace (equal 5 5)                 # 0
     push 5                                 # 1
-    equal                                  # 2"#
+    push 5                                 # 2
+    equal                                  # 3
+    pop_trace                              # 4"#
         );
         let output = ctx.run_bytecode(bytecode).unwrap();
         assert!(output.equal(&TulispObject::t()));
@@ -289,9 +315,11 @@ mod tests {
         assert_eq!(
             bytecode.to_string(),
             r#"
-    push 6                                 # 0
-    push 5                                 # 1
-    equal                                  # 2"#
+    push_trace (equal 5 6)                 # 0
+    push 6                                 # 1
+    push 5                                 # 2
+    equal                                  # 3
+    pop_trace                              # 4"#
         );
         let output = ctx.run_bytecode(bytecode).unwrap();
         assert!(output.equal(&TulispObject::nil()));
@@ -311,18 +339,26 @@ mod tests {
         assert_eq!(
             bytecode.to_string(),
             r#"
-    push 5                                 # 0
-    store_pop a                            # 1"#
+    push_trace (equal (setq a 5) 5)        # 0
+    push_trace (setq a 5)                  # 1
+    push 5                                 # 2
+    store_pop a                            # 3
+    pop_trace                              # 4
+    pop_trace                              # 5"#
         );
 
         let bytecode = ctx.compile_string(program, true).unwrap();
         assert_eq!(
             bytecode.to_string(),
             r#"
-    push 5                                 # 0
+    push_trace (equal (setq a 5) 5)        # 0
     push 5                                 # 1
-    store a                                # 2
-    equal                                  # 3"#
+    push_trace (setq a 5)                  # 2
+    push 5                                 # 3
+    store a                                # 4
+    pop_trace                              # 5
+    equal                                  # 6
+    pop_trace                              # 7"#
         );
 
         let output = ctx.run_bytecode(bytecode).unwrap();

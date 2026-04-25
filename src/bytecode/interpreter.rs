@@ -106,6 +106,13 @@ pub struct Machine {
     stack: Vec<TulispObject>,
     bytecode: Bytecode,
     labels: HashMap<usize, usize>, // TulispObject.addr -> instruction index
+    /// Forms whose `PushTrace` ran but whose matching `PopTrace`
+    /// hasn't yet — i.e., forms currently being evaluated. When a
+    /// `run_impl` invocation returns `Err`, the wrapper restores
+    /// `trace_stack` down to the level it had at entry and applies
+    /// each popped form to the error's backtrace, mirroring TW's
+    /// recursive `eval_basic` `with_trace(expr)` calls.
+    trace_stack: Vec<TulispObject>,
 }
 
 macro_rules! jump_to_pos {
@@ -134,6 +141,7 @@ impl Machine {
             stack: Vec::new(),
             bytecode: Bytecode::new(),
             labels: HashMap::new(),
+            trace_stack: Vec::new(),
         }
     }
 
@@ -253,7 +261,37 @@ impl Machine {
         Ok(self.stack.pop().unwrap())
     }
 
+    /// Wrapper around `run_impl_inner` that applies form-trace
+    /// bookkeeping. On entry the current `trace_stack` length is
+    /// recorded; on exit it is truncated back to that level.
+    /// On `Err`, every form pushed by a `PushTrace` instruction
+    /// during this invocation (and not yet popped) is appended to
+    /// the error's backtrace via `with_trace`, in pop-order
+    /// (innermost first), so the resulting trace mirrors TW's
+    /// recursive `eval_basic` shape.
     fn run_impl(
+        &mut self,
+        ctx: &mut TulispContext,
+        program: &SharedMut<Vec<Instruction>>,
+        recursion_depth: u32,
+    ) -> Result<Option<TailCallInfo>, Error> {
+        let trace_snapshot = self.trace_stack.len();
+        match self.run_impl_inner(ctx, program, recursion_depth) {
+            Ok(v) => {
+                self.trace_stack.truncate(trace_snapshot);
+                Ok(v)
+            }
+            Err(mut e) => {
+                while self.trace_stack.len() > trace_snapshot {
+                    let form = self.trace_stack.pop().unwrap();
+                    e = e.with_trace(form);
+                }
+                Err(e)
+            }
+        }
+    }
+
+    fn run_impl_inner(
         &mut self,
         ctx: &mut TulispContext,
         program: &SharedMut<Vec<Instruction>>,
@@ -678,6 +716,12 @@ impl Machine {
                     if *keep_result {
                         self.stack.push(result);
                     }
+                }
+                Instruction::PushTrace(form) => {
+                    self.trace_stack.push(form.clone());
+                }
+                Instruction::PopTrace => {
+                    self.trace_stack.pop();
                 }
                 Instruction::Label(_) => {}
                 Instruction::Cons => {
