@@ -389,7 +389,11 @@ pub(crate) fn compile_expr(
         | (TulispValue::Defmacro { .. }, _)
         | (TulispValue::Bounce, _) => return Ok(vec![]),
 
-        (TulispValue::Backquote { value }, _) => compile_back_quote(ctx, value),
+        (TulispValue::Backquote { value }, _) => {
+            let value = value.clone();
+            drop(expr_ref);
+            compile_back_quote(ctx, &value).map_err(|e| e.with_trace(expr.clone()))
+        }
         (TulispValue::Quote { value }, _) | (TulispValue::Sharpquote { value }, _) => {
             if compiler.keep_result {
                 return Ok(vec![Instruction::Push(value.clone().into())]);

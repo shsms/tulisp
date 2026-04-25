@@ -80,13 +80,7 @@ macro_rules! tulisp_assert {
     (@impl_vm $ctx: expr, program:$input:expr, error:$desc:expr $(,)?) => {
         let output = $ctx.eval_string($input);
         assert!(output.is_err());
-        let output = output.unwrap_err().format(&$ctx);
-        assert!(
-            $desc.starts_with(&output),
-            "  vm output: {},\n  expected: {}\n",
-            &output,
-            $desc
-        );
+        assert_eq!(output.unwrap_err().format(&$ctx), $desc);
     };
 
     (ctx: $ctx: expr, program: $($tail:tt)+) => {
