@@ -1378,6 +1378,97 @@ fn test_funcall_compiled_defun_through_tw() -> Result<(), Error> {
     Ok(())
 }
 
+#[test]
+fn test_substitute_lexical_skips_binders() -> Result<(), Error> {
+    // `substitute_lexical` used to descend into the parameter /
+    // varname positions of `lambda` / `let` / `let*` / `dolist` /
+    // `dotimes` and substitute names there too. The inner form's
+    // compiler then wrapped the already-`LexicalBinding` name in a
+    // fresh `LexicalBinding` — a double wrap. A `debug_assert!` in
+    // `TulispObject::lexical_binding` panics on any double-wrap, so
+    // these compile-and-run shapes are the regression test.
+    //
+    // Each shape has an outer binder (defun param or let-bound var)
+    // whose name is reused as a binder *inside* the body. Before
+    // the fix, the outer substitute_lexical wrote into the inner
+    // binder's declaration position, then the inner compiler
+    // double-wrapped.
+
+    // 1. defun param `x` reused as a let* var.
+    tulisp_assert! {
+        program: r#"
+        (defun shadow-let (x)
+          (let* ((x (+ x 1)))
+            x))
+        (shadow-let 10)
+        "#,
+        result: "11",
+    }
+
+    // 2. defun param `&optional sep` shadowed by `(let* ((sep (or sep "")))…)`.
+    //    This is the `mapconcat` shape from the prelude.
+    tulisp_assert! {
+        program: r#"
+        (defun joiner (xs &optional sep)
+          (let* ((sep (or sep "-")))
+            (mapconcat (lambda (x) (format "%S" x)) xs sep)))
+        (list (joiner '(a b c)) (joiner '(a b c) "/"))
+        "#,
+        result: r##"'("a-b-c" "a/b/c")"##,
+    }
+
+    // 3. defun param `x` reused as a nested lambda's param.
+    tulisp_assert! {
+        program: r#"
+        (defun shadow-lambda (x)
+          (let ((fn (lambda (x) (* x 10))))
+            (funcall fn 5)))
+        (shadow-lambda 99)
+        "#,
+        result: "50",
+    }
+
+    // 4. defun param `x` reused as a `dolist` var.
+    tulisp_assert! {
+        program: r#"
+        (defun shadow-dolist (x)
+          (let ((acc 0))
+            (dolist (x '(1 2 3))
+              (setq acc (+ acc x)))
+            acc))
+        (shadow-dolist 99)
+        "#,
+        result: "6",
+    }
+
+    // 5. defun param `i` reused as a `dotimes` var.
+    tulisp_assert! {
+        program: r#"
+        (defun shadow-dotimes (i)
+          (let ((acc 0))
+            (dotimes (i 4)
+              (setq acc (+ acc i)))
+            acc))
+        (shadow-dotimes 99)
+        "#,
+        result: "6",
+    }
+
+    // 6. let* binder `x` referenced inside its own init expression
+    //    (the prior x), then shadowed for the body.
+    tulisp_assert! {
+        program: r#"
+        (let* ((x 1)
+               (x (+ x 10))
+               (x (* x 2)))
+          x)
+        "#,
+        result: "22",
+    }
+
+    Ok(())
+}
+
 // `defvar`-declared variables are dynamic (special) — references resolve
 // through the symbol's own stack, so eval-in-a-different-scope sees the
 // enclosing binding. This matches Emacs' behavior under `lexical-binding: t`.

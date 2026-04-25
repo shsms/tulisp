@@ -127,7 +127,18 @@ pub(super) fn compile_fn_lambda(
         let mut free_vars: Vec<(TulispObject, TulispObject)> =
             Vec::with_capacity(free.len());
         for orig in free {
-            let ph = TulispObject::lexical_binding(ctx.lex_allocator.clone(), orig.clone());
+            // The placeholder is an identity token rewritten at phase
+            // 2 — its `symbol` field is not used for slot lookup.
+            // When `orig` is itself a `LexicalBinding` (because the
+            // surrounding scope's `substitute_lexical` already
+            // rewrote the body's reference), unwrap to the underlying
+            // symbol so the placeholder is single-wrapped, not
+            // doubly-wrapped.
+            let symbol_for_ph = match &orig.inner_ref().0 {
+                crate::TulispValue::LexicalBinding { binding } => binding.symbol().clone(),
+                _ => orig.clone(),
+            };
+            let ph = TulispObject::lexical_binding(ctx.lex_allocator.clone(), symbol_for_ph);
             free_vars.push((orig, ph));
         }
 

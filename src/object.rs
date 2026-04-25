@@ -396,6 +396,12 @@ impl TulispObject {
         allocator: Shared<LexAllocator>,
         symbol: TulispObject,
     ) -> TulispObject {
+        debug_assert!(
+            !matches!(&symbol.inner_ref().0, TulispValue::LexicalBinding { .. }),
+            "lexical_binding called with an already-LexicalBinding `symbol` \
+             — this means substitute_lexical descended into a binding form's \
+             parameter / varname position. See todo.md #8."
+        );
         let span = symbol.span();
         TulispValue::lexical_binding(allocator, symbol).into_ref(span)
     }

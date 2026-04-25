@@ -459,6 +459,152 @@ pub(crate) fn substitute_lexical(
     substitute_lexical_inner(body, mappings, 0)
 }
 
+/// Walk a tail of a list, substituting each element. The first
+/// `preserve` cells are copied verbatim; everything past that is
+/// recursively substituted (including any improper-list tail).
+fn walk_tail_substitute(
+    body: TulispObject,
+    preserve: usize,
+    mappings: &[(TulispObject, TulispObject)],
+    quote_depth: u32,
+) -> Result<TulispObject, Error> {
+    let result = TulispObject::nil()
+        .with_span(body.span())
+        .with_ctxobj(body.ctxobj());
+    let mut cur = body;
+    let mut idx: usize = 0;
+    loop {
+        let car = cur.car()?;
+        let new_car = if idx < preserve {
+            car
+        } else {
+            substitute_lexical_inner(car, mappings, quote_depth)?
+        };
+        result.push(new_car)?;
+        let cdr = cur.cdr()?;
+        if cdr.null() {
+            break;
+        }
+        if !cdr.consp() {
+            // Improper-list tail.
+            let new_tail = if idx + 1 < preserve {
+                cdr
+            } else {
+                substitute_lexical_inner(cdr, mappings, quote_depth)?
+            };
+            result.append(new_tail)?;
+            break;
+        }
+        cur = cdr;
+        idx += 1;
+    }
+    Ok(result)
+}
+
+/// If `name` is a binding-introducing form (lambda, let, let*,
+/// dolist, dotimes), substitute the value/body positions while
+/// leaving the binder names alone, and return the rewritten form.
+/// Returns `Ok(None)` for anything else — the caller falls back to
+/// the default element-by-element walk.
+fn substitute_binding_form(
+    body: &TulispObject,
+    name: &str,
+    mappings: &[(TulispObject, TulispObject)],
+    quote_depth: u32,
+) -> Result<Option<TulispObject>, Error> {
+    match name {
+        // (lambda PARAMS BODY...)
+        "lambda" => {
+            // Preserve head + PARAMS; substitute the rest.
+            Ok(Some(walk_tail_substitute(
+                body.clone(),
+                2,
+                mappings,
+                quote_depth,
+            )?))
+        }
+        // (let VARLIST BODY...) | (let* VARLIST BODY...)
+        // VARLIST is a list of either bare symbols (uninitialized
+        // vars) or `(var init...)` pairs. Skip the var name; descend
+        // into the init expressions and the body forms.
+        "let" | "let*" => {
+            let head = body.car()?;
+            let rest = body.cdr()?;
+            let varlist = rest.car()?;
+            let body_forms = rest.cdr()?;
+
+            let new_varlist = if varlist.consp() {
+                let result = TulispObject::nil()
+                    .with_span(varlist.span())
+                    .with_ctxobj(varlist.ctxobj());
+                let mut cur = varlist;
+                while cur.consp() {
+                    let varitem = cur.car()?;
+                    let new_varitem = if varitem.consp() {
+                        // (var init...) — preserve var, substitute init.
+                        walk_tail_substitute(varitem, 1, mappings, quote_depth)?
+                    } else {
+                        // bare symbol
+                        varitem
+                    };
+                    result.push(new_varitem)?;
+                    cur = cur.cdr()?;
+                }
+                result
+            } else {
+                varlist
+            };
+
+            let result = TulispObject::nil()
+                .with_span(body.span())
+                .with_ctxobj(body.ctxobj());
+            result.push(head)?;
+            result.push(new_varlist)?;
+            // Substitute the body forms.
+            let mut cur = body_forms;
+            while cur.consp() {
+                let car = cur.car()?;
+                result.push(substitute_lexical_inner(car, mappings, quote_depth)?)?;
+                cur = cur.cdr()?;
+            }
+            if !cur.null() {
+                result.append(substitute_lexical_inner(cur, mappings, quote_depth)?)?;
+            }
+            Ok(Some(result))
+        }
+        // (dolist (var list-expr [result-expr]) BODY...)
+        // (dotimes (var count-expr [result-expr]) BODY...)
+        "dolist" | "dotimes" => {
+            let head = body.car()?;
+            let rest = body.cdr()?;
+            let spec = rest.car()?;
+            let body_forms = rest.cdr()?;
+            // Preserve the var (spec.car); substitute the rest of spec.
+            let new_spec = if spec.consp() {
+                walk_tail_substitute(spec, 1, mappings, quote_depth)?
+            } else {
+                spec
+            };
+            let result = TulispObject::nil()
+                .with_span(body.span())
+                .with_ctxobj(body.ctxobj());
+            result.push(head)?;
+            result.push(new_spec)?;
+            let mut cur = body_forms;
+            while cur.consp() {
+                let car = cur.car()?;
+                result.push(substitute_lexical_inner(car, mappings, quote_depth)?)?;
+                cur = cur.cdr()?;
+            }
+            if !cur.null() {
+                result.append(substitute_lexical_inner(cur, mappings, quote_depth)?)?;
+            }
+            Ok(Some(result))
+        }
+        _ => Ok(None),
+    }
+}
+
 fn substitute_lexical_inner(
     body: TulispObject,
     mappings: &[(TulispObject, TulispObject)],
@@ -475,7 +621,13 @@ fn substitute_lexical_inner(
             if quote_depth > 0 {
                 body
             } else {
-                for (from, to) in mappings {
+                // Iterate in reverse so the most recently-pushed
+                // mapping wins. `let*` and similar incremental binders
+                // append to `mappings`, so successive shadows of the
+                // same name need last-write-wins lookup; defun /
+                // lambda mappings have no duplicates so the order
+                // doesn't matter for them.
+                for (from, to) in mappings.iter().rev() {
                     if body.eq(from) {
                         return Ok(to.clone().with_span(span));
                     }
@@ -485,14 +637,29 @@ fn substitute_lexical_inner(
         }
         TulispValue::List { .. } => {
             drop(inner_ref);
-            // At code level, `(quote X)` written as a list form is
-            // data-only — don't substitute inside X (alist key etc.).
             if quote_depth == 0
                 && let Ok(car) = body.car()
                 && let Ok(name) = car.as_symbol()
-                && name == "quote"
             {
-                return Ok(body);
+                // At code level, `(quote X)` written as a list form is
+                // data-only — don't substitute inside X (alist key etc.).
+                if name == "quote" {
+                    return Ok(body);
+                }
+                // Binding-introducing forms have a parameter / varlist
+                // section that *declares* names rather than referencing
+                // them. Walking into those positions and substituting
+                // turns them into `LexicalBinding`s, which the inner
+                // form's compiler (`compile_fn_lambda`,
+                // `compile_fn_let_star`, …) then wraps again in a
+                // fresh `LexicalBinding` — producing a double wrap.
+                // Substitute only at value-expression positions and
+                // at the body, leaving binder names alone.
+                if let Some(rewritten) =
+                    substitute_binding_form(&body, &name, mappings, quote_depth)?
+                {
+                    return Ok(rewritten);
+                }
             }
             // Preserve the outer list's ctxobj — it caches the function
             // resolved at parse time for `(fn arg ...)` forms. Dropping
