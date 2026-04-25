@@ -1,6 +1,7 @@
 use std::fmt::Display;
 use tulisp::{
-    Error, Iter, Shared, TulispContext, TulispConvertible, TulispObject, destruct_eval_bind,
+    AsPlist, Error, Iter, Plist, Shared, TulispContext, TulispConvertible, TulispObject,
+    destruct_eval_bind,
 };
 
 macro_rules! tulisp_assert {
@@ -1375,6 +1376,77 @@ fn test_funcall_compiled_defun_through_tw() -> Result<(), Error> {
         "expected 42, got {}",
         result
     );
+    Ok(())
+}
+
+#[test]
+fn test_plist_defun_callable_from_vm_run() -> Result<(), Error> {
+    // Regression for the cross-path bug specific to `Plist<T>`-arg
+    // defuns. Pre-rewrite, the `plist_args` arms in
+    // `context/callable.rs` registered via `ctx.defspecial` and
+    // produced a `TulispValue::Func`. From inside a VM run, calling
+    // such a defun went through `RustCall` → the closure's
+    // `Plist::new(ctx, rest)` → `ctx.eval(value)` per pair → if
+    // `value` was itself a `CompiledDefun` call, `eval::funcall`
+    // re-acquired `ctx.vm.borrow_mut()` — deadlock under `sync`,
+    // RefCell panic otherwise.
+    //
+    // The fix routes Plist-arg defuns through the typed-arg path
+    // (`define_typed_defun` → `RustCallTyped`). Args arrive
+    // already-evaluated; the callback rebuilds the plist shape with
+    // values wrapped in `quote` so `Plist::new`'s per-value eval is
+    // a no-op.
+
+    AsPlist! {
+        struct Cfg {
+            x: i64,
+            y: i64,
+            tag: String,
+            xs: Vec<i64>,
+        }
+    }
+
+    let mut ctx = TulispContext::new();
+    ctx.defun("cfg-summary", |c: Plist<Cfg>| -> String {
+        format!(
+            "{}={}({} sum={})",
+            c.tag,
+            c.x + c.y,
+            c.xs.len(),
+            c.xs.iter().sum::<i64>(),
+        )
+    });
+
+    // VM-compile a defun whose body calls `cfg-summary` with arg
+    // expressions that are themselves CompiledDefun calls (`mkx`,
+    // `mky`, `mktag`) and a quoted list value (`'(1 2 3)`). Each
+    // arg's evaluated form ends up in the typed-defun's args slice
+    // and must round-trip through Plist::new without re-eval.
+    // `(defun mktag () "answer")` would strip the string as a
+    // docstring and leave the body empty. Use `progn` to force the
+    // string to be the actual return value.
+    ctx.vm_eval_string(
+        r#"
+        (defun mkx () 10)
+        (defun mky () 32)
+        (defun mktag () (progn "answer"))
+        (defun outer ()
+          (cfg-summary :x (mkx) :y (mky) :tag (mktag) :xs '(1 2 3)))
+        "#,
+    )?;
+
+    let outer = ctx.intern("outer");
+    let result = ctx.funcall(&outer, &TulispObject::nil())?;
+    assert_eq!(result.as_string()?, "answer=42(3 sum=6)");
+
+    // Also exercise the inverse path: TW-eval the call to make sure
+    // the typed-arg path also works through `eval::funcall`'s
+    // `Defun` arm.
+    let tw_result = ctx.eval_string(
+        r#"(cfg-summary :x 1 :y 2 :tag "tw" :xs '(4 5 6))"#,
+    )?;
+    assert_eq!(tw_result.as_string()?, "tw=3(3 sum=15)");
+
     Ok(())
 }
 

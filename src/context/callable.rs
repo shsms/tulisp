@@ -1,5 +1,6 @@
 use crate::object::wrappers::generic::SyncSend;
-use crate::{destruct_bind, Error, Rest, TulispContext, TulispObject};
+use crate::value::TulispValue;
+use crate::{Error, Rest, TulispContext, TulispObject};
 
 pub trait TulispCallable<
     Args: 'static,
@@ -553,6 +554,24 @@ mod plist_args {
 
     use super::*;
 
+    /// Reassemble a typed-defun's already-evaluated args slice into the
+    /// `(KEY VALUE …)` shape `Plist::new` expects. Keywords self-evaluate
+    /// so they pass through unchanged; values get wrapped in `quote` so
+    /// `Plist::new`'s per-value `ctx.eval` (inside `Plistable::from_plist`)
+    /// is a no-op — otherwise an already-evaluated list value would
+    /// re-eval and either error or double-evaluate.
+    fn build_plist_obj(args: &[TulispObject]) -> Result<TulispObject, Error> {
+        let plist = TulispObject::nil();
+        for (i, arg) in args.iter().enumerate() {
+            if i.is_multiple_of(2) {
+                plist.push(arg.clone())?;
+            } else {
+                plist.push(TulispValue::Quote { value: arg.clone() }.into_ref(None))?;
+            }
+        }
+        Ok(plist)
+    }
+
     #[allow(nonstandard_style)]
     impl<PlistT, OutT, FnT> TulispCallable<(PlistT,), OutT, false, 0, 0, true, false, true, false>
         for FnT
@@ -563,9 +582,9 @@ mod plist_args {
     {
         #[track_caller]
         fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
-            ctx.defspecial(name, move |ctx, _args| {
-                destruct_bind!((&rest rest) = _args);
-                let res = (self)(Plist::new(ctx, rest)?);
+            ctx.define_typed_defun(name, move |ctx, args| {
+                let obj = build_plist_obj(args)?;
+                let res = (self)(Plist::new(ctx, &obj)?);
                 Ok(crate::TulispConvertible::into_tulisp(res))
             });
         }
@@ -578,9 +597,9 @@ mod plist_args {
     {
         #[track_caller]
         fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
-            ctx.defspecial(name, move |ctx, _args| {
-                destruct_bind!((&rest rest) = _args);
-                (self)(Plist::new(ctx, rest)?);
+            ctx.define_typed_defun(name, move |ctx, args| {
+                let obj = build_plist_obj(args)?;
+                (self)(Plist::new(ctx, &obj)?);
                 Ok(TulispObject::nil())
             });
         }
@@ -595,9 +614,9 @@ mod plist_args {
     {
         #[track_caller]
         fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
-            ctx.defspecial(name, move |ctx, _args| {
-                destruct_bind!((&rest rest) = _args);
-                let plist = Plist::new(ctx, rest)?;
+            ctx.define_typed_defun(name, move |ctx, args| {
+                let obj = build_plist_obj(args)?;
+                let plist = Plist::new(ctx, &obj)?;
                 let res = (self)(ctx, plist);
                 Ok(crate::TulispConvertible::into_tulisp(res))
             });
@@ -611,9 +630,9 @@ mod plist_args {
     {
         #[track_caller]
         fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
-            ctx.defspecial(name, move |ctx, _args| {
-                destruct_bind!((&rest rest) = _args);
-                let plist = Plist::new(ctx, rest)?;
+            ctx.define_typed_defun(name, move |ctx, args| {
+                let obj = build_plist_obj(args)?;
+                let plist = Plist::new(ctx, &obj)?;
                 (self)(ctx, plist);
                 Ok(TulispObject::nil())
             });
@@ -629,9 +648,9 @@ mod plist_args {
     {
         #[track_caller]
         fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
-            ctx.defspecial(name, move |ctx, _args| {
-                destruct_bind!((&rest rest) = _args);
-                let plist = Plist::new(ctx, rest)?;
+            ctx.define_typed_defun(name, move |ctx, args| {
+                let obj = build_plist_obj(args)?;
+                let plist = Plist::new(ctx, &obj)?;
                 let res = (self)(plist);
                 res.map(|x| x.into_tulisp())
             });
@@ -646,9 +665,9 @@ mod plist_args {
     {
         #[track_caller]
         fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
-            ctx.defspecial(name, move |ctx, _args| {
-                destruct_bind!((&rest rest) = _args);
-                let plist = Plist::new(ctx, rest)?;
+            ctx.define_typed_defun(name, move |ctx, args| {
+                let obj = build_plist_obj(args)?;
+                let plist = Plist::new(ctx, &obj)?;
                 let res = (self)(ctx, plist);
                 res.map(|x| x.into_tulisp())
             });
