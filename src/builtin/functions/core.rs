@@ -84,49 +84,36 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         ctx.eval_file(full_path)
     });
 
-    ctx.defspecial("intern", |ctx, args| {
-        destruct_eval_bind!(ctx, (name) = args);
-        Ok(ctx.intern(&name.as_string()?))
+    ctx.defun("intern", |ctx: &mut TulispContext, name: String| -> TulispObject {
+        ctx.intern(&name)
     });
 
-    fn make_symbol(name: String) -> Result<TulispObject, Error> {
+    fn make_symbol(name: String) -> TulispObject {
         let constant = name.starts_with(":");
-        Ok(TulispObject::symbol(name, constant))
+        TulispObject::symbol(name, constant)
     }
 
-    ctx.defspecial("make-symbol", |ctx, args| {
-        destruct_eval_bind!(ctx, (name) = args);
-        make_symbol(name.as_string()?)
-    });
+    ctx.defun("make-symbol", make_symbol);
 
-    ctx.defspecial("gensym", |ctx, args| {
-        destruct_eval_bind!(ctx, (&optional prefix) = args);
-        let prefix = if !prefix.null() {
-            if prefix.stringp() {
-                prefix.as_string()?
-            } else {
-                return Err(Error::type_mismatch(
-                    "gensym: prefix must be a string".to_string(),
-                ));
-            }
-        } else {
-            "g".to_string()
-        };
-        let counter = ctx.intern("gensym-counter");
-        let count = if counter.boundp() {
-            let value = counter.get()?;
-            if value.integerp() {
-                value.as_int().unwrap()
+    ctx.defun(
+        "gensym",
+        |ctx: &mut TulispContext, prefix: Option<String>| -> Result<TulispObject, Error> {
+            let prefix = prefix.unwrap_or_else(|| "g".to_string());
+            let counter = ctx.intern("gensym-counter");
+            let count = if counter.boundp() {
+                let value = counter.get()?;
+                if value.integerp() {
+                    value.as_int().unwrap()
+                } else {
+                    0
+                }
             } else {
                 0
-            }
-        } else {
-            0
-        };
-        counter.set(TulispObject::from(count + 1))?;
-
-        make_symbol(format!("{prefix}{count}"))
-    });
+            };
+            counter.set(TulispObject::from(count + 1))?;
+            Ok(make_symbol(format!("{prefix}{count}")))
+        },
+    );
 
     ctx.defspecial("concat", |ctx, args| {
         destruct_eval_bind!(ctx, (&rest rest) = args);
@@ -498,10 +485,12 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     ctx.defun("null", |arg: TulispObject| -> bool { arg.null() });
 
-    ctx.defspecial("eval", |ctx, args| {
-        destruct_eval_bind!(ctx, (arg) = args);
-        ctx.eval(&arg)
-    });
+    ctx.defun(
+        "eval",
+        |ctx: &mut TulispContext, arg: TulispObject| -> Result<TulispObject, Error> {
+            ctx.eval(&arg)
+        },
+    );
 
     ctx.defspecial("funcall", |ctx, args| {
         destruct_bind!((name &rest rest) = args);
@@ -514,10 +503,12 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         }
     });
 
-    ctx.defspecial("macroexpand", |ctx, args| {
-        destruct_eval_bind!(ctx, (name) = args);
-        crate::eval::macroexpand(ctx, name)
-    });
+    ctx.defun(
+        "macroexpand",
+        |ctx: &mut TulispContext, name: TulispObject| -> Result<TulispObject, Error> {
+            crate::eval::macroexpand(ctx, name)
+        },
+    );
 
     // List functions
 
