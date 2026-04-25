@@ -122,6 +122,12 @@ fn compile_fn_defun_bounce_call(
             result.append(&mut compile_expr_keep_result(ctx, &arg)?);
             args_count += 1;
         }
+        // Tail-call escape: `TailCall` returns from `run_function`
+        // directly, skipping the `EndScope`s the enclosing
+        // `let` / `let*` would otherwise emit after this instruction.
+        // Drain those scopes here so their bindings don't get stuck on
+        // `LEX_STACKS` for the rest of the program. LIFO order.
+        push_active_scope_endscopes(ctx, &mut result);
         result.push(Instruction::TailCall {
             name: name.clone(),
             args_count,
@@ -175,8 +181,25 @@ fn compile_fn_defun_bounce_call(
     for param in params.required.iter().rev() {
         result.push(Instruction::StorePop(param.clone()))
     }
+    // Self-recursion escape: `Jump(Pos::Abs(0))` jumps back to the
+    // start of the function, skipping the trailing `EndScope`s of any
+    // enclosing `let` / `let*`. Drain them here in LIFO order so the
+    // bindings don't accumulate on `LEX_STACKS` across recursion
+    // depths.
+    push_active_scope_endscopes(ctx, &mut result);
     result.push(Instruction::Jump(Pos::Abs(0)));
     return Ok(result);
+}
+
+/// Emit `EndScope` instructions for every active `let` / `let*`
+/// binding tracked on the compiler, in LIFO order (newest first).
+/// Called at function-escaping sites so bindings introduced by
+/// enclosing let-forms don't leak past the escape.
+fn push_active_scope_endscopes(ctx: &TulispContext, out: &mut Vec<Instruction>) {
+    let compiler = ctx.compiler.as_ref().unwrap();
+    for binding in compiler.active_let_scopes.iter().rev() {
+        out.push(Instruction::EndScope(binding.clone()));
+    }
 }
 
 pub(super) fn compile_fn_defun_call(
@@ -275,6 +298,12 @@ pub(super) fn compile_fn_defun(
             .defun_args
             .insert(defun_name.addr_as_usize(), defun_params.clone());
         let prev_defun = compiler.current_defun.replace(defun_name.clone());
+        // The body starts a fresh function frame — escapes inside it
+        // unwind to *this* defun, not whatever surrounding scope was
+        // being compiled. Stash and clear `active_let_scopes` so the
+        // body's tail-call sites only see the let scopes they're
+        // actually nested in.
+        let prev_scopes = std::mem::take(&mut compiler.active_let_scopes);
 
         // TODO: replace with `is_string`
         let body = if body.car()?.as_string().is_ok() {
@@ -290,7 +319,9 @@ pub(super) fn compile_fn_defun(
         let mut result = compile_progn_keep_result(ctx, &body)?;
         result.push(Instruction::Ret);
 
-        ctx.compiler.as_mut().unwrap().current_defun = prev_defun;
+        let compiler = ctx.compiler.as_mut().unwrap();
+        compiler.current_defun = prev_defun;
+        compiler.active_let_scopes = prev_scopes;
         Ok(result)
     })?;
     let function = CompiledDefun {

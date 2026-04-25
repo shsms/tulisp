@@ -1469,6 +1469,161 @@ fn test_substitute_lexical_skips_binders() -> Result<(), Error> {
     Ok(())
 }
 
+#[track_caller]
+fn assert_no_lex_stack_leak(ctx: &mut TulispContext, prog: &str, call: &str, label: &str) {
+    let s0 = tulisp::debug_lex_stacks_total();
+    for _ in 0..1000 {
+        ctx.vm_eval_string(call).unwrap_or_else(|e| {
+            panic!("{}: eval failed: {}", label, e.format(ctx));
+        });
+    }
+    let delta = tulisp::debug_lex_stacks_total() as i64 - s0 as i64;
+    assert_eq!(
+        delta, 0,
+        "{}: leaked {} LEX_STACKS entries over 1000 calls. Program:\n{}",
+        label, delta, prog
+    );
+}
+
+#[test]
+fn test_tail_call_does_not_leak_lex_stack() -> Result<(), Error> {
+    // Regression: `mark_tail_calls` recurses into `let` / `let*` /
+    // `progn` / `if` / `cond` bodies and rewrites the body's
+    // tail-position call into a `Bounce`, which compiles to
+    // `Instruction::TailCall`. That instruction unwinds the
+    // surrounding `run_function` directly, bypassing trailing
+    // `Instruction::EndScope`s that `compile_fn_let_star` appends —
+    // leaving let bindings stuck on `LEX_STACKS` permanently. The
+    // fix injects the cleanup before each `TailCall` in the body.
+    //
+    // `dolist` / `dotimes` aren't recursed into by `mark_tail_calls`,
+    // so the body of those forms can't contain a `tcall`. They're
+    // exercised here anyway as a guard against a future regression
+    // and to confirm the surrounding-let-scope fix still applies
+    // when the let body's tail call comes after a loop form.
+
+    // Helper: each case is a defun + a top-level call expression.
+    // The defun's body shape is what we're testing.
+    let cases: &[(&str, &str, &str)] = &[
+        // Original repro: let body's tail is a tail-call.
+        (
+            "let_with_mapcar_tail",
+            r#"(defvar v '(1.0 2.0 3.0))
+               (defun f (power)
+                 (let ((tot (seq-reduce '+ v 0.0)))
+                   (mapcar (lambda (x) (* power (/ x tot))) v)))"#,
+            "(f 10.0)",
+        ),
+        // let* with multiple bindings.
+        (
+            "let_star_multi_binding",
+            r#"(defun f (n)
+                 (let* ((a (* n 2))
+                        (b (+ a 1)))
+                   (mapcar (lambda (x) (+ x a b)) '(1 2 3))))"#,
+            "(f 5)",
+        ),
+        // tcall through if both branches inside let.
+        (
+            "let_with_if_branches_tail",
+            r#"(defun f (n)
+                 (let ((acc (* n 2)))
+                   (if (> n 0)
+                       (mapcar (lambda (x) (+ x acc)) '(1 2 3))
+                       (mapcar (lambda (x) (* x acc)) '(4 5 6)))))"#,
+            "(f 5)",
+        ),
+        // tcall through cond branches inside let*.
+        (
+            "let_star_with_cond_branches_tail",
+            r#"(defun f (n)
+                 (let* ((a (* n 2)) (b (+ a 1)))
+                   (cond ((= n 0) (mapcar (lambda (x) x) '(1 2 3)))
+                         ((> n 0) (mapcar (lambda (x) (+ x a b)) '(1 2 3)))
+                         (t (mapcar (lambda (x) (- x a)) '(1 2 3))))))"#,
+            "(f 5)",
+        ),
+        // Nested let* — both layers must inject EndScopes before tcall.
+        (
+            "nested_let_star_tail",
+            r#"(defun f (n)
+                 (let ((a n))
+                   (let ((b (* a 2)))
+                     (mapcar (lambda (x) (+ x a b)) '(1 2 3)))))"#,
+            "(f 5)",
+        ),
+        // dolist body is NOT in tail position (mark_tail_calls doesn't
+        // recurse into dolist), so no tcall is emitted inside the
+        // dolist. But dolist itself can sit in a let whose body's
+        // tail is a separate tcall after the loop.
+        (
+            "dolist_inside_let_with_trailing_tcall",
+            r#"(defun f (xs)
+                 (let ((acc 0))
+                   (dolist (x xs) (setq acc (+ acc x)))
+                   (mapcar (lambda (n) (+ n acc)) '(1 2 3))))"#,
+            "(f '(1 2 3 4))",
+        ),
+        // Same with dotimes.
+        (
+            "dotimes_inside_let_with_trailing_tcall",
+            r#"(defun f (n)
+                 (let ((acc 0))
+                   (dotimes (i n) (setq acc (+ acc i)))
+                   (mapcar (lambda (x) (+ x acc)) '(1 2 3))))"#,
+            "(f 5)",
+        ),
+        // dolist itself in tail position of a let — mark_tail_calls
+        // does NOT mark anything inside the dolist, so no tcall is
+        // emitted in this defun's body. Confirms the no-leak baseline.
+        (
+            "dolist_as_tail",
+            r#"(defun f (xs)
+                 (let ((acc 0))
+                   (dolist (x xs) (setq acc (+ acc x)))))"#,
+            "(f '(1 2 3 4))",
+        ),
+        // Self tail-call from let body — `Bounce` form on the same
+        // function name. The let bindings must be popped before the
+        // function re-enters itself.
+        (
+            "let_body_self_tail_recursion",
+            r#"(defun f (n acc)
+                 (if (<= n 0)
+                     acc
+                     (let ((next (- n 1)))
+                       (f next (+ acc n)))))"#,
+            "(f 50 0)",
+        ),
+        // Lambda body with let* + tail-call. The lambda is materialized
+        // per call to `g`; its compiled body must not leak either.
+        (
+            "lambda_body_let_star_tail",
+            r#"(defun g (n)
+                 (funcall (lambda (k)
+                            (let* ((a (* k 2)) (b (+ a 1)))
+                              (mapcar (lambda (x) (+ x a b)) '(1 2 3))))
+                          n))"#,
+            "(g 5)",
+        ),
+    ];
+
+    // Fresh context per case so an earlier `(defun f ...)` doesn't
+    // shadow the next case's `f` (and so `defvar`s don't leak between
+    // shapes).
+    for (label, prog, call) in cases {
+        let mut ctx = TulispContext::new();
+        eprintln!("case: {}", label);
+        ctx.vm_eval_string(prog)
+            .unwrap_or_else(|e| panic!("{} setup failed: {}", label, e.format(&ctx)));
+        // First, sanity-check: a single call works without panicking.
+        ctx.vm_eval_string(call)
+            .unwrap_or_else(|e| panic!("{} sanity call failed: {}", label, e.format(&ctx)));
+        assert_no_lex_stack_leak(&mut ctx, prog, call, label);
+    }
+    Ok(())
+}
+
 // `defvar`-declared variables are dynamic (special) — references resolve
 // through the symbol's own stack, so eval-in-a-different-scope sees the
 // enclosing binding. This matches Emacs' behavior under `lexical-binding: t`.

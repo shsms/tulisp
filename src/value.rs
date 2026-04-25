@@ -283,6 +283,15 @@ impl SymbolBindings {
 // freed ids through its own free list before bumping this counter.
 static LEX_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+/// Debug-only: sum of all per-id stack lengths in the current
+/// thread's `LEX_STACKS`. Steady growth indicates a push without
+/// matching pop somewhere (e.g. `BeginScope` without `EndScope` on
+/// some control-flow path).
+#[doc(hidden)]
+pub fn debug_lex_stacks_total() -> usize {
+    LEX_STACKS.with(|s| s.borrow().iter().map(|v| v.len()).sum())
+}
+
 /// Per-context allocator for LexBinding ids. Held by the context and
 /// by every `LexBinding` it creates (via a `Shared` ref on the
 /// binding), so dropping a binding returns its id to the free list —

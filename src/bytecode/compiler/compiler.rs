@@ -22,6 +22,16 @@ pub(crate) struct Compiler {
     pub bytecode: Bytecode,
     pub keep_result: bool,
     pub current_defun: Option<TulispObject>,
+    /// Lexical bindings introduced by the enclosing `let` / `let*`
+    /// forms in source-order. Forms that emit a function-escaping
+    /// instruction (`TailCall`, self-recursion's
+    /// `Jump(Pos::Abs(0))`) read this list and emit `EndScope`s for
+    /// the active bindings before the escape — otherwise the trailing
+    /// `EndScope`s appended by `compile_fn_let_star` are skipped on
+    /// the escape path and the bindings stay pushed on `LEX_STACKS`
+    /// permanently. Saved/restored at lambda + defun boundaries so
+    /// nested function bodies start fresh.
+    pub active_let_scopes: Vec<TulispObject>,
     label_counter: usize,
 }
 
@@ -33,6 +43,7 @@ impl Compiler {
             bytecode: Bytecode::new(),
             keep_result: true,
             current_defun: None,
+            active_let_scopes: Vec::new(),
             label_counter: 0,
         }
     }

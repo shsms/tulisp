@@ -116,8 +116,27 @@ pub(super) fn compile_fn_let_star(
                 mappings.push((name, binding));
             }
         }
+        // Track the bindings on the compiler so anything inside the
+        // body that emits a function-escaping instruction (`TailCall`,
+        // self-recursion's `Jump(Pos::Abs(0))`) can prepend
+        // `EndScope`s for the active scopes. The trailing `EndScope`s
+        // appended below are unreachable on the escape path, so
+        // without this push/pop the bindings stay stuck on
+        // `LEX_STACKS` forever.
+        let scope_depth = ctx.compiler.as_ref().unwrap().active_let_scopes.len();
+        ctx.compiler
+            .as_mut()
+            .unwrap()
+            .active_let_scopes
+            .extend(params.iter().cloned());
         let rewritten_body = substitute_lexical(body.clone(), &mappings)?;
-        let mut body = compile_progn(ctx, &rewritten_body)?;
+        let body_result = compile_progn(ctx, &rewritten_body);
+        ctx.compiler
+            .as_mut()
+            .unwrap()
+            .active_let_scopes
+            .truncate(scope_depth);
+        let mut body = body_result?;
         if body.is_empty() {
             return Ok(vec![]);
         }

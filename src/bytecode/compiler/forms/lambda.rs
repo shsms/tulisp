@@ -154,9 +154,20 @@ pub(super) fn compile_fn_lambda(
         }
         let body = substitute_lexical(body, &mappings)?;
 
+        // The body is its own function frame at runtime, so escapes
+        // inside it unwind to *this* lambda — they shouldn't see let
+        // scopes from whatever surrounding code is being compiled.
+        // Stash and clear `active_let_scopes` for the body compile,
+        // then restore it.
+        let prev_scopes = std::mem::take(
+            &mut ctx.compiler.as_mut().unwrap().active_let_scopes,
+        );
+
         // Compile the substituted body with `keep_result` so the last
         // form leaves its value on the stack; `Ret` returns it.
-        let mut instructions = compile_progn_keep_result(ctx, &body)?;
+        let body_result = compile_progn_keep_result(ctx, &body);
+        ctx.compiler.as_mut().unwrap().active_let_scopes = prev_scopes;
+        let mut instructions = body_result?;
         instructions.push(Instruction::Ret);
 
         let template = LambdaTemplate {
