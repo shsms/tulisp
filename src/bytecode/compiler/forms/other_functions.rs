@@ -146,6 +146,14 @@ fn compile_fn_defun_bounce_call(
         result.append(&mut compile_expr_keep_result(ctx, &arg)?);
         args_count += 1;
     }
+    if args_count < params.required.len() {
+        return Err(Error::arity_mismatch(format!(
+            "defun bounce call: too few arguments. expected: {} got: {}",
+            params.required.len(),
+            args_count
+        ))
+        .with_trace(args.clone()));
+    }
     let mut optional_count = 0;
     let left_args = args_count - params.required.len();
     if left_args > params.optional.len() {

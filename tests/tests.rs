@@ -1451,6 +1451,139 @@ fn test_plist_defun_callable_from_vm_run() -> Result<(), Error> {
 }
 
 #[test]
+fn test_self_tail_recursion_arity_checked_at_compile_time() -> Result<(), Error> {
+    // `mark_tail_calls` rewrites self-recursive tail calls into
+    // `(Bounce f args …)`, which `compile_fn_defun_bounce_call`
+    // compiles into the in-place arg-rebind + `Jump(Pos::Abs(0))`
+    // shape (no `Instruction::Call`). That path arity-checks against
+    // `compiler.defun_args[name]` at compile time and reports the
+    // mismatch instead of silently wrapping a usize subtraction.
+
+    // Too many: 2 required, called with 3.
+    let mut ctx = TulispContext::new();
+    let err = ctx.vm_eval_string(
+        r#"
+        (defun f (a b)
+          (if (= a 0) b (f (- a 1) (+ b a) (* b 2))))
+        "#,
+    );
+    let msg = err.unwrap_err().format(&ctx);
+    assert!(
+        msg.contains("too many arguments") || msg.contains("Too many arguments"),
+        "expected too-many error from self tail-call, got: {}",
+        msg
+    );
+
+    // Too few: 2 required, called with 1. This previously underflowed
+    // `args_count - params.required.len()` (usize) and surfaced a
+    // misleading "too many" error in release mode.
+    let mut ctx = TulispContext::new();
+    let err = ctx.vm_eval_string(
+        r#"
+        (defun f (a b)
+          (if (= a 0) b (f (- a 1))))
+        "#,
+    );
+    let msg = err.unwrap_err().format(&ctx);
+    assert!(
+        msg.contains("too few arguments") || msg.contains("Too few arguments"),
+        "expected too-few error from self tail-call, got: {}",
+        msg
+    );
+
+    // Sanity: matching arity compiles + runs cleanly.
+    let mut ctx = TulispContext::new();
+    let r = ctx.vm_eval_string(
+        r#"
+        (defun sum-to (n acc)
+          (if (= n 0) acc (sum-to (- n 1) (+ acc n))))
+        (sum-to 10 0)
+        "#,
+    )?;
+    assert_eq!(r.try_int()?, 55);
+
+    Ok(())
+}
+
+#[test]
+fn test_typed_defun_arity_checked_before_arg_eval() -> Result<(), Error> {
+    // `TulispValue::Defun` carries arity metadata so the dispatchers
+    // (compile_form for VM, eval::funcall for TW) can reject
+    // mismatches before the user's closure runs. The TW path also
+    // checks BEFORE evaluating any arg expression, so a too-many-
+    // args call doesn't side-effect through the extras.
+    //
+    // Test shape: the defun takes 1 required + 0 optional + no rest.
+    // Each arg expression bumps a counter so we can observe whether
+    // it ran. With the arity check in place, a `(narrow 1 2 3)` call
+    // never evaluates arg 2 or arg 3.
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicI64, Ordering};
+
+    // Atomic-backed counter so the closure stays `Send + Sync` for
+    // both the default (`Rc`) and `--features sync` (`Arc`) builds.
+    let counter = Arc::new(AtomicI64::new(0));
+    let counter_for_defun = counter.clone();
+    let mut ctx = TulispContext::new();
+    // `bump` increments the side-effect counter and returns its arg.
+    // Used as the arg expression so we can detect whether the
+    // dispatcher evaluated the arg before erroring.
+    ctx.defun("bump", move |x: i64| {
+        counter_for_defun.fetch_add(1, Ordering::Relaxed);
+        x
+    });
+    // `narrow` requires exactly 1 arg.
+    ctx.defun("narrow", |x: i64| -> i64 { x });
+
+    // Happy-path baseline: 1 arg, evaluated once.
+    counter.store(0, Ordering::Relaxed);
+    let r = ctx.eval_string("(narrow (bump 7))")?;
+    assert_eq!(r.try_int()?, 7);
+    assert_eq!(counter.load(Ordering::Relaxed), 1);
+
+    // Too-many: should error before any (bump …) runs.
+    counter.store(0, Ordering::Relaxed);
+    let err = ctx.eval_string("(narrow (bump 1) (bump 2) (bump 3))");
+    let msg = err.unwrap_err().format(&ctx);
+    assert!(
+        msg.starts_with("ERR InvalidArgument: Too many arguments"),
+        "expected too-many error, got: {}",
+        msg
+    );
+    assert_eq!(
+        counter.load(Ordering::Relaxed),
+        0,
+        "args evaluated before arity check fired"
+    );
+
+    // Too-few: also errors before (bump …) for the args that were
+    // present.
+    counter.store(0, Ordering::Relaxed);
+    let err = ctx.eval_string("(narrow)");
+    let msg = err.unwrap_err().format(&ctx);
+    assert!(
+        msg.starts_with("ERR MissingArgument: Too few arguments"),
+        "expected too-few error, got: {}",
+        msg
+    );
+    assert_eq!(counter.load(Ordering::Relaxed), 0);
+
+    // VM path: the same call expressed via `vm_eval_string` should
+    // be rejected at compile time, also before any arg side-effects.
+    counter.store(0, Ordering::Relaxed);
+    let err = ctx.vm_eval_string("(narrow (bump 1) (bump 2) (bump 3))");
+    let msg = err.unwrap_err().format(&ctx);
+    assert!(
+        msg.starts_with("ERR InvalidArgument: Too many arguments"),
+        "expected vm too-many error, got: {}",
+        msg
+    );
+    assert_eq!(counter.load(Ordering::Relaxed), 0);
+
+    Ok(())
+}
+
+#[test]
 fn test_substitute_lexical_skips_binders() -> Result<(), Error> {
     // `substitute_lexical` used to descend into the parameter /
     // varname positions of `lambda` / `let` / `let*` / `dolist` /

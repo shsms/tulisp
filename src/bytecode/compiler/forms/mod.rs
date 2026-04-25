@@ -145,8 +145,9 @@ pub(super) fn compile_form(
                     },
                 ]);
             }
-            (TulispValue::Defun { call }, _) => {
+            (TulispValue::Defun { call, arity }, _) => {
                 let call = call.clone();
+                let arity = arity.clone();
                 drop(func.inner_ref());
                 let mut result = Vec::new();
                 let mut args_count = 0usize;
@@ -156,6 +157,26 @@ pub(super) fn compile_form(
                     result.append(&mut super::compiler::compile_expr_keep_result(ctx, &arg)?);
                     args_count += 1;
                     rest = rest.cdr()?;
+                }
+                // Same wording as the @bind runtime check in
+                // `context/callable.rs`, so a defun whose arity is
+                // wrong reports the same error whether it's caught
+                // by the VM compiler here or by the runtime closure.
+                // The form's source span (added via `with_trace`)
+                // already pins the call site, so adding the name +
+                // counts here would only differ from the runtime
+                // path's wording.
+                if args_count < arity.required {
+                    return Err(crate::Error::missing_argument(
+                        "Too few arguments".to_string(),
+                    )
+                    .with_trace(form.clone()));
+                }
+                if !arity.has_rest && args_count > arity.required + arity.optional {
+                    return Err(crate::Error::invalid_argument(
+                        "Too many arguments".to_string(),
+                    )
+                    .with_trace(form.clone()));
                 }
                 let keep_result = ctx.compiler.as_ref().unwrap().keep_result;
                 result.push(Instruction::RustCallTyped {

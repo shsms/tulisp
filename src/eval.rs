@@ -166,7 +166,7 @@ fn eval_lambda<E: Evaluator>(
                 vm.borrow_mut().run_lambda(ctx, &value, &evaluated)?
             }
             TulispValue::Func(f) => f(ctx, &bounce_args)?,
-            TulispValue::Defun { call } => {
+            TulispValue::Defun { call, .. } => {
                 // Bounce args are already evaluated values from the
                 // previous call's tail position — hand them straight
                 // to the typed-args closure.
@@ -198,13 +198,25 @@ pub(crate) fn funcall<E: Evaluator>(
 ) -> Result<TulispObject, Error> {
     match &func.inner_ref().0 {
         TulispValue::Func(func) => func(ctx, args),
-        TulispValue::Defun { call } => {
+        TulispValue::Defun { call, arity } => {
             // `ctx.defun`-registered closures take args already
-            // evaluated. Walk the source-order args, eval each, and
-            // hand the slice to the closure — which validates arity
-            // and does TulispConvertible coercion internally.
+            // evaluated. Count the args list first (cheap — no eval)
+            // and reject arity mismatches before any arg expression
+            // runs, so a too-many-args call doesn't side-effect
+            // through the extras. The closure relies on arity having
+            // been checked here for TW, and in `compile_form` for VM,
+            // so it can do `TulispConvertible` coercion via direct
+            // indexing without rechecking length.
             let call = call.clone();
-            let mut evaluated = Vec::new();
+            let arity = arity.clone();
+            let args_count = args.base_iter().count();
+            if args_count < arity.required {
+                return Err(Error::missing_argument("Too few arguments".to_string()));
+            }
+            if !arity.has_rest && args_count > arity.required + arity.optional {
+                return Err(Error::invalid_argument("Too many arguments".to_string()));
+            }
+            let mut evaluated = Vec::with_capacity(args_count);
             for arg in args.base_iter() {
                 evaluated.push(match E::eval(ctx, &arg)? {
                     Cow::Borrowed(_) => arg,

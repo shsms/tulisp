@@ -41,6 +41,7 @@ macro_rules! impl_tulisp_callable {
             ) {
                 ctx.define_typed_defun(
                     name,
+                    crate::value::DefunArity { required: $args_count, optional: $opts_count, has_rest: false },
                     move |_ctx, _args| {
                         impl_tulisp_callable!(@bind _args, $($arg)*, $($opt)*);
                         let res = (self)($($crate::TulispConvertible::from_tulisp($arg)?,)* $($opt,)*);
@@ -67,6 +68,7 @@ macro_rules! impl_tulisp_callable {
             ) {
                 ctx.define_typed_defun(
                     name,
+                    crate::value::DefunArity { required: $args_count, optional: $opts_count, has_rest: false },
                     move |_ctx, _args| {
                         impl_tulisp_callable!(@bind _args, $($arg)*, $($opt)*);
                         (self)($($crate::TulispConvertible::from_tulisp($arg)?,)* $($opt,)*);
@@ -94,6 +96,7 @@ macro_rules! impl_tulisp_callable {
             ) {
                 ctx.define_typed_defun(
                     name,
+                    crate::value::DefunArity { required: $args_count, optional: $opts_count, has_rest: false },
                     move |ctx, _args| {
                         impl_tulisp_callable!(@bind _args, $($arg)*, $($opt)*);
                         let res = (self)(ctx, $($crate::TulispConvertible::from_tulisp($arg)?,)* $($opt,)*);
@@ -120,6 +123,7 @@ macro_rules! impl_tulisp_callable {
             ) {
                 ctx.define_typed_defun(
                     name,
+                    crate::value::DefunArity { required: $args_count, optional: $opts_count, has_rest: false },
                     move |ctx, _args| {
                         impl_tulisp_callable!(@bind _args, $($arg)*, $($opt)*);
                         (self)(ctx, $($crate::TulispConvertible::from_tulisp($arg)?,)* $($opt,)*);
@@ -147,6 +151,7 @@ macro_rules! impl_tulisp_callable {
             ) {
                 ctx.define_typed_defun(
                     name,
+                    crate::value::DefunArity { required: $args_count, optional: $opts_count, has_rest: false },
                     move |_ctx, _args| {
                         impl_tulisp_callable!(@bind _args, $($arg)*, $($opt)*);
                         let res = (self)($($crate::TulispConvertible::from_tulisp($arg)?,)* $($opt,)*)?;
@@ -174,6 +179,7 @@ macro_rules! impl_tulisp_callable {
             ) {
                 ctx.define_typed_defun(
                     name,
+                    crate::value::DefunArity { required: $args_count, optional: $opts_count, has_rest: false },
                     move |ctx, _args| {
                         impl_tulisp_callable!(@bind _args, $($arg)*, $($opt)*);
                         let res = (self)(ctx, $($crate::TulispConvertible::from_tulisp($arg)?,)* $($opt,)*)?;
@@ -202,6 +208,7 @@ macro_rules! impl_tulisp_callable {
             ) {
                 ctx.define_typed_defun(
                     name,
+                    crate::value::DefunArity { required: $args_count, optional: $opts_count, has_rest: true },
                     move |_ctx, _args| {
                         impl_tulisp_callable!(@bind_rest _args, $($arg)*, $($opt)*, RestT, rest);
                         let res = (self)(
@@ -233,6 +240,7 @@ macro_rules! impl_tulisp_callable {
             ) {
                 ctx.define_typed_defun(
                     name,
+                    crate::value::DefunArity { required: $args_count, optional: $opts_count, has_rest: true },
                     move |_ctx, _args| {
                         impl_tulisp_callable!(@bind_rest _args, $($arg)*, $($opt)*, RestT, rest);
                         (self)(
@@ -265,6 +273,7 @@ macro_rules! impl_tulisp_callable {
             ) {
                 ctx.define_typed_defun(
                     name,
+                    crate::value::DefunArity { required: $args_count, optional: $opts_count, has_rest: true },
                     move |ctx, _args| {
                         impl_tulisp_callable!(@bind_rest _args, $($arg)*, $($opt)*, RestT, rest);
                         let res = (self)(
@@ -297,6 +306,7 @@ macro_rules! impl_tulisp_callable {
             ) {
                 ctx.define_typed_defun(
                     name,
+                    crate::value::DefunArity { required: $args_count, optional: $opts_count, has_rest: true },
                     move |ctx, _args| {
                         impl_tulisp_callable!(@bind_rest _args, $($arg)*, $($opt)*, RestT, rest);
                         (self)(
@@ -330,6 +340,7 @@ macro_rules! impl_tulisp_callable {
             ) {
                 ctx.define_typed_defun(
                     name,
+                    crate::value::DefunArity { required: $args_count, optional: $opts_count, has_rest: true },
                     move |_ctx, _args| {
                         impl_tulisp_callable!(@bind_rest _args, $($arg)*, $($opt)*, RestT, rest);
                         let res = (self)(
@@ -362,6 +373,7 @@ macro_rules! impl_tulisp_callable {
             ) {
                 ctx.define_typed_defun(
                     name,
+                    crate::value::DefunArity { required: $args_count, optional: $opts_count, has_rest: true },
                     move |ctx, _args| {
                         impl_tulisp_callable!(@bind_rest _args, $($arg)*, $($opt)*, RestT, rest);
                         let res = (self)(
@@ -382,27 +394,15 @@ macro_rules! impl_tulisp_callable {
     // bindings (named after the type-param ident); optional args
     // become `Option<$opt>` bindings, with `null` treated as
     // "absent" to match the prior `destruct_eval_bind!` semantics.
-    // Enforces "Too few" / "Too many" arity errors here so the
-    // user's closure can stay focused on the typed call.
     //
-    // `#[allow(unused_comparisons)]` covers the zero-required /
-    // zero-optional cases — when `@count` expands to 0, the `<` and
-    // `>` checks are tautologies but the macro still emits them.
+    // Arity is checked by the dispatcher before this runs:
+    // `compile_form`'s `Defun` arm rejects mismatches at compile
+    // time for VM call sites; `eval::funcall`'s `Defun` arm rejects
+    // them at TW call time. The slice is therefore guaranteed to
+    // have at least `@count $($arg)*` entries and at most
+    // `@count $($arg)* + @count $($opt)*`, so we can index directly
+    // without bounds checks here.
     (@bind $args_slice:ident, $($arg:ident)*, $($opt:ident)*) => {
-        #[allow(unused_comparisons)]
-        if $args_slice.len() < impl_tulisp_callable!(@count $($arg)*) {
-            return Err($crate::Error::missing_argument(
-                "Too few arguments".to_string(),
-            ));
-        }
-        #[allow(unused_comparisons)]
-        if $args_slice.len()
-            > impl_tulisp_callable!(@count $($arg)*) + impl_tulisp_callable!(@count $($opt)*)
-        {
-            return Err($crate::Error::invalid_argument(
-                "Too many arguments".to_string(),
-            ));
-        }
         #[allow(unused_assignments, unused_mut)]
         let mut __idx: usize = 0;
         $(
@@ -426,14 +426,9 @@ macro_rules! impl_tulisp_callable {
     };
 
     // Same as @bind, plus a trailing `$rest_name: Rest<$rest_ty>`
-    // collected from the leftover slice.
+    // collected from the leftover slice. Same arity-already-checked
+    // contract.
     (@bind_rest $args_slice:ident, $($arg:ident)*, $($opt:ident)*, $rest_ty:ident, $rest_name:ident) => {
-        #[allow(unused_comparisons)]
-        if $args_slice.len() < impl_tulisp_callable!(@count $($arg)*) {
-            return Err($crate::Error::missing_argument(
-                "Too few arguments".to_string(),
-            ));
-        }
         #[allow(unused_assignments, unused_mut)]
         let mut __idx: usize = 0;
         $(
@@ -459,9 +454,6 @@ macro_rules! impl_tulisp_callable {
             .collect::<Result<_, _>>()?;
     };
 
-    // Counts identifiers passed as `$($x:ident)*` at compile time.
-    (@count) => { 0usize };
-    (@count $head:ident $($tail:ident)*) => { 1usize + impl_tulisp_callable!(@count $($tail)*) };
 }
 
 #[cfg(feature = "big_functions")]
@@ -582,7 +574,7 @@ mod plist_args {
     {
         #[track_caller]
         fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
-            ctx.define_typed_defun(name, move |ctx, args| {
+            ctx.define_typed_defun(name, crate::value::DefunArity { required: 0, optional: 0, has_rest: true }, move |ctx, args| {
                 let obj = build_plist_obj(args)?;
                 let res = (self)(Plist::new(ctx, &obj)?);
                 Ok(crate::TulispConvertible::into_tulisp(res))
@@ -597,7 +589,7 @@ mod plist_args {
     {
         #[track_caller]
         fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
-            ctx.define_typed_defun(name, move |ctx, args| {
+            ctx.define_typed_defun(name, crate::value::DefunArity { required: 0, optional: 0, has_rest: true }, move |ctx, args| {
                 let obj = build_plist_obj(args)?;
                 (self)(Plist::new(ctx, &obj)?);
                 Ok(TulispObject::nil())
@@ -614,7 +606,7 @@ mod plist_args {
     {
         #[track_caller]
         fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
-            ctx.define_typed_defun(name, move |ctx, args| {
+            ctx.define_typed_defun(name, crate::value::DefunArity { required: 0, optional: 0, has_rest: true }, move |ctx, args| {
                 let obj = build_plist_obj(args)?;
                 let plist = Plist::new(ctx, &obj)?;
                 let res = (self)(ctx, plist);
@@ -630,7 +622,7 @@ mod plist_args {
     {
         #[track_caller]
         fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
-            ctx.define_typed_defun(name, move |ctx, args| {
+            ctx.define_typed_defun(name, crate::value::DefunArity { required: 0, optional: 0, has_rest: true }, move |ctx, args| {
                 let obj = build_plist_obj(args)?;
                 let plist = Plist::new(ctx, &obj)?;
                 (self)(ctx, plist);
@@ -648,7 +640,7 @@ mod plist_args {
     {
         #[track_caller]
         fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
-            ctx.define_typed_defun(name, move |ctx, args| {
+            ctx.define_typed_defun(name, crate::value::DefunArity { required: 0, optional: 0, has_rest: true }, move |ctx, args| {
                 let obj = build_plist_obj(args)?;
                 let plist = Plist::new(ctx, &obj)?;
                 let res = (self)(plist);
@@ -665,7 +657,7 @@ mod plist_args {
     {
         #[track_caller]
         fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
-            ctx.define_typed_defun(name, move |ctx, args| {
+            ctx.define_typed_defun(name, crate::value::DefunArity { required: 0, optional: 0, has_rest: true }, move |ctx, args| {
                 let obj = build_plist_obj(args)?;
                 let plist = Plist::new(ctx, &obj)?;
                 let res = (self)(ctx, plist);

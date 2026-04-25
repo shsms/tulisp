@@ -36,6 +36,27 @@ impl std::fmt::Display for DefunParam {
     }
 }
 
+/// Compile-time arity metadata for a `ctx.defun`-registered fn.
+/// Recorded on `TulispValue::Defun` so the VM compiler can reject
+/// arity mismatches at compile time, before any args are pushed.
+/// Populated from the `TulispCallable` const generics at registration
+/// time, so the values are exact for typed-arg arms; Plist arms
+/// register with `required: 0, optional: 0, has_rest: true` because
+/// arity is in the plist contents and validated at runtime by
+/// `Plistable::from_plist`.
+///
+/// Marked `pub` (and `#[doc(hidden)]`) only because it appears as a
+/// field of the public `TulispValue::Defun` variant — same reason
+/// `DefunFn` and `DefunParams` are `pub`. Item #6 in `todo.md` plans
+/// to demote both along with `TulispValue` itself.
+#[doc(hidden)]
+#[derive(Debug, Default, Clone)]
+pub struct DefunArity {
+    pub required: usize,
+    pub optional: usize,
+    pub has_rest: bool,
+}
+
 #[doc(hidden)]
 #[derive(Debug, Default, Clone)]
 pub struct DefunParams {
@@ -569,6 +590,7 @@ pub enum TulispValue {
     /// `CompiledDefun` call.
     Defun {
         call: Shared<dyn DefunFn>,
+        arity: DefunArity,
     },
     Macro(Shared<dyn TulispFn>),
     Defmacro {

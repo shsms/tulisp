@@ -260,12 +260,21 @@ impl TulispContext {
 
     /// Internal: register a `ctx.defun`-style typed-args closure as a
     /// `TulispValue::Defun` on the named symbol's global slot. Args
-    /// arrive already evaluated; the closure is responsible for arity
-    /// validation and `TulispConvertible` coercion. Used by the
+    /// arrive already evaluated; the closure is responsible for
+    /// `TulispConvertible` coercion. Used by the
     /// `impl_tulisp_callable!` macro arms — not exposed publicly.
+    ///
+    /// `arity` is recorded on the variant so the VM compiler can
+    /// reject arity mismatches at the call site (compile time)
+    /// instead of waiting for the closure's runtime check to fire.
     #[inline(always)]
     #[track_caller]
-    pub(crate) fn define_typed_defun(&mut self, name: &str, func: impl DefunFn + std::any::Any) {
+    pub(crate) fn define_typed_defun(
+        &mut self,
+        name: &str,
+        arity: crate::value::DefunArity,
+        func: impl DefunFn + std::any::Any,
+    ) {
         #[cfg(feature = "etags")]
         {
             let caller = std::panic::Location::caller();
@@ -280,6 +289,7 @@ impl TulispContext {
             .set_global(
                 TulispValue::Defun {
                     call: Shared::new_defun_fn(func),
+                    arity,
                 }
                 .into_ref(None),
             )

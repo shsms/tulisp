@@ -832,7 +832,7 @@ impl Machine {
                 drop(inner);
                 self.run_lambda_with(ctx, &cd, args, recursion_depth)
             }
-            TulispValue::Defun { call } => {
+            TulispValue::Defun { call, .. } => {
                 // Args are already evaluated values from the VM stack
                 // — hand them straight to the typed-args closure.
                 // No ctx.vm.borrow_mut() re-entry: we're using the
