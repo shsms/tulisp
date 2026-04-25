@@ -1741,13 +1741,13 @@ fn test_typed_defun_arity_checked_before_arg_eval() -> Result<(), Error> {
 
     // Happy-path baseline: 1 arg, evaluated once.
     counter.store(0, Ordering::Relaxed);
-    let r = ctx.eval_string("(narrow (bump 7))")?;
+    let r = ctx.tw_eval_string("(narrow (bump 7))")?;
     assert_eq!(r.try_int()?, 7);
     assert_eq!(counter.load(Ordering::Relaxed), 1);
 
-    // Too-many: should error before any (bump …) runs.
+    // TW path: too-many should error before any (bump …) runs.
     counter.store(0, Ordering::Relaxed);
-    let err = ctx.eval_string("(narrow (bump 1) (bump 2) (bump 3))");
+    let err = ctx.tw_eval_string("(narrow (bump 1) (bump 2) (bump 3))");
     let msg = err.unwrap_err().format(&ctx);
     assert!(
         msg.starts_with("ERR InvalidArgument: Too many arguments"),
@@ -1760,10 +1760,10 @@ fn test_typed_defun_arity_checked_before_arg_eval() -> Result<(), Error> {
         "args evaluated before arity check fired"
     );
 
-    // Too-few: also errors before (bump …) for the args that were
-    // present.
+    // TW path: too-few also errors before (bump …) for the args
+    // that were present.
     counter.store(0, Ordering::Relaxed);
-    let err = ctx.eval_string("(narrow)");
+    let err = ctx.tw_eval_string("(narrow)");
     let msg = err.unwrap_err().format(&ctx);
     assert!(
         msg.starts_with("ERR MissingArgument: Too few arguments"),
@@ -1772,8 +1772,9 @@ fn test_typed_defun_arity_checked_before_arg_eval() -> Result<(), Error> {
     );
     assert_eq!(counter.load(Ordering::Relaxed), 0);
 
-    // VM path: the same call expressed via `vm_eval_string` should
-    // be rejected at compile time, also before any arg side-effects.
+    // VM path: the same call through the VM-backed `eval_string`
+    // should be rejected at compile time, also before any arg
+    // side-effects.
     counter.store(0, Ordering::Relaxed);
     let err = ctx.eval_string("(narrow (bump 1) (bump 2) (bump 3))");
     let msg = err.unwrap_err().format(&ctx);
