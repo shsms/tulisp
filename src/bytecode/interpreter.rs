@@ -3,7 +3,7 @@ use super::{
     compiler::VMDefunParams,
 };
 use crate::{
-    Error, TulispContext, TulispObject, TulispValue, bytecode::Pos, lists,
+    Error, Number, TulispContext, TulispObject, TulispValue, bytecode::Pos, lists,
     object::wrappers::generic::SharedMut,
 };
 use std::collections::HashMap;
@@ -14,72 +14,29 @@ struct TailCallInfo {
     rest_count: usize,
 }
 
-macro_rules! binary_ops {
-    ($oper:expr) => {{
-        |selfobj: &TulispObject, other: &TulispObject| -> Result<TulispObject, Error> {
-            if !selfobj.numberp() {
-                return Err(Error::new(
-                    crate::ErrorKind::TypeMismatch,
-                    format!("Expected number, got: {selfobj}"),
-                )
-                .with_trace(selfobj.clone()));
-            }
-            if !other.numberp() {
-                return Err(Error::new(
-                    crate::ErrorKind::TypeMismatch,
-                    format!("Expected number, got: {other}"),
-                )
-                .with_trace(other.clone()));
-            }
-            if selfobj.floatp() {
-                let s: f64 = selfobj.as_float().unwrap();
-                let o: f64 = other.try_into()?;
-                Ok($oper(&s, &o).into())
-            } else if other.floatp() {
-                let o: f64 = other.as_float().unwrap();
-                let s: f64 = selfobj.try_into()?;
-                Ok($oper(&s, &o).into())
-            } else {
-                let s: i64 = selfobj.try_into()?;
-                let o: i64 = other.try_into()?;
-                Ok($oper(&s, &o).into())
-            }
-        }
-    }};
+/// Coerce both operands to `Number` and apply `op`. `as_number`
+/// already attaches the operand to the trace on type-mismatch.
+#[inline(always)]
+fn binary_op(
+    a: &TulispObject,
+    b: &TulispObject,
+    op: impl FnOnce(Number, Number) -> Number,
+) -> Result<TulispObject, Error> {
+    let a = a.as_number()?;
+    let b = b.as_number()?;
+    Ok(op(a, b).into())
 }
 
-macro_rules! compare_ops {
-    ($oper:expr) => {{
-        |selfobj: &TulispObject, other: &TulispObject| -> Result<bool, Error> {
-            if !selfobj.numberp() {
-                return Err(Error::new(
-                    crate::ErrorKind::TypeMismatch,
-                    format!("Expected number, got: {selfobj}"),
-                )
-                .with_trace(selfobj.clone()));
-            }
-            if !other.numberp() {
-                return Err(Error::new(
-                    crate::ErrorKind::TypeMismatch,
-                    format!("Expected number, got: {other}"),
-                )
-                .with_trace(other.clone()));
-            }
-            if selfobj.floatp() {
-                let s: f64 = selfobj.as_float().unwrap();
-                let o: f64 = other.try_into()?;
-                Ok($oper(&s, &o))
-            } else if other.floatp() {
-                let o: f64 = other.as_float().unwrap();
-                let s: f64 = selfobj.try_into()?;
-                Ok($oper(&s, &o))
-            } else {
-                let s: i64 = selfobj.try_into()?;
-                let o: i64 = other.try_into()?;
-                Ok($oper(&s, &o))
-            }
-        }
-    }};
+/// Coerce both operands to `Number` and apply `cmp`.
+#[inline(always)]
+fn compare_op(
+    a: &TulispObject,
+    b: &TulispObject,
+    cmp: impl FnOnce(Number, Number) -> bool,
+) -> Result<bool, Error> {
+    let a = a.as_number()?;
+    let b = b.as_number()?;
+    Ok(cmp(a, b))
 }
 
 struct SetParams(Vec<TulispObject>);
@@ -332,18 +289,18 @@ impl Machine {
                         unreachable!()
                     };
 
-                    let vv = {
-                        use crate::bytecode::instruction::BinaryOp::*;
-                        match op {
-                            Add => binary_ops!(|a, b| a + b)(a, b)?,
-                            Sub => binary_ops!(|a, b| a - b)(a, b)?,
-                            Mul => binary_ops!(|a, b| a * b)(a, b)?,
-                            Div => {
-                                if b.integerp() && b.as_int().unwrap() == 0 {
-                                    return Err(Error::out_of_range("Division by zero"));
-                                }
-                                binary_ops!(|a, b| a / b)(a, b)?
+                    use crate::bytecode::instruction::BinaryOp;
+                    let vv = match op {
+                        BinaryOp::Add => binary_op(a, b, |a, b| a + b)?,
+                        BinaryOp::Sub => binary_op(a, b, |a, b| a - b)?,
+                        BinaryOp::Mul => binary_op(a, b, |a, b| a * b)?,
+                        BinaryOp::Div => {
+                            // Match Emacs: integer-zero divisor errors,
+                            // float-zero divisor returns ±inf.
+                            if matches!(b.as_number()?, Number::Int(0)) {
+                                return Err(Error::out_of_range("Division by zero"));
                             }
+                            binary_op(a, b, |a, b| a / b)?
                         }
                     };
                     self.stack.truncate(self.stack.len() - 2);
@@ -437,7 +394,7 @@ impl Machine {
                     let [ref b, ref a] = self.stack[minus2..] else {
                         unreachable!()
                     };
-                    let cmp = compare_ops!(|a, b| a < b)(a, b)?;
+                    let cmp = compare_op(a, b, |a, b| a < b)?;
                     self.stack.truncate(minus2);
                     if cmp {
                         jump_to_pos!(self, pc, pos);
@@ -449,7 +406,7 @@ impl Machine {
                     let [ref b, ref a] = self.stack[minus2..] else {
                         unreachable!()
                     };
-                    let cmp = compare_ops!(|a, b| a <= b)(a, b)?;
+                    let cmp = compare_op(a, b, |a, b| a <= b)?;
                     self.stack.truncate(minus2);
                     if cmp {
                         jump_to_pos!(self, pc, pos);
@@ -461,7 +418,7 @@ impl Machine {
                     let [ref b, ref a] = self.stack[minus2..] else {
                         unreachable!()
                     };
-                    let cmp = compare_ops!(|a, b| a > b)(a, b)?;
+                    let cmp = compare_op(a, b, |a, b| a > b)?;
                     self.stack.truncate(minus2);
                     if cmp {
                         jump_to_pos!(self, pc, pos);
@@ -473,7 +430,7 @@ impl Machine {
                     let [ref b, ref a] = self.stack[minus2..] else {
                         unreachable!()
                     };
-                    let cmp = compare_ops!(|a, b| a >= b)(a, b)?;
+                    let cmp = compare_op(a, b, |a, b| a >= b)?;
                     self.stack.truncate(minus2);
                     if cmp {
                         jump_to_pos!(self, pc, pos);
@@ -497,22 +454,22 @@ impl Machine {
                 Instruction::Lt => {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
-                    self.stack.push(compare_ops!(|a, b| a < b)(&a, &b)?.into());
+                    self.stack.push(compare_op(&a, &b, |a, b| a < b)?.into());
                 }
                 Instruction::LtEq => {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
-                    self.stack.push(compare_ops!(|a, b| a <= b)(&a, &b)?.into());
+                    self.stack.push(compare_op(&a, &b, |a, b| a <= b)?.into());
                 }
                 Instruction::Gt => {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
-                    self.stack.push(compare_ops!(|a, b| a > b)(&a, &b)?.into());
+                    self.stack.push(compare_op(&a, &b, |a, b| a > b)?.into());
                 }
                 Instruction::GtEq => {
                     let a = self.stack.pop().unwrap();
                     let b = self.stack.pop().unwrap();
-                    self.stack.push(compare_ops!(|a, b| a >= b)(&a, &b)?.into());
+                    self.stack.push(compare_op(&a, &b, |a, b| a >= b)?.into());
                 }
                 Instruction::Set => {
                     let minus2 = self.stack.len() - 2;
@@ -786,40 +743,38 @@ impl Machine {
                 Instruction::Cxr(cxr) => {
                     let a: TulispObject = self.stack.pop().unwrap();
 
-                    self.stack.push({
-                        use crate::bytecode::instruction::Cxr::*;
-                        match cxr {
-                            Car => a.car().unwrap(),
-                            Cdr => a.cdr().unwrap(),
-                            Caar => a.caar().unwrap(),
-                            Cadr => a.cadr().unwrap(),
-                            Cdar => a.cdar().unwrap(),
-                            Cddr => a.cddr().unwrap(),
-                            Caaar => a.caaar().unwrap(),
-                            Caadr => a.caadr().unwrap(),
-                            Cadar => a.cadar().unwrap(),
-                            Caddr => a.caddr().unwrap(),
-                            Cdaar => a.cdaar().unwrap(),
-                            Cdadr => a.cdadr().unwrap(),
-                            Cddar => a.cddar().unwrap(),
-                            Cdddr => a.cdddr().unwrap(),
-                            Caaaar => a.caaaar().unwrap(),
-                            Caaadr => a.caaadr().unwrap(),
-                            Caadar => a.caadar().unwrap(),
-                            Caaddr => a.caaddr().unwrap(),
-                            Cadaar => a.cadaar().unwrap(),
-                            Cadadr => a.cadadr().unwrap(),
-                            Caddar => a.caddar().unwrap(),
-                            Cadddr => a.cadddr().unwrap(),
-                            Cdaaar => a.cdaaar().unwrap(),
-                            Cdaadr => a.cdaadr().unwrap(),
-                            Cdadar => a.cdadar().unwrap(),
-                            Cdaddr => a.cdaddr().unwrap(),
-                            Cddaar => a.cddaar().unwrap(),
-                            Cddadr => a.cddadr().unwrap(),
-                            Cdddar => a.cdddar().unwrap(),
-                            Cddddr => a.cddddr().unwrap(),
-                        }
+                    use crate::bytecode::instruction::Cxr;
+                    self.stack.push(match cxr {
+                        Cxr::Car => a.car().unwrap(),
+                        Cxr::Cdr => a.cdr().unwrap(),
+                        Cxr::Caar => a.caar().unwrap(),
+                        Cxr::Cadr => a.cadr().unwrap(),
+                        Cxr::Cdar => a.cdar().unwrap(),
+                        Cxr::Cddr => a.cddr().unwrap(),
+                        Cxr::Caaar => a.caaar().unwrap(),
+                        Cxr::Caadr => a.caadr().unwrap(),
+                        Cxr::Cadar => a.cadar().unwrap(),
+                        Cxr::Caddr => a.caddr().unwrap(),
+                        Cxr::Cdaar => a.cdaar().unwrap(),
+                        Cxr::Cdadr => a.cdadr().unwrap(),
+                        Cxr::Cddar => a.cddar().unwrap(),
+                        Cxr::Cdddr => a.cdddr().unwrap(),
+                        Cxr::Caaaar => a.caaaar().unwrap(),
+                        Cxr::Caaadr => a.caaadr().unwrap(),
+                        Cxr::Caadar => a.caadar().unwrap(),
+                        Cxr::Caaddr => a.caaddr().unwrap(),
+                        Cxr::Cadaar => a.cadaar().unwrap(),
+                        Cxr::Cadadr => a.cadadr().unwrap(),
+                        Cxr::Caddar => a.caddar().unwrap(),
+                        Cxr::Cadddr => a.cadddr().unwrap(),
+                        Cxr::Cdaaar => a.cdaaar().unwrap(),
+                        Cxr::Cdaadr => a.cdaadr().unwrap(),
+                        Cxr::Cdadar => a.cdadar().unwrap(),
+                        Cxr::Cdaddr => a.cdaddr().unwrap(),
+                        Cxr::Cddaar => a.cddaar().unwrap(),
+                        Cxr::Cddadr => a.cddadr().unwrap(),
+                        Cxr::Cdddar => a.cdddar().unwrap(),
+                        Cxr::Cddddr => a.cddddr().unwrap(),
                     })
                 }
                 Instruction::PlistGet => {
