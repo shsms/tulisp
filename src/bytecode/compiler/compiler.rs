@@ -250,9 +250,15 @@ pub(crate) fn compile_expr(
     let expr_ref = expr.inner_ref();
     let compiler = ctx.compiler.as_mut().unwrap();
     match &*expr_ref {
-        (TulispValue::Number { value }, _) => {
+        (TulispValue::Number { .. }, _) => {
             if compiler.keep_result {
-                return Ok(vec![Instruction::Push((*value).into())]);
+                // Preserve the original AST cell so identity-based ops
+                // (`eq`) keep working when an int literal here is
+                // compared against the same int from the parser's
+                // per-parse cache. Going through `Number::into()`
+                // would route through `INT_CACHE` instead and break
+                // pointer equality across the two cells.
+                return Ok(vec![Instruction::Push(expr.clone())]);
             } else {
                 return Ok(vec![]);
             }

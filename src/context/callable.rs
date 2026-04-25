@@ -1,5 +1,5 @@
 use crate::object::wrappers::generic::SyncSend;
-use crate::{destruct_bind, destruct_eval_bind, Error, Rest, TulispContext, TulispObject};
+use crate::{destruct_bind, Error, Rest, TulispContext, TulispObject};
 
 pub trait TulispCallable<
     Args: 'static,
@@ -38,11 +38,11 @@ macro_rules! impl_tulisp_callable {
                 ctx: &mut TulispContext,
                 name: &str,
             ) {
-                ctx.defspecial(
+                ctx.define_typed_defun(
                     name,
                     move |_ctx, _args| {
-                        impl_tulisp_callable!(@deb _ctx, $($arg)* &optional $($opt)*, _args);
-                        let res = (self)($($crate::TulispConvertible::from_tulisp(&$arg)?,)* $(if $opt.null() {None} else {Some($crate::TulispConvertible::from_tulisp(&$opt)?)}),*);
+                        impl_tulisp_callable!(@bind _args, $($arg)*, $($opt)*);
+                        let res = (self)($($crate::TulispConvertible::from_tulisp($arg)?,)* $($opt,)*);
                         Ok($crate::TulispConvertible::into_tulisp(res))
                     }
                 );
@@ -64,11 +64,11 @@ macro_rules! impl_tulisp_callable {
                 ctx: &mut TulispContext,
                 name: &str,
             ) {
-                ctx.defspecial(
+                ctx.define_typed_defun(
                     name,
                     move |_ctx, _args| {
-                        impl_tulisp_callable!(@deb _ctx, $($arg)* &optional $($opt)*, _args);
-                        (self)($($crate::TulispConvertible::from_tulisp(&$arg)?,)* $(if $opt.null() {None} else {Some($crate::TulispConvertible::from_tulisp(&$opt)?)}),*);
+                        impl_tulisp_callable!(@bind _args, $($arg)*, $($opt)*);
+                        (self)($($crate::TulispConvertible::from_tulisp($arg)?,)* $($opt,)*);
                         Ok(TulispObject::nil())
                     }
                 );
@@ -91,11 +91,11 @@ macro_rules! impl_tulisp_callable {
                 ctx: &mut TulispContext,
                 name: &str,
             ) {
-                ctx.defspecial(
+                ctx.define_typed_defun(
                     name,
                     move |ctx, _args| {
-                        impl_tulisp_callable!(@deb ctx, $($arg)* &optional $($opt)*, _args);
-                        let res = (self)(ctx, $($crate::TulispConvertible::from_tulisp(&$arg)?,)* $(if $opt.null() {None} else {Some($crate::TulispConvertible::from_tulisp(&$opt)?)}),*);
+                        impl_tulisp_callable!(@bind _args, $($arg)*, $($opt)*);
+                        let res = (self)(ctx, $($crate::TulispConvertible::from_tulisp($arg)?,)* $($opt,)*);
                         Ok($crate::TulispConvertible::into_tulisp(res))
                     }
                 );
@@ -117,11 +117,11 @@ macro_rules! impl_tulisp_callable {
                 ctx: &mut TulispContext,
                 name: &str,
             ) {
-                ctx.defspecial(
+                ctx.define_typed_defun(
                     name,
                     move |ctx, _args| {
-                        impl_tulisp_callable!(@deb ctx, $($arg)* &optional $($opt)*, _args);
-                        (self)(ctx, $($crate::TulispConvertible::from_tulisp(&$arg)?,)* $(if $opt.null() {None} else {Some($crate::TulispConvertible::from_tulisp(&$opt)?)}),*);
+                        impl_tulisp_callable!(@bind _args, $($arg)*, $($opt)*);
+                        (self)(ctx, $($crate::TulispConvertible::from_tulisp($arg)?,)* $($opt,)*);
                         Ok(TulispObject::nil())
                     }
                 );
@@ -144,11 +144,11 @@ macro_rules! impl_tulisp_callable {
                 ctx: &mut TulispContext,
                 name: &str,
             ) {
-                ctx.defspecial(
+                ctx.define_typed_defun(
                     name,
                     move |_ctx, _args| {
-                        impl_tulisp_callable!(@deb _ctx, $($arg)* &optional $($opt)*, _args);
-                        let res = (self)($($crate::TulispConvertible::from_tulisp(&$arg)?,)* $(if $opt.null() {None} else {Some($crate::TulispConvertible::from_tulisp(&$opt)?)}),*)?;
+                        impl_tulisp_callable!(@bind _args, $($arg)*, $($opt)*);
+                        let res = (self)($($crate::TulispConvertible::from_tulisp($arg)?,)* $($opt,)*)?;
                         Ok($crate::TulispConvertible::into_tulisp(res))
                     }
                 );
@@ -171,11 +171,11 @@ macro_rules! impl_tulisp_callable {
                 ctx: &mut TulispContext,
                 name: &str,
             ) {
-                ctx.defspecial(
+                ctx.define_typed_defun(
                     name,
                     move |ctx, _args| {
-                        impl_tulisp_callable!(@deb ctx, $($arg)* &optional $($opt)*, _args);
-                        let res = (self)(ctx, $($crate::TulispConvertible::from_tulisp(&$arg)?,)* $(if $opt.null() {None} else {Some($crate::TulispConvertible::from_tulisp(&$opt)?)}),*)?;
+                        impl_tulisp_callable!(@bind _args, $($arg)*, $($opt)*);
+                        let res = (self)(ctx, $($crate::TulispConvertible::from_tulisp($arg)?,)* $($opt,)*)?;
                         Ok($crate::TulispConvertible::into_tulisp(res))
                     }
                 );
@@ -199,19 +199,13 @@ macro_rules! impl_tulisp_callable {
                 ctx: &mut TulispContext,
                 name: &str,
             ) {
-                ctx.defspecial(
+                ctx.define_typed_defun(
                     name,
                     move |_ctx, _args| {
-                        impl_tulisp_callable!(@db $($arg)* &optional $($opt)* &rest rest, _args);
-                        $(let $arg = _ctx.eval(&$arg)?;)*
-                        $(let $opt = _ctx.eval(&$opt)?;)*
-                        let rest = rest
-                            .base_iter()
-                            .map(|arg| $crate::TulispConvertible::from_tulisp(&_ctx.eval(&arg)?))
-                            .collect::<Result<_, _>>()?;
+                        impl_tulisp_callable!(@bind_rest _args, $($arg)*, $($opt)*, RestT, rest);
                         let res = (self)(
-                            $($crate::TulispConvertible::from_tulisp(&$arg)?,)*
-                            $(if $opt.null() {None} else {Some($crate::TulispConvertible::from_tulisp(&$opt)?)},)*
+                            $($crate::TulispConvertible::from_tulisp($arg)?,)*
+                            $($opt,)*
                             rest
                         );
                         Ok($crate::TulispConvertible::into_tulisp(res))
@@ -236,19 +230,13 @@ macro_rules! impl_tulisp_callable {
                 ctx: &mut TulispContext,
                 name: &str,
             ) {
-                ctx.defspecial(
+                ctx.define_typed_defun(
                     name,
                     move |_ctx, _args| {
-                        impl_tulisp_callable!(@db $($arg)* &optional $($opt)* &rest rest, _args);
-                        $(let $arg = _ctx.eval(&$arg)?;)*
-                        $(let $opt = _ctx.eval(&$opt)?;)*
-                        let rest = rest
-                            .base_iter()
-                            .map(|arg| $crate::TulispConvertible::from_tulisp(&_ctx.eval(&arg)?))
-                            .collect::<Result<_, _>>()?;
+                        impl_tulisp_callable!(@bind_rest _args, $($arg)*, $($opt)*, RestT, rest);
                         (self)(
-                            $($crate::TulispConvertible::from_tulisp(&$arg)?,)*
-                            $(if $opt.null() {None} else {Some($crate::TulispConvertible::from_tulisp(&$opt)?)},)*
+                            $($crate::TulispConvertible::from_tulisp($arg)?,)*
+                            $($opt,)*
                             rest
                         );
                         Ok(TulispObject::nil())
@@ -274,20 +262,14 @@ macro_rules! impl_tulisp_callable {
                 ctx: &mut TulispContext,
                 name: &str,
             ) {
-                ctx.defspecial(
+                ctx.define_typed_defun(
                     name,
                     move |ctx, _args| {
-                        impl_tulisp_callable!(@db $($arg)* &optional $($opt)* &rest rest, _args);
-                        $(let $arg = ctx.eval(&$arg)?;)*
-                        $(let $opt = ctx.eval(&$opt)?;)*
-                        let rest = rest
-                            .base_iter()
-                            .map(|arg| $crate::TulispConvertible::from_tulisp(&ctx.eval(&arg)?))
-                            .collect::<Result<_, _>>()?;
+                        impl_tulisp_callable!(@bind_rest _args, $($arg)*, $($opt)*, RestT, rest);
                         let res = (self)(
                             ctx,
-                            $($crate::TulispConvertible::from_tulisp(&$arg)?,)*
-                            $(if $opt.null() {None} else {Some($crate::TulispConvertible::from_tulisp(&$opt)?)},)*
+                            $($crate::TulispConvertible::from_tulisp($arg)?,)*
+                            $($opt,)*
                             rest
                         );
                         Ok($crate::TulispConvertible::into_tulisp(res))
@@ -312,20 +294,14 @@ macro_rules! impl_tulisp_callable {
                 ctx: &mut TulispContext,
                 name: &str,
             ) {
-                ctx.defspecial(
+                ctx.define_typed_defun(
                     name,
                     move |ctx, _args| {
-                        impl_tulisp_callable!(@db $($arg)* &optional $($opt)* &rest rest, _args);
-                        $(let $arg = ctx.eval(&$arg)?;)*
-                        $(let $opt = ctx.eval(&$opt)?;)*
-                        let rest = rest
-                            .base_iter()
-                            .map(|arg| $crate::TulispConvertible::from_tulisp(&ctx.eval(&arg)?))
-                            .collect::<Result<_, _>>()?;
+                        impl_tulisp_callable!(@bind_rest _args, $($arg)*, $($opt)*, RestT, rest);
                         (self)(
                             ctx,
-                            $($crate::TulispConvertible::from_tulisp(&$arg)?,)*
-                            $(if $opt.null() {None} else {Some($crate::TulispConvertible::from_tulisp(&$opt)?)},)*
+                            $($crate::TulispConvertible::from_tulisp($arg)?,)*
+                            $($opt,)*
                             rest
                         );
                         Ok(TulispObject::nil())
@@ -351,19 +327,13 @@ macro_rules! impl_tulisp_callable {
                 ctx: &mut TulispContext,
                 name: &str,
             ) {
-                ctx.defspecial(
+                ctx.define_typed_defun(
                     name,
                     move |_ctx, _args| {
-                        impl_tulisp_callable!(@db $($arg)* &optional $($opt)* &rest rest, _args);
-                        $(let $arg = _ctx.eval(&$arg)?;)*
-                        $(let $opt = _ctx.eval(&$opt)?;)*
-                        let rest = rest
-                            .base_iter()
-                            .map(|arg| $crate::TulispConvertible::from_tulisp(&_ctx.eval(&arg)?))
-                            .collect::<Result<_, _>>()?;
+                        impl_tulisp_callable!(@bind_rest _args, $($arg)*, $($opt)*, RestT, rest);
                         let res = (self)(
-                            $($crate::TulispConvertible::from_tulisp(&$arg)?,)*
-                            $(if $opt.null() {None} else {Some($crate::TulispConvertible::from_tulisp(&$opt)?)},)*
+                            $($crate::TulispConvertible::from_tulisp($arg)?,)*
+                            $($opt,)*
                             rest
                         )?;
                         Ok($crate::TulispConvertible::into_tulisp(res))
@@ -389,20 +359,14 @@ macro_rules! impl_tulisp_callable {
                 ctx: &mut TulispContext,
                 name: &str,
             ) {
-                ctx.defspecial(
+                ctx.define_typed_defun(
                     name,
                     move |ctx, _args| {
-                        impl_tulisp_callable!(@db $($arg)* &optional $($opt)* &rest rest, _args);
-                        $(let $arg = ctx.eval(&$arg)?;)*
-                        $(let $opt = ctx.eval(&$opt)?;)*
-                        let rest = rest
-                            .base_iter()
-                            .map(|arg| $crate::TulispConvertible::from_tulisp(&ctx.eval(&arg)?))
-                            .collect::<Result<_, _>>()?;
+                        impl_tulisp_callable!(@bind_rest _args, $($arg)*, $($opt)*, RestT, rest);
                         let res = (self)(
                             ctx,
-                            $($crate::TulispConvertible::from_tulisp(&$arg)?,)*
-                            $(if $opt.null() {None} else {Some($crate::TulispConvertible::from_tulisp(&$opt)?)},)*
+                            $($crate::TulispConvertible::from_tulisp($arg)?,)*
+                            $($opt,)*
                             rest
                         )?;
                         Ok($crate::TulispConvertible::into_tulisp(res))
@@ -412,29 +376,91 @@ macro_rules! impl_tulisp_callable {
         }
     };
 
-    (@deb $ctx:ident, $($arg_name:ident)+ &optional, $args:ident) => {
-        destruct_eval_bind!($ctx, ($($arg_name)+) = $args);
+    // Bind required + optional args from an evaluated arg slice
+    // (`&[TulispObject]`). Required args become `&TulispObject`
+    // bindings (named after the type-param ident); optional args
+    // become `Option<$opt>` bindings, with `null` treated as
+    // "absent" to match the prior `destruct_eval_bind!` semantics.
+    // Enforces "Too few" / "Too many" arity errors here so the
+    // user's closure can stay focused on the typed call.
+    //
+    // `#[allow(unused_comparisons)]` covers the zero-required /
+    // zero-optional cases — when `@count` expands to 0, the `<` and
+    // `>` checks are tautologies but the macro still emits them.
+    (@bind $args_slice:ident, $($arg:ident)*, $($opt:ident)*) => {
+        #[allow(unused_comparisons)]
+        if $args_slice.len() < impl_tulisp_callable!(@count $($arg)*) {
+            return Err($crate::Error::missing_argument(
+                "Too few arguments".to_string(),
+            ));
+        }
+        #[allow(unused_comparisons)]
+        if $args_slice.len()
+            > impl_tulisp_callable!(@count $($arg)*) + impl_tulisp_callable!(@count $($opt)*)
+        {
+            return Err($crate::Error::invalid_argument(
+                "Too many arguments".to_string(),
+            ));
+        }
+        #[allow(unused_assignments, unused_mut)]
+        let mut __idx: usize = 0;
+        $(
+            let $arg = &$args_slice[__idx];
+            __idx += 1;
+        )*
+        $(
+            #[allow(unused_assignments)]
+            let $opt: Option<$opt> = if __idx < $args_slice.len() {
+                let __v = &$args_slice[__idx];
+                __idx += 1;
+                if __v.null() {
+                    None
+                } else {
+                    Some(<$opt as $crate::TulispConvertible>::from_tulisp(__v)?)
+                }
+            } else {
+                None
+            };
+        )*
     };
-    (@deb $ctx:ident, &optional $($opt_name:ident)+, $args:ident) => {
-        destruct_eval_bind!($ctx, (&optional $($opt_name)+) = $args);
-    };
-    (@deb $ctx:ident, $($arg_name:ident)+ &optional $($opt_name:ident)+, $args:ident) => {
-        destruct_eval_bind!($ctx, ($($arg_name)+ &optional $($opt_name)+) = $args);
-    };
-    (@deb $ctx:ident, &optional, $args:ident) => {};
 
-    (@db $($arg_name:ident)+ &optional &rest $rest:ident, $args:ident) => {
-        destruct_bind!(($($arg_name)+ &rest $rest) = $args);
+    // Same as @bind, plus a trailing `$rest_name: Rest<$rest_ty>`
+    // collected from the leftover slice.
+    (@bind_rest $args_slice:ident, $($arg:ident)*, $($opt:ident)*, $rest_ty:ident, $rest_name:ident) => {
+        #[allow(unused_comparisons)]
+        if $args_slice.len() < impl_tulisp_callable!(@count $($arg)*) {
+            return Err($crate::Error::missing_argument(
+                "Too few arguments".to_string(),
+            ));
+        }
+        #[allow(unused_assignments, unused_mut)]
+        let mut __idx: usize = 0;
+        $(
+            let $arg = &$args_slice[__idx];
+            __idx += 1;
+        )*
+        $(
+            let $opt: Option<$opt> = if __idx < $args_slice.len() {
+                let __v = &$args_slice[__idx];
+                __idx += 1;
+                if __v.null() {
+                    None
+                } else {
+                    Some(<$opt as $crate::TulispConvertible>::from_tulisp(__v)?)
+                }
+            } else {
+                None
+            };
+        )*
+        let $rest_name: Rest<$rest_ty> = $args_slice[__idx..]
+            .iter()
+            .map(|__a| <$rest_ty as $crate::TulispConvertible>::from_tulisp(__a))
+            .collect::<Result<_, _>>()?;
     };
-    (@db &optional $($opt_name:ident)+ &rest $rest:ident, $args:ident) => {
-        destruct_bind!((&optional $($opt_name)+ &rest $rest) = $args);
-    };
-    (@db $($arg_name:ident)+ &optional $($opt_name:ident)+ &rest $rest:ident, $args:ident) => {
-        destruct_bind!(($($arg_name)+ &optional $($opt_name)+ &rest $rest) = $args);
-    };
-    (@db &optional &rest $rest:ident, $args:ident) => {
-        destruct_bind!((&rest $rest) = $args);
-    };
+
+    // Counts identifiers passed as `$($x:ident)*` at compile time.
+    (@count) => { 0usize };
+    (@count $head:ident $($tail:ident)*) => { 1usize + impl_tulisp_callable!(@count $($tail)*) };
 }
 
 #[cfg(feature = "big_functions")]

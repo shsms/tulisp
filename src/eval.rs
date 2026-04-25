@@ -166,6 +166,15 @@ fn eval_lambda<E: Evaluator>(
                 vm.borrow_mut().run_lambda(ctx, &value, &evaluated)?
             }
             TulispValue::Func(f) => f(ctx, &bounce_args)?,
+            TulispValue::Defun { call } => {
+                // Bounce args are already evaluated values from the
+                // previous call's tail position — hand them straight
+                // to the typed-args closure.
+                let call = call.clone();
+                drop(inner);
+                let evaluated: Vec<TulispObject> = bounce_args.base_iter().collect();
+                call(ctx, &evaluated)?
+            }
             _ => return Err(Error::undefined(format!("function is void: {}", func))),
         };
     }

@@ -608,7 +608,10 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         destruct_bind!((name &rest rest) = args);
         let name = ctx.eval(&name)?;
         let name = ctx.eval(&name)?;
-        if matches!(&name.inner_ref().0, TulispValue::Lambda { .. }) {
+        if matches!(
+            &name.inner_ref().0,
+            TulispValue::Lambda { .. } | TulispValue::Defun { .. }
+        ) {
             crate::eval::funcall::<Eval>(ctx, &name, &rest)
         } else {
             crate::eval::funcall::<DummyEval>(ctx, &name, &rest)
