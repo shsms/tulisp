@@ -390,9 +390,7 @@ pub(crate) fn compile_expr(
         | (TulispValue::Bounce, _) => return Ok(vec![]),
 
         (TulispValue::Backquote { value }, _) => {
-            let value = value.clone();
-            drop(expr_ref);
-            compile_back_quote(ctx, &value).map_err(|e| e.with_trace(expr.clone()))
+            compile_back_quote(ctx, value).map_err(|e| e.with_trace(expr.clone()))
         }
         (TulispValue::Quote { value }, _) | (TulispValue::Sharpquote { value }, _) => {
             if compiler.keep_result {
