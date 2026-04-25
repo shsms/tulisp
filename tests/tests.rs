@@ -464,7 +464,7 @@ fn test_eval() -> Result<(), Error> {
     }
     tulisp_assert! {
         program: "(let ((j 10)) (+ j j))(+ j j)",
-        error: r#"ERR TypeMismatch: Variable definition is void: j
+        error: r#"ERR Uninitialized: Variable definition is void: j
 <eval_string>:1.23-1.29:  at (+ j j)
 "#
     }
@@ -543,13 +543,13 @@ fn test_cons() -> Result<(), Error> {
     };
     tulisp_assert! {
         program: "(cons 1)",
-        error: r#"ERR TypeMismatch: cons requires exactly 2 arguments
+        error: r#"ERR MissingArgument: Too few arguments
 <eval_string>:1.1-1.8:  at (cons 1)
 "#
     };
     tulisp_assert! {
         program: "(cons 1 2 3)",
-        error: r#"ERR TypeMismatch: cons requires exactly 2 arguments
+        error: r#"ERR InvalidArgument: Too many arguments
 <eval_string>:1.1-1.12:  at (cons 1 2 3)
 "#
     };

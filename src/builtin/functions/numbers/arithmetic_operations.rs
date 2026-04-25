@@ -1,46 +1,36 @@
-use crate::Number;
-use crate::builtin::functions::core::reduce_with;
-use crate::eval::EvalInto;
-use crate::{Error, TulispContext, TulispObject};
+use crate::{Error, Number, Rest, TulispContext};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    fn add(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
-        reduce_with(ctx, args, |a, b| Ok(a + b))
-    }
-    ctx.defspecial("+", add);
+    ctx.defun("+", |first: Number, rest: Rest<Number>| -> Number {
+        rest.into_iter().fold(first, |a, b| a + b)
+    });
 
-    fn sub(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
-        if let Some(cons) = args.as_list_cons() {
-            if cons.cdr().null() {
-                let value: Number = cons.car().eval_into(ctx)?;
-                let vv = Number::from(0) - value;
-                Ok(vv.into())
-            } else {
-                reduce_with(ctx, args, |a, b| Ok(a - b))
-            }
+    ctx.defun("-", |first: Number, rest: Rest<Number>| -> Number {
+        let rest: Vec<Number> = rest.into_iter().collect();
+        if rest.is_empty() {
+            Number::from(0) - first
         } else {
-            Err(Error::missing_argument(
-                "Call to `sub` without any arguments".to_string(),
-            ))
+            rest.into_iter().fold(first, |a, b| a - b)
         }
-    }
-    ctx.defspecial("-", sub);
+    });
 
-    fn mul(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
-        reduce_with(ctx, args, |a, b| Ok(a * b))
-    }
-    ctx.defspecial("*", mul);
+    ctx.defun("*", |first: Number, rest: Rest<Number>| -> Number {
+        rest.into_iter().fold(first, |a, b| a * b)
+    });
 
-    fn div(ctx: &mut TulispContext, rest: &TulispObject) -> Result<TulispObject, Error> {
-        reduce_with(ctx, rest, |a, b| {
-            if b == 0 {
-                Err(Error::out_of_range("Division by zero".to_string()))
-            } else {
-                Ok(a / b)
+    ctx.defun(
+        "/",
+        |first: Number, rest: Rest<Number>| -> Result<Number, Error> {
+            let mut acc = first;
+            for n in rest {
+                if n == 0 {
+                    return Err(Error::out_of_range("Division by zero".to_string()));
+                }
+                acc = acc / n;
             }
-        })
-    }
-    ctx.defspecial("/", div);
+            Ok(acc)
+        },
+    );
 
     ctx.defun("1+", |a: Number| a + 1);
     ctx.defun("1-", |a: Number| a - 1);
