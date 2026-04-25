@@ -115,25 +115,26 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         },
     );
 
-    ctx.defspecial("concat", |ctx, args| {
-        destruct_eval_bind!(ctx, (&rest rest) = args);
-        let mut ret = String::new();
-        for ele in rest.base_iter() {
-            match ele.as_string() {
-                Ok(ref s) => ret.push_str(s),
-                _ => {
-                    return Err(Error::type_mismatch(format!("Not a string: {}", ele)));
+    ctx.defun(
+        "concat",
+        |rest: crate::Rest<TulispObject>| -> Result<String, Error> {
+            let mut ret = String::new();
+            for ele in rest {
+                match ele.as_string() {
+                    Ok(ref s) => ret.push_str(s),
+                    _ => {
+                        return Err(Error::type_mismatch(format!("Not a string: {}", ele)));
+                    }
                 }
             }
-        }
-        Ok(TulispValue::from(ret).into_ref(rest.span()))
-    });
+            Ok(ret)
+        },
+    );
 
-    ctx.defspecial("format", |ctx, args| {
-        destruct_eval_bind!(ctx, (input &rest rest) = args);
-        let mut args = rest.base_iter();
+    ctx.defun("format", |in_string: String, rest: crate::Rest<TulispObject>| -> Result<String, Error> {
+        let rest: Vec<TulispObject> = rest.into_iter().collect();
+        let mut args = rest.iter();
         let mut output = String::new();
-        let in_string = input.as_string().map_err(|e| e.with_trace(input.clone()))?;
         let mut in_chars = in_string.chars().peekable();
         // Supports `%[-][0]WIDTHTYPE` where TYPE is one of `s S d f`, plus
         // `%%` for a literal percent. The `-` flag left-aligns and the `0`
@@ -213,24 +214,19 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 output.push_str(&formatted);
             }
         }
-        Ok(TulispObject::from(output).with_span(input.span()))
+        Ok(output)
     });
 
-    ctx.defspecial("print", |ctx, args| {
-        destruct_eval_bind!(ctx, (val) = args);
+    ctx.defun("print", |val: TulispObject| -> TulispObject {
         println!("{}", val.fmt_string());
-        Ok(val)
+        val
     });
 
-    ctx.defspecial("prin1-to-string", |ctx, args| {
-        destruct_eval_bind!(ctx, (arg) = args);
-        Ok(TulispValue::from(arg.fmt_string()).into_ref(arg.span()))
-    });
+    ctx.defun("prin1-to-string", |arg: TulispObject| -> String { arg.fmt_string() });
 
-    ctx.defspecial("princ", |ctx, args| {
-        destruct_eval_bind!(ctx, (val) = args);
+    ctx.defun("princ", |val: TulispObject| -> TulispObject {
         println!("{}", val.fmt_string());
-        Ok(val)
+        val
     });
 
     ctx.defspecial("while", |ctx, args| {
