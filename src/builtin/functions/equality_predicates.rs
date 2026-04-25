@@ -1,15 +1,8 @@
-use crate::{Error, TulispContext, TulispObject, destruct_eval_bind};
+use crate::{TulispContext, TulispObject};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    fn equal(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
-        destruct_eval_bind!(ctx, (object1 object2) = args);
-        Ok(object1.equal(&object2).into())
-    }
-    ctx.defspecial("equal", equal);
-
-    fn eq(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
-        destruct_eval_bind!(ctx, (object1 object2) = args);
-        Ok(object1.eq(&object2).into())
-    }
-    ctx.defspecial("eq", eq);
+    ctx.defun("equal", |a: TulispObject, b: TulispObject| -> bool {
+        a.equal(&b)
+    });
+    ctx.defun("eq", |a: TulispObject, b: TulispObject| -> bool { a.eq(&b) });
 }
