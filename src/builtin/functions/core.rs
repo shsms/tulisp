@@ -20,11 +20,11 @@ fn mark_tail_calls(
     if !body.consp() {
         return Ok(body);
     }
-    let ret = TulispObject::nil();
+    let mut builder = crate::cons::ListBuilder::new();
     let mut body_iter = body.base_iter();
     let mut tail = body_iter.next().unwrap();
     for next in body_iter {
-        ret.push(tail)?;
+        builder.push(tail);
         tail = next;
     }
     if !tail.consp() {
@@ -65,8 +65,8 @@ fn mark_tail_calls(
     } else {
         tail
     };
-    ret.push(new_tail.with_ctxobj(ctxobj).with_span(span))?;
-    Ok(ret)
+    builder.push(new_tail.with_ctxobj(ctxobj).with_span(span));
+    Ok(builder.build())
 }
 
 pub(crate) fn add(ctx: &mut TulispContext) {
@@ -544,17 +544,23 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 return Ok(body);
             }
 
-            let result = TulispObject::nil().with_span(body.span());
+            let span = body.span();
+            let mut builder = crate::cons::ListBuilder::new();
             loop {
                 let car = body.car()?;
-                result
-                    .push(capture_variables_inner(allocator, captured_vars, exclude, car, quote_depth)?)?;
+                builder.push(capture_variables_inner(
+                    allocator,
+                    captured_vars,
+                    exclude,
+                    car,
+                    quote_depth,
+                )?);
                 let cdr = body.cdr()?;
                 if cdr.null() {
                     break;
                 }
                 if !cdr.consp() {
-                    result.append(capture_variables_inner(
+                    builder.append(capture_variables_inner(
                         allocator,
                         captured_vars,
                         exclude,
@@ -565,7 +571,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 }
                 body = cdr;
             }
-            Ok(result)
+            Ok(builder.build().with_span(span))
         }
 
         let body = capture_variables(&ctx.lex_allocator, &mut vec![], &param_names, body)?;

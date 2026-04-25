@@ -507,7 +507,9 @@ impl LexBinding {
         if let Some(slot) = &self.inner.captured {
             return Ok(slot.borrow().clone());
         }
-        let got = with_lex_stack(self.inner.id, |s| s.last().map(|slot| slot.borrow().clone()));
+        let got = with_lex_stack(self.inner.id, |s| {
+            s.last().map(|slot| slot.borrow().clone())
+        });
         got.ok_or_else(|| {
             Error::uninitialized(format!("Variable definition is void: {}", self.inner.name))
         })
@@ -1236,13 +1238,11 @@ impl From<Shared<dyn TulispAny>> for TulispValue {
 
 impl FromIterator<TulispObject> for TulispValue {
     fn from_iter<T: IntoIterator<Item = TulispObject>>(iter: T) -> Self {
-        let mut list = TulispValue::Nil;
+        let mut builder = crate::cons::ListBuilder::new();
         for item in iter {
-            // because only push is called, and never append, it is safe to
-            // ignore the returned Result.
-            let _ = list.push(item);
+            builder.push(item);
         }
-        list
+        builder.build().take()
     }
 }
 

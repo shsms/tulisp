@@ -765,12 +765,11 @@ impl Machine {
                     self.stack.push(list.into());
                 }
                 Instruction::Append(len) => {
-                    let list = TulispObject::nil();
-
+                    let mut builder = crate::cons::ListBuilder::new();
                     for elt in self.stack.drain(self.stack.len() - *len..) {
-                        list.append(elt.deep_copy().unwrap())?;
+                        builder.append(elt.deep_copy().unwrap())?;
                     }
-                    self.stack.push(list.into());
+                    self.stack.push(builder.build().into());
                 }
                 Instruction::Cxr(cxr) => {
                     let a: TulispObject = self.stack.pop().unwrap().into();
@@ -1215,11 +1214,12 @@ fn rewrite_ast(
         return replacement.clone();
     }
     if obj.consp() {
-        let result = TulispObject::nil().with_span(obj.span());
+        let span = obj.span();
+        let mut builder = crate::cons::ListBuilder::new();
         let mut cur = obj.clone();
         loop {
             let Ok(car) = cur.car() else { break };
-            let _ = result.push(rewrite_ast(&car, mapping));
+            builder.push(rewrite_ast(&car, mapping));
             let Ok(next) = cur.cdr() else { break };
             if next.null() {
                 break;
@@ -1229,12 +1229,12 @@ fn rewrite_ast(
                     .get(&next.addr_as_usize())
                     .cloned()
                     .unwrap_or_else(|| next.clone());
-                let _ = result.append(tail);
+                let _ = builder.append(tail);
                 break;
             }
             cur = next;
         }
-        return result;
+        return builder.build().with_span(span);
     }
     obj.clone()
 }

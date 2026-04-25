@@ -4,7 +4,10 @@ pub(crate) use eval_into::EvalInto;
 use std::borrow::Cow;
 
 use crate::{
-    TulispObject, TulispValue, context::TulispContext, error::Error, list,
+    TulispObject, TulispValue,
+    context::TulispContext,
+    error::Error,
+    list,
     value::{DefunParams, LexBinding},
 };
 
@@ -52,14 +55,14 @@ fn eval_function_args<E: Evaluator>(
                 None => TulispObject::nil(),
             }
         } else if param.is_rest {
-            let ret = TulispObject::nil();
+            let mut builder = crate::cons::ListBuilder::new();
             for arg in args_iter.by_ref() {
-                ret.push(match E::eval(ctx, &arg)? {
+                builder.push(match E::eval(ctx, &arg)? {
                     Cow::Borrowed(_) => arg,
                     Cow::Owned(o) => o,
-                })?;
+                });
             }
-            ret
+            builder.build()
         } else if let Some(vv) = args_iter.next() {
             match E::eval(ctx, &vv)? {
                 Cow::Borrowed(_) => vv,
@@ -324,45 +327,47 @@ fn eval_back_quote(ctx: &mut TulispContext, mut vv: TulispObject) -> Result<Tuli
         return Ok(vv);
     }
     // TODO: with_span should stop cloning.
-    let ret = TulispObject::nil().with_span(vv.span());
+    let span = vv.span();
+    let mut builder = crate::cons::ListBuilder::new();
     loop {
         vv.car_and_then(|first| {
             let first_inner = &first.inner_ref().0;
             if let TulispValue::Unquote { value } = first_inner {
-                ret.push(
+                builder.push(
                     ctx.eval(value)
                         .map_err(|e| e.with_trace(first.clone()))?
                         .with_span(value.span()),
-                )
-                .map_err(|e| e.with_trace(first.clone()))?;
+                );
             } else if let TulispValue::Splice { value } = first_inner {
-                ret.append(
-                    ctx.eval(value)
-                        .map_err(|e| e.with_trace(first.clone()))?
-                        .deep_copy()
-                        .map_err(|e| e.with_trace(first.clone()))?
-                        .with_span(value.span()),
-                )
-                .map_err(|e| e.with_trace(first.clone()))?;
+                builder
+                    .append(
+                        ctx.eval(value)
+                            .map_err(|e| e.with_trace(first.clone()))?
+                            .deep_copy()
+                            .map_err(|e| e.with_trace(first.clone()))?
+                            .with_span(value.span()),
+                    )
+                    .map_err(|e| e.with_trace(first.clone()))?;
             } else {
-                ret.push(eval_back_quote(ctx, first.clone())?)?;
+                builder.push(eval_back_quote(ctx, first.clone())?);
             }
             Ok(())
         })?;
         // TODO: is Nil check necessary
         let rest = vv.cdr()?;
         if let TulispValue::Unquote { value } = &rest.inner_ref().0 {
-            ret.append(
-                ctx.eval(value)
-                    .map_err(|e| e.with_trace(rest.clone()))?
-                    .with_span(value.span()),
-            )
-            .map_err(|e| e.with_trace(rest.clone()))?;
-            return Ok(ret);
+            builder
+                .append(
+                    ctx.eval(value)
+                        .map_err(|e| e.with_trace(rest.clone()))?
+                        .with_span(value.span()),
+                )
+                .map_err(|e| e.with_trace(rest.clone()))?;
+            return Ok(builder.build().with_span(span));
         }
         if !rest.consp() {
-            ret.append(rest)?;
-            return Ok(ret);
+            builder.append(rest)?;
+            return Ok(builder.build().with_span(span));
         }
         vv = rest;
     }
@@ -438,22 +443,23 @@ pub fn macroexpand(ctx: &mut TulispContext, inp: TulispObject) -> Result<TulispO
     };
 
     if x.consp() {
-        let expr = TulispObject::nil().with_span(x.span());
+        let span = x.span();
+        let mut builder = crate::cons::ListBuilder::new();
         loop {
             let car = macroexpand(ctx, x.car()?)?;
-            expr.push(car)?;
+            builder.push(car);
 
             let cdr = x.cdr()?;
             if cdr.null() {
                 break;
             }
             if !cdr.consp() {
-                expr.append(cdr)?;
+                builder.append(cdr)?;
                 break;
             }
             x = cdr;
         }
-        Ok(expr)
+        Ok(builder.build().with_span(span))
     } else {
         Ok(x)
     }
@@ -480,9 +486,9 @@ fn walk_tail_substitute(
     mappings: &[(TulispObject, TulispObject)],
     quote_depth: u32,
 ) -> Result<TulispObject, Error> {
-    let result = TulispObject::nil()
-        .with_span(body.span())
-        .with_ctxobj(body.ctxobj());
+    let span = body.span();
+    let ctxobj = body.ctxobj();
+    let mut builder = crate::cons::ListBuilder::new();
     let mut cur = body;
     let mut idx: usize = 0;
     loop {
@@ -492,7 +498,7 @@ fn walk_tail_substitute(
         } else {
             substitute_lexical_inner(car, mappings, quote_depth)?
         };
-        result.push(new_car)?;
+        builder.push(new_car);
         let cdr = cur.cdr()?;
         if cdr.null() {
             break;
@@ -504,13 +510,13 @@ fn walk_tail_substitute(
             } else {
                 substitute_lexical_inner(cdr, mappings, quote_depth)?
             };
-            result.append(new_tail)?;
+            builder.append(new_tail)?;
             break;
         }
         cur = cdr;
         idx += 1;
     }
-    Ok(result)
+    Ok(builder.build().with_span(span).with_ctxobj(ctxobj))
 }
 
 /// If `name` is a binding-introducing form (lambda, let, let*,
@@ -546,9 +552,9 @@ fn substitute_binding_form(
             let body_forms = rest.cdr()?;
 
             let new_varlist = if varlist.consp() {
-                let result = TulispObject::nil()
-                    .with_span(varlist.span())
-                    .with_ctxobj(varlist.ctxobj());
+                let varlist_span = varlist.span();
+                let varlist_ctxobj = varlist.ctxobj();
+                let mut vl_builder = crate::cons::ListBuilder::new();
                 let mut cur = varlist;
                 while cur.consp() {
                     let varitem = cur.car()?;
@@ -559,30 +565,33 @@ fn substitute_binding_form(
                         // bare symbol
                         varitem
                     };
-                    result.push(new_varitem)?;
+                    vl_builder.push(new_varitem);
                     cur = cur.cdr()?;
                 }
-                result
+                vl_builder
+                    .build()
+                    .with_span(varlist_span)
+                    .with_ctxobj(varlist_ctxobj)
             } else {
                 varlist
             };
 
-            let result = TulispObject::nil()
-                .with_span(body.span())
-                .with_ctxobj(body.ctxobj());
-            result.push(head)?;
-            result.push(new_varlist)?;
+            let body_span = body.span();
+            let body_ctxobj = body.ctxobj();
+            let mut builder = crate::cons::ListBuilder::new();
+            builder.push(head);
+            builder.push(new_varlist);
             // Substitute the body forms.
             let mut cur = body_forms;
             while cur.consp() {
                 let car = cur.car()?;
-                result.push(substitute_lexical_inner(car, mappings, quote_depth)?)?;
+                builder.push(substitute_lexical_inner(car, mappings, quote_depth)?);
                 cur = cur.cdr()?;
             }
             if !cur.null() {
-                result.append(substitute_lexical_inner(cur, mappings, quote_depth)?)?;
+                builder.append(substitute_lexical_inner(cur, mappings, quote_depth)?)?;
             }
-            Ok(Some(result))
+            Ok(Some(builder.build().with_span(body_span).with_ctxobj(body_ctxobj)))
         }
         // (dolist (var list-expr [result-expr]) BODY...)
         // (dotimes (var count-expr [result-expr]) BODY...)
@@ -597,21 +606,21 @@ fn substitute_binding_form(
             } else {
                 spec
             };
-            let result = TulispObject::nil()
-                .with_span(body.span())
-                .with_ctxobj(body.ctxobj());
-            result.push(head)?;
-            result.push(new_spec)?;
+            let body_span = body.span();
+            let body_ctxobj = body.ctxobj();
+            let mut builder = crate::cons::ListBuilder::new();
+            builder.push(head);
+            builder.push(new_spec);
             let mut cur = body_forms;
             while cur.consp() {
                 let car = cur.car()?;
-                result.push(substitute_lexical_inner(car, mappings, quote_depth)?)?;
+                builder.push(substitute_lexical_inner(car, mappings, quote_depth)?);
                 cur = cur.cdr()?;
             }
             if !cur.null() {
-                result.append(substitute_lexical_inner(cur, mappings, quote_depth)?)?;
+                builder.append(substitute_lexical_inner(cur, mappings, quote_depth)?)?;
             }
-            Ok(Some(result))
+            Ok(Some(builder.build().with_span(body_span).with_ctxobj(body_ctxobj)))
         }
         _ => Ok(None),
     }
@@ -677,22 +686,22 @@ fn substitute_lexical_inner(
             // resolved at parse time for `(fn arg ...)` forms. Dropping
             // it here would force a symbol lookup on every call.
             let ctxobj = body.ctxobj();
-            let result = TulispObject::nil().with_span(span).with_ctxobj(ctxobj);
+            let mut builder = crate::cons::ListBuilder::new();
             let mut cur = body;
             loop {
                 let car = cur.car()?;
-                result.push(substitute_lexical_inner(car, mappings, quote_depth)?)?;
+                builder.push(substitute_lexical_inner(car, mappings, quote_depth)?);
                 let cdr = cur.cdr()?;
                 if cdr.null() {
                     break;
                 }
                 if !cdr.consp() {
-                    result.append(substitute_lexical_inner(cdr, mappings, quote_depth)?)?;
+                    builder.append(substitute_lexical_inner(cdr, mappings, quote_depth)?)?;
                     break;
                 }
                 cur = cdr;
             }
-            result
+            builder.build().with_span(span).with_ctxobj(ctxobj)
         }
         TulispValue::Backquote { value } => TulispValue::Backquote {
             value: substitute_lexical_inner(value.clone(), mappings, quote_depth + 1)?,

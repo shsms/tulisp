@@ -1,8 +1,8 @@
 use std::{collections::HashMap, iter::Peekable, str::Chars};
 
 use crate::{
-    Error, Number, TulispContext, TulispObject, TulispValue, destruct_bind,
-    eval::macroexpand, list, object::Span,
+    Error, Number, TulispContext, TulispObject, TulispValue, destruct_bind, eval::macroexpand,
+    list, object::Span,
 };
 
 struct Tokenizer<'a> {
@@ -339,8 +339,9 @@ impl Parser<'_, '_> {
     }
 
     fn parse_list(&mut self, start_span: Span) -> Result<TulispObject, Error> {
-        let mut inner = TulispObject::nil();
+        let mut builder = crate::cons::ListBuilder::new();
         let mut got_dot = false;
+        let mut full_span: Option<Span> = None;
         loop {
             let Some(token) = self.tokenizer.peek() else {
                 return Err(Error::parsing_error("Unclosed list".to_string())
@@ -348,11 +349,11 @@ impl Parser<'_, '_> {
             };
             match token {
                 Token::CloseParen { span: end_span } => {
-                    inner.with_span(Some(Span {
+                    full_span = Some(Span {
                         file_id: self.file_id,
                         start: start_span.start,
                         end: end_span.end,
-                    }));
+                    });
                     break;
                 }
                 Token::Dot { .. } => {
@@ -361,7 +362,7 @@ impl Parser<'_, '_> {
                 }
                 _ => {
                     let next = self.parse_value()?.unwrap();
-                    inner.push(next)?;
+                    builder.push(next);
                 }
             }
         }
@@ -372,19 +373,21 @@ impl Parser<'_, '_> {
         if got_dot {
             let next = self.parse_value()?.unwrap();
             if let Some(Token::CloseParen { span: end_span }) = self.tokenizer.next() {
-                inner.with_span(Some(Span {
+                full_span = Some(Span {
                     file_id: self.file_id,
                     start: start_span.start,
                     end: end_span.end,
-                }));
+                });
             } else {
                 return Err(Error::parsing_error(
                     "Expected only one item in list after dot.".to_string(),
                 )
                 .with_trace(next));
             }
-            inner.append(next)?;
+            builder.append(next)?;
         }
+
+        let mut inner = builder.build().with_span(full_span);
 
         #[cfg(feature = "etags")]
         if self.follow_load_files
@@ -546,11 +549,11 @@ impl Parser<'_, '_> {
     }
 
     fn parse(&mut self) -> Result<TulispObject, Error> {
-        let output = TulispObject::nil();
+        let mut builder = crate::cons::ListBuilder::new();
         while let Some(next) = self.parse_value()? {
-            output.push(next)?;
+            builder.push(next);
         }
-        macroexpand(self.ctx, output)
+        macroexpand(self.ctx, builder.build())
     }
 }
 
@@ -562,11 +565,11 @@ pub(crate) fn mark_tail_calls(
     if !body.consp() {
         return Ok(body);
     }
-    let ret = TulispObject::nil();
+    let mut builder = crate::cons::ListBuilder::new();
     let mut body_iter = body.base_iter();
     let mut tail = body_iter.next().unwrap();
     for next in body_iter {
-        ret.push(tail)?;
+        builder.push(tail);
         tail = next;
     }
     if !tail.consp() {
@@ -626,8 +629,8 @@ pub(crate) fn mark_tail_calls(
     } else {
         tail
     };
-    ret.push(new_tail.with_ctxobj(ctxobj).with_span(span))?;
-    Ok(ret)
+    builder.push(new_tail.with_ctxobj(ctxobj).with_span(span));
+    Ok(builder.build())
 }
 
 pub fn parse(

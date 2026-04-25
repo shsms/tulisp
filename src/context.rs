@@ -474,11 +474,11 @@ impl TulispContext {
     /// Maps the given function over the given sequence, and returns the result.
     pub fn map(&mut self, func: &TulispObject, seq: &TulispObject) -> Result<TulispObject, Error> {
         let func = self.eval(func)?;
-        let ret = TulispObject::nil();
+        let mut builder = crate::cons::ListBuilder::new();
         for item in seq.base_iter() {
-            ret.push(funcall::<DummyEval>(self, &func, &list!(item)?)?)?;
+            builder.push(funcall::<DummyEval>(self, &func, &list!(item)?)?);
         }
-        Ok(ret)
+        Ok(builder.build())
     }
 
     /// Filters the given sequence using the given function, and returns the
@@ -489,13 +489,13 @@ impl TulispContext {
         seq: &TulispObject,
     ) -> Result<TulispObject, Error> {
         let func = self.eval(func)?;
-        let ret = TulispObject::nil();
+        let mut builder = crate::cons::ListBuilder::new();
         for item in seq.base_iter() {
             if funcall::<DummyEval>(self, &func, &list!(item.clone())?)?.is_truthy() {
-                ret.push(item)?;
+                builder.push(item);
             }
         }
-        Ok(ret)
+        Ok(builder.build())
     }
 
     /// Reduces the given sequence using the given function, and returns the
@@ -549,11 +549,11 @@ impl TulispContext {
     /// each.
     #[inline(always)]
     pub fn eval_each(&mut self, seq: &TulispObject) -> Result<TulispObject, Error> {
-        let ret = TulispObject::nil();
+        let mut builder = crate::cons::ListBuilder::new();
         for val in seq.base_iter() {
-            ret.push(self.eval(&val)?)?;
+            builder.push(self.eval(&val)?);
         }
-        Ok(ret)
+        Ok(builder.build())
     }
 
     /// Parses and evaluates the contents of the given file and returns the
