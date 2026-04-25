@@ -144,14 +144,11 @@ fn compile_fn_defun_bounce_call(
     let left_args = args_count - params.required.len();
     if left_args > params.optional.len() {
         if params.rest.is_none() {
-            return Err(Error::new(
-                ErrorKind::ArityMismatch,
-                format!(
-                    "defun bounce call: too many arguments. expected: {} got: {}",
-                    params.required.len() + params.optional.len(),
-                    args_count
-                ),
-            )
+            return Err(Error::arity_mismatch(format!(
+                "defun bounce call: too many arguments. expected: {} got: {}",
+                params.required.len() + params.optional.len(),
+                args_count
+            ))
             .with_trace(args.clone()));
         }
         result.push(Instruction::List(left_args - params.optional.len()));

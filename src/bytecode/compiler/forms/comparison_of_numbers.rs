@@ -5,7 +5,7 @@ use crate::{
 
 fn compile_fn_compare(
     ctx: &mut TulispContext,
-    name: &TulispObject,
+    _name: &TulispObject,
     args: &TulispObject,
     instruction: Instruction,
 ) -> Result<Vec<Instruction>, Error> {

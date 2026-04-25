@@ -48,30 +48,30 @@ pub(super) fn compile_fn_lambda(
             optional: Vec::new(),
             rest: None,
         };
-        let mut is_optional = false;
-        let mut is_rest = false;
+        // First pass: validate &optional / &rest ordering and collect
+        // raw param names. The actual is_optional / is_rest tracking
+        // for placeholder placement happens in the second pass below.
+        let mut seen_rest = false;
         for p in params.base_iter() {
             if p.eq(&ctx.keywords.amp_optional) {
-                if is_rest {
+                if seen_rest {
                     return Err(Error::new(
                         ErrorKind::Undefined,
                         "optional after rest".to_string(),
                     )
                     .with_trace(p));
                 }
-                is_optional = true;
                 continue;
             }
             if p.eq(&ctx.keywords.amp_rest) {
-                if is_rest {
+                if seen_rest {
                     return Err(Error::new(
                         ErrorKind::Undefined,
                         "rest after rest".to_string(),
                     )
                     .with_trace(p));
                 }
-                is_optional = false;
-                is_rest = true;
+                seen_rest = true;
                 continue;
             }
             param_names.push(p);
@@ -93,8 +93,8 @@ pub(super) fn compile_fn_lambda(
         // &optional / &rest positions from the original declaration.
         {
             let mut cursor = 0usize;
-            is_optional = false;
-            is_rest = false;
+            let mut is_optional = false;
+            let mut is_rest = false;
             for p in params.base_iter() {
                 if p.eq(&ctx.keywords.amp_optional) {
                     is_optional = true;

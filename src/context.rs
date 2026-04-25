@@ -56,26 +56,6 @@ macro_rules! intern_from_obarray {
     }
 }
 
-#[derive(Debug, Default, Clone)]
-pub(crate) struct Scope {
-    pub scope: Vec<TulispObject>,
-}
-
-impl Scope {
-    pub fn set(&mut self, symbol: TulispObject, value: TulispObject) -> Result<(), Error> {
-        symbol.set_scope(value)?;
-        self.scope.push(symbol);
-        Ok(())
-    }
-
-    pub fn remove_all(&self) -> Result<(), Error> {
-        for item in &self.scope {
-            item.unset()?;
-        }
-        Ok(())
-    }
-}
-
 intern_from_obarray! {
     #[derive(Clone)]
     pub(crate) struct Keywords {

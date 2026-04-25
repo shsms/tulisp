@@ -3,8 +3,9 @@ use std::{collections::HashMap, fmt};
 use super::Instruction;
 use crate::{bytecode::compiler::VMDefunParams, object::wrappers::generic::SharedMut, TulispObject};
 
+#[doc(hidden)]
 #[derive(Default, Clone)]
-pub(crate) struct CompiledDefun {
+pub struct CompiledDefun {
     pub(crate) name: TulispObject,
     pub(crate) instructions: SharedMut<Vec<Instruction>>,
     pub(crate) params: VMDefunParams,
@@ -21,8 +22,8 @@ impl fmt::Display for Bytecode {
         for (i, instr) in self.global.borrow().iter().enumerate() {
             write!(f, "\n{:<40}   # {}", instr.to_string(), i)?;
         }
-        for (name, func) in &self.functions {
-            write!(f, "\n\n{}:", name)?;
+        for (key, func) in &self.functions {
+            write!(f, "\n\n{} (#{}):", func.name, key)?;
             for (i, instr) in func.instructions.borrow().iter().enumerate() {
                 write!(f, "\n{:<40}   # {}", instr.to_string(), i)?;
             }

@@ -1,6 +1,6 @@
 use crate::{
     bytecode::{compiler::compiler::compile_expr, instruction::BinaryOp, Instruction},
-    Error, ErrorKind, TulispContext, TulispObject,
+    Error, TulispContext, TulispObject,
 };
 
 pub(super) fn compile_fn_plus(
@@ -11,8 +11,7 @@ pub(super) fn compile_fn_plus(
     let mut result = vec![];
     let args = args.base_iter().collect::<Vec<_>>();
     if args.is_empty() {
-        return Err(Error::new(
-            ErrorKind::ArityMismatch,
+        return Err(Error::arity_mismatch(
             "+ requires at least 1 argument.".to_string(),
         ));
     }
@@ -36,8 +35,7 @@ pub(super) fn compile_fn_minus(
     let mut result = vec![];
     let args = args.base_iter().collect::<Vec<_>>();
     if args.is_empty() {
-        return Err(Error::new(
-            ErrorKind::ArityMismatch,
+        return Err(Error::arity_mismatch(
             "- requires at least 1 argument.".to_string(),
         ));
     }
@@ -68,8 +66,7 @@ pub(super) fn compile_fn_mul(
     let mut result = vec![];
     let args = args.base_iter().collect::<Vec<_>>();
     if args.is_empty() {
-        return Err(Error::new(
-            ErrorKind::ArityMismatch,
+        return Err(Error::arity_mismatch(
             "* requires at least 1 argument.".to_string(),
         ));
     }
@@ -97,8 +94,7 @@ pub(super) fn compile_fn_div(
     let mut result = vec![];
     let args = args.base_iter().collect::<Vec<_>>();
     if args.is_empty() {
-        return Err(Error::new(
-            ErrorKind::ArityMismatch,
+        return Err(Error::arity_mismatch(
             "/ requires at least 1 argument.".to_string(),
         ));
     }
