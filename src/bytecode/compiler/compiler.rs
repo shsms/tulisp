@@ -94,6 +94,14 @@ pub fn compile_progn(
     ctx: &mut TulispContext,
     value: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
+    // Pre-pass: register the arities of every top-level
+    // `(defun NAME PARAMS …)` in this progn before compiling any
+    // body. Without this, `mark_tail_calls` only sees siblings that
+    // were defined earlier in the form list, so cyclic mutual
+    // recursion `(defun a () (b))` / `(defun b () (a))` wouldn't get
+    // both directions TCO'd.
+    pre_register_defun_arities(ctx, value);
+
     let mut result = vec![];
     let mut prev = None;
     let compiler = ctx.compiler.as_mut().unwrap();
@@ -115,6 +123,74 @@ pub fn compile_progn(
         result.append(&mut compile_expr(ctx, &prev)?);
     }
     Ok(result)
+}
+
+/// Walk a progn-shaped form list and pre-populate `defun_args` with
+/// arity entries for every top-level `(defun NAME (PARAMS) …)` it
+/// contains. Used so `mark_tail_calls` can identify mutual-recursion
+/// targets even before their own `compile_fn_defun` runs.
+///
+/// Only required/optional/rest **lengths** are consulted by
+/// `mark_tail_calls` and `compile_fn_defun_bounce_call`'s non-self
+/// arity check — the actual `TulispObject` values stored here are
+/// just placeholders (the parameter names from source). When the
+/// real `compile_fn_defun` runs for that defun, it overwrites this
+/// entry with one that carries fresh `LexicalBinding` objects.
+fn pre_register_defun_arities(ctx: &mut TulispContext, body: &TulispObject) {
+    for expr in body.base_iter() {
+        try_pre_register_one(ctx, &expr);
+    }
+}
+
+fn try_pre_register_one(ctx: &mut TulispContext, expr: &TulispObject) {
+    if !expr.consp() {
+        return;
+    }
+    let Ok(head) = expr.car() else { return };
+    let Ok(head_sym) = head.as_symbol() else {
+        return;
+    };
+    if head_sym != "defun" {
+        return;
+    }
+    let Ok(after_defun) = expr.cdr() else { return };
+    let Ok(name_obj) = after_defun.car() else {
+        return;
+    };
+    let Ok(after_name) = after_defun.cdr() else {
+        return;
+    };
+    let Ok(params) = after_name.car() else { return };
+
+    let mut required = Vec::new();
+    let mut optional = Vec::new();
+    let mut rest_param: Option<TulispObject> = None;
+    let mut is_optional = false;
+    let mut is_rest = false;
+    for p in params.base_iter() {
+        if p.eq(&ctx.keywords.amp_optional) {
+            is_optional = true;
+        } else if p.eq(&ctx.keywords.amp_rest) {
+            is_optional = false;
+            is_rest = true;
+        } else if is_rest {
+            rest_param = Some(p.clone());
+        } else if is_optional {
+            optional.push(p.clone());
+        } else {
+            required.push(p.clone());
+        }
+    }
+
+    let params_struct = VMDefunParams {
+        required,
+        optional,
+        rest: rest_param,
+    };
+    let compiler = ctx.compiler.as_mut().unwrap();
+    compiler
+        .defun_args
+        .insert(name_obj.addr_as_usize(), params_struct);
 }
 
 pub(crate) fn compile_expr_keep_result(

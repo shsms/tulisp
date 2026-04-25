@@ -577,7 +577,20 @@ pub(crate) fn mark_tail_calls(
     let tail_ident = tail.car()?;
     let tail_name_str = tail_ident.as_symbol()?;
     let is_self_call = tail_ident.eq(&name);
+    // A call to another VM-compiled defun in tail position is also
+    // a TCO opportunity. The call site uses the same `Bounce` shape
+    // as self-recursion; `compile_fn_defun_bounce_call` emits a
+    // `TailCall` for it (loop-style unwind in the caller), which
+    // gives mutual recursion bounded Rust stack usage. We can only
+    // mark when the target is already registered — forward
+    // references (callee defined after caller) miss this and fall
+    // through to a regular `Call`.
+    let is_known_vm_defun = ctx
+        .compiler
+        .as_ref()
+        .is_some_and(|c| c.defun_args.contains_key(&tail_ident.addr_as_usize()));
     let new_tail = if is_self_call
+        || is_known_vm_defun
         || ctx
             .eval(&tail_ident)
             .is_ok_and(|f| matches!(&f.inner_ref().0, TulispValue::Lambda { .. }))

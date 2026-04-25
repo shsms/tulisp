@@ -1451,6 +1451,94 @@ fn test_plist_defun_callable_from_vm_run() -> Result<(), Error> {
 }
 
 #[test]
+fn test_mutual_tail_recursion_is_tco() -> Result<(), Error> {
+    // `mark_tail_calls` now also marks tail calls to other VM defuns
+    // as `Bounce`, so mutual recursion compiles to `Instruction::TailCall`
+    // (loop-style unwind) rather than nested `Instruction::Call`
+    // (per-cycle Rust frame). A pre-pass in `compile_progn` registers
+    // every top-level `(defun NAME PARAMS …)`'s arity before
+    // compiling any body, so cycles get full TCO without forward
+    // declarations.
+    //
+    // Pin the behavior with a depth that would blow a non-TCO Rust
+    // stack: 200,000 alternations of even?/odd? = 200,000 hops.
+    // Without TCO the test thread's stack overflows.
+    let mut ctx = TulispContext::new();
+    ctx.vm_eval_string(
+        r#"
+        (defun even? (n)
+          (if (= n 0) t (odd? (- n 1))))
+        (defun odd? (n)
+          (if (= n 0) nil (even? (- n 1))))
+        "#,
+    )?;
+    let r = ctx.vm_eval_string("(even? 200000)")?;
+    assert!(r.is_truthy(), "even? 200000 should be true, got {}", r);
+    let r = ctx.vm_eval_string("(odd? 200001)")?;
+    assert!(r.is_truthy(), "odd? 200001 should be true, got {}", r);
+
+    Ok(())
+}
+
+#[test]
+fn test_mutual_tail_call_arity_checked_at_compile_time() -> Result<(), Error> {
+    // Non-self bounce path now arity-checks at compile time when the
+    // target is a known VM defun. Catches mismatches without running
+    // the program — same shape as the self-bounce and
+    // `TulispValue::Defun` checks.
+
+    // Too few: helper takes 2, called with 1 in tail position.
+    let mut ctx = TulispContext::new();
+    let err = ctx.vm_eval_string(
+        r#"
+        (defun helper (a b) (+ a b))
+        (defun caller () (helper 1))
+        "#,
+    );
+    let msg = err.unwrap_err().format(&ctx);
+    assert!(
+        msg.contains("too few arguments") || msg.contains("Too few arguments"),
+        "expected too-few error from mutual tail-call, got: {}",
+        msg
+    );
+
+    // Too many: helper takes 1, called with 3.
+    let mut ctx = TulispContext::new();
+    let err = ctx.vm_eval_string(
+        r#"
+        (defun helper (a) a)
+        (defun caller () (helper 1 2 3))
+        "#,
+    );
+    let msg = err.unwrap_err().format(&ctx);
+    assert!(
+        msg.contains("too many arguments") || msg.contains("Too many arguments"),
+        "expected too-many error from mutual tail-call, got: {}",
+        msg
+    );
+
+    // Cyclic mutual recursion (a calls b, b calls a) defined in
+    // either order — pre-pass populates both arities first, so
+    // mark_tail_calls catches mismatches whichever direction is
+    // wrong.
+    let mut ctx = TulispContext::new();
+    let err = ctx.vm_eval_string(
+        r#"
+        (defun a (n) (if (= n 0) 'done (b)))     ; b takes 1, called with 0
+        (defun b (n) (if (= n 0) 'done (a (- n 1))))
+        "#,
+    );
+    let msg = err.unwrap_err().format(&ctx);
+    assert!(
+        msg.contains("too few arguments") || msg.contains("Too few arguments"),
+        "expected too-few error in cyclic case, got: {}",
+        msg
+    );
+
+    Ok(())
+}
+
+#[test]
 fn test_self_tail_recursion_arity_checked_at_compile_time() -> Result<(), Error> {
     // `mark_tail_calls` rewrites self-recursive tail calls into
     // `(Bounce f args …)`, which `compile_fn_defun_bounce_call`

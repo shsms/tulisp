@@ -122,6 +122,40 @@ fn compile_fn_defun_bounce_call(
             result.append(&mut compile_expr_keep_result(ctx, &arg)?);
             args_count += 1;
         }
+        // If the target is a known VM defun (mutual-recursion TCO
+        // path; `mark_tail_calls` only marks `Bounce` for these and
+        // self / `TulispValue::Lambda`), validate arity at compile
+        // time — same shape as the self-bounce path below and the
+        // `TulispValue::Defun` arm in `compile_form`. The runtime
+        // `TailCall` handler also re-checks against the resolved
+        // `bytecode.functions[name].params`, so missing it here on a
+        // `Lambda` target stays a runtime error.
+        let target_arity = ctx
+            .compiler
+            .as_ref()
+            .and_then(|c| c.defun_args.get(&name.addr_as_usize()).cloned());
+        if let Some(params) = target_arity {
+            if args_count < params.required.len() {
+                return Err(Error::arity_mismatch(format!(
+                    "tail call to {}: too few arguments. expected: {} got: {}",
+                    name,
+                    params.required.len(),
+                    args_count,
+                ))
+                .with_trace(args.clone()));
+            }
+            if params.rest.is_none()
+                && args_count > params.required.len() + params.optional.len()
+            {
+                return Err(Error::arity_mismatch(format!(
+                    "tail call to {}: too many arguments. expected: {} got: {}",
+                    name,
+                    params.required.len() + params.optional.len(),
+                    args_count,
+                ))
+                .with_trace(args.clone()));
+            }
+        }
         // Tail-call escape: `TailCall` returns from `run_function`
         // directly, skipping the `EndScope`s the enclosing
         // `let` / `let*` would otherwise emit after this instruction.
