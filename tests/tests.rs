@@ -464,7 +464,7 @@ fn test_eval() -> Result<(), Error> {
     }
     tulisp_assert! {
         program: "(let ((j 10)) (+ j j))(+ j j)",
-        error: r#"ERR TypeMismatch: Variable definition is void: j
+        error: r#"ERR Uninitialized: Variable definition is void: j
 <eval_string>:1.23-1.29:  at (+ j j)
 "#
     }
