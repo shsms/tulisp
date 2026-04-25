@@ -1,5 +1,5 @@
 use crate::{
-    object::wrappers::{generic::Shared, TulispFn},
+    object::wrappers::{generic::Shared, DefunFn, TulispFn},
     TulispObject,
 };
 
@@ -112,6 +112,18 @@ pub(crate) enum Instruction {
         func: Shared<dyn TulispFn>,
         keep_result: bool,
     },
+    /// Like `RustCall` but for `ctx.defun`-registered fns. Args have
+    /// already been pushed on the stack (compiled with
+    /// `keep_result=true`); the handler pops `args_count` of them in
+    /// source order, hands them to `call(ctx, &args)`, and pushes the
+    /// result if `keep_result`. Avoids the `RustCall` re-entry path
+    /// because the closure never calls `ctx.eval`.
+    RustCallTyped {
+        name: TulispObject,
+        call: Shared<dyn DefunFn>,
+        args_count: usize,
+        keep_result: bool,
+    },
     Call {
         name: TulispObject,
         args_count: usize,
@@ -193,6 +205,9 @@ impl std::fmt::Display for Instruction {
             Instruction::Funcall { args_count } => write!(f, "    funcall {}", args_count),
             Instruction::Ret => write!(f, "    ret"),
             Instruction::RustCall { name, .. } => write!(f, "    rustcall {}", name),
+            Instruction::RustCallTyped {
+                name, args_count, ..
+            } => write!(f, "    rustcall_typed {} {}", name, args_count),
             Instruction::Label(name) => write!(f, "{}", name),
             Instruction::Cons => write!(f, "    cons"),
             Instruction::List(len) => write!(f, "    list {}", len),

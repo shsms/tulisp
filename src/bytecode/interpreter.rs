@@ -650,6 +650,20 @@ impl Machine {
                         self.stack.push(result);
                     }
                 }
+                Instruction::RustCallTyped {
+                    call,
+                    args_count,
+                    keep_result,
+                    ..
+                } => {
+                    let args_count = *args_count;
+                    let split_at = self.stack.len() - args_count;
+                    let args: Vec<TulispObject> = self.stack.drain(split_at..).collect();
+                    let result = call(ctx, &args)?;
+                    if *keep_result {
+                        self.stack.push(result);
+                    }
+                }
                 Instruction::Label(_) => {}
                 Instruction::Cons => {
                     let b = self.stack.pop().unwrap();

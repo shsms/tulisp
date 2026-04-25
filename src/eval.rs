@@ -355,6 +355,7 @@ pub(crate) fn eval_basic<'a>(
         | TulispValue::String { .. }
         | TulispValue::Lambda { .. }
         | TulispValue::Func(_)
+        | TulispValue::Defun { .. }
         | TulispValue::Macro(_)
         | TulispValue::Defmacro { .. }
         | TulispValue::CompiledDefun { .. }

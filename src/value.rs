@@ -6,7 +6,7 @@ use crate::{
     object::{
         Span,
         wrappers::{
-            TulispFn,
+            DefunFn, TulispFn,
             generic::{Shared, SharedMut, SyncSend},
         },
     },
@@ -551,6 +551,16 @@ pub enum TulispValue {
     },
     Any(Shared<dyn TulispAny>),
     Func(Shared<dyn TulispFn>),
+    /// A `ctx.defun`-registered Rust function, with already-evaluated
+    /// args. Distinct from `Func` (defspecial-style raw args) so the
+    /// VM can dispatch via `RustCallTyped` — args are pushed onto the
+    /// stack one by one and the closure receives them as a slice,
+    /// without ever calling `ctx.eval` itself. Keeps the VM lock from
+    /// being re-entered when a defun's arg expression is itself a
+    /// `CompiledDefun` call.
+    Defun {
+        call: Shared<dyn DefunFn>,
+    },
     Macro(Shared<dyn TulispFn>),
     Defmacro {
         params: DefunParams,
@@ -597,6 +607,7 @@ impl std::fmt::Debug for TulispValue {
             Self::Splice { value } => f.debug_struct("Splice").field("value", value).finish(),
             Self::Any(arg0) => write!(f, "Any({:?} = {})", arg0.type_id(), arg0),
             Self::Func(_) => write!(f, "Func"),
+            Self::Defun { .. } => write!(f, "Defun"),
             Self::Macro(_) => write!(f, "Macro"),
             Self::Defmacro { params, body } => f
                 .debug_struct("Defmacro")
@@ -685,6 +696,7 @@ impl std::fmt::Display for TulispValue {
             TulispValue::Any(value) => f.write_fmt(format_args!("{}", value)),
             TulispValue::T => f.write_str("t"),
             TulispValue::Func(_) => f.write_str("Func"),
+            TulispValue::Defun { .. } => f.write_str("Defun"),
             TulispValue::Macro(_) => f.write_str("Macro"),
             TulispValue::Defmacro { .. } => f.write_str("Defmacro"),
             TulispValue::Lambda { .. } => f.write_str("Defun"),
