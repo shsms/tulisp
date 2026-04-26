@@ -181,7 +181,6 @@ pub(super) fn compile_fn_lambda(
             param_placeholders,
             params: vm_params,
             free_vars,
-            body,
         };
 
         let mut result = Vec::with_capacity(1);

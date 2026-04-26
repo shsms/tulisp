@@ -868,11 +868,12 @@ fn test_backquotes() -> Result<(), Error> {
 
     // Same case but via runtime `(eval ...)` — the form is wrapped
     // in `'` so the VM compiler doesn't see the inner backquotes;
-    // at runtime the `eval` defun calls `ctx.eval` (TW), which
-    // walks the nested backquote and reaches the `CompiledDefun`
-    // for `f` while the outer `eval_string` already holds the VM.
-    // The TW fallback in `funcall::CompiledDefun` runs the lambda's
-    // body via `eval_progn` instead of trying to re-enter the VM.
+    // at runtime the `eval` defun receives the quoted data and
+    // hands it to `ctx.eval` (TW), which walks the nested backquote
+    // and reaches the `CompiledDefun` for `f` while the outer
+    // `eval_string` is already running on the VM. The TW
+    // `funcall::CompiledDefun` arm then re-enters via
+    // `bytecode::run_lambda`, sharing `ctx.vm` with the outer run.
     tulisp_assert! {
         program: r#"
         (setq f (lambda () 42))
@@ -882,9 +883,8 @@ fn test_backquotes() -> Result<(), Error> {
     }
 
     // Top-level `(defun …)` stores a `TulispValue::Lambda` (not a
-    // `CompiledDefun`), so the same shape works through the
-    // existing TW `Lambda` arm — no `CompiledDefun` fallback
-    // needed.
+    // `CompiledDefun`), so the same shape resolves through the TW
+    // `Lambda` arm without re-entering the VM.
     tulisp_assert! {
         program: r#"
         (defun f () 42)
@@ -1434,6 +1434,58 @@ fn test_lexical_binding() -> Result<(), Error> {
         result: "'(ok out-of-bounds out-of-bounds)",
     }
 
+    Ok(())
+}
+
+#[test]
+fn test_vm_reentry_during_run() -> Result<(), Error> {
+    // VM re-entry from inside a VM run. The outer `eval_string`
+    // is mid-run on `ctx.vm` when the `eval` defun receives the
+    // quoted form and hands it to `ctx.eval` (TW); TW's `funcall`
+    // arm reaches a callable defined on the same context and
+    // dispatches it, ultimately landing back in the VM. The inner
+    // and outer runs share the same machine — the inner sees the
+    // outer's bytecode/labels and pushes/pops on the shared stack.
+    //
+    // Pre-rewrite (when `ctx.vm` was `Option<Machine>` taken at
+    // the run boundary), the inner entry found `ctx.vm = None`
+    // and panicked with "ctx.vm taken twice — VM re-entered
+    // during a run". Free-function dispatch with a direct
+    // `ctx.vm` field makes re-entry transparent.
+
+    // Lambda case: `f` holds a `CompiledDefun` (anonymous lambda
+    // materialized by `Instruction::MakeLambda`). TW funcall hits
+    // the `CompiledDefun` arm in `eval::funcall`, which calls
+    // `bytecode::run_lambda` — that's the inner VM run.
+    let mut ctx = TulispContext::new();
+    let result: i64 = ctx
+        .eval_string(
+            r#"
+        (setq f (lambda () 42))
+        (eval '(funcall f))
+        "#,
+        )?
+        .try_into()?;
+    assert_eq!(result, 42);
+
+    // Defun case: top-level `(defun g …)` registers a
+    // `CompiledDefun` in `ctx.vm.bytecode.functions` and stores a
+    // `TulispValue::Lambda` on the symbol's function slot. TW
+    // funcall on the symbol resolves to the `Lambda` (not the
+    // `CompiledDefun`), dispatches via `eval::funcall`'s `Lambda`
+    // arm, and the body call eventually reaches the VM-registered
+    // function — exercising the same re-entry pathway with a
+    // different setup shape.
+    let mut ctx = TulispContext::new();
+    let result: i64 = ctx
+        .eval_string(
+            r#"
+        (defun g () 99)
+        (eval '(funcall 'g))
+        "#,
+        )?
+        .try_into()?;
+    assert_eq!(result, 99);
     Ok(())
 }
 

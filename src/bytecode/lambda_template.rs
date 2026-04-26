@@ -33,9 +33,4 @@ pub(crate) struct LambdaTemplate {
     /// the placeholder is replaced with a captured slot pointing at
     /// the original symbol's current value.
     pub(crate) free_vars: Vec<(TulispObject, TulispObject)>,
-    /// Body AST after `substitute_lexical` (so the placeholders match
-    /// `instructions`). Held alongside the bytecode so a TW fallback
-    /// is possible when `funcall` reaches a `CompiledDefun` while
-    /// `ctx.vm` is already taken — see `funcall::CompiledDefun` arm.
-    pub(crate) body: TulispObject,
 }

@@ -10,7 +10,7 @@ mod lambda_template;
 pub(crate) use lambda_template::LambdaTemplate;
 
 mod interpreter;
-pub(crate) use interpreter::Machine;
+pub(crate) use interpreter::{Machine, run, run_lambda};
 
 mod compiler;
 pub(crate) use compiler::{Compiler, VMCompilers, VMDefunParams, compile};

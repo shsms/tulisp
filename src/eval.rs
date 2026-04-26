@@ -165,13 +165,7 @@ fn eval_lambda<E: Evaluator>(
                 let evaluated = eval_args_for_vm::<DummyEval>(ctx, &value.params, &bounce_args)?;
                 let value = value.clone();
                 drop(inner);
-                if let Some(mut vm) = ctx.vm.take() {
-                    let res = vm.run_lambda(ctx, &value, &evaluated);
-                    ctx.vm = Some(vm);
-                    res?
-                } else {
-                    eval_compiled_defun_tw(ctx, &value, evaluated)?
-                }
+                crate::bytecode::run_lambda(ctx, &value, &evaluated)?
             }
             TulispValue::Func(f) => f(ctx, &bounce_args)?,
             TulispValue::Defun { call, .. } => {
@@ -237,20 +231,12 @@ pub(crate) fn funcall<E: Evaluator>(
         TulispValue::CompiledDefun { value } => {
             // Anonymous lambdas compiled by the VM land here. Evaluate
             // args honoring &optional / &rest layout, then dispatch to
-            // `Machine::run_lambda` if the VM is free; otherwise
-            // (re-entry — `ctx.vm` already taken by an outer run)
-            // fall back to a TW eval of the lambda's body. The body
-            // is held alongside the bytecode for exactly this case;
-            // see `make_lambda_from_template` and `CompiledDefun::body`.
+            // `bytecode::run_lambda` (a free function taking `&mut
+            // TulispContext`); the recursion just adds a stack
+            // frame to the same machine — no take/restore dance.
             let value = value.clone();
             let evaluated = eval_args_for_vm::<E>(ctx, &value.params, args)?;
-            if let Some(mut vm) = ctx.vm.take() {
-                let res = vm.run_lambda(ctx, &value, &evaluated);
-                ctx.vm = Some(vm);
-                res
-            } else {
-                eval_compiled_defun_tw(ctx, &value, evaluated)
-            }
+            crate::bytecode::run_lambda(ctx, &value, &evaluated)
         }
         TulispValue::Macro(_) | TulispValue::Defmacro { .. } => {
             let expanded = macroexpand(ctx, list!(func.clone() ,@args.clone())?)?;
@@ -258,73 +244,6 @@ pub(crate) fn funcall<E: Evaluator>(
         }
         _ => Err(Error::undefined(format!("function is void: {}", func))),
     }
-}
-
-/// TW fallback for a `CompiledDefun` reached from inside a running
-/// VM (so `ctx.vm` has already been taken by the outer frame and a
-/// nested `run_lambda` would deadlock). Pushes each arg onto the
-/// matching fresh `LexicalBinding`'s scope, evaluates the lambda's
-/// body via `eval_progn`, and unsets the bindings on drop. The body
-/// AST is the one stashed at `make_lambda_from_template` time and
-/// uses the same fresh bindings the bytecode would have, so closure
-/// state is consistent across the two paths.
-///
-/// Returns an error if `compiled.body` is `nil` — that means the
-/// `CompiledDefun` was built without a TW fallback (e.g. a top-level
-/// `(defun …)`, which can only be reached as a `TulispValue::Lambda`
-/// from the TW side anyway). If the panic message ever names a
-/// closure that hits this case, it indicates a missing `body`-fill
-/// path in the compiler.
-fn eval_compiled_defun_tw(
-    ctx: &mut TulispContext,
-    compiled: &crate::bytecode::CompiledDefun,
-    evaluated: Vec<TulispObject>,
-) -> Result<TulispObject, Error> {
-    if compiled.body.null() {
-        return Err(Error::undefined(format!(
-            "Cannot tree-walk CompiledDefun {} — no body stashed for TW fallback",
-            compiled.name
-        )));
-    }
-
-    // Cleanup guard: unset bindings on drop so an early return from
-    // body evaluation doesn't leak scopes.
-    struct Guard {
-        params: Vec<TulispObject>,
-    }
-    impl Drop for Guard {
-        fn drop(&mut self) {
-            for p in self.params.drain(..).rev() {
-                let _ = p.unset();
-            }
-        }
-    }
-    let mut guard = Guard { params: Vec::new() };
-
-    // Layout in `evaluated` (set up by `eval_args_for_vm`):
-    //   [required…, optional…, rest…]
-    // optional is always full (missing entries filled with nil).
-    let mut idx = 0;
-    for p in &compiled.params.required {
-        p.set_scope(evaluated[idx].clone())?;
-        guard.params.push(p.clone());
-        idx += 1;
-    }
-    for p in &compiled.params.optional {
-        p.set_scope(evaluated[idx].clone())?;
-        guard.params.push(p.clone());
-        idx += 1;
-    }
-    if let Some(rest_p) = &compiled.params.rest {
-        let mut list = TulispObject::nil();
-        for v in evaluated[idx..].iter().rev() {
-            list = TulispObject::cons(v.clone(), list);
-        }
-        rest_p.set_scope(list)?;
-        guard.params.push(rest_p.clone());
-    }
-
-    ctx.eval_progn(&compiled.body)
 }
 
 /// Evaluate call-site args against a `VMDefunParams`. Required params

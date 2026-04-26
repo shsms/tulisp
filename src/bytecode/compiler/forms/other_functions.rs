@@ -386,12 +386,6 @@ pub(super) fn compile_fn_defun(
         instructions: SharedMut::new(res),
         trace_ranges: crate::object::wrappers::generic::Shared::new_sized(trace_ranges),
         params: defun_params,
-        // Top-level `(defun …)` is reachable via TW only as a
-        // `TulispValue::Lambda` (the defspecial stores that on the
-        // symbol), so the `CompiledDefun` here never needs a TW
-        // fallback. Anonymous lambdas use `make_lambda_from_template`,
-        // which fills the body in.
-        body: TulispObject::nil(),
     };
     let compiler = ctx.compiler.as_mut().unwrap();
     compiler
