@@ -1100,6 +1100,11 @@ fn make_lambda_from_template(
         rest: template.params.rest.as_ref().map(&rewrite_obj),
     };
 
+    // Same placeholder→fresh substitution applied to the AST body
+    // so a TW fallback (in `funcall::CompiledDefun`) sees the same
+    // bindings as the bytecode does.
+    let body = rewrite_ast(&template.body, &mapping);
+
     let cd = CompiledDefun {
         name: TulispObject::nil(),
         instructions: SharedMut::new(instructions),
@@ -1112,6 +1117,7 @@ fn make_lambda_from_template(
             template.trace_ranges.clone(),
         ),
         params,
+        body,
     };
     Ok(TulispValue::CompiledDefun { value: cd }.into_ref(None))
 }
@@ -1251,5 +1257,6 @@ fn rewrite_template(
         param_placeholders: template.param_placeholders.clone(),
         params: template.params.clone(),
         free_vars: new_free_vars,
+        body: rewrite_ast(&template.body, mapping),
     }
 }

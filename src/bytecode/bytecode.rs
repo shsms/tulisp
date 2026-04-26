@@ -36,17 +36,14 @@ pub struct CompiledDefun {
     /// uniform.
     pub(crate) trace_ranges: Shared<Vec<TraceRange>>,
     pub(crate) params: VMDefunParams,
-}
-
-impl Default for CompiledDefun {
-    fn default() -> Self {
-        Self {
-            name: TulispObject::nil(),
-            instructions: SharedMut::default(),
-            trace_ranges: Shared::new_sized(Vec::new()),
-            params: VMDefunParams::default(),
-        }
-    }
+    /// Body AST with placeholders rewritten to the same fresh
+    /// `LexicalBinding`s used by `instructions` / `params`. Used
+    /// by `eval::funcall`'s TW fallback when `ctx.vm` is already
+    /// taken (re-entry case): we can't run the bytecode without
+    /// the machine, so we tree-walk the body instead. `Nil` for
+    /// `CompiledDefun`s built for top-level defuns that never
+    /// need a TW fallback.
+    pub(crate) body: TulispObject,
 }
 
 #[derive(Clone)]

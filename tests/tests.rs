@@ -856,14 +856,39 @@ fn test_backquotes() -> Result<(), Error> {
     }
 
     // Nested-backquote double-comma evaluating a `CompiledDefun`
-    // (anonymous lambdas compiled by the VM): the runtime
-    // `EvalBackquote` fallback must compile + run the unquoted
-    // expression on the *current* machine, not via `ctx.eval` —
-    // which would re-borrow `ctx.vm` and panic.
+    // (anonymous lambdas compile to bytecode): native compilation
+    // emits `Funcall` for `(funcall f)`, no re-entry into `ctx.vm`.
     tulisp_assert! {
         program: r#"
         (setq f (lambda () 42))
         ``(,,(funcall f))
+        "#,
+        result: r#"'`(,42)"#,
+    }
+
+    // Same case but via runtime `(eval ...)` — the form is wrapped
+    // in `'` so the VM compiler doesn't see the inner backquotes;
+    // at runtime the `eval` defun calls `ctx.eval` (TW), which
+    // walks the nested backquote and reaches the `CompiledDefun`
+    // for `f` while the outer `eval_string` already holds the VM.
+    // The TW fallback in `funcall::CompiledDefun` runs the lambda's
+    // body via `eval_progn` instead of trying to re-enter the VM.
+    tulisp_assert! {
+        program: r#"
+        (setq f (lambda () 42))
+        (eval '``(,,(funcall f)))
+        "#,
+        result: r#"'`(,42)"#,
+    }
+
+    // Top-level `(defun …)` stores a `TulispValue::Lambda` (not a
+    // `CompiledDefun`), so the same shape works through the
+    // existing TW `Lambda` arm — no `CompiledDefun` fallback
+    // needed.
+    tulisp_assert! {
+        program: r#"
+        (defun f () 42)
+        (eval '``(,,(f)))
         "#,
         result: r#"'`(,42)"#,
     }
