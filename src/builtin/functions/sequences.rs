@@ -1,9 +1,4 @@
-use crate::{
-    Error, TulispContext, TulispObject,
-    eval::{DummyEval, funcall},
-    list, lists,
-};
-use std::cmp::Ordering;
+use crate::{Error, TulispContext, TulispObject, lists};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defun("length", |list: TulispObject| {
@@ -11,64 +6,10 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     });
 
     ctx.defun("reverse", |list: TulispObject| {
-        Ok(list
-            .base_iter()
-            .fold(TulispObject::nil(), |acc, item| TulispObject::cons(item, acc)))
+        Ok(list.base_iter().fold(TulispObject::nil(), |acc, item| {
+            TulispObject::cons(item, acc)
+        }))
     });
-
-    ctx.defun(
-        "seq-map",
-        |ctx: &mut TulispContext, func: TulispObject, seq: TulispObject| ctx.map(&func, &seq),
-    );
-
-    ctx.defun(
-        "seq-reduce",
-        |ctx: &mut TulispContext, func: TulispObject, seq: TulispObject, initial: TulispObject| {
-            ctx.reduce(&func, &seq, &initial)
-        },
-    );
-
-    ctx.defun(
-        "seq-filter",
-        |ctx: &mut TulispContext, func: TulispObject, seq: TulispObject| ctx.filter(&func, &seq),
-    );
-
-    ctx.defun(
-        "seq-find",
-        |ctx: &mut TulispContext,
-         func: TulispObject,
-         seq: TulispObject,
-         default: Option<TulispObject>| {
-            let func = ctx.eval(&func)?;
-            for item in seq.base_iter() {
-                if funcall::<DummyEval>(ctx, &func, &list!(item.clone())?)?.is_truthy() {
-                    return Ok(item);
-                }
-            }
-            Ok(default.unwrap_or_else(TulispObject::nil))
-        },
-    );
-
-    ctx.defun(
-        "mapconcat",
-        |ctx: &mut TulispContext,
-         func: TulispObject,
-         seq: TulispObject,
-         sep: Option<String>| {
-            let mapped = ctx.map(&func, &seq)?;
-            let sep = sep.unwrap_or_default();
-            let mut out = String::new();
-            let mut first = true;
-            for item in mapped.base_iter() {
-                if !first {
-                    out.push_str(&sep);
-                }
-                first = false;
-                out.push_str(&item.as_string()?);
-            }
-            Ok(TulispObject::from(out))
-        },
-    );
 
     ctx.defun(
         "string-join",
@@ -163,35 +104,6 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         }
         Ok(TulispObject::nil())
     });
-
-    ctx.defun(
-        "sort",
-        |ctx: &mut TulispContext, seq: TulispObject, pred: TulispObject| {
-            let pred = ctx.eval(&pred)?;
-            let mut vec: Vec<_> = seq.base_iter().collect();
-            let mut err = None;
-            vec.sort_by(|v1, v2| {
-                if funcall::<DummyEval>(ctx, &pred, &list!(v1.clone(), v2.clone()).unwrap())
-                    .map(|v| v.null())
-                    .unwrap_or_else(|x| {
-                        err = Some(x);
-                        false
-                    })
-                {
-                    Ordering::Less
-                } else {
-                    Ordering::Greater
-                }
-            });
-            if let Some(err) = err {
-                return Err(err);
-            }
-            let ret = vec.iter().fold(TulispObject::nil(), |v1, v2| {
-                TulispObject::cons(v2.clone(), v1)
-            });
-            Ok(ret)
-        },
-    );
 }
 
 #[cfg(test)]
@@ -270,11 +182,7 @@ mod tests {
     #[test]
     fn test_member() {
         let ctx = &mut TulispContext::new();
-        eval_assert_equal(
-            ctx,
-            r#"(member "b" '("a" "b" "c"))"#,
-            r#"'("b" "c")"#,
-        );
+        eval_assert_equal(ctx, r#"(member "b" '("a" "b" "c"))"#, r#"'("b" "c")"#);
         eval_assert_equal(ctx, r#"(member "z" '("a" "b"))"#, "nil");
     }
 

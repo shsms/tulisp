@@ -68,6 +68,7 @@ ErrorKind!(
     (TypeMismatch,    pub type_mismatch),
     (PlistError,      pub plist_error),
     (MissingArgument, pub missing_argument),
+    (ArityMismatch,   pub(crate) arity_mismatch),
     (Undefined,       pub(crate) undefined),
     (Uninitialized,   pub(crate) uninitialized),
     (ParsingError,    pub(crate) parsing_error),
@@ -122,6 +123,15 @@ impl std::fmt::Debug for Error {
 }
 
 impl Error {
+    /// Creates a new [`Error`] with the given kind and description.
+    pub(crate) fn new(kind: ErrorKind, desc: impl Into<String>) -> Self {
+        Self {
+            kind,
+            desc: desc.into(),
+            backtrace: vec![],
+        }
+    }
+
     /// Creates a new `Throw` error with the given tag and value.
     pub fn throw(tag: TulispObject, value: TulispObject) -> Self {
         Self {

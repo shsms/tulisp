@@ -2,9 +2,9 @@ use crate::TulispContext;
 
 mod comparison_of_strings;
 mod conditionals;
+mod core;
 mod equality_predicates;
 mod errors;
-mod core;
 mod hash_table;
 mod list_elements;
 mod numbers;

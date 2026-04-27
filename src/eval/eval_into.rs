@@ -49,6 +49,11 @@ impl EvalInto<Number> for TulispObject {
             TulispValue::List { .. } => eval_form::<Eval>(ctx, self)
                 .map_err(|e| e.with_trace(self.clone()))?
                 .as_number(),
+            TulispValue::Quote { value } => {
+                let v = value.clone();
+                drop(inner);
+                v.eval_into(ctx)
+            }
             _ => Err(Error::type_mismatch(format!(
                 "Expected number, got: {}",
                 self
@@ -69,9 +74,9 @@ impl EvalInto<bool> for TulispObject {
                 }
                 sym.get_as_bool().map_err(|e| e.with_trace(self.clone()))
             }
-            TulispValue::LexicalBinding { binding } => {
-                binding.get_as_bool().map_err(|e| e.with_trace(self.clone()))
-            }
+            TulispValue::LexicalBinding { binding } => binding
+                .get_as_bool()
+                .map_err(|e| e.with_trace(self.clone())),
             TulispValue::List { .. } => Ok(eval_form::<Eval>(ctx, self)
                 .map_err(|e| e.with_trace(self.clone()))?
                 .is_truthy()),

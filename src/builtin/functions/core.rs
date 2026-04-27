@@ -1,7 +1,6 @@
 use crate::TulispObject;
 use crate::TulispValue;
 use crate::context::TulispContext;
-use crate::destruct_eval_bind;
 use crate::error::Error;
 use crate::eval::DummyEval;
 use crate::eval::Eval;
@@ -15,16 +14,17 @@ use std::convert::TryInto;
 
 fn mark_tail_calls(
     ctx: &mut TulispContext,
+    self_name: Option<&TulispObject>,
     body: TulispObject,
 ) -> Result<TulispObject, Error> {
     if !body.consp() {
         return Ok(body);
     }
-    let ret = TulispObject::nil();
+    let mut builder = crate::cons::ListBuilder::new();
     let mut body_iter = body.base_iter();
     let mut tail = body_iter.next().unwrap();
     for next in body_iter {
-        ret.push(tail)?;
+        builder.push(tail);
         tail = next;
     }
     if !tail.consp() {
@@ -34,22 +34,25 @@ fn mark_tail_calls(
     let ctxobj = tail.ctxobj();
     let tail_ident = tail.car()?;
     let tail_name_str = tail_ident.as_symbol()?;
-    let new_tail = if ctx.eval(&tail_ident).is_ok_and(|f| {
-        matches!(f.inner_ref().0, TulispValue::Lambda { .. })
-    }) {
+    let is_self_call = self_name.is_some_and(|n| n.eq(&tail_ident));
+    let new_tail = if is_self_call
+        || ctx
+            .eval(&tail_ident)
+            .is_ok_and(|f| matches!(f.inner_ref().0, TulispValue::Lambda { .. }))
+    {
         let ret_tail = TulispObject::nil().append(tail.cdr()?)?.to_owned();
         list!(,ctx.intern("list")
             ,TulispValue::Bounce.into_ref(None)
             ,tail_ident
             ,@ret_tail)?
     } else if tail_name_str == "progn" || tail_name_str == "let" || tail_name_str == "let*" {
-        list!(,tail_ident ,@mark_tail_calls(ctx, tail.cdr()?)?)?
+        list!(,tail_ident ,@mark_tail_calls(ctx, self_name, tail.cdr()?)?)?
     } else if tail_name_str == "if" {
         destruct_bind!((_if condition then_body &rest else_body) = tail);
         list!(,tail_ident
             ,condition.clone()
-            ,mark_tail_calls(ctx, list!(,then_body)?)?.car()?
-            ,@mark_tail_calls(ctx, else_body)?
+            ,mark_tail_calls(ctx, self_name, list!(,then_body)?)?.car()?
+            ,@mark_tail_calls(ctx, self_name, else_body)?
         )?
     } else if tail_name_str == "cond" {
         destruct_bind!((_cond &rest conds) = tail);
@@ -58,14 +61,14 @@ fn mark_tail_calls(
             destruct_bind!((condition &rest body) = cond);
             ret = list!(,@ret
                 ,list!(,condition.clone()
-                    ,@mark_tail_calls(ctx, body)?)?)?;
+                    ,@mark_tail_calls(ctx, self_name, body)?)?)?;
         }
         ret
     } else {
         tail
     };
-    ret.push(new_tail.with_ctxobj(ctxobj).with_span(span))?;
-    Ok(ret)
+    builder.push(new_tail.with_ctxobj(ctxobj).with_span(span));
+    Ok(builder.build())
 }
 
 pub(crate) fn add(ctx: &mut TulispContext) {
@@ -84,9 +87,22 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         ctx.eval_file(full_path)
     });
 
-    ctx.defun("intern", |ctx: &mut TulispContext, name: String| -> TulispObject {
-        ctx.intern(&name)
-    });
+    ctx.defun(
+        "intern",
+        |ctx: &mut TulispContext, name: String| -> TulispObject { ctx.intern(&name) },
+    );
+
+    ctx.defun(
+        "symbol-value",
+        |sym: TulispObject| -> Result<TulispObject, Error> {
+            if !sym.symbolp() {
+                return Err(Error::type_mismatch(format!(
+                    "symbol-value: expected a symbol, got {sym}"
+                )));
+            }
+            sym.get()
+        },
+    );
 
     fn make_symbol(name: String) -> TulispObject {
         let constant = name.starts_with(":");
@@ -131,98 +147,103 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         },
     );
 
-    ctx.defun("format", |in_string: String, rest: crate::Rest<TulispObject>| -> Result<String, Error> {
-        let rest: Vec<TulispObject> = rest.into_iter().collect();
-        let mut args = rest.iter();
-        let mut output = String::new();
-        let mut in_chars = in_string.chars().peekable();
-        // Supports `%[-][0]WIDTHTYPE` where TYPE is one of `s S d f`, plus
-        // `%%` for a literal percent. The `-` flag left-aligns and the `0`
-        // flag pads numerics with zeros. See the Emacs manual for the full
-        // format-spec grammar:
-        // https://www.gnu.org/software/emacs/manual/html_node/elisp/Formatting-Strings.html
-        while let Some(ch) = in_chars.next() {
-            if ch != '%' {
-                output.push(ch);
-                continue;
-            }
-            let mut left_align = false;
-            let mut zero_pad = false;
-            let mut width: usize = 0;
-            loop {
-                match in_chars.peek() {
-                    Some('-') => {
-                        left_align = true;
-                        in_chars.next();
-                    }
-                    Some('0') if width == 0 => {
-                        zero_pad = true;
-                        in_chars.next();
-                    }
-                    Some(c) if c.is_ascii_digit() => {
-                        width = width * 10 + (*c as usize - '0' as usize);
-                        in_chars.next();
-                    }
-                    _ => break,
+    ctx.defun(
+        "format",
+        |in_string: String, rest: crate::Rest<TulispObject>| -> Result<String, Error> {
+            let rest: Vec<TulispObject> = rest.into_iter().collect();
+            let mut args = rest.iter();
+            let mut output = String::new();
+            let mut in_chars = in_string.chars().peekable();
+            // Supports `%[-][0]WIDTHTYPE` where TYPE is one of `s S d f`, plus
+            // `%%` for a literal percent. The `-` flag left-aligns and the `0`
+            // flag pads numerics with zeros. See the Emacs manual for the full
+            // format-spec grammar:
+            // https://www.gnu.org/software/emacs/manual/html_node/elisp/Formatting-Strings.html
+            while let Some(ch) = in_chars.next() {
+                if ch != '%' {
+                    output.push(ch);
+                    continue;
                 }
-            }
-            let type_char = match in_chars.next() {
-                Some(c) => c,
-                None => {
-                    return Err(Error::syntax_error(
-                        "format: unterminated % spec".to_string(),
-                    ));
+                let mut left_align = false;
+                let mut zero_pad = false;
+                let mut width: usize = 0;
+                loop {
+                    match in_chars.peek() {
+                        Some('-') => {
+                            left_align = true;
+                            in_chars.next();
+                        }
+                        Some('0') if width == 0 => {
+                            zero_pad = true;
+                            in_chars.next();
+                        }
+                        Some(c) if c.is_ascii_digit() => {
+                            width = width * 10 + (*c as usize - '0' as usize);
+                            in_chars.next();
+                        }
+                        _ => break,
+                    }
                 }
-            };
-            if type_char == '%' {
-                output.push('%');
-                continue;
-            }
-            let Some(next_arg) = args.next() else {
-                return Err(Error::missing_argument(
-                    "format has missing args".to_string(),
-                ));
-            };
-            let formatted = match type_char {
-                's' => next_arg.fmt_string(),
-                'S' => next_arg.to_string(),
-                'd' => next_arg.try_int()?.to_string(),
-                'f' => next_arg.try_float()?.to_string(),
-                _ => {
-                    return Err(Error::syntax_error(format!(
-                        "Invalid format operation: %{}",
-                        type_char
-                    )));
-                }
-            };
-            let len = formatted.chars().count();
-            if width > len {
-                let pad_char = if zero_pad && !left_align && matches!(type_char, 'd' | 'f') {
-                    '0'
-                } else {
-                    ' '
+                let type_char = match in_chars.next() {
+                    Some(c) => c,
+                    None => {
+                        return Err(Error::syntax_error(
+                            "format: unterminated % spec".to_string(),
+                        ));
+                    }
                 };
-                let pad = pad_char.to_string().repeat(width - len);
-                if left_align {
-                    output.push_str(&formatted);
-                    output.push_str(&pad);
+                if type_char == '%' {
+                    output.push('%');
+                    continue;
+                }
+                let Some(next_arg) = args.next() else {
+                    return Err(Error::missing_argument(
+                        "format has missing args".to_string(),
+                    ));
+                };
+                let formatted = match type_char {
+                    's' => next_arg.fmt_string(),
+                    'S' => next_arg.to_string(),
+                    'd' => next_arg.try_int()?.to_string(),
+                    'f' => next_arg.try_float()?.to_string(),
+                    _ => {
+                        return Err(Error::syntax_error(format!(
+                            "Invalid format operation: %{}",
+                            type_char
+                        )));
+                    }
+                };
+                let len = formatted.chars().count();
+                if width > len {
+                    let pad_char = if zero_pad && !left_align && matches!(type_char, 'd' | 'f') {
+                        '0'
+                    } else {
+                        ' '
+                    };
+                    let pad = pad_char.to_string().repeat(width - len);
+                    if left_align {
+                        output.push_str(&formatted);
+                        output.push_str(&pad);
+                    } else {
+                        output.push_str(&pad);
+                        output.push_str(&formatted);
+                    }
                 } else {
-                    output.push_str(&pad);
                     output.push_str(&formatted);
                 }
-            } else {
-                output.push_str(&formatted);
             }
-        }
-        Ok(output)
-    });
+            Ok(output)
+        },
+    );
 
     ctx.defun("print", |val: TulispObject| -> TulispObject {
         println!("{}", val.fmt_string());
         val
     });
 
-    ctx.defun("prin1-to-string", |arg: TulispObject| -> String { arg.fmt_string() });
+    ctx.defun("prin1-to-string", |arg: TulispObject| -> String {
+        arg.fmt_string()
+    });
 
     ctx.defun("princ", |val: TulispObject| -> TulispObject {
         println!("{}", val.fmt_string());
@@ -360,10 +381,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             } else {
                 rest
             };
-            let body = mark_tail_calls(ctx, body).map_err(|e| {
-                println!("mark_tail_calls error: {:?}", e);
-                e
-            })?;
+            let body = mark_tail_calls(ctx, Some(&name), body)?;
             // Pre-rewrite the body so each param reference points at a
             // shared `LexicalBinding` allocated once here. Call-time
             // evaluation then only push/pops values onto the binding's
@@ -372,9 +390,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             let raw_params: DefunParams = params.try_into()?;
             let (params, mappings) = raw_params.bind_as_lexical(&ctx.lex_allocator);
             let body = substitute_lexical(body, &mappings)?;
-            name.set_global(
-                TulispValue::Lambda { params, body }.into_ref(None),
-            )?;
+            name.set_global(TulispValue::Lambda { params, body }.into_ref(None))?;
             Ok(TulispObject::nil())
         }
     });
@@ -534,17 +550,23 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 return Ok(body);
             }
 
-            let result = TulispObject::nil().with_span(body.span());
+            let span = body.span();
+            let mut builder = crate::cons::ListBuilder::new();
             loop {
                 let car = body.car()?;
-                result
-                    .push(capture_variables_inner(allocator, captured_vars, exclude, car, quote_depth)?)?;
+                builder.push(capture_variables_inner(
+                    allocator,
+                    captured_vars,
+                    exclude,
+                    car,
+                    quote_depth,
+                )?);
                 let cdr = body.cdr()?;
                 if cdr.null() {
                     break;
                 }
                 if !cdr.consp() {
-                    result.append(capture_variables_inner(
+                    builder.append(capture_variables_inner(
                         allocator,
                         captured_vars,
                         exclude,
@@ -555,7 +577,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 }
                 body = cdr;
             }
-            Ok(result)
+            Ok(builder.build().with_span(span))
         }
 
         let body = capture_variables(&ctx.lex_allocator, &mut vec![], &param_names, body)?;
@@ -579,9 +601,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         let raw_params: DefunParams = params.try_into()?;
         let (params, mappings) = raw_params.bind_as_lexical(&ctx.lex_allocator);
         let body = substitute_lexical(body, &mappings)?;
-        name.set_scope(
-            TulispValue::Defmacro { params, body }.into_ref(None),
-        )?;
+        name.set_scope(TulispValue::Defmacro { params, body }.into_ref(None))?;
         Ok(TulispObject::nil())
     });
 
@@ -598,7 +618,17 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         destruct_bind!((name &rest rest) = args);
         let name = ctx.eval(&name)?;
         let name = ctx.eval(&name)?;
-        if matches!(&name.inner_ref().0, TulispValue::Lambda { .. }) {
+        // Lambda / Defun / CompiledDefun all expect their args to be
+        // already-evaluated values. Pass through `Eval` so the rest
+        // list is evaluated before dispatch. Func-style defspecials
+        // are the only callers that want the raw, unevaluated arg
+        // list — those keep the `DummyEval` path.
+        if matches!(
+            &name.inner_ref().0,
+            TulispValue::Lambda { .. }
+                | TulispValue::Defun { .. }
+                | TulispValue::CompiledDefun { .. }
+        ) {
             crate::eval::funcall::<Eval>(ctx, &name, &rest)
         } else {
             crate::eval::funcall::<DummyEval>(ctx, &name, &rest)
@@ -621,11 +651,27 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     ctx.defun(
         "append",
-        |first: TulispObject, rest: crate::Rest<TulispObject>| -> Result<TulispObject, Error> {
-            for ele in rest {
-                first.append(ele.deep_copy()?)?;
+        |rest: crate::Rest<TulispObject>| -> Result<TulispObject, Error> {
+            // Emacs `append`: copy every list except the last; share
+            // the last argument's cells with the result. The last
+            // argument may be any value (it becomes the dotted tail
+            // when non-list, non-nil).
+            let mut args: Vec<TulispObject> = rest.into_iter().collect();
+            let Some(last) = args.pop() else {
+                return Ok(TulispObject::nil());
+            };
+            let mut builder = crate::cons::ListBuilder::new();
+            for arg in args {
+                if !arg.listp() {
+                    return Err(Error::type_mismatch(format!(
+                        "append: expected list, got: {arg}"
+                    )));
+                }
+                for elem in arg.base_iter() {
+                    builder.push(elem);
+                }
             }
-            Ok(first)
+            Ok(builder.build_with_tail(last))
         },
     );
 
@@ -666,14 +712,8 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         ctx.eval(&result)
     });
 
-    ctx.defun(
-        "list",
-        |args: crate::Rest<TulispObject>| -> TulispObject { args.into_iter().collect() },
-    );
-
-    ctx.defspecial("mapcar", |ctx, args| {
-        destruct_eval_bind!(ctx, (func seq) = args);
-        ctx.map(&func, &seq)
+    ctx.defun("list", |args: crate::Rest<TulispObject>| -> TulispObject {
+        args.into_iter().collect()
     });
 
     ctx.defun(

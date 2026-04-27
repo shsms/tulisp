@@ -171,11 +171,11 @@ fn build_binding(
 
 fn build_bindings(ctx: &mut TulispContext, bindings: &TulispObject) -> Result<TulispObject, Error> {
     let mut prev_var = TulispObject::t();
-    let ret = TulispObject::nil();
+    let mut builder = crate::cons::ListBuilder::new();
     for binding in bindings.base_iter() {
         let binding = build_binding(ctx, &binding, &prev_var)?;
         prev_var = binding.car()?;
-        ret.push(binding)?;
+        builder.push(binding);
     }
-    Ok(ret)
+    Ok(builder.build())
 }

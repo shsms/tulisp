@@ -69,21 +69,21 @@ pub fn nth(n: i64, list: TulispObject) -> Result<TulispObject, Error> {
 
 /// Makes an alist from the given arguments.
 pub fn alist_from<const N: usize>(input: [(TulispObject, TulispObject); N]) -> TulispObject {
-    let alist = TulispObject::nil();
+    let mut builder = crate::cons::ListBuilder::new();
     for (key, value) in input.into_iter() {
-        let _ = alist.push(TulispObject::cons(key, value));
+        builder.push(TulispObject::cons(key, value));
     }
-    alist
+    builder.build()
 }
 
 /// Makes a plist from the given arguments.
 pub fn plist_from<const N: usize>(input: [(TulispObject, TulispObject); N]) -> TulispObject {
-    let plist = TulispObject::nil();
+    let mut builder = crate::cons::ListBuilder::new();
     for (key, value) in input.into_iter() {
-        let _ = plist.push(key);
-        let _ = plist.push(value);
+        builder.push(key);
+        builder.push(value);
     }
-    plist
+    builder.build()
 }
 
 /// Returns the first association for key in alist, comparing key against the
@@ -186,10 +186,7 @@ mod tests {
             (c.clone(), 40.into()),
         ]);
         assert!(alist_get(&mut ctx, &b, &list, None, None, None)?.equal(&30.into()));
-        assert_eq!(
-            alist_get(&mut ctx, &d, &list, None, None, None)?.null(),
-            true
-        );
+        assert!(alist_get(&mut ctx, &d, &list, None, None, None)?.null());
         Ok(())
     }
 
@@ -206,7 +203,7 @@ mod tests {
             (c.clone(), 40.into()),
         ]);
         assert!(plist_get(&list, &b)?.equal(&30.into()));
-        assert_eq!(plist_get(&list, &d)?.null(), true);
+        assert!(plist_get(&list, &d)?.null());
         Ok(())
     }
 }

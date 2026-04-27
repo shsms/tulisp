@@ -1,11 +1,12 @@
 use crate::{
     Number, TulispObject,
+    bytecode::CompiledDefun,
     cons::Cons,
     error::Error,
     object::{
         Span,
         wrappers::{
-            TulispFn,
+            DefunFn, TulispFn,
             generic::{Shared, SharedMut, SyncSend},
         },
     },
@@ -33,6 +34,27 @@ impl std::fmt::Display for DefunParam {
             self.param, self.is_rest, self.is_optional
         ))
     }
+}
+
+/// Compile-time arity metadata for a `ctx.defun`-registered fn.
+/// Recorded on `TulispValue::Defun` so the VM compiler can reject
+/// arity mismatches at compile time, before any args are pushed.
+/// Populated from the `TulispCallable` const generics at registration
+/// time, so the values are exact for typed-arg arms; Plist arms
+/// register with `required: 0, optional: 0, has_rest: true` because
+/// arity is in the plist contents and validated at runtime by
+/// `Plistable::from_plist`.
+///
+/// Marked `pub` (and `#[doc(hidden)]`) only because it appears as a
+/// field of the public `TulispValue::Defun` variant — same reason
+/// `DefunFn` and `DefunParams` are `pub`. Item #6 in `todo.md` plans
+/// to demote both along with `TulispValue` itself.
+#[doc(hidden)]
+#[derive(Debug, Default, Clone)]
+pub struct DefunArity {
+    pub required: usize,
+    pub optional: usize,
+    pub has_rest: bool,
 }
 
 #[doc(hidden)]
@@ -222,7 +244,7 @@ impl SymbolBindings {
     #[inline(always)]
     pub(crate) fn get_as_number(&self) -> Result<crate::Number, Error> {
         let Some(item) = self.items.last() else {
-            return Err(Error::type_mismatch(format!(
+            return Err(Error::uninitialized(format!(
                 "Variable definition is void: {}",
                 self.name
             )));
@@ -233,7 +255,7 @@ impl SymbolBindings {
     #[inline(always)]
     pub(crate) fn get_as_bool(&self) -> Result<bool, Error> {
         let Some(item) = self.items.last() else {
-            return Err(Error::type_mismatch(format!(
+            return Err(Error::uninitialized(format!(
                 "Variable definition is void: {}",
                 self.name
             )));
@@ -281,6 +303,15 @@ impl SymbolBindings {
 // concern. Growth is bounded in practice: each `LexAllocator` reuses
 // freed ids through its own free list before bumping this counter.
 static LEX_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Debug-only: sum of all per-id stack lengths in the current
+/// thread's `LEX_STACKS`. Steady growth indicates a push without
+/// matching pop somewhere (e.g. `BeginScope` without `EndScope` on
+/// some control-flow path).
+#[doc(hidden)]
+pub fn debug_lex_stacks_total() -> usize {
+    LEX_STACKS.with(|s| s.borrow().iter().map(|v| v.len()).sum())
+}
 
 /// Per-context allocator for LexBinding ids. Held by the context and
 /// by every `LexBinding` it creates (via a `Shared` ref on the
@@ -476,7 +507,9 @@ impl LexBinding {
         if let Some(slot) = &self.inner.captured {
             return Ok(slot.borrow().clone());
         }
-        let got = with_lex_stack(self.inner.id, |s| s.last().map(|slot| slot.borrow().clone()));
+        let got = with_lex_stack(self.inner.id, |s| {
+            s.last().map(|slot| slot.borrow().clone())
+        });
         got.ok_or_else(|| {
             Error::uninitialized(format!("Variable definition is void: {}", self.inner.name))
         })
@@ -550,6 +583,17 @@ pub enum TulispValue {
     },
     Any(Shared<dyn TulispAny>),
     Func(Shared<dyn TulispFn>),
+    /// A `ctx.defun`-registered Rust function, with already-evaluated
+    /// args. Distinct from `Func` (defspecial-style raw args) so the
+    /// VM can dispatch via `RustCallTyped` — args are pushed onto the
+    /// stack one by one and the closure receives them as a slice,
+    /// without ever calling `ctx.eval` itself. Keeps the VM lock from
+    /// being re-entered when a defun's arg expression is itself a
+    /// `CompiledDefun` call.
+    Defun {
+        call: Shared<dyn DefunFn>,
+        arity: DefunArity,
+    },
     Macro(Shared<dyn TulispFn>),
     Defmacro {
         params: DefunParams,
@@ -558,6 +602,9 @@ pub enum TulispValue {
     Lambda {
         params: DefunParams,
         body: TulispObject,
+    },
+    CompiledDefun {
+        value: CompiledDefun,
     },
     Bounce,
 }
@@ -593,6 +640,7 @@ impl std::fmt::Debug for TulispValue {
             Self::Splice { value } => f.debug_struct("Splice").field("value", value).finish(),
             Self::Any(arg0) => write!(f, "Any({:?} = {})", arg0.type_id(), arg0),
             Self::Func(_) => write!(f, "Func"),
+            Self::Defun { .. } => write!(f, "Defun"),
             Self::Macro(_) => write!(f, "Macro"),
             Self::Defmacro { params, body } => f
                 .debug_struct("Defmacro")
@@ -604,7 +652,8 @@ impl std::fmt::Debug for TulispValue {
                 .field("params", params)
                 .field("body", body)
                 .finish(),
-            Self::Bounce => write!(f, "Bounce"),
+            Self::CompiledDefun { .. } => f.debug_struct("CompiledDefun").finish(),
+            Self::Bounce => f.debug_struct("Bounce").finish(),
         }
     }
 }
@@ -680,9 +729,11 @@ impl std::fmt::Display for TulispValue {
             TulispValue::Any(value) => f.write_fmt(format_args!("{}", value)),
             TulispValue::T => f.write_str("t"),
             TulispValue::Func(_) => f.write_str("Func"),
+            TulispValue::Defun { .. } => f.write_str("Defun"),
             TulispValue::Macro(_) => f.write_str("Macro"),
             TulispValue::Defmacro { .. } => f.write_str("Defmacro"),
             TulispValue::Lambda { .. } => f.write_str("Defun"),
+            TulispValue::CompiledDefun { .. } => f.write_str("CompiledDefun"),
         }
     }
 }
@@ -1006,7 +1057,7 @@ impl TulispValue {
     }
 
     #[inline(always)]
-    pub(crate) fn is_bounce(&self) -> bool {
+    pub fn is_bounce(&self) -> bool {
         matches!(self, TulispValue::Bounce)
     }
 
@@ -1187,13 +1238,11 @@ impl From<Shared<dyn TulispAny>> for TulispValue {
 
 impl FromIterator<TulispObject> for TulispValue {
     fn from_iter<T: IntoIterator<Item = TulispObject>>(iter: T) -> Self {
-        let mut list = TulispValue::Nil;
+        let mut builder = crate::cons::ListBuilder::new();
         for item in iter {
-            // because only push is called, and never append, it is safe to
-            // ignore the returned Result.
-            let _ = list.push(item);
+            builder.push(item);
         }
-        list
+        builder.build().take()
     }
 }
 

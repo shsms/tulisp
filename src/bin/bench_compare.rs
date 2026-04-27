@@ -15,9 +15,18 @@ fn print_header() {
 }
 
 fn print_row(name: &str, baseline_ms: Option<f64>, current_ms: Option<f64>, change: &str) {
-    let base = baseline_ms.map_or_else(|| format!("{:>COL_MS$}", "N/A"), |v| format!("{:>COL_MS$.3}", v));
-    let cur = current_ms.map_or_else(|| format!("{:>COL_MS$}", "N/A"), |v| format!("{:>COL_MS$.3}", v));
-    println!("{:<COL_NAME$} {} {} {:>COL_CHANGE$}", name, base, cur, change);
+    let base = baseline_ms.map_or_else(
+        || format!("{:>COL_MS$}", "N/A"),
+        |v| format!("{:>COL_MS$.3}", v),
+    );
+    let cur = current_ms.map_or_else(
+        || format!("{:>COL_MS$}", "N/A"),
+        |v| format!("{:>COL_MS$.3}", v),
+    );
+    println!(
+        "{:<COL_NAME$} {} {} {:>COL_CHANGE$}",
+        name, base, cur, change
+    );
 }
 
 fn parse_results(path: &Path) -> Result<Vec<(String, u128)>, String> {

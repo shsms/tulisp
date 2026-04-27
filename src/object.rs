@@ -383,9 +383,6 @@ assert_eq!(ts.value, 25);
 
     predicate_fn!(pub, null, "Returns True if `self` is `nil`.");
     predicate_fn!(pub, is_truthy, "Returns True if `self` is not `nil`.");
-
-    predicate_fn!(pub(crate), is_bounce, "Returns True if `self` is a tail-call trampoline bounce object.");
-    predicate_fn!(pub(crate), is_bounced, "Returns True if `self` is a tail-call trampoline bounced function call.");
     // predicates end
 }
 
@@ -399,6 +396,12 @@ impl TulispObject {
         allocator: Shared<LexAllocator>,
         symbol: TulispObject,
     ) -> TulispObject {
+        debug_assert!(
+            !matches!(&symbol.inner_ref().0, TulispValue::LexicalBinding { .. }),
+            "lexical_binding called with an already-LexicalBinding `symbol` \
+             — this means substitute_lexical descended into a binding form's \
+             parameter / varname position. See todo.md #8."
+        );
         let span = symbol.span();
         TulispValue::lexical_binding(allocator, symbol).into_ref(span)
     }
@@ -417,7 +420,6 @@ impl TulispObject {
             rc: SharedMut::new((vv, span)),
         }
     }
-
 
     pub(crate) fn set_global(&self, to_set: TulispObject) -> Result<(), Error> {
         self.rc.borrow_mut().0.set_global(to_set)
@@ -477,8 +479,17 @@ impl TulispObject {
         self.rc.borrow_mut().1 = in_span;
         self.clone()
     }
+
     pub(crate) fn take(&self) -> TulispValue {
         self.rc.borrow_mut().0.take()
+    }
+
+    pub(crate) fn is_bounce(&self) -> bool {
+        self.rc.borrow().0.is_bounce()
+    }
+
+    pub(crate) fn is_bounced(&self) -> bool {
+        self.rc.borrow().0.is_bounced()
     }
 
     #[doc(hidden)]
@@ -492,33 +503,34 @@ impl TulispObject {
         if self.symbolp() {
             return Ok(self.clone());
         }
-        let mut ret = if !self.consp() {
-            self.clone_inner()
-        } else {
-            let mut ret = TulispValue::Nil;
-            let mut val = self.clone(); // TODO: possible CoW optimization here
-            loop {
-                let (first, rest) = (val.car()?, val.cdr()?);
-                let first = if !first.consp() {
-                    first
-                } else {
-                    // Recursive lists are not deep-copied, only the top-level
-                    // is, because that's all that needed to avoid cycles when
-                    // appending, etc.
-                    first.clone_inner().into_ref(first.span())
-                };
-                ret.push_with_meta(first, val.span(), val.ctxobj())?;
-                if !rest.consp() {
-                    ret.append(rest)?;
-                    break;
-                }
-                val = rest;
+        if !self.consp() {
+            let ret = self.clone_inner().into_ref(self.span());
+            ret.with_ctxobj(self.ctxobj());
+            return Ok(ret);
+        }
+        let mut builder = cons::ListBuilder::new();
+        let mut val = self.clone(); // TODO: possible CoW optimization here
+        loop {
+            let (first, rest) = (val.car()?, val.cdr()?);
+            let first = if !first.consp() {
+                first
+            } else {
+                // Recursive lists are not deep-copied, only the top-level
+                // is, because that's all that needed to avoid cycles when
+                // appending, etc.
+                first.clone_inner().into_ref(first.span())
+            };
+            builder.push_with_meta(first, val.span(), val.ctxobj());
+            if !rest.consp() {
+                builder.append(rest)?;
+                break;
             }
-            ret
-        };
-        ret.with_ctxobj(self.ctxobj());
-        let ret = ret.into_ref(self.span());
-        Ok(ret)
+            val = rest;
+        }
+        Ok(builder
+            .build()
+            .with_span(self.span())
+            .with_ctxobj(self.ctxobj()))
     }
 }
 
@@ -679,7 +691,11 @@ tulisp_object_from!(Shared<dyn TulispAny>);
 
 impl FromIterator<TulispObject> for TulispObject {
     fn from_iter<T: IntoIterator<Item = TulispObject>>(iter: T) -> Self {
-        TulispValue::from_iter(iter).into_ref(None)
+        let mut builder = cons::ListBuilder::new();
+        for item in iter {
+            builder.push(item);
+        }
+        builder.build()
     }
 }
 

@@ -1,7 +1,8 @@
 use std::{collections::HashMap, iter::Peekable, str::Chars};
 
 use crate::{
-    Error, Number, TulispContext, TulispObject, TulispValue, eval::macroexpand, object::Span,
+    Error, Number, TulispContext, TulispObject, TulispValue, destruct_bind, eval::macroexpand,
+    list, object::Span,
 };
 
 struct Tokenizer<'a> {
@@ -338,8 +339,9 @@ impl Parser<'_, '_> {
     }
 
     fn parse_list(&mut self, start_span: Span) -> Result<TulispObject, Error> {
-        let mut inner = TulispObject::nil();
+        let mut builder = crate::cons::ListBuilder::new();
         let mut got_dot = false;
+        let mut full_span: Option<Span> = None;
         loop {
             let Some(token) = self.tokenizer.peek() else {
                 return Err(Error::parsing_error("Unclosed list".to_string())
@@ -347,11 +349,11 @@ impl Parser<'_, '_> {
             };
             match token {
                 Token::CloseParen { span: end_span } => {
-                    inner.with_span(Some(Span {
+                    full_span = Some(Span {
                         file_id: self.file_id,
                         start: start_span.start,
                         end: end_span.end,
-                    }));
+                    });
                     break;
                 }
                 Token::Dot { .. } => {
@@ -360,7 +362,7 @@ impl Parser<'_, '_> {
                 }
                 _ => {
                     let next = self.parse_value()?.unwrap();
-                    inner.push(next)?;
+                    builder.push(next);
                 }
             }
         }
@@ -371,19 +373,21 @@ impl Parser<'_, '_> {
         if got_dot {
             let next = self.parse_value()?.unwrap();
             if let Some(Token::CloseParen { span: end_span }) = self.tokenizer.next() {
-                inner.with_span(Some(Span {
+                full_span = Some(Span {
                     file_id: self.file_id,
                     start: start_span.start,
                     end: end_span.end,
-                }));
+                });
             } else {
                 return Err(Error::parsing_error(
                     "Expected only one item in list after dot.".to_string(),
                 )
                 .with_trace(next));
             }
-            inner.append(next)?;
+            builder.append(next)?;
         }
+
+        let mut inner = builder.build().with_span(full_span);
 
         #[cfg(feature = "etags")]
         if self.follow_load_files
@@ -478,7 +482,10 @@ impl Parser<'_, '_> {
                     }
                 };
                 Ok(Some(
-                    TulispValue::Unquote { value: next }.into_ref(Some(span)),
+                    TulispValue::Unquote {
+                        value: macroexpand(self.ctx, next)?,
+                    }
+                    .into_ref(Some(span)),
                 ))
             }
             Token::Splice { span } => {
@@ -542,12 +549,88 @@ impl Parser<'_, '_> {
     }
 
     fn parse(&mut self) -> Result<TulispObject, Error> {
-        let output = TulispObject::nil();
+        let mut builder = crate::cons::ListBuilder::new();
         while let Some(next) = self.parse_value()? {
-            output.push(next)?;
+            builder.push(next);
         }
-        macroexpand(self.ctx, output)
+        macroexpand(self.ctx, builder.build())
     }
+}
+
+pub(crate) fn mark_tail_calls(
+    ctx: &mut TulispContext,
+    name: TulispObject,
+    body: TulispObject,
+) -> Result<TulispObject, Error> {
+    if !body.consp() {
+        return Ok(body);
+    }
+    let mut builder = crate::cons::ListBuilder::new();
+    let mut body_iter = body.base_iter();
+    let mut tail = body_iter.next().unwrap();
+    for next in body_iter {
+        builder.push(tail);
+        tail = next;
+    }
+    if !tail.consp() {
+        return Ok(body);
+    }
+    let span = tail.span();
+    let ctxobj = tail.ctxobj();
+    let tail_ident = tail.car()?;
+    let tail_name_str = tail_ident.as_symbol()?;
+    let is_self_call = tail_ident.eq(&name);
+    // A call to another VM-compiled defun in tail position is also
+    // a TCO opportunity. The call site uses the same `Bounce` shape
+    // as self-recursion; `compile_fn_defun_bounce_call` emits a
+    // `TailCall` for it (loop-style unwind in the caller), which
+    // gives mutual recursion bounded Rust stack usage. We can only
+    // mark when the target is already registered — forward
+    // references (callee defined after caller) miss this and fall
+    // through to a regular `Call`.
+    let is_known_vm_defun = ctx
+        .compiler
+        .as_ref()
+        .is_some_and(|c| c.defun_args.contains_key(&tail_ident.addr_as_usize()));
+    let new_tail = if is_self_call
+        || is_known_vm_defun
+        || ctx
+            .eval(&tail_ident)
+            .is_ok_and(|f| matches!(&f.inner_ref().0, TulispValue::Lambda { .. }))
+    {
+        let ret_tail = TulispObject::nil().append(tail.cdr()?)?.to_owned();
+        list!(,ctx.intern("list")
+              ,TulispValue::Bounce.into_ref(None)
+              ,tail_ident
+              ,@ret_tail)?
+    } else if tail_name_str == "progn" || tail_name_str == "let" || tail_name_str == "let*" {
+        list!(,tail_ident ,@mark_tail_calls(ctx, name, tail.cdr()?)?)?
+    } else if tail_name_str == "if" {
+        destruct_bind!((_if condition then_body &rest else_body) = tail);
+        list!(,tail_ident
+            ,condition.clone()
+            ,mark_tail_calls(
+                ctx,
+                name.clone(),
+                list!(,then_body)?
+            )?.car()?
+            ,@mark_tail_calls(ctx, name, else_body)?
+        )?
+    } else if tail_name_str == "cond" {
+        destruct_bind!((_cond &rest conds) = tail);
+        let mut ret = list!(,tail_ident)?;
+        for cond in conds.base_iter() {
+            destruct_bind!((condition &rest body) = cond);
+            ret = list!(,@ret
+                ,list!(,condition.clone()
+                    ,@mark_tail_calls(ctx, name.clone(), body)?)?)?;
+        }
+        ret
+    } else {
+        tail
+    };
+    builder.push(new_tail.with_ctxobj(ctxobj).with_span(span));
+    Ok(builder.build())
 }
 
 pub fn parse(
