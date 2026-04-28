@@ -600,6 +600,39 @@ fn test_cons() -> Result<(), Error> {
 }
 
 #[test]
+fn test_cxr_non_cons_input() -> Result<(), Error> {
+    // Every cxr must propagate `TypeMismatch` rather than panic on a
+    // non-cons argument. Regression: the VM's `Instruction::Cxr` arm
+    // used to `.unwrap()` the result of `obj.car()` etc., which
+    // crashed the process on plain Lisp like `(car 5)`.
+    tulisp_assert! {
+        program: "(car 5)",
+        error: r#"ERR TypeMismatch: cxr: Not a Cons: 5
+<eval_string>:1.1-1.7:  at (car 5)
+"#
+    };
+    tulisp_assert! {
+        program: "(cdr 5)",
+        error: r#"ERR TypeMismatch: cxr: Not a Cons: 5
+<eval_string>:1.1-1.7:  at (cdr 5)
+"#
+    };
+    tulisp_assert! {
+        program: "(cadr 7)",
+        error: r#"ERR TypeMismatch: cxr: Not a Cons: 7
+<eval_string>:1.1-1.8:  at (cadr 7)
+"#
+    };
+    tulisp_assert! {
+        program: "(cdddr \"abc\")",
+        error: r#"ERR TypeMismatch: cxr: Not a Cons: "abc"
+<eval_string>:1.1-1.13:  at (cdddr "abc")
+"#
+    };
+    Ok(())
+}
+
+#[test]
 fn test_quote() -> Result<(), Error> {
     tulisp_assert! {
         program: "(quote (1 2 3))",
