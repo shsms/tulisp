@@ -14,6 +14,7 @@ pub(super) fn compile_fn_setq(
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
     ctx.compile_2_arg_call(name, args, false, |ctx, arg1, arg2, _| {
+        crate::builtin::check_settable_target(arg1)?;
         let mut result = compile_expr_keep_result(ctx, arg2)?;
         if ctx.compiler.as_ref().unwrap().keep_result {
             result.push(Instruction::Store(arg1.clone()));

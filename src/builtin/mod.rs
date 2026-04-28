@@ -251,3 +251,25 @@ These functions need to be organized into categories.  They are grouped here for
 
 pub(crate) mod functions;
 pub(crate) mod macros;
+
+use crate::{Error, TulispObject};
+
+/// Validate that `target` is a writable variable cell. Used by both
+/// the VM compiler (~setq~) and the TW ~setq~ defspecial so the two
+/// dispatch paths reject the same inputs with the same error shape,
+/// at compile time, before any value expression evaluates.
+pub(crate) fn check_settable_target(target: &TulispObject) -> Result<(), Error> {
+    if !target.symbolp() {
+        return Err(
+            Error::type_mismatch(format!("Expected Symbol: Can't assign to {}", target))
+                .with_trace(target.clone()),
+        );
+    }
+    if target.keywordp() {
+        return Err(
+            Error::type_mismatch(format!("Can't set constant symbol: {}", target))
+                .with_trace(target.clone()),
+        );
+    }
+    Ok(())
+}

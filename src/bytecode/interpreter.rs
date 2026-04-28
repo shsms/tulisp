@@ -471,7 +471,7 @@ fn run_impl_inner(
                 let [ref value, ref variable] = ctx.vm.stack[minus2..] else {
                     unreachable!()
                 };
-                variable.set(value.clone()).unwrap();
+                variable.set(value.clone())?;
                 // remove just the variable from the stack, keep the value
                 ctx.vm.stack.truncate(ctx.vm.stack.len() - 1);
             }
@@ -480,17 +480,17 @@ fn run_impl_inner(
                 let [ref value, ref variable] = ctx.vm.stack[minus2..] else {
                     unreachable!()
                 };
-                variable.set(value.clone()).unwrap();
+                variable.set(value.clone())?;
                 // remove both variable and value from stack.
                 ctx.vm.stack.truncate(minus2);
             }
             Instruction::StorePop(obj) => {
                 let a = ctx.vm.stack.pop().unwrap();
-                obj.set(a).unwrap();
+                obj.set(a)?;
             }
             Instruction::Store(obj) => {
                 let a = ctx.vm.stack.last().unwrap();
-                obj.set(a.clone()).unwrap();
+                obj.set(a.clone())?;
             }
             Instruction::Load(obj) => {
                 let a = obj.get().map_err(|e| e.with_trace(obj.clone()))?;
@@ -498,11 +498,11 @@ fn run_impl_inner(
             }
             Instruction::BeginScope(obj) => {
                 let a = ctx.vm.stack.last().unwrap();
-                obj.set_scope(a.clone()).unwrap();
+                obj.set_scope(a.clone())?;
                 ctx.vm.stack.truncate(ctx.vm.stack.len() - 1);
             }
             Instruction::EndScope(obj) => {
-                obj.unset().unwrap();
+                obj.unset()?;
             }
             Instruction::Call {
                 name,

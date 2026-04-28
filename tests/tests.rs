@@ -600,6 +600,54 @@ fn test_cons() -> Result<(), Error> {
 }
 
 #[test]
+fn test_setq_invalid_target() -> Result<(), Error> {
+    // `setq` rejects non-symbol and constant-symbol targets at compile
+    // time; `set` rejects them at runtime. Regression: the VM used to
+    // `.unwrap()` the result of `obj.set(...)`, which crashed on
+    // `(setq t 5)`, `(setq nil 5)`, `(setq :foo 5)`, etc.
+    tulisp_assert! {
+        program: "(setq t 5)",
+        error: r#"ERR TypeMismatch: Expected Symbol: Can't assign to t
+<eval_string>:1.7-1.7:  at t
+<eval_string>:1.1-1.10:  at (setq t 5)
+"#
+    };
+    tulisp_assert! {
+        program: "(setq nil 5)",
+        error: r#"ERR TypeMismatch: Expected Symbol: Can't assign to nil
+<eval_string>:1.7-1.9:  at nil
+<eval_string>:1.1-1.12:  at (setq nil 5)
+"#
+    };
+    tulisp_assert! {
+        program: "(setq :foo 5)",
+        error: r#"ERR TypeMismatch: Can't set constant symbol: :foo
+<eval_string>:1.1-1.13:  at (setq :foo 5)
+"#
+    };
+    tulisp_assert! {
+        program: r#"(setq "x" 5)"#,
+        error: r#"ERR TypeMismatch: Expected Symbol: Can't assign to "x"
+<eval_string>:1.1-1.12:  at (setq "x" 5)
+"#
+    };
+    tulisp_assert! {
+        program: "(set 't 5)",
+        error: r#"ERR TypeMismatch: Expected Symbol: Can't assign to t
+<eval_string>:1.7-1.7:  at t
+<eval_string>:1.1-1.10:  at (set 't 5)
+"#
+    };
+    tulisp_assert! {
+        program: "(set ':foo 5)",
+        error: r#"ERR TypeMismatch: Can't set constant symbol: :foo
+<eval_string>:1.1-1.13:  at (set ':foo 5)
+"#
+    };
+    Ok(())
+}
+
+#[test]
 fn test_cxr_non_cons_input() -> Result<(), Error> {
     // Every cxr must propagate `TypeMismatch` rather than panic on a
     // non-cons argument. Regression: the VM's `Instruction::Cxr` arm

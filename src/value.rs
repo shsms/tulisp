@@ -169,7 +169,7 @@ impl SymbolBindings {
     #[inline(always)]
     pub(crate) fn set(&mut self, to_set: TulispObject) -> Result<(), Error> {
         if self.constant {
-            return Err(Error::undefined(format!(
+            return Err(Error::type_mismatch(format!(
                 "Can't set constant symbol: {}",
                 self.name
             )));
@@ -186,7 +186,7 @@ impl SymbolBindings {
     #[inline(always)]
     pub(crate) fn set_global(&mut self, to_set: TulispObject) -> Result<(), Error> {
         if self.constant {
-            return Err(Error::undefined(format!(
+            return Err(Error::type_mismatch(format!(
                 "Can't set constant symbol: {}",
                 self.name
             )));
@@ -203,7 +203,7 @@ impl SymbolBindings {
     #[inline(always)]
     pub(crate) fn set_scope(&mut self, to_set: TulispObject) -> Result<(), Error> {
         if self.constant {
-            return Err(Error::undefined(format!(
+            return Err(Error::type_mismatch(format!(
                 "Can't set constant symbol: {}",
                 self.name
             )));
@@ -778,9 +778,9 @@ impl TulispValue {
         match self {
             TulispValue::Symbol { value } => value.set(to_set),
             TulispValue::LexicalBinding { binding } => binding.set(to_set),
-            _ => Err(Error::type_mismatch(
-                "Can bind values only to Symbols".to_string(),
-            )),
+            _ => Err(Error::type_mismatch(format!(
+                "Expected Symbol: Can't assign to {self}"
+            ))),
         }
     }
 
@@ -791,9 +791,9 @@ impl TulispValue {
             // LexicalBindings have no "global" slot — setting the
             // global cell of a lexical binding is nonsensical. Fall
             // through to the same error as non-symbols.
-            _ => Err(Error::type_mismatch(
-                "Can bind values only to Symbols".to_string(),
-            )),
+            _ => Err(Error::type_mismatch(format!(
+                "Expected Symbol: Can't assign to {self}"
+            ))),
         }
     }
 

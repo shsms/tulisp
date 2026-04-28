@@ -260,6 +260,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     });
 
     ctx.defspecial("setq", |ctx, args| {
+        args.car_and_then(crate::builtin::check_settable_target)?;
         let value = args.cdr_and_then(|args| {
             if args.null() {
                 return Err(Error::type_mismatch(
