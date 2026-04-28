@@ -53,8 +53,14 @@ impl SetParams {
 
 impl Drop for SetParams {
     fn drop(&mut self) {
+        // Drop runs on every call return, including the error-unwind
+        // path. `unset` errors are unreachable in practice (every entry
+        // came from a successful `set_scope` in `init_defun_args`), but
+        // a panic here while another error is propagating would
+        // double-fault and abort the process — silently swallow the
+        // error like `LexScopeGuard::drop` in `eval.rs`.
         for obj in self.0.iter() {
-            obj.unset().unwrap();
+            let _ = obj.unset();
         }
     }
 }
@@ -190,7 +196,7 @@ pub(crate) fn run_lambda(
     let mut current_optional = optional_count;
     let mut current_rest = rest_count;
     loop {
-        let params = init_defun_args(ctx, &current.params, &current_optional, &current_rest);
+        let params = init_defun_args(ctx, &current.params, &current_optional, &current_rest)?;
         let tail = run_function(
             ctx,
             &current.instructions,
@@ -569,7 +575,7 @@ fn run_impl_inner(
                         &current_function.params,
                         &current_optional,
                         &current_rest,
-                    );
+                    )?;
                     let tail = run_function(
                         ctx,
                         &current_function.instructions,
@@ -815,29 +821,29 @@ fn init_defun_args(
     params: &VMDefunParams,
     optional_count: &usize,
     rest_count: &usize,
-) -> SetParams {
+) -> Result<SetParams, Error> {
     let mut set_params = SetParams::new();
     if let Some(rest) = &params.rest {
         let mut rest_value = TulispObject::nil();
         for _ in 0..*rest_count {
             rest_value = TulispObject::cons(ctx.vm.stack.pop().unwrap(), rest_value);
         }
-        rest.set_scope(rest_value).unwrap();
+        rest.set_scope(rest_value)?;
         set_params.push(rest.clone());
     }
     for (ii, arg) in params.optional.iter().enumerate().rev() {
         if ii >= *optional_count {
-            arg.set_scope(TulispObject::nil()).unwrap();
+            arg.set_scope(TulispObject::nil())?;
             continue;
         }
-        arg.set_scope(ctx.vm.stack.pop().unwrap()).unwrap();
+        arg.set_scope(ctx.vm.stack.pop().unwrap())?;
         set_params.push(arg.clone());
     }
     for arg in params.required.iter().rev() {
-        arg.set_scope(ctx.vm.stack.pop().unwrap()).unwrap();
+        arg.set_scope(ctx.vm.stack.pop().unwrap())?;
         set_params.push(arg.clone());
     }
-    set_params
+    Ok(set_params)
 }
 
 fn run_function(
@@ -946,7 +952,7 @@ fn run_lambda_with(
     let mut current_optional = optional_count;
     let mut current_rest = rest_count;
     loop {
-        let params = init_defun_args(ctx, &current.params, &current_optional, &current_rest);
+        let params = init_defun_args(ctx, &current.params, &current_optional, &current_rest)?;
         let tail = run_function(
             ctx,
             &current.instructions,
