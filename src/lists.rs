@@ -151,8 +151,15 @@ fn assoc_find(
 ) -> Result<TulispObject, Error> {
     let mut cur = alist.clone();
     while cur.consp() {
-        if cur.caar_and_then(|caar| testfn(caar, key))? {
-            return cur.car();
+        let entry = cur.car()?;
+        // Match Emacs: silently skip non-cons elements rather than
+        // erroring on `caar`. So `(assoc 'b '(1 (b . 2)))` finds
+        // the pair instead of crashing on the leading `1`.
+        if entry.consp() {
+            let entry_key = entry.car()?;
+            if testfn(&entry_key, key)? {
+                return Ok(entry);
+            }
         }
         cur = cur.cdr()?;
     }
