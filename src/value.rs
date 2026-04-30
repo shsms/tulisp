@@ -726,7 +726,24 @@ impl std::fmt::Display for TulispValue {
             TulispValue::Symbol { value } => f.write_str(&value.name),
             TulispValue::LexicalBinding { binding } => f.write_str(binding.name()),
             TulispValue::Number { value, .. } => f.write_fmt(format_args!("{}", value)),
-            TulispValue::String { value, .. } => f.write_fmt(format_args!(r#""{}""#, value)),
+            TulispValue::String { value, .. } => {
+                // Round-trip: the parser only knows the `\n`, `\t`,
+                // `\\`, `\"` escapes (`parse.rs::read_string`). Match
+                // those four exactly so a Display'd string parses
+                // back to the same value. Other chars pass through —
+                // they read as literal one-char characters.
+                f.write_char('"')?;
+                for ch in value.chars() {
+                    match ch {
+                        '"' => f.write_str(r#"\""#)?,
+                        '\\' => f.write_str(r"\\")?,
+                        '\n' => f.write_str(r"\n")?,
+                        '\t' => f.write_str(r"\t")?,
+                        c => f.write_char(c)?,
+                    }
+                }
+                f.write_char('"')
+            }
             vv @ TulispValue::List { .. } => fmt_list(vv.clone().into_ref(None), f),
             TulispValue::Quote { value, .. } => f.write_fmt(format_args!("'{}", value)),
             TulispValue::Backquote { value, .. } => f.write_fmt(format_args!("`{}", value)),

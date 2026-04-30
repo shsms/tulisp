@@ -1032,6 +1032,17 @@ fn test_math() -> Result<(), Error> {
     // Display of arithmetic-produced infinity matches the source form.
     tulisp_assert! { program: r#"(format "%S" (/ 1.0 0.0))"#,  result: r#""1.0e+INF""# }
     tulisp_assert! { program: r#"(format "%S" (/ -1.0 0.0))"#, result: r#""-1.0e+INF""# }
+    // String Display escapes `"`, `\`, `\n`, `\t` so the printed
+    // form parses back to the same value (round-trip).
+    tulisp_assert! {
+        program: r#"(format "%S" "a\"b\\c")"#,
+        result: r#""\"a\\\"b\\\\c\"""#,
+    }
+    tulisp_assert! {
+        program: r#"(format "%S" "with\nnewline")"#,
+        result: r#""\"with\\nnewline\"""#,
+    }
+
     // Lowercase / `e-` variants stay as identifiers (Emacs matches).
     tulisp_assert! { program: "(progn (setq 1.0e+inf 5) 1.0e+inf)",  result: "5" }
     tulisp_assert! { program: "(progn (setq 1.0e-INF 5) 1.0e-INF)",  result: "5" }
