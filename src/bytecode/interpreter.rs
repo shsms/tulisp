@@ -208,6 +208,16 @@ pub(crate) fn run_lambda(
     compiled: &CompiledDefun,
     args: &[TulispObject],
 ) -> Result<TulispObject, Error> {
+    // Make sure the closure's `Instruction::Label` positions are
+    // present in *this* ctx's `vm.labels`. The parent ctx that
+    // compiled the closure registered them at `MakeLambda` time
+    // (`register_lambda_labels`), but a host that hands the closure
+    // off to a fresh ctx — `tulisp-async`'s per-firing timer ctx is
+    // the canonical case — never saw that registration. Without
+    // this, any `Pos::Label` jump emitted by `cond` / `and` / `or`
+    // would panic in `jump_to_pos!`. Idempotent for the same-ctx
+    // case (same key, same value).
+    register_compiled_labels(ctx, compiled);
     let required = compiled.params.required.len();
     let optional = compiled.params.optional.len();
     let has_rest = compiled.params.rest.is_some();
@@ -996,6 +1006,9 @@ fn run_lambda_with(
     args: Vec<TulispObject>,
     recursion_depth: u32,
 ) -> Result<TulispObject, Error> {
+    // See `run_lambda` for why — closures invoked from a fresh ctx
+    // need their labels registered before any `Pos::Label` jump runs.
+    register_compiled_labels(ctx, compiled);
     let required = compiled.params.required.len();
     let optional = compiled.params.optional.len();
     let has_rest = compiled.params.rest.is_some();
@@ -1076,6 +1089,20 @@ fn register_lambda_labels(ctx: &mut TulispContext, closure: &TulispObject) {
     let instructions = value.instructions.clone();
     drop(inner);
     let borrow = instructions.borrow();
+    for (i, instr) in borrow.iter().enumerate() {
+        if let Instruction::Label(name) = instr {
+            ctx.vm.labels.insert(name.addr_as_usize(), i + 1);
+        }
+    }
+}
+
+/// Like `register_lambda_labels`, but takes a `CompiledDefun`
+/// directly (no enclosing TulispObject). Called by `run_lambda` /
+/// `run_lambda_with` so a closure invoked through a ctx that didn't
+/// see its `MakeLambda` (e.g. tulisp-async's per-firing timer ctx)
+/// still has its `Pos::Label` jumps resolvable.
+fn register_compiled_labels(ctx: &mut TulispContext, compiled: &CompiledDefun) {
+    let borrow = compiled.instructions.borrow();
     for (i, instr) in borrow.iter().enumerate() {
         if let Instruction::Label(name) = instr {
             ctx.vm.labels.insert(name.addr_as_usize(), i + 1);

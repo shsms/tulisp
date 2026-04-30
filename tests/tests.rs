@@ -2312,6 +2312,49 @@ fn test_substitute_lexical_skips_binders() -> Result<(), Error> {
     Ok(())
 }
 
+#[test]
+fn test_closure_invoked_in_fresh_ctx() -> Result<(), Error> {
+    // Regression: a closure compiled in one ctx (whose `MakeLambda`
+    // registered its labels into that ctx's `vm.labels`) used to
+    // panic when invoked through a separate ctx that never saw the
+    // `MakeLambda`. `cond`, `and`, `or` emit `Pos::Label` jumps —
+    // those would `unwrap` `None` on `vm.labels.get(...)`.
+    //
+    // The canonical scenario is `tulisp-async`'s `run-with-timer`,
+    // which creates a per-firing ctx and invokes the timer's lambda
+    // (compiled in the parent ctx) via `ctx.funcall`. Reproduced
+    // here without the async runtime by building a closure in
+    // `ctx_a`, then invoking it through a freshly-constructed
+    // `ctx_b`.
+    for body in [
+        // cond: multi-target jump table
+        "(cond ((= 1 2) 'a) (t 'b))",
+        // and: short-circuit
+        "(and 1 2 3)",
+        // or: short-circuit
+        "(or nil nil 'found)",
+    ] {
+        let mut ctx_a = TulispContext::new();
+        let prog = format!("(lambda () {body})");
+        let closure = ctx_a.eval_string(&prog)?;
+
+        let mut ctx_b = TulispContext::new();
+        let result = ctx_b
+            .funcall(&closure, &TulispObject::nil())
+            .unwrap_or_else(|e| {
+                panic!(
+                    "cross-ctx funcall of `{}` failed: {}",
+                    prog,
+                    e.format(&ctx_b)
+                )
+            });
+        // Sanity-check: closure produced *something* — exact shape
+        // varies per body, but a panic would have aborted before here.
+        let _ = result;
+    }
+    Ok(())
+}
+
 #[track_caller]
 fn assert_no_lex_stack_leak(ctx: &mut TulispContext, prog: &str, call: &str, label: &str) {
     let s0 = tulisp::debug_lex_stacks_total();
