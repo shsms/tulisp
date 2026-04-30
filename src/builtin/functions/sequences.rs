@@ -107,7 +107,21 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 ch
             )));
         };
-        let mut out = String::with_capacity(n as usize);
+        // `String::with_capacity(n)` (the previous form) would OOM
+        // and abort the process for huge `n`. Compute the actual
+        // byte cost (chars can be multi-byte UTF-8) and use
+        // `try_reserve_exact` so a request the system can't satisfy
+        // comes back as a Lisp `OutOfRange` error.
+        let n_usize = n as usize;
+        let bytes_needed = n_usize.checked_mul(c.len_utf8()).ok_or_else(|| {
+            Error::out_of_range(format!("make-string: length {} overflows usize", n))
+        })?;
+        let mut out = String::new();
+        out.try_reserve_exact(bytes_needed).map_err(|_| {
+            Error::out_of_range(format!(
+                "make-string: cannot allocate {n} chars ({bytes_needed} bytes)"
+            ))
+        })?;
         for _ in 0..n {
             out.push(c);
         }
