@@ -157,6 +157,22 @@ impl TulispContext {
         self.obarray.get(name).cloned()
     }
 
+    /// Debug-only: sum of `SymbolBindings::items.len()` across every
+    /// symbol in the obarray. Counterpart to `debug_lex_stacks_total`,
+    /// but for ~defvar~-declared (special / dynamic) variables. Steady
+    /// growth indicates a `BeginScope` for a special var without a
+    /// matching `EndScope` on some control-flow path.
+    #[doc(hidden)]
+    pub fn debug_special_stacks_total(&self) -> usize {
+        self.obarray
+            .values()
+            .map(|sym| match &sym.inner_ref().0 {
+                TulispValue::Symbol { value } => value.stack_depth(),
+                _ => 0,
+            })
+            .sum()
+    }
+
     #[cfg(feature = "etags")]
     pub fn tags_table(&mut self, files: Option<&[&str]>) -> Result<String, Error> {
         if let Some(files) = files {

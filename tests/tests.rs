@@ -2118,6 +2118,30 @@ fn assert_no_lex_stack_leak(ctx: &mut TulispContext, prog: &str, call: &str, lab
     );
 }
 
+/// Asserts that an erroring `call` doesn't leak either lex or special
+/// (`defvar`) stack entries over 1000 invocations against a persistent
+/// context. The call is *expected* to fail — `let _ = ...` swallows
+/// the result so we measure cumulative state, not per-call success.
+#[track_caller]
+fn assert_no_scope_leak_on_error(ctx: &mut TulispContext, prog: &str, call: &str, label: &str) {
+    let lex0 = tulisp::debug_lex_stacks_total();
+    let spec0 = ctx.debug_special_stacks_total();
+    for _ in 0..1000 {
+        let _ = ctx.eval_string(call);
+    }
+    let lex_delta = tulisp::debug_lex_stacks_total() as i64 - lex0 as i64;
+    let spec_delta = ctx.debug_special_stacks_total() as i64 - spec0 as i64;
+    assert_eq!(
+        (lex_delta, spec_delta),
+        (0, 0),
+        "{}: leaked lex={}, special={} entries over 1000 calls. Program:\n{}",
+        label,
+        lex_delta,
+        spec_delta,
+        prog
+    );
+}
+
 #[test]
 fn test_tail_call_does_not_leak_lex_stack() -> Result<(), Error> {
     // Regression: `mark_tail_calls` recurses into `let` / `let*` /
@@ -2253,6 +2277,87 @@ fn test_tail_call_does_not_leak_lex_stack() -> Result<(), Error> {
         ctx.eval_string(call)
             .unwrap_or_else(|e| panic!("{} sanity call failed: {}", label, e.format(&ctx)));
         assert_no_lex_stack_leak(&mut ctx, prog, call, label);
+    }
+    Ok(())
+}
+
+#[test]
+fn test_error_escape_does_not_leak_scope() -> Result<(), Error> {
+    // Regression: every `BeginScope` (let, let*, dolist, dotimes,
+    // inline lambda body) used to leak its binding when the body
+    // errored before the matching `EndScope`. `run_impl_inner` now
+    // tracks active scopes via a Drop guard that unsets remaining
+    // entries on the error-unwind path. See analysis.org a24.
+    let cases: &[(&str, &str, &str)] = &[
+        (
+            "let_body_errors",
+            "(defun f () (let ((y 5)) (error \"boom\")))",
+            "(f)",
+        ),
+        (
+            "let_multi_binding_later_rhs_errors",
+            "(defun f () (let ((y 1) (z (error \"boom\"))) y))",
+            "(f)",
+        ),
+        (
+            "dolist_body_errors",
+            "(defun f () (dolist (x '(1 2 3)) (if (= x 2) (error \"boom\") nil)))",
+            "(f)",
+        ),
+        (
+            "dotimes_body_errors",
+            "(defun f () (dotimes (i 5) (if (= i 2) (error \"boom\") nil)))",
+            "(f)",
+        ),
+        (
+            "compiled_lambda_let_body_errors",
+            "(defun caller () (funcall (lambda () (let ((y 5)) (error \"boom\")))))",
+            "(caller)",
+        ),
+        (
+            "closure_capture_then_inner_let_errors",
+            "(defun caller () (let ((cap 1)) (funcall (lambda () (let ((y cap)) (error \"boom\"))))))",
+            "(caller)",
+        ),
+        (
+            "nested_let_outer_body_errors_after_inner_returns",
+            "(defun f () (let ((a 1)) (let ((b 2)) b) (error \"boom\")))",
+            "(f)",
+        ),
+        // Defvar (special) variants — the binding lives on the
+        // symbol's `items` stack rather than `LEX_STACKS`. The
+        // assert helper checks both.
+        (
+            "defvar_let_body_errors",
+            "(progn (defvar yy 'g) (defun f () (let ((yy 'inner)) (error \"boom\"))))",
+            "(f)",
+        ),
+        (
+            "defvar_toplevel_let_body_errors",
+            "(defvar yy 'g)",
+            "(let ((yy 'inner)) (error \"boom\"))",
+        ),
+        (
+            "defvar_multi_binding_later_rhs_errors",
+            "(progn (defvar yy 'g) (defun f () (let ((yy 'inner) (z (error \"boom\"))) z)))",
+            "(f)",
+        ),
+    ];
+    for (label, prog, call) in cases {
+        let mut ctx = TulispContext::new();
+        eprintln!("case: {}", label);
+        ctx.eval_string(prog)
+            .unwrap_or_else(|e| panic!("{} setup failed: {}", label, e.format(&ctx)));
+        // First, sanity-check: a single call really does error
+        // (otherwise the test would tautologically pass).
+        let single = ctx.eval_string(call);
+        assert!(
+            single.is_err(),
+            "{}: expected error; got Ok({})",
+            label,
+            single.unwrap()
+        );
+        assert_no_scope_leak_on_error(&mut ctx, prog, call, label);
     }
     Ok(())
 }

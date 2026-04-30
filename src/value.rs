@@ -166,6 +166,14 @@ pub struct SymbolBindings {
 }
 
 impl SymbolBindings {
+    /// Debug-only: number of values currently pushed onto this
+    /// symbol's stack. Used by `TulispContext::debug_special_stacks_total`
+    /// to detect ~defvar~ scope-leak regressions.
+    #[doc(hidden)]
+    pub(crate) fn stack_depth(&self) -> usize {
+        self.items.len()
+    }
+
     #[inline(always)]
     pub(crate) fn set(&mut self, to_set: TulispObject) -> Result<(), Error> {
         if self.constant {

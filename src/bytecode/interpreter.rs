@@ -65,6 +65,47 @@ impl Drop for SetParams {
     }
 }
 
+/// Per-frame Drop guard for `BeginScope` bindings — `let` / `let*` /
+/// `dolist` / `dotimes` / inline `lambda` body bindings. Mirrors
+/// `SetParams` (function params) and `LexScopeGuard` (TW path).
+///
+/// On clean execution every `BeginScope` is matched by an `EndScope`,
+/// which removes the entry from the guard, so `Drop` finds the Vec
+/// empty. On error escape, `?` propagates out of `run_impl_inner`
+/// before the trailing `EndScope`s run; `Drop` then unsets whatever
+/// is still pending. Without this guard, `(let ((y 5)) (error …))`
+/// inside a defun leaked one `LEX_STACKS` entry per call (and the
+/// defvar variant leaked onto `SymbolBindings::items`); a 1000-call
+/// loop in a persistent `TulispContext` was visibly bleeding memory.
+struct ActiveScopes(Vec<TulispObject>);
+
+impl ActiveScopes {
+    fn new() -> Self {
+        Self(Vec::new())
+    }
+
+    fn enter(&mut self, obj: TulispObject) {
+        self.0.push(obj);
+    }
+
+    fn exit(&mut self, obj: &TulispObject) {
+        // EndScopes can fire in non-LIFO order — `compile_fn_let_star`
+        // emits them in declaration order, not reverse — so scan by
+        // identity rather than blindly popping the tail.
+        if let Some(pos) = self.0.iter().rposition(|x| x.eq_ptr(obj)) {
+            self.0.remove(pos);
+        }
+    }
+}
+
+impl Drop for ActiveScopes {
+    fn drop(&mut self) {
+        for obj in self.0.iter().rev() {
+            let _ = obj.unset();
+        }
+    }
+}
+
 pub struct Machine {
     stack: Vec<TulispObject>,
     bytecode: Bytecode,
@@ -267,6 +308,7 @@ fn run_impl_inner(
     let mut pc: usize = 0;
     let program_size = program.borrow().len();
     let mut instr_ref = program.borrow_mut();
+    let mut active = ActiveScopes::new();
     while pc < program_size {
         // drop(instr_ref);
         // self.print_stack(func, pc, recursion_depth);
@@ -505,10 +547,12 @@ fn run_impl_inner(
             Instruction::BeginScope(obj) => {
                 let a = ctx.vm.stack.last().unwrap();
                 obj.set_scope(a.clone())?;
+                active.enter(obj.clone());
                 ctx.vm.stack.truncate(ctx.vm.stack.len() - 1);
             }
             Instruction::EndScope(obj) => {
                 obj.unset()?;
+                active.exit(obj);
             }
             Instruction::Call {
                 name,
