@@ -1134,7 +1134,7 @@ fn test_math() -> Result<(), Error> {
     // (`wrong-type-argument`) instead of silently truncating.
     tulisp_assert! {
         program: "(length '(1 2 . 3))",
-        error: r#"ERR TypeMismatch: cxr: Not a Cons: 3
+        error: r#"ERR TypeMismatch: expected list, got: 3
 <eval_string>:1.1-1.19:  at (length '(1 2 . 3))
 "#,
     }
@@ -1142,6 +1142,13 @@ fn test_math() -> Result<(), Error> {
         program: "(reverse '(1 2 . 3))",
         error: r#"ERR TypeMismatch: cxr: Not a Cons: 3
 <eval_string>:1.1-1.20:  at (reverse '(1 2 . 3))
+"#,
+    }
+    tulisp_assert! {
+        program: "(let ((l (list 1 2 3))) (setcdr (cddr l) l) (length l))",
+        error: r#"ERR OutOfRange: Circular list
+<eval_string>:1.45-1.54:  at (length l)
+<eval_string>:1.1-1.55:  at (let ((l (list 1 2 3))) (setcdr (cddr l) l) (length l))
 "#,
     }
     // `memq` finding a match before the improper tail still returns

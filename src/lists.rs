@@ -5,22 +5,44 @@ use crate::{
 };
 
 /// Returns the number of elements in the given list, or the number of
-/// characters if the argument is a string.
+/// characters if the argument is a string. Errors on a circular list
+/// rather than infloop'ing.
 pub fn length(list: &TulispObject) -> Result<i64, Error> {
-    let count = if list.stringp() {
-        list.as_string()?.chars().count()
-    } else {
-        // Walk via `by_ref()` so we can consult `take_error` after —
-        // an improper-list tail (e.g. `(1 2 . 3)`) should error like
-        // Emacs' `wrong-type-argument` instead of silently truncating.
-        let mut iter = list.base_iter();
-        let n = iter.by_ref().count();
-        iter.take_error()?;
-        n
-    };
-    count
-        .try_into()
-        .map_err(|e: _| Error::out_of_range(format!("{}", e)))
+    if list.stringp() {
+        let n = list.as_string()?.chars().count();
+        return n
+            .try_into()
+            .map_err(|e: _| Error::out_of_range(format!("{}", e)));
+    }
+    // Floyd's tortoise / hare: hare advances two cells per step; if
+    // it ever lands on the same cell as the tortoise (advancing by
+    // one), the list is circular. Without this check `setcdr` cycles
+    // (now reachable via the `setcdr` defun) would infloop here.
+    let mut slow = list.clone();
+    let mut fast = list.clone();
+    let mut count: i64 = 0;
+    loop {
+        if fast.null() {
+            return Ok(count);
+        }
+        if !fast.consp() {
+            return Err(Error::type_mismatch(format!("expected list, got: {fast}")));
+        }
+        fast = fast.cdr()?;
+        count += 1;
+        if fast.null() {
+            return Ok(count);
+        }
+        if !fast.consp() {
+            return Err(Error::type_mismatch(format!("expected list, got: {fast}")));
+        }
+        fast = fast.cdr()?;
+        count += 1;
+        slow = slow.cdr()?;
+        if slow.eq_ptr(&fast) {
+            return Err(Error::out_of_range("Circular list".to_string()));
+        }
+    }
 }
 
 /// Returns the last link in the given list.
