@@ -182,6 +182,24 @@ impl Error {
 
 impl Error {
     /// Adds a trace span to the error's backtrace.
+    ///
+    /// Dedup is **positional** — only collapses against the
+    /// `backtrace.last()` entry, not the full set. Today the
+    /// well-formedness invariant that justifies that is:
+    ///
+    /// 1. `eval_basic` and `eval_form` wrap an inner result with
+    ///    `with_trace(expr.clone())` once each, in nested order.
+    /// 2. The VM's `run_impl` walks `trace_ranges` from
+    ///    innermost-out and applies them with `with_trace(form)` in
+    ///    order, so the same form can't appear non-adjacently in the
+    ///    same trace.
+    ///
+    /// A refactor that reorders trace application — e.g. attaching
+    /// an outer form before the inner one is finalized — could
+    /// produce duplicates that this last-only check misses. If that
+    /// happens, switch to a set-based dedup (e.g. by
+    /// `addr_as_usize`) and update the call sites that rely on the
+    /// last-only collapse.
     pub fn with_trace(mut self, span: TulispObject) -> Self {
         if self.backtrace.last().is_some_and(|last| last.eq(&span)) {
             return self;
