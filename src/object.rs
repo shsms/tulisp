@@ -687,6 +687,15 @@ macro_rules! tulisp_object_from {
 }
 
 impl From<i64> for TulispObject {
+    /// Small integers (`-128..=128`) come out of a per-thread cache,
+    /// so all uses of e.g. `5i64.into()` in this thread share the
+    /// same backing `Rc<RefCell<TulispValue>>`. That's safe because
+    /// integers are conceptually immutable in Lisp, and the
+    /// `pub(crate)` mutators (`assign`, `take`, `set`, etc.) are
+    /// only ever invoked on Symbol / List cells in normal use —
+    /// never on the `Number` cells the cache hands out. Calling
+    /// `assign` / `take` on a cached small int would clobber every
+    /// other use of that int in this thread, so don't.
     fn from(vv: i64) -> Self {
         const CACHE_MIN: i64 = -128;
         const CACHE_MAX: i64 = 128;
