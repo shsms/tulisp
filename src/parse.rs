@@ -86,9 +86,23 @@ impl Tokenizer<'_> {
         while let Some(ch) = self.next_char() {
             match ch {
                 '\\' => {
+                    // Common control-char escapes match Emacs / C.
+                    // Hex / octal / Unicode (`\xHH`, `\NNN`,
+                    // `\u{HHHH}`) aren't supported yet — the reader
+                    // errors on unknown escapes rather than passing
+                    // them through, partly to flag typos and partly
+                    // because Display only round-trips the four it
+                    // emits (`\"`, `\\`, `\n`, `\t`).
                     let out_ch = match self.next_char()? {
                         'n' => '\n',
                         't' => '\t',
+                        'r' => '\r',
+                        'b' => '\u{08}', // backspace
+                        'f' => '\u{0c}', // form feed
+                        'v' => '\u{0b}', // vertical tab
+                        'a' => '\u{07}', // alarm / bell
+                        'e' => '\u{1b}', // escape
+                        '0' => '\u{00}', // null
                         '\\' => '\\',
                         '"' => '"',
                         e => {
