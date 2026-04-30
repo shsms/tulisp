@@ -148,6 +148,94 @@ impl Tokenizer<'_> {
         self.read_num_ident_impl(start_pos, String::new(), true, false)
     }
 
+    /// Read a `#x` / `#o` / `#b` integer literal. Caller has just
+    /// peeked the radix-prefix letter; this consumes that letter and
+    /// the digits that follow, with an optional `+`/`-` sign between
+    /// the prefix and the first digit (Emacs allows `#x-10` for -16).
+    fn read_radix_int(
+        &mut self,
+        start_pos: (usize, usize),
+        radix: u32,
+        prefix: &str,
+    ) -> Option<Token> {
+        self.next_char()?; // consume the prefix letter
+        let mut digits = String::new();
+        if matches!(self.peek_char(), Some('-' | '+')) {
+            digits.push(self.next_char()?);
+        }
+        while let Some(c) = self.peek_char() {
+            if c.is_digit(radix) {
+                digits.push(c);
+                self.next_char()?;
+            } else {
+                break;
+            }
+        }
+        let span = Span::new(self.file_id, start_pos, (self.line, self.pos));
+        if digits.is_empty() || digits == "-" || digits == "+" {
+            return Some(Token::ParserError(ParserError::syntax_error(
+                format!("{prefix}: expected digits after radix prefix"),
+                span,
+            )));
+        }
+        match i64::from_str_radix(&digits, radix) {
+            Ok(value) => Some(Token::Integer { span, value }),
+            Err(e) => Some(Token::ParserError(ParserError::syntax_error(
+                format!("{prefix}{digits}: {e}"),
+                span,
+            ))),
+        }
+    }
+
+    /// Read a `?X` character literal. Returns the character's code
+    /// point as an `Integer` token. Supports the same backslash
+    /// escapes as string literals (`?\n`, `?\t`, `?\\`, `?\"`,
+    /// `?\r`, `?\b`, `?\f`, `?\v`, `?\a`, `?\e`, `?\0`); plus
+    /// `?\'` which is convenient for `?\'`-style apostrophe.
+    fn read_char_literal(&mut self) -> Option<Token> {
+        let start_pos = (self.line, self.pos + 1);
+        self.next_char()?; // consume '?'
+        let span_for = |toklen: &Tokenizer<'_>| -> Span {
+            Span::new(toklen.file_id, start_pos, (toklen.line, toklen.pos))
+        };
+        let value: i64 = match self.next_char() {
+            Some('\\') => match self.next_char() {
+                Some('n') => '\n' as i64,
+                Some('t') => '\t' as i64,
+                Some('r') => '\r' as i64,
+                Some('b') => 0x08,
+                Some('f') => 0x0c,
+                Some('v') => 0x0b,
+                Some('a') => 0x07,
+                Some('e') => 0x1b,
+                Some('0') => 0x00,
+                Some('\\') => '\\' as i64,
+                Some('\'') => '\'' as i64,
+                Some('"') => '"' as i64,
+                // Emacs reads `?\j` as just `j` for unknown escapes;
+                // keep that — easier to remove later than to add.
+                Some(c) => c as i64,
+                None => {
+                    return Some(Token::ParserError(ParserError::syntax_error(
+                        "Unexpected EOF after ?\\".to_string(),
+                        span_for(self),
+                    )));
+                }
+            },
+            Some(c) => c as i64,
+            None => {
+                return Some(Token::ParserError(ParserError::syntax_error(
+                    "Unexpected EOF after ?".to_string(),
+                    span_for(self),
+                )));
+            }
+        };
+        Some(Token::Integer {
+            span: span_for(self),
+            value,
+        })
+    }
+
     fn read_num_ident_impl(
         &mut self,
         start_pos: (usize, usize),
@@ -339,9 +427,10 @@ impl Iterator for Tokenizer<'_> {
                     // post-consume `pos` would underflow if the
                     // tokenizer ever reset `pos` (e.g. on a newline)
                     // between the sigil and its companion char —
-                    // can't happen today because `#'` must be
-                    // adjacent, but the explicit start_pos keeps the
-                    // span correct under any future tokenizer change.
+                    // can't happen today because `#'` / `#x` etc.
+                    // must be adjacent, but the explicit start_pos
+                    // keeps the span correct under any future
+                    // tokenizer change.
                     let start_pos = (self.line, self.pos + 1);
                     self.next_char()?;
                     // `peek_char()?` would silently terminate the
@@ -354,6 +443,9 @@ impl Iterator for Tokenizer<'_> {
                                 span: Span::new(self.file_id, start_pos, (self.line, self.pos)),
                             });
                         }
+                        Some('x' | 'X') => return self.read_radix_int(start_pos, 16, "#x"),
+                        Some('o' | 'O') => return self.read_radix_int(start_pos, 8, "#o"),
+                        Some('b' | 'B') => return self.read_radix_int(start_pos, 2, "#b"),
                         Some(_) => {
                             return Some(Token::ParserError(ParserError::syntax_error(
                                 "Unknown token #.  Did you mean #' ?".to_string(),
@@ -368,6 +460,7 @@ impl Iterator for Tokenizer<'_> {
                         }
                     }
                 }
+                '?' => return self.read_char_literal(),
                 ',' => {
                     let start_pos = (self.line, self.pos + 1);
                     self.next_char()?;

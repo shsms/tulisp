@@ -997,6 +997,23 @@ fn test_math() -> Result<(), Error> {
     tulisp_assert! { program: "(/ 1)",     result: "1"   }
     tulisp_assert! { program: "(/ 10)",    result: "0"   }
     tulisp_assert! { program: "(/ 10.0)",  result: "0.1" }
+    // Character literals: `?X` reads as the character's code point.
+    tulisp_assert! { program: "?A",       result: "65"  }
+    tulisp_assert! { program: "?z",       result: "122" }
+    tulisp_assert! { program: r#"?\n"#,   result: "10"  }
+    tulisp_assert! { program: r#"?\t"#,   result: "9"   }
+    tulisp_assert! { program: r#"?\\"#,   result: "92"  }
+    tulisp_assert! { program: r#"?\0"#,   result: "0"   }
+    // Radix-prefixed integer literals: `#x` / `#X` hex, `#o` octal,
+    // `#b` binary. Sign goes between the prefix and digits.
+    tulisp_assert! { program: "#x10",  result: "16"   }
+    tulisp_assert! { program: "#xff",  result: "255"  }
+    tulisp_assert! { program: "#xFF",  result: "255"  }
+    tulisp_assert! { program: "#X10",  result: "16"   }
+    tulisp_assert! { program: "#o10",  result: "8"    }
+    tulisp_assert! { program: "#b1010",result: "10"   }
+    tulisp_assert! { program: "#x-10", result: "-16"  }
+
     // Whole-value floats round-trip with a trailing `.0` (Emacs:
     // `(format "%S" 2.0) => "2.0"`).
     tulisp_assert! { program: r#"(format "%S" 1.0)"#,       result: r#""1.0""# }
