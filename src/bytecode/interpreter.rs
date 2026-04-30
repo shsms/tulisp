@@ -338,12 +338,18 @@ fn run_impl_inner(
                     BinaryOp::Sub => binary_op(a, b, |a, b| a - b)?,
                     BinaryOp::Mul => binary_op(a, b, |a, b| a * b)?,
                     BinaryOp::Div => {
-                        // Match Emacs: integer-zero divisor errors,
-                        // float-zero divisor returns ±inf.
-                        if matches!(b.as_number()?, Number::Int(0)) {
+                        // Match Emacs: error only when *both* operands
+                        // are integers and the divisor is zero (would
+                        // underlying-panic on `i64::div`); any float
+                        // operand falls through to `Number::Div` which
+                        // produces ±inf for zero divisors, matching
+                        // Emacs' `1.0e+INF` shape.
+                        let an = a.as_number()?;
+                        let bn = b.as_number()?;
+                        if matches!((an, bn), (Number::Int(_), Number::Int(0))) {
                             return Err(Error::out_of_range("Division by zero"));
                         }
-                        binary_op(a, b, |a, b| a / b)?
+                        (an / bn).into()
                     }
                 };
                 ctx.vm.stack.truncate(ctx.vm.stack.len() - 2);

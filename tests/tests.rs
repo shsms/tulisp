@@ -982,6 +982,34 @@ fn test_math() -> Result<(), Error> {
     }
 
     tulisp_assert! { program: "(/ 24 2 2)",                result: "6"     }
+
+    // Integer division when all args are integers (Emacs `(/ 10 3) => 3`).
+    // The bare-result tests below would already pass with cross-type
+    // numeric equality, so use `integerp` / `floatp` to assert the
+    // underlying type explicitly.
+    tulisp_assert! { program: "(integerp (/ 10 3))", result: "t" }
+    tulisp_assert! { program: "(integerp (/ 7 2 2))", result: "t" }
+    tulisp_assert! { program: "(/ 10 3)", result: "3" }
+    // Float promotion when any operand is a float.
+    tulisp_assert! { program: "(floatp (/ 10 3.0))", result: "t" }
+    tulisp_assert! { program: "(floatp (/ 10.0 3))", result: "t" }
+    // Single-arg `/` is `1/X`, integer-divided when X is an integer.
+    tulisp_assert! { program: "(/ 1)",     result: "1"   }
+    tulisp_assert! { program: "(/ 10)",    result: "0"   }
+    tulisp_assert! { program: "(/ 10.0)",  result: "0.1" }
+    // Float-zero divisor doesn't error (Emacs returns ±INF). Both the
+    // VM `BinaryOp::Div` path and the rest-arg defun path agree now.
+    tulisp_assert! { program: "(numberp (/ 1.0 0.0))",            result: "t" }
+    tulisp_assert! { program: "(numberp (/ 1.0 0))",              result: "t" }
+    tulisp_assert! { program: "(numberp (/ 1 0.0))",              result: "t" }
+    tulisp_assert! { program: "(numberp (funcall '/ 1.0 0.0))",   result: "t" }
+    // All-integer zero divisor still errors.
+    tulisp_assert! {
+        program: "(funcall '/ 1 0)",
+        error: r#"ERR OutOfRange: Division by zero
+<eval_string>:1.1-1.16:  at (funcall '/ 1 0)
+"#,
+    }
     tulisp_assert! { program: "(+ 40 (* 2.5 4) (- 4 12))", result: "42.0"  }
     tulisp_assert! { program: "(+ 40 (* 2.5 4) (- -1 7))", result: "42.0"  }
     tulisp_assert! { program: "(mod 32 5)",                result: "2"     }

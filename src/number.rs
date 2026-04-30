@@ -166,9 +166,13 @@ impl std::ops::Mul<f64> for Number {
 impl std::ops::Div for Number {
     type Output = Number;
 
+    /// Match Emacs Lisp `/`: integer division when both operands are
+    /// integers, float division otherwise. Callers must guard against
+    /// `Int(0)` divisor before calling — Rust's `i64::div` panics for
+    /// that, but `f64::div` returns `inf`/`nan` (which Emacs surfaces).
     fn div(self, rhs: Self) -> Self::Output {
         match (self, rhs) {
-            (Number::Int(l), Number::Int(r)) => Number::Float(l as f64 / r as f64),
+            (Number::Int(l), Number::Int(r)) => Number::Int(l / r),
             (Number::Int(l), Number::Float(r)) => Number::Float(l as f64 / r),
             (Number::Float(l), Number::Int(r)) => Number::Float(l / r as f64),
             (Number::Float(l), Number::Float(r)) => Number::Float(l / r),
@@ -181,7 +185,7 @@ impl std::ops::Div<i64> for Number {
 
     fn div(self, rhs: i64) -> Self::Output {
         match self {
-            Number::Int(l) => Number::Float(l as f64 / rhs as f64),
+            Number::Int(l) => Number::Int(l / rhs),
             Number::Float(l) => Number::Float(l / rhs as f64),
         }
     }
