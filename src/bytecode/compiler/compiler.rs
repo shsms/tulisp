@@ -413,16 +413,14 @@ pub(crate) fn compile_expr(
                 Ok(vec![])
             }
         }
-        (TulispValue::Nil, _) => {
+        (TulispValue::Nil, _) | (TulispValue::T, _) => {
             if compiler.keep_result {
-                Ok(vec![Instruction::Push(false.into())])
-            } else {
-                Ok(vec![])
-            }
-        }
-        (TulispValue::T, _) => {
-            if compiler.keep_result {
-                Ok(vec![Instruction::Push(true.into())])
+                // Push the parsed object itself, not a fresh
+                // `false.into()` / `true.into()`. Otherwise a `nil`
+                // / `t` argument loses its source span and error
+                // backtraces miss the trace line for it (TW path
+                // keeps the span, so VM and TW would diverge).
+                Ok(vec![Instruction::Push(expr.clone())])
             } else {
                 Ok(vec![])
             }

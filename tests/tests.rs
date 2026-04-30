@@ -1103,12 +1103,19 @@ fn test_math() -> Result<(), Error> {
 <eval_string>:1.1-1.26:  at (aset (concat "abc") 5 65)
 "#,
     }
-    // setcar on a non-cons errors. (Numbers are filtered out of the
-    // trace by `Error::format`, so VM and TW produce the same shape.)
+    // setcar on a non-cons errors. Numbers are filtered out of the
+    // trace by `Error::format`; nil isn't, so the trace shows it.
     tulisp_assert! {
         program: "(setcar 5 99)",
         error: r#"ERR TypeMismatch: setcar: expected cons, got: 5
 <eval_string>:1.1-1.13:  at (setcar 5 99)
+"#,
+    }
+    tulisp_assert! {
+        program: "(setcar nil 5)",
+        error: r#"ERR TypeMismatch: setcar: expected cons, got: nil
+<eval_string>:1.9-1.11:  at nil
+<eval_string>:1.1-1.14:  at (setcar nil 5)
 "#,
     }
 
