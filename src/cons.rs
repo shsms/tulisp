@@ -257,6 +257,29 @@ impl ListBuilder {
 #[derive(Default)]
 pub struct BaseIter {
     pub(crate) next: TulispObject,
+    /// Stashed error from improper-list iteration. `next()` returns
+    /// `None` when it hits a non-cons, non-nil tail (so `for` loops
+    /// terminate cleanly), but the tail value is recorded here so
+    /// callers that care about Emacs-compatible behavior can surface
+    /// it via `take_error` and propagate to the user.
+    error: Option<Error>,
+}
+
+impl BaseIter {
+    /// Construct a `BaseIter` starting at the given list head.
+    pub(crate) fn starting_at(next: TulispObject) -> Self {
+        BaseIter { next, error: None }
+    }
+
+    /// Returns an error if iteration ended on an improper-list tail.
+    /// Call after the iteration completes (e.g. via `iter.by_ref()`)
+    /// to reject `(1 2 . 3)`-shaped inputs the way Emacs does.
+    pub fn take_error(&mut self) -> Result<(), Error> {
+        match self.error.take() {
+            None => Ok(()),
+            Some(e) => Err(e),
+        }
+    }
 }
 
 impl Iterator for BaseIter {
@@ -266,8 +289,21 @@ impl Iterator for BaseIter {
         if self.next.null() {
             return None;
         }
-        let car = self.next.car().ok()?;
-        self.next = self.next.cdr().ok()?;
+        let car = match self.next.car() {
+            Ok(c) => c,
+            Err(e) => {
+                self.error = Some(e);
+                return None;
+            }
+        };
+        let cdr = match self.next.cdr() {
+            Ok(c) => c,
+            Err(e) => {
+                self.error = Some(e);
+                return None;
+            }
+        };
+        self.next = cdr;
         Some(car)
     }
 }

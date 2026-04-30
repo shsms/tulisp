@@ -1054,6 +1054,31 @@ fn test_math() -> Result<(), Error> {
         program: r#"(let ((a "hello") (b "hello")) (equal a b))"#,
         result: "t",
     }
+
+    // Sequence operations on improper lists error like Emacs
+    // (`wrong-type-argument`) instead of silently truncating.
+    tulisp_assert! {
+        program: "(length '(1 2 . 3))",
+        error: r#"ERR TypeMismatch: cxr: Not a Cons: 3
+<eval_string>:1.1-1.19:  at (length '(1 2 . 3))
+"#,
+    }
+    tulisp_assert! {
+        program: "(reverse '(1 2 . 3))",
+        error: r#"ERR TypeMismatch: cxr: Not a Cons: 3
+<eval_string>:1.1-1.20:  at (reverse '(1 2 . 3))
+"#,
+    }
+    // `memq` finding a match before the improper tail still returns
+    // the match (Emacs matches).
+    tulisp_assert! { program: "(memq 2 '(1 2 . 3))", result: "'(2 . 3)" }
+    // `memq` walking past the last cons hits the dotted tail and errors.
+    tulisp_assert! {
+        program: "(memq 99 '(1 2 . 3))",
+        error: r#"ERR TypeMismatch: expected list, got: 3
+<eval_string>:1.1-1.20:  at (memq 99 '(1 2 . 3))
+"#,
+    }
     // Float-zero divisor doesn't error (Emacs returns ±INF). Both the
     // VM `BinaryOp::Div` path and the rest-arg defun path agree now.
     tulisp_assert! { program: "(numberp (/ 1.0 0.0))",            result: "t" }

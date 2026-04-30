@@ -10,7 +10,13 @@ pub fn length(list: &TulispObject) -> Result<i64, Error> {
     let count = if list.stringp() {
         list.as_string()?.chars().count()
     } else {
-        list.base_iter().count()
+        // Walk via `by_ref()` so we can consult `take_error` after —
+        // an improper-list tail (e.g. `(1 2 . 3)`) should error like
+        // Emacs' `wrong-type-argument` instead of silently truncating.
+        let mut iter = list.base_iter();
+        let n = iter.by_ref().count();
+        iter.take_error()?;
+        n
     };
     count
         .try_into()

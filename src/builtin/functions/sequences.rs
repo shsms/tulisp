@@ -6,9 +6,12 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     });
 
     ctx.defun("reverse", |list: TulispObject| {
-        Ok(list.base_iter().fold(TulispObject::nil(), |acc, item| {
+        let mut iter = list.base_iter();
+        let result = iter.by_ref().fold(TulispObject::nil(), |acc, item| {
             TulispObject::cons(item, acc)
-        }))
+        });
+        iter.take_error()?;
+        Ok(result)
     });
 
     ctx.defun(
@@ -17,13 +20,15 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             let sep = sep.unwrap_or_default();
             let mut out = String::new();
             let mut first = true;
-            for item in strings.base_iter() {
+            let mut iter = strings.base_iter();
+            for item in iter.by_ref() {
                 if !first {
                     out.push_str(&sep);
                 }
                 first = false;
                 out.push_str(&item.as_string()?);
             }
+            iter.take_error()?;
             Ok(TulispObject::from(out))
         },
     );
@@ -33,22 +38,26 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         if n <= 0 {
             return Ok(ret);
         }
-        for item in seq.base_iter().take(n as usize) {
+        let mut iter = seq.base_iter();
+        for item in iter.by_ref().take(n as usize) {
             ret.push(item)?;
         }
+        iter.take_error()?;
         Ok(ret)
     });
 
     ctx.defun("seq-drop", |seq: TulispObject, n: i64| {
         let ret = TulispObject::nil();
         let mut skipped = 0i64;
-        for item in seq.base_iter() {
+        let mut iter = seq.base_iter();
+        for item in iter.by_ref() {
             if skipped < n {
                 skipped += 1;
                 continue;
             }
             ret.push(item)?;
         }
+        iter.take_error()?;
         Ok(ret)
     });
 
@@ -72,37 +81,36 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(TulispObject::from(out))
     });
 
-    ctx.defun("memq", |elt: TulispObject, list: TulispObject| {
+    fn member_with(
+        list: TulispObject,
+        elt: &TulispObject,
+        eq: impl Fn(&TulispObject, &TulispObject) -> bool,
+    ) -> Result<TulispObject, Error> {
         let mut cur = list;
         while cur.consp() {
-            if cur.car_and_then(|car| Ok(car.eq(&elt)))? {
+            if cur.car_and_then(|car| Ok(eq(car, elt)))? {
                 return Ok(cur);
             }
             cur = cur.cdr()?;
         }
+        // `cur` is non-cons: either nil (clean end) or an
+        // improper-list tail. Reject the latter the way Emacs does.
+        if !cur.null() {
+            return Err(Error::type_mismatch(format!("expected list, got: {cur}")));
+        }
         Ok(TulispObject::nil())
+    }
+
+    ctx.defun("memq", |elt: TulispObject, list: TulispObject| {
+        member_with(list, &elt, |a, b| a.eq(b))
     });
 
     ctx.defun("memql", |elt: TulispObject, list: TulispObject| {
-        let mut cur = list;
-        while cur.consp() {
-            if cur.car_and_then(|car| Ok(car.eql(&elt)))? {
-                return Ok(cur);
-            }
-            cur = cur.cdr()?;
-        }
-        Ok(TulispObject::nil())
+        member_with(list, &elt, |a, b| a.eql(b))
     });
 
     ctx.defun("member", |elt: TulispObject, list: TulispObject| {
-        let mut cur = list;
-        while cur.consp() {
-            if cur.car_and_then(|car| Ok(car.equal(&elt)))? {
-                return Ok(cur);
-            }
-            cur = cur.cdr()?;
-        }
-        Ok(TulispObject::nil())
+        member_with(list, &elt, |a, b| a.equal(b))
     });
 }
 
