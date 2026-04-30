@@ -142,11 +142,30 @@ impl Tokenizer<'_> {
         mut is_float: bool,
     ) -> Option<Token> {
         let mut first_char = output.is_empty();
+        // Scientific-notation state. `seen_e` blocks a second `e`/`E`,
+        // `expect_exp_sign` lets one `+`/`-` follow `e`/`E` without
+        // tipping the token into ident mode.
+        let mut seen_e = false;
+        let mut expect_exp_sign = false;
 
         while let Some(ch) = self.peek_char() {
             match ch {
                 ')' | ' ' | '\t' | '\n' | '\r' => {
                     break;
+                }
+                'e' | 'E' if (is_int || is_float) && !first_char && !seen_e => {
+                    // Enter exponent mode: any preceding digits/dot
+                    // make this a float, regardless of `is_int`.
+                    is_int = false;
+                    is_float = true;
+                    seen_e = true;
+                    expect_exp_sign = true;
+                    output.push(ch);
+                }
+                '-' | '+' if expect_exp_sign && (is_int || is_float) => {
+                    // Sign of the exponent — stays in float mode.
+                    expect_exp_sign = false;
+                    output.push(ch);
                 }
                 '-' => {
                     if !first_char {
@@ -155,7 +174,10 @@ impl Tokenizer<'_> {
                     }
                     output.push(ch);
                 }
-                '0'..='9' => output.push(ch),
+                '0'..='9' => {
+                    expect_exp_sign = false;
+                    output.push(ch);
+                }
                 '_' if (is_int || is_float) && !first_char => {}
                 '.' => {
                     if is_int && !is_float {
@@ -188,6 +210,14 @@ impl Tokenizer<'_> {
             let span = Span::new(self.file_id, start_pos, (self.line, self.pos));
             match output.parse::<f64>() {
                 Ok(value) => Some(Token::Float { span, value }),
+                // `1e` / `1e+` (and similar) eagerly entered exponent
+                // mode but never produced an exponent digit. Emacs
+                // reads these as identifiers — fall back rather than
+                // erroring on a syntactically valid Lisp symbol.
+                Err(_) if seen_e => Some(Token::Ident {
+                    span,
+                    value: output,
+                }),
                 Err(e) => Some(Token::ParserError(ParserError::syntax_error(
                     format!("{e}: {output}"),
                     span,

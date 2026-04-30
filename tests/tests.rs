@@ -1002,6 +1002,22 @@ fn test_math() -> Result<(), Error> {
     tulisp_assert! { program: r#"(format "%S" 1.0)"#,       result: r#""1.0""# }
     tulisp_assert! { program: r#"(format "%S" (+ 1.0 1))"#, result: r#""2.0""# }
     tulisp_assert! { program: r#"(format "%S" 0.5)"#,       result: r#""0.5""# }
+
+    // Scientific notation parses as float (Emacs: `1e5 => 100000.0`).
+    tulisp_assert! { program: "(+ 1e5 1)",          result: "100001.0" }
+    tulisp_assert! { program: "(+ 1E5 1)",          result: "100001.0" }
+    tulisp_assert! { program: "(+ 1.5e2 0)",        result: "150.0"    }
+    tulisp_assert! { program: "(+ 1e+5 0)",         result: "100000.0" }
+    tulisp_assert! { program: "(+ -1.5e-3 0)",      result: "-0.0015"  }
+    tulisp_assert! { program: "(integerp 1e5)",     result: "nil"      }
+    tulisp_assert! { program: "(floatp 1e5)",       result: "t"        }
+    // `e5` and `1ee5` aren't scientific-notation floats — they read
+    // as ordinary symbols (Emacs matches).
+    tulisp_assert! { program: "(progn (setq e5 7) e5)",       result: "7" }
+    tulisp_assert! { program: "(progn (setq 1ee5 9) 1ee5)",   result: "9" }
+    // `1e` (no exponent digit) falls back to identifier rather than
+    // erroring — Emacs reads it as a symbol too.
+    tulisp_assert! { program: "(progn (setq 1e 11) 1e)",      result: "11" }
     // Float-zero divisor doesn't error (Emacs returns ±INF). Both the
     // VM `BinaryOp::Div` path and the rest-arg defun path agree now.
     tulisp_assert! { program: "(numberp (/ 1.0 0.0))",            result: "t" }
