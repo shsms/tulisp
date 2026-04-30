@@ -138,7 +138,7 @@ mod tests {
         eval_assert_error(
             &mut ctx,
             "(catch 'my-tag (throw 'other-tag 42))",
-            r#"ERR Throw((other-tag . 42)):
+            r#"ERR Throw((other-tag . 42))
 <eval_string>:1.16-1.36:  at (throw 'other-tag 42)
 <eval_string>:1.1-1.37:  at (catch 'my-tag (throw 'other-tag 42))
 "#,
@@ -207,7 +207,7 @@ mod tests {
         eval_assert_error(
             &mut ctx,
             "(condition-case e (throw 'tag 5) (error 'caught))",
-            r#"ERR Throw((tag . 5)):
+            r#"ERR Throw((tag . 5))
 <eval_string>:1.19-1.32:  at (throw 'tag 5)
 <eval_string>:1.1-1.49:  at (condition-case e (throw 'tag 5) (error 'caught))
 "#,

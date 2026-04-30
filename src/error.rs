@@ -89,9 +89,10 @@ pub struct Error {
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "ERR {}:", self.kind)?;
-        if !self.desc.is_empty() {
-            write!(f, " {}", self.desc)?;
+        if self.desc.is_empty() {
+            write!(f, "ERR {}", self.kind)?;
+        } else {
+            write!(f, "ERR {}: {}", self.kind, self.desc)?;
         }
         for span_obj in &self.backtrace {
             if span_obj.numberp() || span_obj.symbolp() || span_obj.stringp() {
@@ -155,15 +156,11 @@ impl Error {
 
     /// Formats the error into a human-readable string, including backtrace information.
     pub fn format(&self, ctx: &TulispContext) -> String {
-        let mut span_str = format!(
-            "ERR {}:{}",
-            self.kind,
-            if self.desc.is_empty() {
-                String::new()
-            } else {
-                format!(" {}", self.desc)
-            }
-        );
+        let mut span_str = if self.desc.is_empty() {
+            format!("ERR {}", self.kind)
+        } else {
+            format!("ERR {}: {}", self.kind, self.desc)
+        };
         for span in &self.backtrace {
             let prefix = self.format_span(ctx, span);
             if prefix.is_empty() {
