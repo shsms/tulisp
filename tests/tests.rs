@@ -997,6 +997,11 @@ fn test_math() -> Result<(), Error> {
     tulisp_assert! { program: "(/ 1)",     result: "1"   }
     tulisp_assert! { program: "(/ 10)",    result: "0"   }
     tulisp_assert! { program: "(/ 10.0)",  result: "0.1" }
+    // Whole-value floats round-trip with a trailing `.0` (Emacs:
+    // `(format "%S" 2.0) => "2.0"`).
+    tulisp_assert! { program: r#"(format "%S" 1.0)"#,       result: r#""1.0""# }
+    tulisp_assert! { program: r#"(format "%S" (+ 1.0 1))"#, result: r#""2.0""# }
+    tulisp_assert! { program: r#"(format "%S" 0.5)"#,       result: r#""0.5""# }
     // Float-zero divisor doesn't error (Emacs returns ±INF). Both the
     // VM `BinaryOp::Div` path and the rest-arg defun path agree now.
     tulisp_assert! { program: "(numberp (/ 1.0 0.0))",            result: "t" }

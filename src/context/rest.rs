@@ -13,7 +13,7 @@ use crate::{TulispConvertible, TulispObject, cons};
 ///
 /// let mut ctx = TulispContext::new();
 /// ctx.defun("sum", |items: Rest<f64>| -> f64 { items.into_iter().sum() });
-/// assert_eq!(ctx.eval_string("(sum 1.0 2.0 3.0)").unwrap().to_string(), "6");
+/// assert_eq!(ctx.eval_string("(sum 1.0 2.0 3.0)").unwrap().to_string(), "6.0");
 /// ```
 pub struct Rest<T> {
     values: RestEnum<T>,

@@ -53,7 +53,12 @@ impl Display for Number {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Number::Int(v) => write!(f, "{}", v),
-            Number::Float(v) => write!(f, "{}", v),
+            // `{:?}` for `f64` keeps the trailing `.0` for whole-value
+            // floats (`2.0` prints `"2.0"`, not `"2"`), so a parsed
+            // float round-trips back to a float instead of decaying
+            // into `Int(2)` on re-read. Matches Emacs' `(format "%S"
+            // 2.0) => "2.0"`.
+            Number::Float(v) => write!(f, "{:?}", v),
         }
     }
 }

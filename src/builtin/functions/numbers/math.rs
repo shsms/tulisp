@@ -36,7 +36,7 @@ mod tests {
         assert_eq!(
             ctx.eval_string("(sqrt -4.0)").unwrap_err().format(&ctx),
             r#"ERR TypeMismatch: sqrt: cannot compute square root of negative number: -4
-<eval_string>:1.1-1.11:  at (sqrt -4)
+<eval_string>:1.1-1.11:  at (sqrt -4.0)
 "#
         );
     }
