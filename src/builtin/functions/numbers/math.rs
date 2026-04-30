@@ -1,9 +1,23 @@
-use crate::{Error, Number, TulispContext};
+use crate::{Error, Number, TulispContext, TulispObject};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
     // Match Emacs: `sqrt` always returns a float, including NaN for
     // negative inputs (no error, no panic).
     ctx.defun("sqrt", |val: f64| -> f64 { val.sqrt() });
+
+    // `(isnan FLOAT)` — Emacs semantics: errors on non-float input,
+    // returns t for any NaN (regardless of sign bit), nil otherwise.
+    // Companion to the `1.0e+INF` / `0.0e+NaN` literals; without this
+    // the only way to test is the self-inequality trick
+    // `(not (= x x))`.
+    ctx.defun("isnan", |x: TulispObject| -> Result<bool, Error> {
+        if !x.floatp() {
+            return Err(Error::type_mismatch(format!(
+                "isnan: expected float, got: {x}"
+            )));
+        }
+        Ok(x.as_float()?.is_nan())
+    });
 
     // Match Emacs: `(expt int non-neg-int)` stays integer with
     // overflow detection; any other shape (negative exponent, float
@@ -47,10 +61,25 @@ mod tests {
         // `sqrt` of int input returns a float (Emacs matches).
         eval_assert_equal(&mut ctx, "(sqrt 4)", "2.0");
         // `sqrt` of a negative returns NaN rather than erroring
-        // (Emacs: `(sqrt -4) => -0.0e+NaN`). Detect NaN via the
-        // self-equality trick: NaN is the only float value that
-        // doesn't equal itself.
-        eval_assert_equal(&mut ctx, "(not (= (sqrt -4) (sqrt -4)))", "t");
+        // (Emacs: `(sqrt -4) => -0.0e+NaN`).
+        eval_assert_equal(&mut ctx, "(isnan (sqrt -4))", "t");
+    }
+
+    #[test]
+    fn test_isnan() {
+        let mut ctx = TulispContext::new();
+        eval_assert_equal(&mut ctx, "(isnan (sqrt -1))", "t");
+        eval_assert_equal(&mut ctx, "(isnan 0.0e+NaN)", "t");
+        eval_assert_equal(&mut ctx, "(isnan -0.0e+NaN)", "t");
+        eval_assert_equal(&mut ctx, "(isnan 1.0)", "nil");
+        eval_assert_equal(&mut ctx, "(isnan 1.0e+INF)", "nil");
+        // Emacs strict: errors on non-float.
+        assert_eq!(
+            ctx.eval_string("(isnan 5)").unwrap_err().format(&ctx),
+            r#"ERR TypeMismatch: isnan: expected float, got: 5
+<eval_string>:1.1-1.9:  at (isnan 5)
+"#
+        );
     }
 
     #[test]
