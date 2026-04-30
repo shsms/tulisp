@@ -1071,6 +1071,20 @@ fn test_math() -> Result<(), Error> {
     }
     // setcar / setcdr return their new value (Emacs matches).
     tulisp_assert! { program: "(setcar (list 1 2) 99)", result: "99" }
+
+    // aset on strings — mutates in place, returns the new char.
+    tulisp_assert! {
+        program: r#"(let ((s "hello")) (aset s 0 65) s)"#,
+        result: r#""Aello""#,
+    }
+    tulisp_assert! { program: r#"(aset (concat "foo") 0 65)"#, result: "65" }
+    // Out-of-range / negative index errors.
+    tulisp_assert! {
+        program: r#"(aset (concat "abc") 5 65)"#,
+        error: r#"ERR OutOfRange: aset: index 5 out of range for string of length 3
+<eval_string>:1.1-1.26:  at (aset (concat "abc") 5 65)
+"#,
+    }
     // setcar on a non-cons errors. (Numbers are filtered out of the
     // trace by `Error::format`, so VM and TW produce the same shape.)
     tulisp_assert! {

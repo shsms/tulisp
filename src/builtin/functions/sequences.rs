@@ -1,4 +1,4 @@
-use crate::{Error, TulispContext, TulispObject, lists};
+use crate::{Error, TulispContext, TulispObject, TulispValue, lists};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defun("length", |list: TulispObject| {
@@ -60,6 +60,39 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         iter.take_error()?;
         Ok(ret)
     });
+
+    // `(aset STRING INDEX CHAR)` mutates the character at INDEX in
+    // STRING and returns CHAR. Tulisp doesn't have vectors yet, so
+    // this is string-only — Emacs additionally supports vectors and
+    // bool-vectors. CHAR is an integer code point (Tulisp has no
+    // character literals); UTF-8 string layout is handled by
+    // collecting to `Vec<char>` and reassembling.
+    ctx.defun(
+        "aset",
+        |s: TulispObject, idx: i64, ch: i64| -> Result<TulispObject, Error> {
+            let s_str = s.as_string()?;
+            let new_char = u32::try_from(ch)
+                .ok()
+                .and_then(char::from_u32)
+                .ok_or_else(|| {
+                    Error::out_of_range(format!("aset: invalid character code: {}", ch))
+                })?;
+            let idx_usize = usize::try_from(idx)
+                .map_err(|_| Error::out_of_range(format!("aset: negative index: {}", idx)))?;
+            let mut chars: Vec<char> = s_str.chars().collect();
+            if idx_usize >= chars.len() {
+                return Err(Error::out_of_range(format!(
+                    "aset: index {} out of range for string of length {}",
+                    idx,
+                    chars.len()
+                )));
+            }
+            chars[idx_usize] = new_char;
+            let new_string: String = chars.into_iter().collect();
+            s.assign(TulispValue::String { value: new_string });
+            Ok(TulispObject::from(ch))
+        },
+    );
 
     ctx.defun("make-string", |n: i64, ch: i64| {
         if n < 0 {
