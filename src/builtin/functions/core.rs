@@ -154,10 +154,11 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             let mut args = rest.iter();
             let mut output = String::new();
             let mut in_chars = in_string.chars().peekable();
-            // Supports `%[-][0]WIDTHTYPE` where TYPE is one of `s S d f`, plus
-            // `%%` for a literal percent. The `-` flag left-aligns and the `0`
-            // flag pads numerics with zeros. See the Emacs manual for the full
-            // format-spec grammar:
+            // Supports `%[-][0]WIDTH[.PRECISION]TYPE` where TYPE is one of
+            // `s S d f`, plus `%%` for a literal percent. The `-` flag
+            // left-aligns and the `0` flag pads numerics with zeros.
+            // PRECISION applies to `%f` (digits after the decimal point).
+            // See the Emacs manual for the full format-spec grammar:
             // https://www.gnu.org/software/emacs/manual/html_node/elisp/Formatting-Strings.html
             while let Some(ch) = in_chars.next() {
                 if ch != '%' {
@@ -184,6 +185,19 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                         _ => break,
                     }
                 }
+                let mut precision: Option<usize> = None;
+                if in_chars.peek() == Some(&'.') {
+                    in_chars.next();
+                    let mut p: usize = 0;
+                    while let Some(c) = in_chars.peek() {
+                        if !c.is_ascii_digit() {
+                            break;
+                        }
+                        p = p * 10 + (*c as usize - '0' as usize);
+                        in_chars.next();
+                    }
+                    precision = Some(p);
+                }
                 let type_char = match in_chars.next() {
                     Some(c) => c,
                     None => {
@@ -205,7 +219,13 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                     's' => next_arg.fmt_string(),
                     'S' => next_arg.to_string(),
                     'd' => next_arg.try_int()?.to_string(),
-                    'f' => next_arg.try_float()?.to_string(),
+                    'f' => {
+                        let v = next_arg.try_float()?;
+                        match precision {
+                            Some(p) => format!("{v:.*}", p),
+                            None => v.to_string(),
+                        }
+                    }
                     _ => {
                         return Err(Error::syntax_error(format!(
                             "Invalid format operation: %{}",
