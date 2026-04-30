@@ -832,11 +832,17 @@ fn init_defun_args(
         set_params.push(rest.clone());
     }
     for (ii, arg) in params.optional.iter().enumerate().rev() {
-        if ii >= *optional_count {
-            arg.set_scope(TulispObject::nil())?;
-            continue;
-        }
-        arg.set_scope(ctx.vm.stack.pop().unwrap())?;
+        // Every `set_scope` must pair with a `set_params.push` so
+        // `SetParams::drop` unsets it on return — including the
+        // missing-optional case, where the previous `continue` skipped
+        // the push and leaked the nil binding onto `LEX_STACKS` once
+        // per call.
+        let val = if ii >= *optional_count {
+            TulispObject::nil()
+        } else {
+            ctx.vm.stack.pop().unwrap()
+        };
+        arg.set_scope(val)?;
         set_params.push(arg.clone());
     }
     for arg in params.required.iter().rev() {

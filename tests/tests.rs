@@ -2257,6 +2257,45 @@ fn test_tail_call_does_not_leak_lex_stack() -> Result<(), Error> {
     Ok(())
 }
 
+#[test]
+fn test_missing_optional_does_not_leak_lex_stack() -> Result<(), Error> {
+    // Regression: `init_defun_args` used to set_scope(nil) for a
+    // missing `&optional` param then `continue` without pushing onto
+    // `set_params`, so `SetParams::drop` never unset the binding.
+    // Each call leaked one `LEX_STACKS` entry per missing optional.
+    let cases: &[(&str, &str, &str)] = &[
+        (
+            "one_missing_optional",
+            "(defun f (a &optional b) a)",
+            "(f 1)",
+        ),
+        (
+            "two_missing_optionals",
+            "(defun f (a &optional b c) a)",
+            "(f 1)",
+        ),
+        (
+            "partial_optional_provided",
+            "(defun f (a &optional b c) a)",
+            "(f 1 2)",
+        ),
+        (
+            "missing_optionals_with_rest",
+            "(defun f (a &optional b c &rest r) a)",
+            "(f 1)",
+        ),
+    ];
+    for (label, prog, call) in cases {
+        let mut ctx = TulispContext::new();
+        ctx.eval_string(prog)
+            .unwrap_or_else(|e| panic!("{} setup failed: {}", label, e.format(&ctx)));
+        ctx.eval_string(call)
+            .unwrap_or_else(|e| panic!("{} sanity call failed: {}", label, e.format(&ctx)));
+        assert_no_lex_stack_leak(&mut ctx, prog, call, label);
+    }
+    Ok(())
+}
+
 // `defvar`-declared variables are dynamic (special) — references resolve
 // through the symbol's own stack, so eval-in-a-different-scope sees the
 // enclosing binding. This matches Emacs' behavior under `lexical-binding: t`.
