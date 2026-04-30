@@ -133,9 +133,20 @@ pub fn alist_get(
     key: &TulispObject,
     alist: &TulispObject,
     default_value: Option<TulispObject>,
-    _remove: Option<TulispObject>, // TODO: implement after `setf`
+    remove: Option<TulispObject>,
     testfn: Option<TulispObject>,
 ) -> Result<TulispObject, Error> {
+    // The REMOVE arg makes `(setf (alist-get …) nil)` delete an
+    // entry; since `setf` isn't implemented yet, accepting a non-nil
+    // REMOVE silently would miss the user's intent. Error explicitly
+    // rather than ignoring.
+    if let Some(remove) = remove
+        && remove.is_truthy()
+    {
+        return Err(Error::not_implemented(
+            "alist-get: REMOVE argument is not implemented (no `setf` support yet)".to_string(),
+        ));
+    }
     let x = assoc(ctx, key, alist, testfn)?;
     if x.is_truthy() {
         x.cdr()
