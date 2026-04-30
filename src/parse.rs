@@ -330,7 +330,6 @@ struct Parser<'a, 'b> {
     tokenizer: Peekable<Tokenizer<'a>>,
     ctx: &'b mut TulispContext,
     ints: HashMap<i64, TulispObject>,
-    strings: HashMap<String, TulispObject>,
     #[cfg(feature = "etags")]
     follow_load_files: bool,
 }
@@ -362,7 +361,6 @@ impl Parser<'_, '_> {
             tokenizer: Tokenizer::new(file_id, program).peekable(),
             ctx,
             ints: Default::default(),
-            strings: Default::default(),
             #[cfg(feature = "etags")]
             follow_load_files,
         }
@@ -530,17 +528,13 @@ impl Parser<'_, '_> {
                     TulispValue::Splice { value: next }.into_ref(Some(span)),
                 ))
             }
-            Token::String { span, value } => Ok(Some(match self.strings.get(&value) {
-                Some(vv) => vv.with_span(Some(span)),
-                None => {
-                    let vv = TulispValue::String {
-                        value: value.clone(),
-                    }
-                    .into_ref(Some(span));
-                    self.strings.insert(value, vv.clone());
-                    vv
-                }
-            })),
+            // Each string literal gets a fresh `TulispObject` —
+            // matching Emacs' `(eq "hello" "hello") => nil`. Interning
+            // would make `eq` collide and, more importantly, alias any
+            // future `aset`-style mutation across unrelated literals.
+            Token::String { span, value } => {
+                Ok(Some(TulispValue::String { value }.into_ref(Some(span))))
+            }
 
             Token::Integer { span, value } => Ok(Some(match self.ints.get(&value) {
                 Some(vv) => vv.with_span(Some(span)),

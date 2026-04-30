@@ -1042,6 +1042,18 @@ fn test_math() -> Result<(), Error> {
     // A float operand sidesteps the overflow check — `f64::add`
     // produces inf rather than overflowing.
     tulisp_assert! { program: "(numberp (+ 9223372036854775807 1.0))", result: "t" }
+
+    // String literals aren't interned — every read produces a fresh
+    // `TulispObject` so `eq` distinguishes them (Emacs matches).
+    tulisp_assert! {
+        program: r#"(let ((a "hello") (b "hello")) (eq a b))"#,
+        result: "nil",
+    }
+    // Same string still compares structurally equal.
+    tulisp_assert! {
+        program: r#"(let ((a "hello") (b "hello")) (equal a b))"#,
+        result: "t",
+    }
     // Float-zero divisor doesn't error (Emacs returns ±INF). Both the
     // VM `BinaryOp::Div` path and the rest-arg defun path agree now.
     tulisp_assert! { program: "(numberp (/ 1.0 0.0))",            result: "t" }
