@@ -53,12 +53,32 @@ impl Display for Number {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Number::Int(v) => write!(f, "{}", v),
-            // `{:?}` for `f64` keeps the trailing `.0` for whole-value
-            // floats (`2.0` prints `"2.0"`, not `"2"`), so a parsed
-            // float round-trips back to a float instead of decaying
-            // into `Int(2)` on re-read. Matches Emacs' `(format "%S"
-            // 2.0) => "2.0"`.
-            Number::Float(v) => write!(f, "{:?}", v),
+            // Match Emacs' float printer:
+            // - `f64::INFINITY` / `NEG_INFINITY` print as
+            //   `1.0e+INF` / `-1.0e+INF`
+            // - NaN prints with the sign bit reflected in the
+            //   leading mantissa: `0.0e+NaN` (positive bit) or
+            //   `-0.0e+NaN` (negative bit). Both still round-trip
+            //   through `read` because Emacs accepts the same forms.
+            // - Whole-value finite floats keep the trailing `.0`
+            //   via `{:?}` (`2.0` => `"2.0"`, not `"2"`).
+            Number::Float(v) => {
+                if v.is_infinite() {
+                    if *v < 0.0 {
+                        f.write_str("-1.0e+INF")
+                    } else {
+                        f.write_str("1.0e+INF")
+                    }
+                } else if v.is_nan() {
+                    if v.is_sign_negative() {
+                        f.write_str("-0.0e+NaN")
+                    } else {
+                        f.write_str("0.0e+NaN")
+                    }
+                } else {
+                    write!(f, "{:?}", v)
+                }
+            }
         }
     }
 }

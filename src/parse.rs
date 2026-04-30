@@ -224,12 +224,49 @@ impl Tokenizer<'_> {
                 ))),
             }
         } else {
+            let span = Span::new(self.file_id, start_pos, (self.line, self.pos));
+            // Emacs' `1.0e+INF` / `-1.0e+INF` / `0.0e+NaN` /
+            // `-0.0e+NaN` shapes — uppercase suffix only, only `e+`
+            // (not `e-`). Mantissa value is ignored; only its sign
+            // matters. Lowercase / `e-` variants stay as identifiers,
+            // matching Emacs' reader.
+            if let Some(value) = parse_emacs_inf_nan(&output) {
+                return Some(Token::Float { span, value });
+            }
             Some(Token::Ident {
-                span: Span::new(self.file_id, start_pos, (self.line, self.pos)),
+                span,
                 value: output,
             })
         }
     }
+}
+
+/// Recognize the `<mantissa>e+INF` / `<mantissa>e+NaN` shapes that
+/// Emacs' reader uses for the special float values. The mantissa
+/// value is irrelevant (`5.5e+INF` and `1.0e+INF` both produce
+/// `+INF`); only its sign carries through. Returns `None` for
+/// anything else (so the caller can fall back to identifier).
+fn parse_emacs_inf_nan(s: &str) -> Option<f64> {
+    for (suffix, base) in [("e+INF", f64::INFINITY), ("e+NaN", f64::NAN)] {
+        let Some(prefix) = s.strip_suffix(suffix) else {
+            continue;
+        };
+        // Mantissa must itself be a finite f64 (rules out empty,
+        // double-dot, leading-letter, etc.). The mantissa's value is
+        // discarded — only its sign matters.
+        if let Ok(mantissa) = prefix.parse::<f64>()
+            && mantissa.is_finite()
+        {
+            return Some(if prefix.starts_with('-') {
+                // `-f64::NAN` flips the sign bit; `-f64::INFINITY`
+                // produces `f64::NEG_INFINITY`.
+                -base
+            } else {
+                base
+            });
+        }
+    }
+    None
 }
 
 impl Iterator for Tokenizer<'_> {

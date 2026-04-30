@@ -1019,6 +1019,24 @@ fn test_math() -> Result<(), Error> {
     // erroring — Emacs reads it as a symbol too.
     tulisp_assert! { program: "(progn (setq 1e 11) 1e)",      result: "11" }
 
+    // Emacs-style infinity / NaN literals — `<mantissa>e+INF` and
+    // `<mantissa>e+NaN`, uppercase only, `e+` only. Mantissa value
+    // is ignored; only its sign matters.
+    tulisp_assert! { program: r#"(format "%S" 1.0e+INF)"#,    result: r#""1.0e+INF""# }
+    tulisp_assert! { program: r#"(format "%S" -1.0e+INF)"#,   result: r#""-1.0e+INF""# }
+    tulisp_assert! { program: r#"(format "%S" 0.0e+NaN)"#,    result: r#""0.0e+NaN""# }
+    tulisp_assert! { program: r#"(format "%S" -0.0e+NaN)"#,   result: r#""-0.0e+NaN""# }
+    // Mantissa is ignored — `5.5e+INF` and `1e+INF` both read as +INF.
+    tulisp_assert! { program: r#"(format "%S" 5.5e+INF)"#,    result: r#""1.0e+INF""# }
+    tulisp_assert! { program: r#"(format "%S" 1e+INF)"#,      result: r#""1.0e+INF""# }
+    // Display of arithmetic-produced infinity matches the source form.
+    tulisp_assert! { program: r#"(format "%S" (/ 1.0 0.0))"#,  result: r#""1.0e+INF""# }
+    tulisp_assert! { program: r#"(format "%S" (/ -1.0 0.0))"#, result: r#""-1.0e+INF""# }
+    // Lowercase / `e-` variants stay as identifiers (Emacs matches).
+    tulisp_assert! { program: "(progn (setq 1.0e+inf 5) 1.0e+inf)",  result: "5" }
+    tulisp_assert! { program: "(progn (setq 1.0e-INF 5) 1.0e-INF)",  result: "5" }
+    tulisp_assert! { program: "(progn (setq inf 5) inf)",            result: "5" }
+
     // Integer overflow raises `OutOfRange` instead of wrapping.
     // Tulisp doesn't have bignums, so this stops at i64 limits.
     tulisp_assert! {
