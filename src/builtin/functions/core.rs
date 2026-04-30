@@ -1,6 +1,7 @@
 use crate::TulispObject;
 use crate::TulispValue;
 use crate::context::TulispContext;
+use crate::destruct_bind;
 use crate::error::Error;
 use crate::eval::DummyEval;
 use crate::eval::Eval;
@@ -9,67 +10,16 @@ use crate::eval::substitute_lexical;
 use crate::lists;
 use crate::object::wrappers::generic::{Shared, SharedMut};
 use crate::value::{DefunParams, LexAllocator};
-use crate::{destruct_bind, list};
 use std::convert::TryInto;
 
-fn mark_tail_calls(
-    ctx: &mut TulispContext,
-    self_name: Option<&TulispObject>,
-    body: TulispObject,
-) -> Result<TulispObject, Error> {
-    if !body.consp() {
-        return Ok(body);
-    }
-    let mut builder = crate::cons::ListBuilder::new();
-    let mut body_iter = body.base_iter();
-    let mut tail = body_iter.next().unwrap();
-    for next in body_iter {
-        builder.push(tail);
-        tail = next;
-    }
-    if !tail.consp() {
-        return Ok(body);
-    }
-    let span = tail.span();
-    let ctxobj = tail.ctxobj();
-    let tail_ident = tail.car()?;
-    let tail_name_str = tail_ident.as_symbol()?;
-    let is_self_call = self_name.is_some_and(|n| n.eq(&tail_ident));
-    let new_tail = if is_self_call
-        || ctx
-            .eval(&tail_ident)
-            .is_ok_and(|f| matches!(f.inner_ref().0, TulispValue::Lambda { .. }))
-    {
-        let ret_tail = TulispObject::nil().append(tail.cdr()?)?.to_owned();
-        list!(,ctx.intern("list")
-            ,TulispValue::Bounce.into_ref(None)
-            ,tail_ident
-            ,@ret_tail)?
-    } else if tail_name_str == "progn" || tail_name_str == "let" || tail_name_str == "let*" {
-        list!(,tail_ident ,@mark_tail_calls(ctx, self_name, tail.cdr()?)?)?
-    } else if tail_name_str == "if" {
-        destruct_bind!((_if condition then_body &rest else_body) = tail);
-        list!(,tail_ident
-            ,condition.clone()
-            ,mark_tail_calls(ctx, self_name, list!(,then_body)?)?.car()?
-            ,@mark_tail_calls(ctx, self_name, else_body)?
-        )?
-    } else if tail_name_str == "cond" {
-        destruct_bind!((_cond &rest conds) = tail);
-        let mut ret = list!(,tail_ident)?;
-        for cond in conds.base_iter() {
-            destruct_bind!((condition &rest body) = cond);
-            ret = list!(,@ret
-                ,list!(,condition.clone()
-                    ,@mark_tail_calls(ctx, self_name, body)?)?)?;
-        }
-        ret
-    } else {
-        tail
-    };
-    builder.push(new_tail.with_ctxobj(ctxobj).with_span(span));
-    Ok(builder.build())
-}
+// `mark_tail_calls` lives in `crate::parse` (single canonical
+// implementation, used by both this TW defspecial and the VM
+// `compile_fn_defun`). The VM version's extra `is_known_vm_defun`
+// check is a no-op for the TW path — it widens the "is it a tail
+// call I can `Bounce`?" predicate to include known VM-compiled
+// defuns; in TW we only ever produced `Lambda` values, so the new
+// check returns false and the existing `Lambda` arm wins as
+// before.
 
 pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defun("load", |ctx: &mut TulispContext, filename: String| {
@@ -402,7 +352,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             } else {
                 rest
             };
-            let body = mark_tail_calls(ctx, Some(&name), body)?;
+            let body = crate::parse::mark_tail_calls(ctx, name.clone(), body)?;
             // Pre-rewrite the body so each param reference points at a
             // shared `LexicalBinding` allocated once here. Call-time
             // evaluation then only push/pops values onto the binding's
