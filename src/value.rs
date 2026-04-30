@@ -686,33 +686,35 @@ impl PartialEq for TulispValue {
     }
 }
 
-/// Formats tulisp lists non-recursively.
-fn fmt_list(mut vv: TulispObject, f: &mut std::fmt::Formatter<'_>) -> Result<(), Error> {
-    if let Err(e) = f.write_char('(') {
-        return Err(Error::type_mismatch(format!("When trying to 'fmt': {}", e)));
-    };
+/// Formats tulisp lists non-recursively. Returns
+/// `std::fmt::Result` so formatter errors propagate up to the
+/// `Display::fmt` caller; the only other failure source is
+/// `car`/`cdr` on a `TulispValue::List`, which can't actually fail
+/// (we wouldn't be in `fmt_list` otherwise) — convert any
+/// theoretical break of that invariant into a generic
+/// `std::fmt::Error` rather than swallowing it.
+fn fmt_list(mut vv: TulispObject, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.write_char('(')?;
     let mut add_space = false;
     loop {
-        let rest = vv.cdr()?;
-        if !add_space {
+        let car = vv.car().map_err(|_| std::fmt::Error)?;
+        let rest = vv.cdr().map_err(|_| std::fmt::Error)?;
+        if add_space {
+            f.write_char(' ')?;
+        } else {
             add_space = true;
-        } else if let Err(e) = f.write_char(' ') {
-            return Err(Error::type_mismatch(format!("When trying to 'fmt': {}", e)));
-        };
-        write!(f, "{}", vv.car()?)
-            .map_err(|e| Error::type_mismatch(format!("When trying to 'fmt': {}", e)))?;
+        }
+        write!(f, "{}", car)?;
         if rest.null() {
             break;
-        } else if !rest.consp() {
-            write!(f, " . {}", rest)
-                .map_err(|e| Error::type_mismatch(format!("When trying to 'fmt': {}", e)))?;
+        }
+        if !rest.consp() {
+            write!(f, " . {}", rest)?;
             break;
-        };
+        }
         vv = rest;
     }
-    if let Err(e) = f.write_char(')') {
-        return Err(Error::type_mismatch(format!("When trying to 'fmt': {}", e)));
-    };
+    f.write_char(')')?;
     Ok(())
 }
 
@@ -725,10 +727,7 @@ impl std::fmt::Display for TulispValue {
             TulispValue::LexicalBinding { binding } => f.write_str(binding.name()),
             TulispValue::Number { value, .. } => f.write_fmt(format_args!("{}", value)),
             TulispValue::String { value, .. } => f.write_fmt(format_args!(r#""{}""#, value)),
-            vv @ TulispValue::List { .. } => {
-                fmt_list(vv.clone().into_ref(None), f).unwrap_or(());
-                Ok(())
-            }
+            vv @ TulispValue::List { .. } => fmt_list(vv.clone().into_ref(None), f),
             TulispValue::Quote { value, .. } => f.write_fmt(format_args!("'{}", value)),
             TulispValue::Backquote { value, .. } => f.write_fmt(format_args!("`{}", value)),
             TulispValue::Unquote { value, .. } => f.write_fmt(format_args!(",{}", value)),
