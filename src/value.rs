@@ -917,6 +917,32 @@ impl TulispValue {
     }
 
     #[inline(always)]
+    pub(crate) fn set_car(&mut self, new_car: TulispObject) -> Result<(), Error> {
+        match self {
+            TulispValue::List { cons, .. } => {
+                cons.set_car(new_car);
+                Ok(())
+            }
+            _ => Err(Error::type_mismatch(format!(
+                "setcar: expected cons, got: {self}"
+            ))),
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn set_cdr(&mut self, new_cdr: TulispObject) -> Result<(), Error> {
+        match self {
+            TulispValue::List { cons, .. } => {
+                cons.set_cdr(new_cdr);
+                Ok(())
+            }
+            _ => Err(Error::type_mismatch(format!(
+                "setcdr: expected cons, got: {self}"
+            ))),
+        }
+    }
+
+    #[inline(always)]
     pub(crate) fn push(&mut self, val: TulispObject) -> Result<(), Error> {
         self.push_with_meta(val, None, None)
     }

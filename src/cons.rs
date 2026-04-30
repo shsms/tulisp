@@ -84,6 +84,14 @@ impl Cons {
     pub(crate) fn cdr(&self) -> &TulispObject {
         &self.cdr
     }
+
+    pub(crate) fn set_car(&mut self, new: TulispObject) {
+        self.car = new;
+    }
+
+    pub(crate) fn set_cdr(&mut self, new: TulispObject) {
+        self.cdr = new;
+    }
 }
 
 impl Drop for Cons {

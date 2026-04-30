@@ -187,6 +187,26 @@ impl TulispObject {
             .map_err(|e| e.with_trace(self.clone()))
     }
 
+    /// Replaces the car of a cons cell. Mirrors Emacs `setcar`.
+    /// Returns an Error if `self` is not a cons.
+    pub fn set_car(&self, new_car: TulispObject) -> Result<(), Error> {
+        self.rc
+            .borrow_mut()
+            .0
+            .set_car(new_car)
+            .map_err(|e| e.with_trace(self.clone()))
+    }
+
+    /// Replaces the cdr of a cons cell. Mirrors Emacs `setcdr`.
+    /// Returns an Error if `self` is not a cons.
+    pub fn set_cdr(&self, new_cdr: TulispObject) -> Result<(), Error> {
+        self.rc
+            .borrow_mut()
+            .0
+            .set_cdr(new_cdr)
+            .map_err(|e| e.with_trace(self.clone()))
+    }
+
     /// Attaches the other list to the end of self.  Returns an Error if `self`
     /// is not a list.
     pub fn append(&self, other_list: TulispObject) -> Result<&TulispObject, Error> {

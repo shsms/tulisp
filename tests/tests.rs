@@ -1055,6 +1055,31 @@ fn test_math() -> Result<(), Error> {
         result: "t",
     }
 
+    // setcar / setcdr mutate cons cells in place.
+    tulisp_assert! {
+        program: "(let ((x (list 1 2 3))) (setcar x 99) x)",
+        result: "'(99 2 3)",
+    }
+    tulisp_assert! {
+        program: "(let ((x (list 1 2 3))) (setcdr x '(99 100)) x)",
+        result: "'(1 99 100)",
+    }
+    // setcdr with a non-list value produces a dotted pair.
+    tulisp_assert! {
+        program: "(let ((x (list 1 2 3))) (setcdr x 99) x)",
+        result: "'(1 . 99)",
+    }
+    // setcar / setcdr return their new value (Emacs matches).
+    tulisp_assert! { program: "(setcar (list 1 2) 99)", result: "99" }
+    // setcar on a non-cons errors. (Numbers are filtered out of the
+    // trace by `Error::format`, so VM and TW produce the same shape.)
+    tulisp_assert! {
+        program: "(setcar 5 99)",
+        error: r#"ERR TypeMismatch: setcar: expected cons, got: 5
+<eval_string>:1.1-1.13:  at (setcar 5 99)
+"#,
+    }
+
     // Sequence operations on improper lists error like Emacs
     // (`wrong-type-argument`) instead of silently truncating.
     tulisp_assert! {

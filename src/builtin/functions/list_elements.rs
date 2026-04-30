@@ -18,6 +18,22 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         },
     );
 
+    ctx.defun(
+        "setcar",
+        |cell: TulispObject, val: TulispObject| -> Result<TulispObject, Error> {
+            cell.set_car(val.clone())?;
+            Ok(val)
+        },
+    );
+
+    ctx.defun(
+        "setcdr",
+        |cell: TulispObject, val: TulispObject| -> Result<TulispObject, Error> {
+            cell.set_cdr(val.clone())?;
+            Ok(val)
+        },
+    );
+
     macro_rules! impl_all_cxr {
         ($name:ident) => {
             ctx.defun(
