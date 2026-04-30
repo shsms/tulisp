@@ -1071,7 +1071,7 @@ impl TulispValue {
             TulispValue::Number {
                 value: Number::Float(value),
                 ..
-            } => Ok(value.trunc() as i64),
+            } => crate::number::f64_to_i64_checked(value.trunc(), "try_int"),
             TulispValue::Number {
                 value: Number::Int(value),
                 ..

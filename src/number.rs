@@ -83,6 +83,31 @@ impl Display for Number {
     }
 }
 
+/// Convert `value` to `i64`, raising `OutOfRange` for NaN, ±inf,
+/// or values outside `i64`'s range. `f64 as i64` saturates these
+/// silently — for `truncate` / `floor` / `ceiling` / `round` and
+/// the `try_int` extractor, the saturated sentinel is misleading.
+/// `op` names the caller for the error message.
+#[inline]
+pub(crate) fn f64_to_i64_checked(value: f64, op: &str) -> Result<i64, Error> {
+    if !value.is_finite() {
+        return Err(Error::out_of_range(format!(
+            "{op}: cannot convert {value} to integer"
+        )));
+    }
+    // `i64::MAX as f64` rounds up to `9.223…e18`, so the
+    // representable bound is `< MAX_F64`. `MIN_F64` is exact
+    // (`-2^63` is exactly representable in f64).
+    const I64_MAX_F64: f64 = 9.223372036854776e18;
+    const I64_MIN_F64: f64 = -9.223372036854776e18;
+    if !(I64_MIN_F64..I64_MAX_F64).contains(&value) {
+        return Err(Error::out_of_range(format!(
+            "{op}: float {value} out of range for integer"
+        )));
+    }
+    Ok(value as i64)
+}
+
 impl Number {
     /// Like `Add` but raises `OutOfRange` on `Int + Int` overflow
     /// instead of wrapping. Float operands fall through to `f64::add`,
