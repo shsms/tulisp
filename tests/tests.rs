@@ -1134,6 +1134,23 @@ fn test_math() -> Result<(), Error> {
     tulisp_assert! { program: "(+ 40 (* 2.5 4) (- 4 12))", result: "42.0"  }
     tulisp_assert! { program: "(+ 40 (* 2.5 4) (- -1 7))", result: "42.0"  }
     tulisp_assert! { program: "(mod 32 5)",                result: "2"     }
+    // (mod X 0) used to panic via `i64::rem`. Now matches Emacs:
+    // integer-zero divisor errors, float divisor produces NaN.
+    tulisp_assert! {
+        program: "(mod 5 0)",
+        error: r#"ERR OutOfRange: Division by zero
+<eval_string>:1.1-1.9:  at (mod 5 0)
+"#,
+    }
+    tulisp_assert! { program: "(numberp (mod 5.0 0))", result: "t" }
+    // (funcall '<defun-with-required-args>) with too few args used
+    // to panic in the typed-args dispatch macro. Now errors cleanly.
+    tulisp_assert! {
+        program: "(funcall '+)",
+        error: r#"ERR MissingArgument: Too few arguments
+<eval_string>:1.1-1.12:  at (funcall '+)
+"#,
+    }
     tulisp_assert! { program: "(min 12 5 45)",             result: "5"     }
     tulisp_assert! { program: "(max 12 5 45.2 8)",         result: "45.2"  }
 

@@ -61,5 +61,13 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defun("1-", |a: Number| -> Result<Number, Error> {
         a.checked_sub(Number::Int(1))
     });
-    ctx.defun("mod", |a: Number, b: Number| a % b);
+    ctx.defun("mod", |a: Number, b: Number| -> Result<Number, Error> {
+        // Match Emacs: integer-zero divisor errors, float-zero
+        // divisor returns NaN. `i64::rem` panics on zero, so the
+        // check has to gate the call.
+        if matches!((a, b), (Number::Int(_), Number::Int(0))) {
+            return Err(Error::out_of_range("Division by zero".to_string()));
+        }
+        Ok(a % b)
+    });
 }
