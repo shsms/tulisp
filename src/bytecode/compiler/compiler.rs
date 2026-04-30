@@ -481,9 +481,13 @@ pub(crate) fn compile_expr(
                 Instruction::Load(expr.clone())
             }])
         }
-        (TulispValue::Unquote { .. }, _) | (TulispValue::Splice { .. }, _) => Err(Error::new(
+        (TulispValue::Unquote { .. }, _) => Err(Error::new(
             crate::ErrorKind::SyntaxError,
             "Unquote without backquote".to_string(),
+        )),
+        (TulispValue::Splice { .. }, _) => Err(Error::new(
+            crate::ErrorKind::SyntaxError,
+            "Splice without backquote".to_string(),
         )),
     }
 }
