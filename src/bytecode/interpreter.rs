@@ -14,17 +14,18 @@ struct TailCallInfo {
     rest_count: usize,
 }
 
-/// Coerce both operands to `Number` and apply `op`. `as_number`
-/// already attaches the operand to the trace on type-mismatch.
+/// Coerce both operands to `Number` and apply a fallible `op` (one
+/// that surfaces overflow as `Err`). `as_number` already attaches
+/// the operand to the trace on type-mismatch.
 #[inline(always)]
-fn binary_op(
+fn binary_op_checked(
     a: &TulispObject,
     b: &TulispObject,
-    op: impl FnOnce(Number, Number) -> Number,
+    op: impl FnOnce(Number, Number) -> Result<Number, Error>,
 ) -> Result<TulispObject, Error> {
     let a = a.as_number()?;
     let b = b.as_number()?;
-    Ok(op(a, b).into())
+    op(a, b).map(Into::into)
 }
 
 /// Coerce both operands to `Number` and apply `cmp`.
@@ -334,9 +335,9 @@ fn run_impl_inner(
 
                 use crate::bytecode::instruction::BinaryOp;
                 let vv = match op {
-                    BinaryOp::Add => binary_op(a, b, |a, b| a + b)?,
-                    BinaryOp::Sub => binary_op(a, b, |a, b| a - b)?,
-                    BinaryOp::Mul => binary_op(a, b, |a, b| a * b)?,
+                    BinaryOp::Add => binary_op_checked(a, b, Number::checked_add)?,
+                    BinaryOp::Sub => binary_op_checked(a, b, Number::checked_sub)?,
+                    BinaryOp::Mul => binary_op_checked(a, b, Number::checked_mul)?,
                     BinaryOp::Div => {
                         // Match Emacs: error only when *both* operands
                         // are integers and the divisor is zero (would

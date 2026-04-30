@@ -63,6 +63,50 @@ impl Display for Number {
     }
 }
 
+impl Number {
+    /// Like `Add` but raises `OutOfRange` on `Int + Int` overflow
+    /// instead of wrapping. Float operands fall through to `f64::add`,
+    /// which produces `inf` rather than overflowing — matches Emacs
+    /// (which would promote to bignum on integer overflow).
+    pub(crate) fn checked_add(self, rhs: Number) -> Result<Number, Error> {
+        match (self, rhs) {
+            (Number::Int(l), Number::Int(r)) => l
+                .checked_add(r)
+                .map(Number::Int)
+                .ok_or_else(|| Error::out_of_range(format!("integer overflow: {} + {}", l, r))),
+            (Number::Int(l), Number::Float(r)) => Ok(Number::Float(l as f64 + r)),
+            (Number::Float(l), Number::Int(r)) => Ok(Number::Float(l + r as f64)),
+            (Number::Float(l), Number::Float(r)) => Ok(Number::Float(l + r)),
+        }
+    }
+
+    /// `Sub` counterpart with `Int - Int` overflow detection.
+    pub(crate) fn checked_sub(self, rhs: Number) -> Result<Number, Error> {
+        match (self, rhs) {
+            (Number::Int(l), Number::Int(r)) => l
+                .checked_sub(r)
+                .map(Number::Int)
+                .ok_or_else(|| Error::out_of_range(format!("integer overflow: {} - {}", l, r))),
+            (Number::Int(l), Number::Float(r)) => Ok(Number::Float(l as f64 - r)),
+            (Number::Float(l), Number::Int(r)) => Ok(Number::Float(l - r as f64)),
+            (Number::Float(l), Number::Float(r)) => Ok(Number::Float(l - r)),
+        }
+    }
+
+    /// `Mul` counterpart with `Int * Int` overflow detection.
+    pub(crate) fn checked_mul(self, rhs: Number) -> Result<Number, Error> {
+        match (self, rhs) {
+            (Number::Int(l), Number::Int(r)) => l
+                .checked_mul(r)
+                .map(Number::Int)
+                .ok_or_else(|| Error::out_of_range(format!("integer overflow: {} * {}", l, r))),
+            (Number::Int(l), Number::Float(r)) => Ok(Number::Float(l as f64 * r)),
+            (Number::Float(l), Number::Int(r)) => Ok(Number::Float(l * r as f64)),
+            (Number::Float(l), Number::Float(r)) => Ok(Number::Float(l * r)),
+        }
+    }
+}
+
 impl std::ops::Add for Number {
     type Output = Number;
 

@@ -1018,6 +1018,30 @@ fn test_math() -> Result<(), Error> {
     // `1e` (no exponent digit) falls back to identifier rather than
     // erroring — Emacs reads it as a symbol too.
     tulisp_assert! { program: "(progn (setq 1e 11) 1e)",      result: "11" }
+
+    // Integer overflow raises `OutOfRange` instead of wrapping.
+    // Tulisp doesn't have bignums, so this stops at i64 limits.
+    tulisp_assert! {
+        program: "(+ 9223372036854775807 1)",
+        error: r#"ERR OutOfRange: integer overflow: 9223372036854775807 + 1
+<eval_string>:1.1-1.25:  at (+ 9223372036854775807 1)
+"#,
+    }
+    tulisp_assert! {
+        program: "(* 9223372036854775807 2)",
+        error: r#"ERR OutOfRange: integer overflow: 9223372036854775807 * 2
+<eval_string>:1.1-1.25:  at (* 9223372036854775807 2)
+"#,
+    }
+    tulisp_assert! {
+        program: "(1+ 9223372036854775807)",
+        error: r#"ERR OutOfRange: integer overflow: 9223372036854775807 + 1
+<eval_string>:1.1-1.24:  at (1+ 9223372036854775807)
+"#,
+    }
+    // A float operand sidesteps the overflow check — `f64::add`
+    // produces inf rather than overflowing.
+    tulisp_assert! { program: "(numberp (+ 9223372036854775807 1.0))", result: "t" }
     // Float-zero divisor doesn't error (Emacs returns ±INF). Both the
     // VM `BinaryOp::Div` path and the rest-arg defun path agree now.
     tulisp_assert! { program: "(numberp (/ 1.0 0.0))",            result: "t" }

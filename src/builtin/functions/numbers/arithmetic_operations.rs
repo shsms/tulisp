@@ -1,22 +1,31 @@
 use crate::{Error, Number, Rest, TulispContext};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    ctx.defun("+", |first: Number, rest: Rest<Number>| -> Number {
-        rest.into_iter().fold(first, |a, b| a + b)
-    });
+    ctx.defun(
+        "+",
+        |first: Number, rest: Rest<Number>| -> Result<Number, Error> {
+            rest.into_iter().try_fold(first, Number::checked_add)
+        },
+    );
 
-    ctx.defun("-", |first: Number, rest: Rest<Number>| -> Number {
-        let rest: Vec<Number> = rest.into_iter().collect();
-        if rest.is_empty() {
-            Number::from(0) - first
-        } else {
-            rest.into_iter().fold(first, |a, b| a - b)
-        }
-    });
+    ctx.defun(
+        "-",
+        |first: Number, rest: Rest<Number>| -> Result<Number, Error> {
+            let rest: Vec<Number> = rest.into_iter().collect();
+            if rest.is_empty() {
+                Number::from(0).checked_sub(first)
+            } else {
+                rest.into_iter().try_fold(first, Number::checked_sub)
+            }
+        },
+    );
 
-    ctx.defun("*", |first: Number, rest: Rest<Number>| -> Number {
-        rest.into_iter().fold(first, |a, b| a * b)
-    });
+    ctx.defun(
+        "*",
+        |first: Number, rest: Rest<Number>| -> Result<Number, Error> {
+            rest.into_iter().try_fold(first, Number::checked_mul)
+        },
+    );
 
     ctx.defun(
         "/",
@@ -46,7 +55,11 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         },
     );
 
-    ctx.defun("1+", |a: Number| a + 1);
-    ctx.defun("1-", |a: Number| a - 1);
+    ctx.defun("1+", |a: Number| -> Result<Number, Error> {
+        a.checked_add(Number::Int(1))
+    });
+    ctx.defun("1-", |a: Number| -> Result<Number, Error> {
+        a.checked_sub(Number::Int(1))
+    });
     ctx.defun("mod", |a: Number, b: Number| a % b);
 }
