@@ -320,6 +320,15 @@ impl Iterator for Tokenizer<'_> {
                     });
                 }
                 '#' => {
+                    // Capture the sigil's position before consuming
+                    // it. Computing the start column from the
+                    // post-consume `pos` would underflow if the
+                    // tokenizer ever reset `pos` (e.g. on a newline)
+                    // between the sigil and its companion char —
+                    // can't happen today because `#'` must be
+                    // adjacent, but the explicit start_pos keeps the
+                    // span correct under any future tokenizer change.
+                    let start_pos = (self.line, self.pos + 1);
                     self.next_char()?;
                     // `peek_char()?` would silently terminate the
                     // tokenizer at EOF, hiding the bad input. Match
@@ -328,65 +337,42 @@ impl Iterator for Tokenizer<'_> {
                         Some('\'') => {
                             self.next_char()?;
                             return Some(Token::SharpQuote {
-                                span: Span::new(
-                                    self.file_id,
-                                    (self.line, self.pos - 1),
-                                    (self.line, self.pos),
-                                ),
+                                span: Span::new(self.file_id, start_pos, (self.line, self.pos)),
                             });
                         }
                         Some(_) => {
                             return Some(Token::ParserError(ParserError::syntax_error(
                                 "Unknown token #.  Did you mean #' ?".to_string(),
-                                Span::new(
-                                    self.file_id,
-                                    (self.line, self.pos),
-                                    (self.line, self.pos),
-                                ),
+                                Span::new(self.file_id, start_pos, (self.line, self.pos)),
                             )));
                         }
                         None => {
                             return Some(Token::ParserError(ParserError::syntax_error(
                                 "Unexpected EOF after #".to_string(),
-                                Span::new(
-                                    self.file_id,
-                                    (self.line, self.pos),
-                                    (self.line, self.pos),
-                                ),
+                                Span::new(self.file_id, start_pos, (self.line, self.pos)),
                             )));
                         }
                     }
                 }
                 ',' => {
+                    let start_pos = (self.line, self.pos + 1);
                     self.next_char()?;
                     match self.peek_char() {
                         Some('@') => {
                             self.next_char()?;
                             return Some(Token::Splice {
-                                span: Span::new(
-                                    self.file_id,
-                                    (self.line, self.pos - 1),
-                                    (self.line, self.pos),
-                                ),
+                                span: Span::new(self.file_id, start_pos, (self.line, self.pos)),
                             });
                         }
                         Some(_) => {
                             return Some(Token::Comma {
-                                span: Span::new(
-                                    self.file_id,
-                                    (self.line, self.pos),
-                                    (self.line, self.pos),
-                                ),
+                                span: Span::new(self.file_id, start_pos, (self.line, self.pos)),
                             });
                         }
                         None => {
                             return Some(Token::ParserError(ParserError::syntax_error(
                                 "Unexpected EOF after ,".to_string(),
-                                Span::new(
-                                    self.file_id,
-                                    (self.line, self.pos),
-                                    (self.line, self.pos),
-                                ),
+                                Span::new(self.file_id, start_pos, (self.line, self.pos)),
                             )));
                         }
                     }
