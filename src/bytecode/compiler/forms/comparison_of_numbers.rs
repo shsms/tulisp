@@ -16,11 +16,21 @@ fn compile_fn_compare(
     drop(compiler);
     let mut result = vec![];
     let args = args.base_iter().collect::<Vec<_>>();
-    if args.len() < 2 {
-        return Err(Error::new(
-            crate::ErrorKind::OutOfRange, // TODO: change to ArityMismatch
-            "Comparison requires at least 2 arguments".to_string(),
+    if args.is_empty() {
+        return Err(Error::missing_argument(
+            "Comparison requires at least 1 argument".to_string(),
         ));
+    }
+    if args.len() == 1 {
+        // A single-arg comparison is vacuously true (Emacs: `(> 5)`
+        // => t). Compile the arg for its side effects, then drop its
+        // value and push t in keep_result mode.
+        result.append(&mut compile_expr(ctx, &args[0])?);
+        if keep_result {
+            result.push(Instruction::Pop);
+            result.push(Instruction::Push(TulispObject::t()));
+        }
+        return Ok(result);
     }
     for items in args.windows(2) {
         result.append(&mut compile_expr(ctx, &items[1])?);

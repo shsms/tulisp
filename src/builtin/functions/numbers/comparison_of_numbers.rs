@@ -5,11 +5,12 @@ where
     F: Fn(&Number, &Number) -> bool,
 {
     let args: Vec<Number> = args.into_iter().collect();
-    if args.len() < 2 {
-        return Err(Error::out_of_range(
-            "Comparison requires at least 2 arguments".to_string(),
+    if args.is_empty() {
+        return Err(Error::missing_argument(
+            "Comparison requires at least 1 argument".to_string(),
         ));
     }
+    // A single-arg comparison is vacuously true (Emacs: `(> 5)` => t).
     for w in args.windows(2) {
         if !cmp(&w[0], &w[1]) {
             return Ok(false);
