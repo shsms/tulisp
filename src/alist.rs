@@ -82,21 +82,34 @@ fn assoc_find(
     alist: &TulispObject,
     mut testfn: impl FnMut(&TulispObject, &TulispObject) -> Result<bool, Error>,
 ) -> Result<TulispObject, Error> {
-    let mut cur = alist.clone();
-    while cur.consp() {
-        let entry = cur.car()?;
-        // Match Emacs: silently skip non-cons elements rather than
-        // erroring on `caar`. So `(assoc 'b '(1 (b . 2)))` finds
-        // the pair instead of crashing on the leading `1`.
-        if entry.consp() {
-            let entry_key = entry.car()?;
-            if testfn(&entry_key, key)? {
-                return Ok(entry);
+    // Floyd's tortoise / hare: hare advances two cells per step,
+    // testing each one; tortoise advances one. If they ever land on
+    // the same cell, the alist is circular (e.g. built via `setcdr`)
+    // and we'd otherwise infloop. Mirrors `lists::length`.
+    let mut slow = alist.clone();
+    let mut fast = alist.clone();
+    loop {
+        for _ in 0..2 {
+            if !fast.consp() {
+                return Ok(TulispObject::nil());
             }
+            let entry = fast.car()?;
+            // Match Emacs: silently skip non-cons elements rather than
+            // erroring on `caar`. So `(assoc 'b '(1 (b . 2)))` finds
+            // the pair instead of crashing on the leading `1`.
+            if entry.consp() {
+                let entry_key = entry.car()?;
+                if testfn(&entry_key, key)? {
+                    return Ok(entry);
+                }
+            }
+            fast = fast.cdr()?;
         }
-        cur = cur.cdr()?;
+        slow = slow.cdr()?;
+        if slow.eq_ptr(&fast) {
+            return Err(Error::out_of_range("Circular alist".to_string()));
+        }
     }
-    Ok(TulispObject::nil())
 }
 
 /// Conversion between a Rust struct and a Lisp alist.
@@ -432,5 +445,24 @@ mod tests {
         let err = Person::from_alist(&mut ctx, &x).unwrap_err();
         let msg = err.format(&ctx);
         assert!(msg.contains("Unexpected key in alist"), "got: {msg}");
+    }
+
+    #[test]
+    fn test_assoc_detects_cycle() {
+        // Build a circular alist via setcdr: the cdr of the last cons
+        // points back to the head, so a naive walk never terminates.
+        let mut ctx = TulispContext::new();
+        ctx.eval_string(
+            r#"
+            (setq x (list (cons 'a 1) (cons 'b 2) (cons 'c 3)))
+            (setcdr (cdr (cdr x)) x)
+            "#,
+        )
+        .unwrap();
+        let x = ctx.eval_string("x").unwrap();
+        let key = ctx.intern("missing");
+        let err = super::assoc(&mut ctx, &key, &x, None).unwrap_err();
+        let msg = err.format(&ctx);
+        assert!(msg.contains("Circular alist"), "got: {msg}");
     }
 }
