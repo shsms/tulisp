@@ -3,9 +3,6 @@ mod callable;
 mod rest;
 pub use rest::Rest;
 
-mod plist;
-pub use plist::{Plist, Plistable};
-
 use std::{
     collections::HashMap,
     fs,

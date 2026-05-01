@@ -12,7 +12,7 @@ mod cons;
 pub use cons::{BaseIter, Iter};
 
 mod context;
-pub use context::{Plist, Plistable, Rest, TulispContext};
+pub use context::{Rest, TulispContext};
 
 mod error;
 pub use error::{Error, ErrorKind};
@@ -20,7 +20,7 @@ pub use error::{Error, ErrorKind};
 pub mod lists;
 
 pub mod plist;
-pub use plist::{plist_from, plist_get};
+pub use plist::{Plist, Plistable, plist_from, plist_get};
 
 mod number;
 pub use number::Number;
