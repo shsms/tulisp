@@ -87,7 +87,92 @@ pub fn render_with_style(cst: &Cst, style: &Style) -> String {
     if !r.out.is_empty() && !r.out.ends_with('\n') {
         r.out.push('\n');
     }
-    r.out
+    align_trailing_comments(&r.out)
+}
+
+/// Walk the rendered output and pad consecutive lines that end with
+/// a `;`-comment so that all `;`s line up on the same column. A
+/// "run" is a contiguous group of such lines; runs end at any line
+/// without a trailing comment (blank lines, code-only lines,
+/// block-comment-only lines all break a run). Single-line runs are
+/// left alone — alignment is meaningful only for ≥ 2 lines.
+fn align_trailing_comments(out: &str) -> String {
+    let lines: Vec<&str> = out.split_inclusive('\n').collect();
+    let cols: Vec<Option<usize>> = lines
+        .iter()
+        .map(|l| {
+            let trimmed = l.strip_suffix('\n').unwrap_or(l);
+            find_trailing_comment_col(trimmed)
+        })
+        .collect();
+
+    let mut result = String::with_capacity(out.len());
+    let mut i = 0;
+    while i < lines.len() {
+        if cols[i].is_none() {
+            result.push_str(lines[i]);
+            i += 1;
+            continue;
+        }
+        let mut j = i + 1;
+        while j < lines.len() && cols[j].is_some() {
+            j += 1;
+        }
+        if j - i < 2 {
+            result.push_str(lines[i]);
+            i = j;
+            continue;
+        }
+        let target = cols[i..j].iter().filter_map(|c| *c).max().unwrap();
+        for k in i..j {
+            let line = lines[k];
+            let line_body = line.strip_suffix('\n').unwrap_or(line);
+            let col = cols[k].unwrap();
+            result.push_str(&line_body[..col]);
+            for _ in col..target {
+                result.push(' ');
+            }
+            result.push_str(&line_body[col..]);
+            if line.ends_with('\n') {
+                result.push('\n');
+            }
+        }
+        i = j;
+    }
+    result
+}
+
+/// Return the byte column at which a trailing `;`-comment begins on
+/// `line`, or `None` if the line has no trailing comment. Lines whose
+/// first non-whitespace char is `;` are *block* comments — they don't
+/// participate in trailing-comment alignment.
+fn find_trailing_comment_col(line: &str) -> Option<usize> {
+    let bytes = line.as_bytes();
+    let mut in_string = false;
+    let mut prev_backslash = false;
+    let mut saw_code = false;
+    for (i, &b) in bytes.iter().enumerate() {
+        if !in_string {
+            if !saw_code {
+                if b == b' ' || b == b'\t' {
+                    continue;
+                }
+                if b == b';' {
+                    return None;
+                }
+                saw_code = true;
+            }
+            if b == b'"' {
+                in_string = true;
+            } else if b == b';' {
+                return Some(i);
+            }
+        } else if !prev_backslash && b == b'"' {
+            in_string = false;
+        }
+        prev_backslash = b == b'\\' && !prev_backslash;
+    }
+    None
 }
 
 struct Renderer {
@@ -810,6 +895,45 @@ mod tests {
         // Body indent of 8 with tab-width 8 should be exactly one tab.
         let out = fmt_with_style("(let ((x 1))\n        body)", &style);
         assert_eq!(out, "(let ((x 1))\n\tbody)\n");
+    }
+
+    #[test]
+    fn aligns_consecutive_trailing_comments() {
+        let src = "(setq x 1) ; first\n(setq long 22) ; second\n(setq y 333) ; third\n";
+        let out = fmt(src);
+        let expected = "\
+(setq x 1)     ; first
+(setq long 22) ; second
+(setq y 333)   ; third
+";
+        assert_eq!(out, expected);
+    }
+
+    #[test]
+    fn block_comments_dont_align_with_trailing() {
+        // The `;; line on its own` is a block comment; the next two
+        // lines share a trailing-comment alignment that's
+        // independent of it.
+        let src = "(foo) ; a\n;; standalone\n(bar) ; b\n(baz) ; cc\n";
+        let out = fmt(src);
+        let expected = "\
+(foo) ; a
+;; standalone
+(bar) ; b
+(baz) ; cc
+";
+        assert_eq!(out, expected);
+    }
+
+    #[test]
+    fn semicolons_inside_strings_dont_count() {
+        let src = "(princ \"hi ; not\") ; real\n(princ \"x\") ; yep\n";
+        let out = fmt(src);
+        let expected = "\
+(princ \"hi ; not\") ; real
+(princ \"x\")        ; yep
+";
+        assert_eq!(out, expected);
     }
 
     #[test]
