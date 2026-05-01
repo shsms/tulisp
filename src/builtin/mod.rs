@@ -23,15 +23,16 @@ Click  [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Conditio
 
 | Name        | Status | Details                                          |
 |-------------|--------|--------------------------------------------------|
-| `if`        | ☑️      |                                                  |
-| `when`      | ☑️      |                                                  |
-| `unless`    | ☑️      |                                                  |
-| `cond`      | ☑️      |                                                  |
-| `not`      | ☑️      |                                                  |
-| `and`      | ☑️      |                                                  |
-| `or`      | ☑️      |                                                  |
-| `xor`      | ☑️      |                                                  |
-| `if-let`    | ☑️
+| `if`        | ☑️     |                                                  |
+| `when`      | ☑️     |                                                  |
+| `unless`    | ☑️     |                                                  |
+| `cond`      | ☑️     |                                                  |
+| `not`       | ☑️     |                                                  |
+| `and`       | ☑️     |                                                  |
+| `or`        | ☑️     |                                                  |
+| `xor`       | ☑️     |                                                  |
+| `if-let`    | ☑️     |                                                  |
+| `if-let*`   | ☑️     |                                                  |
 | `when-let`  | ☑️     |                                                  |
 | `while-let` | ☑️     |                                                  |
 
@@ -92,8 +93,10 @@ Click [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/List-Elem
 | `nthcdr`      | ☑️      |                                                         |
 | `take`        | 🔳     |                                                         |
 | `ntake`       | 🔳     |                                                         |
-| `last`        | ☑️      | not cycle-safe                                          |
-| `safe-lentgh` | 🔳     | not until we have a cycle-detection algorithm for lists |
+| `last`        | ☑️      | errors on circular lists (via `length`)                 |
+| `safe-length` | 🔳     |                                                         |
+| `setcar`      | ☑️     |                                                         |
+| `setcdr`      | ☑️     |                                                         |
 | `caar`        | ☑️      |                                                         |
 | `cadr`        | ☑️      |                                                         |
 | `cdar`        | ☑️      |                                                         |
@@ -114,10 +117,11 @@ Because there are a huge number of sequence functions that are not yet implement
 
 | Name         | Status | Details |
 |--------------|--------|---------|
-| `length`     | ☑️      | works on lists and strings |
+| `length`     | ☑️      | works on lists and strings; cycle-safe |
 | `make-string`| ☑️      | takes (N CHAR), where CHAR is an integer |
 | `reverse`    | ☑️      |         |
 | `sort`       | ☑️      |         |
+| `aset`       | ☑️      | mutates a string in place |
 | `mapconcat`  | ☑️      |         |
 | `string-join`| ☑️      |         |
 | `seq-map`    | ☑️      |         |
@@ -146,7 +150,7 @@ Click [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Hash-Tabl
 |--------------------|--------|---------|
 | `make-hash-table`  | ☑️     | takes no arguments, uses `eql` as the test function. |
 | `puthash`          | ☑️     |         |
-| `gethash`          | ☑️     |         |
+| `gethash`          | ☑️     | optional 3rd `default` argument |
 
 ## Time Calculations
 
@@ -156,7 +160,7 @@ These functions are described in the [time of
  calculations](https://www.gnu.org/software/emacs/manual/html_node/elisp/Time-Calculations.html)
  Emacs lisp manual pages.
 
-`time-less-p`, `time-equal-p`, `test-subtract`, `test-add` all take two arguments.  The
+`time-less-p`, `time-equal-p`, `time-subtract`, `time-add` all take two arguments.  The
 arguments can be integers representing a number of seconds since the Unix epoch,
 or they can be `(ticks . hz)` values, representing `ticks/hz` values seconds since
 the unix epoch.
@@ -177,14 +181,16 @@ the unix epoch.
 | `expt`      | ☑️      |        |
 | `sqrt`      | ☑️      |        |
 | `abs`       | ☑️      |        |
+| `isnan`     | ☑️      |        |
 
 ## Error handling
 
-| Name                                                                                                   | Status | Details |
-|--------------------------------------------------------------------------------------------------------|--------|---------|
-| [`error`](https://www.gnu.org/software/emacs/manual/html_node/elisp/Signaling-Errors.html#index-error) | ☑️      |         |
-| [`throw`](https://www.gnu.org/software/emacs/manual/html_node/elisp/Catch-and-Throw.html#index-throw)  | ☑️      |         |
-| [`catch`](https://www.gnu.org/software/emacs/manual/html_node/elisp/Catch-and-Throw.html#index-catch)  | ☑️      |         |
+| Name                                                                                                                       | Status | Details |
+|----------------------------------------------------------------------------------------------------------------------------|--------|---------|
+| [`error`](https://www.gnu.org/software/emacs/manual/html_node/elisp/Signaling-Errors.html#index-error)                     | ☑️      |         |
+| [`throw`](https://www.gnu.org/software/emacs/manual/html_node/elisp/Catch-and-Throw.html#index-throw)                      | ☑️      |         |
+| [`catch`](https://www.gnu.org/software/emacs/manual/html_node/elisp/Catch-and-Throw.html#index-catch)                      | ☑️      |         |
+| [`condition-case`](https://www.gnu.org/software/emacs/manual/html_node/elisp/Handling-Errors.html#index-condition_002dcase) | ☑️      |         |
 
 ## Others
 
@@ -233,6 +239,17 @@ These functions need to be organized into categories.  They are grouped here for
 | `fceiling`                                                                                              | ☑️      |                                                   |
 | `fround`                                                                                                | ☑️      |                                                   |
 | `ftruncate`                                                                                             | ☑️      |                                                   |
+
+## Threading macros
+
+Click [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Threading-Macros.html) for the Emacs lisp manual page for threading macros.
+
+| Name           | Status | Details |
+|----------------|--------|---------|
+| `->`           | ☑️     |         |
+| `->>`          | ☑️     |         |
+| `thread-first` | ☑️     |         |
+| `thread-last`  | ☑️     |         |
 
 ## Other predicates
 

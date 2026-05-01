@@ -330,7 +330,7 @@ impl TulispContext {
     /// | `(..., `[`Rest<T>`](Rest)`) -> R`        | trailing variadic arguments (Lisp `&rest`)     |
     /// | `(&mut TulispContext, T, ...) -> R`      | access to the interpreter                      |
     /// | `(...) -> Result<R, `[`Error`](Error)`>` | fallible function                              |
-    /// | `(`[`Plist<T>`](Plist)`) -> R`           | entire argument list as a typed plist          |
+    /// | `(`[`Plist<T>`](crate::Plist)`) -> R`    | entire argument list as a typed plist          |
     ///
     /// # Examples
     ///
