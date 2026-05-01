@@ -54,7 +54,7 @@ Tulisp has no vector type — sequence functions are list-only.
 # Functions and macros
 
 - **Definitions**: `defun`, `defmacro`, `lambda`, `declare`.
-- **Invocation**: `eval`, `funcall`, `macroexpand`.
+- **Invocation**: `eval`, `funcall`, `apply`, `macroexpand`.
 - **Quoting**: `quote` (also written `'expr`), backquote / unquote /
   splice (`` ` ``, `,`, `,@`).
 - **Threading**: `->` / `thread-first`, `->>` / `thread-last`.

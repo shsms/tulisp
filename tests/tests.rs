@@ -499,6 +499,55 @@ fn test_eval() -> Result<(), Error> {
 }
 
 #[test]
+fn test_apply() -> Result<(), Error> {
+    // Plain (apply FN LIST).
+    tulisp_assert! { program: "(apply '+ '(1 2 3))",         result: "6"  }
+    // Empty final list — args slice through to the function as-is.
+    // `+` requires ≥1 arg in tulisp, so use `list` here which doesn't.
+    tulisp_assert! { program: "(apply 'list '())",           result: "nil" }
+
+    // Intermediate args spliced ahead of the final list.
+    tulisp_assert! { program: "(apply '+ 1 2 '(3 4))",       result: "10" }
+    tulisp_assert! { program: "(apply 'list 1 2 '(3 4))",    result: "'(1 2 3 4)" }
+    tulisp_assert! { program: "(apply 'concat \"a\" '(\"b\" \"c\"))", result: r#""abc""# }
+
+    // Symbol bound to a lambda.
+    tulisp_assert! {
+        program: "(setq f (lambda (a b c) (+ a (* b c))))(apply f 1 '(2 3))",
+        result: "7",
+    }
+
+    // Inline lambda.
+    tulisp_assert! {
+        program: "(apply (lambda (a b) (* a b)) 3 '(4))",
+        result: "12",
+    }
+
+    // The intermediate args are evaluated.
+    tulisp_assert! {
+        program: "(let ((x 10)) (apply '+ x '(2 3)))",
+        result: "15",
+    }
+
+    // Last arg must be a list.
+    tulisp_assert! {
+        program: "(apply '+ 1 2)",
+        error: r#"ERR TypeMismatch: apply: last argument must be a list, got: 2
+<eval_string>:1.1-1.14:  at (apply '+ 1 2)
+"#
+    }
+
+    // Missing the args list.
+    tulisp_assert! {
+        program: "(apply '+)",
+        error: r#"ERR MissingArgument: apply requires at least 2 arguments
+<eval_string>:1.1-1.10:  at (apply '+)
+"#
+    }
+    Ok(())
+}
+
+#[test]
 fn test_strings() -> Result<(), Error> {
     tulisp_assert! {
         program: r##"(concat 'hello 'world)"##,

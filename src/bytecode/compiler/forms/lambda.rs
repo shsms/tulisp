@@ -227,3 +227,49 @@ pub(super) fn compile_fn_funcall(
     }
     Ok(result)
 }
+
+/// Compiles the special form `(apply fn arg1 ... final-list)`.
+///
+/// Same shape as [`compile_fn_funcall`] but the trailing argument is
+/// spliced at runtime: the runtime handler pops `args_count`
+/// intermediate args plus the final list, validates that the final
+/// arg is a list, and dispatches via the same in-VM funcall path.
+pub(super) fn compile_fn_apply(
+    ctx: &mut TulispContext,
+    _name: &TulispObject,
+    args: &TulispObject,
+) -> Result<Vec<Instruction>, Error> {
+    if !args.consp() {
+        return Err(Error::new(
+            ErrorKind::TypeMismatch,
+            "apply requires at least 2 arguments".to_string(),
+        ));
+    }
+    let mut result = Vec::new();
+    let fn_expr = args.car()?;
+    result.append(&mut compile_expr_keep_result(ctx, &fn_expr)?);
+    let mut total_args = 0usize;
+    let mut rest = args.cdr()?;
+    while rest.consp() {
+        let arg = rest.car()?;
+        result.append(&mut compile_expr_keep_result(ctx, &arg)?);
+        total_args += 1;
+        rest = rest.cdr()?;
+    }
+    if total_args == 0 {
+        return Err(Error::new(
+            ErrorKind::MissingArgument,
+            "apply requires at least 2 arguments".to_string(),
+        ));
+    }
+    // The last arg compiled is the spliced list; everything before
+    // it is an intermediate arg.
+    let intermediate = total_args - 1;
+    result.push(Instruction::Apply {
+        args_count: intermediate,
+    });
+    if !ctx.compiler.as_ref().unwrap().keep_result {
+        result.push(Instruction::Pop);
+    }
+    Ok(result)
+}

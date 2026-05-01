@@ -584,6 +584,58 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         },
     );
 
+    ctx.defspecial("apply", |ctx, args| {
+        // (apply FUNCTION &rest ARGUMENTS) — calls FUNCTION with its
+        // intermediate ARGUMENTS plus the elements of the final list
+        // (which must itself evaluate to a list). E.g.
+        //   (apply '+ 1 2 '(3 4))  =>  10
+        destruct_bind!((name &rest rest) = args);
+        let name = ctx.eval(&name)?;
+        let name = ctx.eval(&name)?;
+
+        let mut evaluated: Vec<TulispObject> = Vec::new();
+        let mut cur = rest;
+        while cur.consp() {
+            evaluated.push(ctx.eval(&cur.car()?)?);
+            cur = cur.cdr()?;
+        }
+        let Some(final_list) = evaluated.pop() else {
+            return Err(Error::missing_argument(
+                "apply requires at least 2 arguments".to_string(),
+            ));
+        };
+        if !final_list.listp() {
+            return Err(Error::type_mismatch(format!(
+                "apply: last argument must be a list, got: {final_list}"
+            )));
+        }
+        let mut iter = final_list.clone();
+        while iter.consp() {
+            evaluated.push(iter.car()?);
+            iter = iter.cdr()?;
+        }
+
+        // Hand the spliced, already-evaluated args to `funcall` via a
+        // quoted arg list — same trick the VM's `funcall_inline` uses
+        // for Lambda/Func: wrap each value in `quote` so the inner
+        // `Eval` pass treats it as a no-op.
+        let call_args = TulispObject::nil();
+        for arg in evaluated {
+            call_args.push(TulispValue::Quote { value: arg }.into_ref(None))?;
+        }
+
+        if matches!(
+            &name.inner_ref().0,
+            TulispValue::Lambda { .. }
+                | TulispValue::Defun { .. }
+                | TulispValue::CompiledDefun { .. }
+        ) {
+            crate::eval::funcall::<Eval>(ctx, &name, &call_args)
+        } else {
+            crate::eval::funcall::<DummyEval>(ctx, &name, &call_args)
+        }
+    });
+
     ctx.defspecial("funcall", |ctx, args| {
         destruct_bind!((name &rest rest) = args);
         let name = ctx.eval(&name)?;

@@ -58,6 +58,7 @@ impl VMCompilers {
             ("defun", other_functions::compile_fn_defun),
             ("lambda", lambda::compile_fn_lambda),
             ("funcall", lambda::compile_fn_funcall),
+            ("apply", lambda::compile_fn_apply),
             ("progn", other_functions::compile_fn_progn),
             // setting
             ("let", setting::compile_fn_let_star),

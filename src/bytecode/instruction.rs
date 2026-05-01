@@ -163,6 +163,17 @@ pub(crate) enum Instruction {
     Funcall {
         args_count: usize,
     },
+    /// Inline `(apply fn arg1 … final-list)` dispatch. The function is
+    /// pushed first, then each intermediate arg, then the final list
+    /// (which must evaluate to a list at runtime; its elements are
+    /// spliced after the intermediate args). `args_count` is the
+    /// number of intermediate args — the final list is on top of the
+    /// stack with `args_count + 1` items below it (the function and
+    /// the intermediate args). Same anti-reborrow rationale as
+    /// [`Funcall`](Self::Funcall).
+    Apply {
+        args_count: usize,
+    },
     Ret,
     /// Push `form` onto the machine's `trace_stack`. Errors that
     /// propagate out of any subsequent instruction (until a matching
@@ -237,6 +248,7 @@ impl std::fmt::Display for Instruction {
             Instruction::TailCall { name, .. } => write!(f, "    tcall {}", name),
             Instruction::MakeLambda(_) => write!(f, "    make_lambda"),
             Instruction::Funcall { args_count } => write!(f, "    funcall {}", args_count),
+            Instruction::Apply { args_count } => write!(f, "    apply {}", args_count),
             Instruction::Ret => write!(f, "    ret"),
             Instruction::PushTrace(obj) => write!(f, "    push_trace {}", obj),
             Instruction::PopTrace => write!(f, "    pop_trace"),

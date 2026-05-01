@@ -719,6 +719,28 @@ fn run_impl_inner(
                 ctx.vm.stack.push(result);
                 instr_ref = program.borrow_mut();
             }
+            Instruction::Apply { args_count } => {
+                let args_count = *args_count;
+                // Stack layout: [..., FN, intermediate_0..N-1, FINAL_LIST]
+                let final_list = ctx.vm.stack.pop().unwrap();
+                if !final_list.listp() {
+                    return Err(Error::type_mismatch(format!(
+                        "apply: last argument must be a list, got: {final_list}"
+                    )));
+                }
+                let split_at = ctx.vm.stack.len() - args_count;
+                let mut args: Vec<TulispObject> = ctx.vm.stack.drain(split_at..).collect();
+                let func = ctx.vm.stack.pop().unwrap();
+                let mut iter = final_list.clone();
+                while iter.consp() {
+                    args.push(iter.car()?);
+                    iter = iter.cdr()?;
+                }
+                drop(instr_ref);
+                let result = funcall_inline(ctx, &func, args, recursion_depth)?;
+                ctx.vm.stack.push(result);
+                instr_ref = program.borrow_mut();
+            }
             Instruction::RustCall {
                 form,
                 func,
