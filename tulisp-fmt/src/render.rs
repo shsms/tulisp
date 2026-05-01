@@ -141,22 +141,17 @@ fn render_list_body(nodes: &[CstNode], open_col: usize, r: &mut Renderer) {
 
 /// Indent column for the next line inside a list body.
 ///
-/// - Before any structural child has rendered: align under whatever
-///   *would* have been the first child — column right after `(`.
-/// - For special-form heads (see [`is_special_form`]): body indents
-///   at `open_col + 2`.
-/// - Otherwise (function-call form): align under the second
-///   structural child if one has rendered; else fall back to
-///   `open_col + 1`. Matching Emacs:
+/// Three regimes:
 ///
-///   ```text
-///   (foo bar          (foo
-///        baz)               bar)
-///   ```
-///
-///   When the line break is before any arg has rendered, Emacs uses
-///   `open_col + 1` rather than estimating where the second arg
-///   *would* have landed.
+/// 1. Before any structural child has rendered → `open_col + 1`.
+/// 2. Special form with at least one header arg (let, defun, when, …)
+///    → `open_col + 2`. The body always indents at +2, even after the
+///    second struct child has rendered.
+/// 3. Otherwise (function-call form, or `progn`-shaped `Special(0)`
+///    forms once their first arg has rendered) → align under the
+///    second struct child if recorded; else fall back to either
+///    `open_col + 2` (Special(0) broken-before-first-arg) or
+///    `open_col + 1` (Default broken-before-first-arg).
 fn compute_indent(
     head: Option<&str>,
     struct_count: usize,
@@ -166,16 +161,52 @@ fn compute_indent(
     if struct_count == 0 {
         return open_col + 1;
     }
-    if head.is_some_and(is_special_form) {
-        return open_col + 2;
+    let kind = head.map(special_kind).unwrap_or(SpecialKind::None);
+    match kind {
+        SpecialKind::HasHeader => open_col + 2,
+        SpecialKind::ZeroHeader => second_col.unwrap_or(open_col + 2),
+        SpecialKind::None => second_col.unwrap_or(open_col + 1),
     }
-    second_col.unwrap_or(open_col + 1)
 }
 
-/// Special forms whose body indents at `open_col + 2` rather than
-/// aligning under the second element. The list mirrors Emacs's
-/// elisp-mode defaults for the most common cases; user-defined
-/// `(declare (indent N))` is not yet read.
+#[derive(Clone, Copy)]
+enum SpecialKind {
+    /// Plain function call: align continuation under the second
+    /// struct child; broken-before-first-arg falls back to
+    /// `open_col + 1` (Emacs default).
+    None,
+    /// `progn` / `cond` family — no "header" args, all args are
+    /// body. Broken-before-first-arg → `open_col + 2`; once an arg
+    /// has rendered, subsequent breaks align under it (same as
+    /// `None`).
+    ZeroHeader,
+    /// `let` / `defun` family — body always indents at
+    /// `open_col + 2`, even after header args have rendered.
+    HasHeader,
+}
+
+fn special_kind(head: &str) -> SpecialKind {
+    match head {
+        "progn" | "prog1" | "prog2" | "cond" => SpecialKind::ZeroHeader,
+        h if is_special_form(h) => SpecialKind::HasHeader,
+        _ => SpecialKind::None,
+    }
+}
+
+/// Special forms whose body indents at `open_col + 2` (the
+/// `HasHeader` regime in [`special_kind`]). Members have at least
+/// one "header" argument (the bindings list, the function name, the
+/// condition, …); the body — args after the header — indent at +2.
+///
+/// `progn`/`cond`/`prog1`/`prog2` aren't here: they're `ZeroHeader`
+/// in `special_kind`, where broken-before-first-arg goes to +2 but
+/// continuation aligns under the first arg once one has rendered.
+///
+/// `if` / `if-let` / `if-let*` and the threading macros (`->`, `->>`,
+/// `thread-first`, `thread-last`) intentionally aren't here either:
+/// lisp-data-mode treats them as plain function calls (continuation
+/// lines align under the second element). User-defined
+/// `(declare (indent N))` overrides aren't read yet.
 fn is_special_form(head: &str) -> bool {
     matches!(
         head,
@@ -192,16 +223,9 @@ fn is_special_form(head: &str) -> bool {
             | "while"
             | "dolist"
             | "dotimes"
-            | "cond"
-            | "if"
-            | "if-let"
-            | "if-let*"
             | "when-let"
             | "while-let"
             | "condition-case"
-            | "progn"
-            | "prog1"
-            | "prog2"
             | "save-excursion"
             | "save-restriction"
             | "save-window-excursion"
@@ -211,10 +235,6 @@ fn is_special_form(head: &str) -> bool {
             | "with-output-to-string"
             | "catch"
             | "unwind-protect"
-            | "->"
-            | "->>"
-            | "thread-first"
-            | "thread-last"
     )
 }
 
@@ -354,7 +374,7 @@ mod tests {
             "  (  weird   spacing  )  ",
             "(a (b (c (d e))))",
             "(when cond\n  body)",
-            "(if cond\n  then\n  else)",
+            "(if cond\n    then\n    else)",
             "(cond ((= x 1) 'one)\n      ((= x 2) 'two))",
             ";; module doc\n;; with two lines\n(defun f () 1)",
             "(foo\n ;; doc\n body)",
