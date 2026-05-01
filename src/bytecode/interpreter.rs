@@ -736,6 +736,11 @@ fn run_impl_inner(
                     args.push(iter.car()?);
                     iter = iter.cdr()?;
                 }
+                if !iter.null() {
+                    return Err(Error::type_mismatch(format!(
+                        "apply: last argument must be a proper list, got non-nil tail: {iter}"
+                    )));
+                }
                 drop(instr_ref);
                 let result = funcall_inline(ctx, &func, args, recursion_depth)?;
                 ctx.vm.stack.push(result);

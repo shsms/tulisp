@@ -589,6 +589,11 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         // intermediate ARGUMENTS plus the elements of the final list
         // (which must itself evaluate to a list). E.g.
         //   (apply '+ 1 2 '(3 4))  =>  10
+        if args.null() {
+            return Err(Error::missing_argument(
+                "apply requires at least 2 arguments".to_string(),
+            ));
+        }
         destruct_bind!((name &rest rest) = args);
         let name = ctx.eval(&name)?;
         let name = ctx.eval(&name)?;
@@ -613,6 +618,11 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         while iter.consp() {
             evaluated.push(iter.car()?);
             iter = iter.cdr()?;
+        }
+        if !iter.null() {
+            return Err(Error::type_mismatch(format!(
+                "apply: last argument must be a proper list, got non-nil tail: {iter}"
+            )));
         }
 
         // Hand the spliced, already-evaluated args to `funcall` via a

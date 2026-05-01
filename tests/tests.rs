@@ -537,7 +537,23 @@ fn test_apply() -> Result<(), Error> {
 "#
     }
 
-    // Missing the args list.
+    // Improper trailing list errors instead of silently dropping the
+    // dotted tail (matches Emacs's `(wrong-type-argument listp X)`).
+    tulisp_assert! {
+        program: "(apply '+ 1 '(2 3 . 4))",
+        error: r#"ERR TypeMismatch: apply: last argument must be a proper list, got non-nil tail: 4
+<eval_string>:1.1-1.23:  at (apply '+ 1 '(2 3 . 4))
+"#
+    }
+
+    // Missing the args list — both `(apply)` and `(apply '+)` should
+    // error with the same MissingArgument shape on both paths.
+    tulisp_assert! {
+        program: "(apply)",
+        error: r#"ERR MissingArgument: apply requires at least 2 arguments
+<eval_string>:1.1-1.7:  at (apply)
+"#
+    }
     tulisp_assert! {
         program: "(apply '+)",
         error: r#"ERR MissingArgument: apply requires at least 2 arguments

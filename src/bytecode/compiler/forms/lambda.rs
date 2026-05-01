@@ -241,7 +241,7 @@ pub(super) fn compile_fn_apply(
 ) -> Result<Vec<Instruction>, Error> {
     if !args.consp() {
         return Err(Error::new(
-            ErrorKind::TypeMismatch,
+            ErrorKind::MissingArgument,
             "apply requires at least 2 arguments".to_string(),
         ));
     }
