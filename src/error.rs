@@ -67,6 +67,7 @@ ErrorKind!(
     (OSError,         pub os_error),
     (TypeMismatch,    pub type_mismatch),
     (PlistError,      pub plist_error),
+    (AlistError,      pub alist_error),
     (MissingArgument, pub missing_argument),
     (ArityMismatch,   pub(crate) arity_mismatch),
     (Undefined,       pub(crate) undefined),
