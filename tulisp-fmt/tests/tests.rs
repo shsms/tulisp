@@ -14,21 +14,26 @@ const BIG_INPUT: &str = r##"(defun fib (n &optional verbose) (if (<= n 2) 1 (+ (
 
 const BIG_EXPECTED: &str = r##"(defun fib (n &optional verbose)
   (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2)))))
+
 (defmacro inc (x) `(setq ,x (1+ ,x)))
+
 (defvar tally 0)
+
 (defconst pi 3.14)
+
 (setq tally
-      (let* ((kw :tag) (xs '(1 2 3 . 4))
-                       (h (make-hash-table))
-                       (c ?\n)
-                       (q ?\\)
-                       (hex #x1A)
-                       (oct #o17)
-                       (bin #b101)
-                       (sci 1.5e3)
-                       (s "esc\n\"end")
-                       (sym 'symbol)
-                       (vs `(,@xs ,c)))
+      (let* ((kw :tag)
+             (xs '(1 2 3 . 4))
+             (h (make-hash-table))
+             (c ?\n)
+             (q ?\\)
+             (hex #x1A)
+             (oct #o17)
+             (bin #b101)
+             (sci 1.5e3)
+             (s "esc\n\"end")
+             (sym 'symbol)
+             (vs `(,@xs ,c)))
         (puthash kw t h)
         (when (< tally 5)
           (inc tally)

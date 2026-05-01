@@ -81,10 +81,29 @@ impl Renderer {
 fn render_top_level(nodes: &[CstNode], r: &mut Renderer) {
     let mut at_line_start = true;
     let mut prev_was_struct = false;
-    for node in nodes {
+    // Bumped to 2 after a top-level definition (`defun` / `defmacro`
+    // / `defvar` / `defconst` / `defspecial`) so a blank line always
+    // sits between a definition and the next top-level form.
+    let mut min_breaks: u32 = 0;
+
+    for (i, node) in nodes.iter().enumerate() {
         match node {
             CstNode::LineBreak { count } => {
-                r.newline_then_indent(count.saturating_sub(1), 0);
+                // The min_breaks bump only applies when more
+                // non-trivia content follows; otherwise this is a
+                // trailing newline and we don't want to inflate it.
+                let has_more = nodes[i + 1..]
+                    .iter()
+                    .any(|n| !matches!(n, CstNode::LineBreak { .. }));
+                let target = if has_more {
+                    (*count).max(min_breaks)
+                } else {
+                    *count
+                };
+                r.newline_then_indent(target.saturating_sub(1), 0);
+                if has_more {
+                    min_breaks = 0;
+                }
                 at_line_start = true;
                 prev_was_struct = false;
             }
@@ -101,7 +120,9 @@ fn render_top_level(nodes: &[CstNode], r: &mut Renderer) {
                     // Two top-level forms in a row with no user line
                     // break between them. Force one — top-level forms
                     // each get their own line per Lisp convention.
-                    r.newline_then_indent(0, 0);
+                    let target = 1u32.max(min_breaks);
+                    r.newline_then_indent(target.saturating_sub(1), 0);
+                    min_breaks = 0;
                     at_line_start = true;
                 }
                 if !at_line_start {
@@ -110,9 +131,30 @@ fn render_top_level(nodes: &[CstNode], r: &mut Renderer) {
                 render_node(structural, r);
                 at_line_start = false;
                 prev_was_struct = true;
+                if is_top_level_definition(structural) {
+                    min_breaks = 2;
+                }
             }
         }
     }
+}
+
+/// True if `node` is a list whose head is one of the top-level
+/// definition forms after which a blank line is conventional.
+fn is_top_level_definition(node: &CstNode) -> bool {
+    let CstNode::List { children, .. } = node else {
+        return false;
+    };
+    let head = children.iter().find_map(|c| match c {
+        CstNode::Atom { text, .. } => Some(text.as_str()),
+        _ => None,
+    });
+    matches!(
+        head,
+        Some(
+            "defun" | "defmacro" | "defvar" | "defconst" | "defspecial"
+        )
+    )
 }
 
 fn render_node(node: &CstNode, r: &mut Renderer) {
@@ -131,6 +173,18 @@ fn render_node(node: &CstNode, r: &mut Renderer) {
 }
 
 fn render_list(children: &[CstNode], r: &mut Renderer) {
+    render_list_with_override(children, None, r);
+}
+
+/// Like [`render_list`] but lets the caller override the head's
+/// "header arity" for break-decision purposes. Used by
+/// [`render_let_bindings`] to force one-binding-per-line layout
+/// inside a `let` / `let*` bindings list.
+fn render_list_with_override(
+    children: &[CstNode],
+    header_override: Option<usize>,
+    r: &mut Renderer,
+) {
     let info = analyze_list(children);
     let fits = !info.requires_multi && r.col + info.one_line_width <= r.budget;
     let open_col = r.col;
@@ -149,9 +203,18 @@ fn render_list(children: &[CstNode], r: &mut Renderer) {
                 CstNode::LineBreak { .. } | CstNode::Comment { .. }
             )
         });
-        render_list_multi(children, open_col, !user_laid_out, r);
+        render_list_multi(children, open_col, !user_laid_out, header_override, r);
     }
     r.write(")");
+}
+
+/// Render the bindings list of a `let` / `let*` form. Same shape as
+/// [`render_list`] but with `header_override = Some(0)`, which makes
+/// the multi-line path break before every binding so they each get
+/// their own line. When the bindings list fits on one line, the
+/// override has no effect — short bindings stay packed.
+fn render_let_bindings(children: &[CstNode], r: &mut Renderer) {
+    render_list_with_override(children, Some(0), r);
 }
 
 #[derive(Default, Clone, Copy)]
@@ -233,6 +296,7 @@ fn render_list_multi(
     nodes: &[CstNode],
     open_col: usize,
     force_breaks: bool,
+    header_override: Option<usize>,
     r: &mut Renderer,
 ) {
     let mut head_text: Option<String> = None;
@@ -264,7 +328,8 @@ fn render_list_multi(
                 // every subsequent struct child gets a line break
                 // before it — but only if we're forcing breaks
                 // (i.e., the user didn't already lay this list out).
-                let header_args = header_size(head_text.as_deref());
+                let header_args =
+                    header_override.unwrap_or_else(|| header_size(head_text.as_deref()));
                 let needs_forced_break = force_breaks
                     && !at_line_start
                     && struct_count > header_args;
@@ -289,7 +354,19 @@ fn render_list_multi(
                 if struct_count == 1 {
                     second_col = Some(r.col);
                 }
-                render_node(structural, r);
+                // The bindings list of a `let` / `let*` form gets a
+                // header_override = 0 pass, which makes each binding
+                // land on its own line when the list goes multi.
+                let is_let_bindings = struct_count == 1
+                    && matches!(head_text.as_deref(), Some("let" | "let*"))
+                    && matches!(structural, CstNode::List { .. });
+                if is_let_bindings
+                    && let CstNode::List { children, .. } = structural
+                {
+                    render_let_bindings(children, r);
+                } else {
+                    render_node(structural, r);
+                }
                 struct_count += 1;
                 at_line_start = false;
             }
