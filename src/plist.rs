@@ -73,7 +73,7 @@ where
 {
     pub(crate) fn new(ctx: &mut TulispContext, args: &[TulispObject]) -> Result<Self, Error> {
         Ok(Self {
-            plist: T::from_plist_iter(ctx, args.iter().cloned())?,
+            plist: T::from_plist_as_slice(ctx, args)?,
         })
     }
 
@@ -105,33 +105,25 @@ where
 /// let cfg = MyType::from_plist(&mut ctx, &obj)?;
 /// ```
 ///
-/// The [`AsPlist!`](macro@crate::AsPlist) macro generates the
-/// `from_plist_iter` and `into_plist` implementations from a struct
-/// definition; [`from_plist`](Self::from_plist) is a default method
-/// that hands `obj.base_iter()` to the iterator hook.
+/// The [`AsPlist!`](macro@crate::AsPlist) macro generates both
+/// `from_plist_as_slice` and `from_plist` from a struct definition.
 pub trait Plistable {
-    /// Implementation hook: deserialize `Self` from an iterator over
-    /// flat `k0, v0, k1, v1, …` already-evaluated lisp values. The
-    /// [`AsPlist!`] macro fills this in.
-    ///
-    /// Both the defun-arg path (`Plist<T>`, calling with
-    /// `args.iter().cloned()`) and the free-variable path
-    /// ([`from_plist`](Self::from_plist), calling with `base_iter()`)
-    /// route through here without an intermediate `Vec`.
-    fn from_plist_iter(
+    /// Deserialize `Self` from a flat `[k0, v0, k1, v1, …]` slice of
+    /// already-evaluated lisp values. The defun-arg path (`Plist<T>`)
+    /// calls this directly with the evaluated arg slice.
+    fn from_plist_as_slice(
         ctx: &mut TulispContext,
-        kvs: impl Iterator<Item = TulispObject>,
+        kvs: &[TulispObject],
     ) -> Result<Self, Error>
     where
         Self: Sized;
 
     /// Deserialize an already-evaluated lisp plist value into `Self`.
+    /// Iterates `obj.base_iter()` directly without an intermediate
+    /// `Vec`.
     fn from_plist(ctx: &mut TulispContext, obj: &TulispObject) -> Result<Self, Error>
     where
-        Self: Sized,
-    {
-        Self::from_plist_iter(ctx, obj.base_iter())
-    }
+        Self: Sized;
 
     /// Serialize `self` into a Lisp plist.
     fn into_plist(self, ctx: &mut TulispContext) -> TulispObject;
@@ -254,9 +246,9 @@ macro_rules! AsPlist {
         }
 
         impl $crate::Plistable for $struct_name {
-            fn from_plist_iter(
+            fn from_plist_as_slice(
                 ctx: &mut TulispContext,
-                mut kvs: impl Iterator<Item = $crate::TulispObject>,
+                kvs: &[$crate::TulispObject],
             ) -> Result<Self, $crate::Error> {
                 #[derive(Default)]
                 struct Builder {
@@ -280,10 +272,62 @@ macro_rules! AsPlist {
                     $($field: $crate::AsPlist!(@key-name $field $(<$field_key>)?)),+
                 });
 
+                let (kvpairs, extra) = kvs.as_chunks::<2>();
+
+                if !extra.is_empty() {
+                    return Err($crate::Error::plist_error(
+                        "Expected an even number of items in the plist",
+                    ));
+                }
+
                 let mut builder = Builder::default();
 
-                while let Some(key) = kvs.next() {
-                    let Some(value) = kvs.next() else {
+                for [key, value] in kvpairs {
+                    $(if key.eq(&symbols.$field) {
+                        let value = value.clone();
+                        builder.$field = Some($crate::AsPlist!(@extract-field value $(, $($default)+)?));
+                    } else)+ {
+                        return Err($crate::Error::plist_error(format!(
+                            "Unexpected key in plist: {}",
+                            key
+                        )));
+                    }
+                }
+
+                builder.build()
+            }
+
+            fn from_plist(
+                ctx: &mut TulispContext,
+                obj: &$crate::TulispObject,
+            ) -> Result<Self, $crate::Error> {
+                #[derive(Default)]
+                struct Builder {
+                    $($field: Option<$type>),+
+                }
+
+                impl Builder {
+                    fn build(self) -> Result<$struct_name, $crate::Error> {
+                        Ok($struct_name {
+                            $($field: if let Some(f) = self.$field { f } else {
+                                $crate::AsPlist!(
+                                    @missing-field
+                                    $crate::AsPlist!(@key-name $field $(<$field_key>)?),
+                                    $( $($default)+ )?
+                                )?}),+
+                        })
+                    }
+                }
+
+                let symbols = $crate::intern!(ctx => {
+                    $($field: $crate::AsPlist!(@key-name $field $(<$field_key>)?)),+
+                });
+
+                let mut iter = obj.base_iter();
+                let mut builder = Builder::default();
+
+                while let Some(key) = iter.next() {
+                    let Some(value) = iter.next() else {
                         return Err($crate::Error::plist_error(
                             "Expected an even number of items in the plist",
                         ));
