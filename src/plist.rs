@@ -7,7 +7,7 @@
 
 use std::ops::Deref;
 
-use crate::{DummyEval, Error, Evaluator, TulispContext, TulispObject};
+use crate::{Error, TulispContext, TulispObject};
 
 /// Makes a plist from the given arguments.
 pub fn plist_from<const N: usize>(input: [(TulispObject, TulispObject); N]) -> TulispObject {
@@ -71,13 +71,9 @@ impl<T> Plist<T>
 where
     T: Plistable,
 {
-    pub(crate) fn new(ctx: &mut TulispContext, obj: &TulispObject) -> Result<Self, Error> {
-        // Defun args are already evaluated by the typed-defun call path,
-        // so the inner evaluator must be `DummyEval` — re-evaluating a
-        // value like `("foo" "bar")` would try to call `"foo"` as a
-        // function. `from_plist` is the DummyEval shortcut.
+    pub(crate) fn new(ctx: &mut TulispContext, args: &[TulispObject]) -> Result<Self, Error> {
         Ok(Self {
-            plist: T::from_plist(ctx, obj)?,
+            plist: T::from_plist_iter(ctx, args.iter().cloned())?,
         })
     }
 
@@ -99,46 +95,42 @@ where
 
 /// Conversion between a Rust struct and a Lisp plist.
 ///
-/// The default entry point [`from_plist`](Self::from_plist) treats the
-/// plist's values as already-evaluated lisp objects and passes each
-/// through unchanged — which is what you want for plists held in free
-/// variables, literals, or any value already produced by the
+/// The plist's values are treated as already-evaluated lisp objects
+/// and passed through to the field types' `TryFrom<TulispObject>` impls
+/// without further evaluation — which is what you want for plists held
+/// in free variables, literals, or any value already produced by the
 /// interpreter:
 ///
 /// ```ignore
 /// let cfg = MyType::from_plist(&mut ctx, &obj)?;
 /// ```
 ///
-/// To re-evaluate each value during conversion (e.g. when the plist
-/// holds unevaluated forms), pick a different [`Evaluator`] strategy
-/// via [`from_plist_with`](Self::from_plist_with):
-///
-/// ```ignore
-/// let cfg = MyType::from_plist_with::<Eval>(&mut ctx, &obj)?;
-/// ```
-///
 /// The [`AsPlist!`](macro@crate::AsPlist) macro generates the
-/// `from_plist_with` and `into_plist` implementations from a struct
-/// definition; the no-eval shortcut is provided as a default method on
-/// the trait.
+/// `from_plist_iter` and `into_plist` implementations from a struct
+/// definition; [`from_plist`](Self::from_plist) is a default method
+/// that hands `obj.base_iter()` to the iterator hook.
 pub trait Plistable {
-    /// Deserialize `obj` (a Lisp plist) into `Self` using `E` to resolve
-    /// each value. Implementation hook the [`AsPlist!`] macro fills in;
-    /// most callers want [`from_plist`](Self::from_plist) instead.
-    fn from_plist_with<E: Evaluator>(
+    /// Implementation hook: deserialize `Self` from an iterator over
+    /// flat `k0, v0, k1, v1, …` already-evaluated lisp values. The
+    /// [`AsPlist!`] macro fills this in.
+    ///
+    /// Both the defun-arg path (`Plist<T>`, calling with
+    /// `args.iter().cloned()`) and the free-variable path
+    /// ([`from_plist`](Self::from_plist), calling with `base_iter()`)
+    /// route through here without an intermediate `Vec`.
+    fn from_plist_iter(
         ctx: &mut TulispContext,
-        obj: &TulispObject,
+        kvs: impl Iterator<Item = TulispObject>,
     ) -> Result<Self, Error>
     where
         Self: Sized;
 
-    /// Deserialize an already-evaluated lisp plist into `Self`. Each
-    /// value is passed through as-is, with no further evaluation.
+    /// Deserialize an already-evaluated lisp plist value into `Self`.
     fn from_plist(ctx: &mut TulispContext, obj: &TulispObject) -> Result<Self, Error>
     where
         Self: Sized,
     {
-        Self::from_plist_with::<DummyEval>(ctx, obj)
+        Self::from_plist_iter(ctx, obj.base_iter())
     }
 
     /// Serialize `self` into a Lisp plist.
@@ -220,28 +212,28 @@ macro_rules! AsPlist {
         Err($crate::Error::plist_error(concat!("Missing ", $key_name, " field")))
     };
 
-    (@extract-field $ctx:ident, $value:ident, None) => {
+    (@extract-field $value:ident, None) => {
         if $value.null() {
             None
         } else {
-            Some(<E as $crate::Evaluator>::eval($ctx, $value)?.into_owned().try_into()?)
+            Some($value.try_into()?)
         }
     };
 
-    (@extract-field $ctx:ident, $value:ident, Some($e: expr)) => {
+    (@extract-field $value:ident, Some($e: expr)) => {
         if $value.null() {
             None
         } else {
-            Some(<E as $crate::Evaluator>::eval($ctx, $value)?.into_owned().try_into()?)
+            Some($value.try_into()?)
         }
     };
 
-    (@extract-field $ctx:ident, $value:ident, $e: expr) => {
-        <E as $crate::Evaluator>::eval($ctx, $value)?.into_owned().try_into()?
+    (@extract-field $value:ident, $e: expr) => {
+        $value.try_into()?
     };
 
-    (@extract-field $ctx:ident, $value:ident) => {
-        <E as $crate::Evaluator>::eval($ctx, $value)?.into_owned().try_into()?
+    (@extract-field $value:ident) => {
+        $value.try_into()?
     };
 
     (
@@ -262,8 +254,9 @@ macro_rules! AsPlist {
         }
 
         impl $crate::Plistable for $struct_name {
-            fn from_plist_with<E: $crate::Evaluator>(
-                ctx: &mut TulispContext, plist: &$crate::TulispObject
+            fn from_plist_iter(
+                ctx: &mut TulispContext,
+                mut kvs: impl Iterator<Item = $crate::TulispObject>,
             ) -> Result<Self, $crate::Error> {
                 #[derive(Default)]
                 struct Builder {
@@ -287,21 +280,16 @@ macro_rules! AsPlist {
                     $($field: $crate::AsPlist!(@key-name $field $(<$field_key>)?)),+
                 });
 
-                let plist = plist.base_iter().collect::<Vec<_>>();
-
-                let (kvpairs, extra) = plist.as_chunks::<2>();
-
-                if !extra.is_empty() {
-                    return Err($crate::Error::plist_error(
-                        "Expected an even number of items in the plist",
-                    ));
-                }
-
                 let mut builder = Builder::default();
 
-                for [key, value] in kvpairs {
+                while let Some(key) = kvs.next() {
+                    let Some(value) = kvs.next() else {
+                        return Err($crate::Error::plist_error(
+                            "Expected an even number of items in the plist",
+                        ));
+                    };
                     $(if key.eq(&symbols.$field) {
-                        builder.$field = Some($crate::AsPlist!(@extract-field ctx, value $(, $($default)+)?));
+                        builder.$field = Some($crate::AsPlist!(@extract-field value $(, $($default)+)?));
                     } else)+ {
                         return Err($crate::Error::plist_error(format!(
                             "Unexpected key in plist: {}",

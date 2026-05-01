@@ -545,18 +545,6 @@ mod plist_args {
 
     use super::*;
 
-    /// Reassemble a typed-defun's already-evaluated args slice into the
-    /// `(KEY VALUE …)` shape `Plist::new` expects. Values pass through
-    /// unchanged — `Plist::new` uses `DummyEval`, so there's no inner
-    /// re-eval to defeat with quoting.
-    fn build_plist_obj(args: &[TulispObject]) -> Result<TulispObject, Error> {
-        let plist = TulispObject::nil();
-        for arg in args.iter() {
-            plist.push(arg.clone())?;
-        }
-        Ok(plist)
-    }
-
     #[allow(nonstandard_style)]
     impl<PlistT, OutT, FnT> TulispCallable<(PlistT,), OutT, false, 0, 0, true, false, true, false>
         for FnT
@@ -575,8 +563,7 @@ mod plist_args {
                     has_rest: true,
                 },
                 move |ctx, args| {
-                    let obj = build_plist_obj(args)?;
-                    let res = (self)(Plist::new(ctx, &obj)?);
+                    let res = (self)(Plist::new(ctx, args)?);
                     Ok(crate::TulispConvertible::into_tulisp(res))
                 },
             );
@@ -598,8 +585,7 @@ mod plist_args {
                     has_rest: true,
                 },
                 move |ctx, args| {
-                    let obj = build_plist_obj(args)?;
-                    (self)(Plist::new(ctx, &obj)?);
+                    (self)(Plist::new(ctx, args)?);
                     Ok(TulispObject::nil())
                 },
             );
@@ -623,8 +609,7 @@ mod plist_args {
                     has_rest: true,
                 },
                 move |ctx, args| {
-                    let obj = build_plist_obj(args)?;
-                    let plist = Plist::new(ctx, &obj)?;
+                    let plist = Plist::new(ctx, args)?;
                     let res = (self)(ctx, plist);
                     Ok(crate::TulispConvertible::into_tulisp(res))
                 },
@@ -647,8 +632,7 @@ mod plist_args {
                     has_rest: true,
                 },
                 move |ctx, args| {
-                    let obj = build_plist_obj(args)?;
-                    let plist = Plist::new(ctx, &obj)?;
+                    let plist = Plist::new(ctx, args)?;
                     (self)(ctx, plist);
                     Ok(TulispObject::nil())
                 },
@@ -673,8 +657,7 @@ mod plist_args {
                     has_rest: true,
                 },
                 move |ctx, args| {
-                    let obj = build_plist_obj(args)?;
-                    let plist = Plist::new(ctx, &obj)?;
+                    let plist = Plist::new(ctx, args)?;
                     let res = (self)(plist);
                     res.map(|x| x.into_tulisp())
                 },
@@ -698,8 +681,7 @@ mod plist_args {
                     has_rest: true,
                 },
                 move |ctx, args| {
-                    let obj = build_plist_obj(args)?;
-                    let plist = Plist::new(ctx, &obj)?;
+                    let plist = Plist::new(ctx, args)?;
                     let res = (self)(ctx, plist);
                     res.map(|x| x.into_tulisp())
                 },
