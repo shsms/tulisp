@@ -98,13 +98,24 @@ fn render_node(node: &CstNode, r: &mut Renderer) {
 fn render_list_body(nodes: &[CstNode], open_col: usize, r: &mut Renderer) {
     let mut head_text: Option<String> = None;
     let mut second_col: Option<usize> = None;
+    // Where the second struct child *would* land if it were on the
+    // same line as the first. Set right after the head renders;
+    // used as the line-break indent until an actual second child
+    // is encountered.
+    let mut would_be_second_col: Option<usize> = None;
     let mut struct_count: usize = 0;
     let mut at_line_start = true;
 
     for node in nodes {
         match node {
             CstNode::LineBreak { count } => {
-                let indent = compute_indent(head_text.as_deref(), struct_count, second_col, open_col);
+                let indent = compute_indent(
+                    head_text.as_deref(),
+                    struct_count,
+                    second_col,
+                    would_be_second_col,
+                    open_col,
+                );
                 r.newline_then_indent(*count >= 2, indent);
                 at_line_start = true;
             }
@@ -128,6 +139,12 @@ fn render_list_body(nodes: &[CstNode], open_col: usize, r: &mut Renderer) {
                     second_col = Some(r.col);
                 }
                 render_node(structural, r);
+                if struct_count == 0 {
+                    // Right after the head: the next sibling on the
+                    // same line would land at `r.col + 1` (one space
+                    // past the head's last character).
+                    would_be_second_col = Some(r.col + 1);
+                }
                 struct_count += 1;
                 at_line_start = false;
             }
@@ -141,12 +158,15 @@ fn render_list_body(nodes: &[CstNode], open_col: usize, r: &mut Renderer) {
 ///   *would* have been the first child — column right after `(`.
 /// - For special-form heads (see [`is_special_form`]): body indents
 ///   at `open_col + 2`.
-/// - Otherwise: align under the second structural child if one was
-///   recorded; else fall back to `open_col + 1`.
+/// - Otherwise (function-call form): align under the second
+///   structural child if one was recorded; else fall back to where
+///   that child *would* have landed if it were on the same line as
+///   the head; else `open_col + 1`.
 fn compute_indent(
     head: Option<&str>,
     struct_count: usize,
     second_col: Option<usize>,
+    would_be_second_col: Option<usize>,
     open_col: usize,
 ) -> usize {
     if struct_count == 0 {
@@ -155,7 +175,9 @@ fn compute_indent(
     if head.is_some_and(is_special_form) {
         return open_col + 2;
     }
-    second_col.unwrap_or(open_col + 1)
+    second_col
+        .or(would_be_second_col)
+        .unwrap_or(open_col + 1)
 }
 
 /// Special forms whose body indents at `open_col + 2` rather than
@@ -280,6 +302,49 @@ mod tests {
     }
 
     #[test]
+    fn comment_at_top_level() {
+        assert_eq!(
+            fmt(";; module doc\n(defun f () 1)"),
+            ";; module doc\n(defun f () 1)\n"
+        );
+    }
+
+    #[test]
+    fn comment_block_at_top_level() {
+        let src = ";; first\n;; second\n;; third\n(foo)";
+        assert_eq!(fmt(src), ";; first\n;; second\n;; third\n(foo)\n");
+    }
+
+    #[test]
+    fn trailing_single_semicolon() {
+        assert_eq!(
+            fmt("(foo) ; trailing\n(bar)"),
+            "(foo) ; trailing\n(bar)\n"
+        );
+    }
+
+    #[test]
+    fn comment_then_body_aligns_under_would_be_second() {
+        // `;; doc` and `body` both align under the column where the
+        // second arg of `(foo …)` would have landed if same-line.
+        let src = "(foo\n  ;; doc\n  body)";
+        assert_eq!(fmt(src), "(foo\n     ;; doc\n     body)\n");
+    }
+
+    #[test]
+    fn comment_then_body_in_special_form() {
+        // Inside a special form, the body / comment indent at +2.
+        let src = "(let ((x 1))\n  ;; doc\n  (use x))";
+        assert_eq!(fmt(src), "(let ((x 1))\n  ;; doc\n  (use x))\n");
+    }
+
+    #[test]
+    fn comment_with_no_trailing_newline() {
+        // Source with no trailing `\n` still ends with one.
+        assert_eq!(fmt(";; eof comment"), ";; eof comment\n");
+    }
+
+    #[test]
     fn round_trip_idempotent() {
         let inputs = [
             "",
@@ -296,6 +361,10 @@ mod tests {
             "(when cond\n  body)",
             "(if cond\n  then\n  else)",
             "(cond ((= x 1) 'one)\n      ((= x 2) 'two))",
+            ";; module doc\n;; with two lines\n(defun f () 1)",
+            "(foo\n  ;; doc\n  body)",
+            "(let ((x 1))\n  ;; explain\n  (use x))",
+            "(foo a) ; trailing\n(bar)",
         ];
         for src in inputs {
             let once = crate::format(src).expect("format once");
