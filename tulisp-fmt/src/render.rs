@@ -31,15 +31,57 @@ use crate::cst::{Cst, CstNode};
 /// Default width budget (columns).
 pub const DEFAULT_WIDTH: usize = 80;
 
+/// Default body-indent step for special forms (columns).
+pub const DEFAULT_INDENT_WIDTH: usize = 2;
+
+/// Default tab display width when `use_tabs` is on (columns).
+pub const DEFAULT_TAB_WIDTH: usize = 8;
+
+/// Knobs that control formatted output. `width` is the column budget
+/// for the fit-or-break decision. `indent_width` is the body-indent
+/// step for `let` / `defun` / etc. — the structural "+1 space before
+/// first arg" used by plain function calls always stays at 1
+/// regardless. `use_tabs` switches indent emission from spaces to
+/// `\t` runs of `tab_width` columns each, with any sub-tab remainder
+/// padded with spaces — matching Emacs's `indent-tabs-mode`.
+#[derive(Clone, Copy, Debug)]
+pub struct Style {
+    pub width: usize,
+    pub indent_width: usize,
+    pub use_tabs: bool,
+    pub tab_width: usize,
+}
+
+impl Default for Style {
+    fn default() -> Self {
+        Self {
+            width: DEFAULT_WIDTH,
+            indent_width: DEFAULT_INDENT_WIDTH,
+            use_tabs: false,
+            tab_width: DEFAULT_TAB_WIDTH,
+        }
+    }
+}
+
 pub fn render(cst: &Cst) -> String {
-    render_with_width(cst, DEFAULT_WIDTH)
+    render_with_style(cst, &Style::default())
 }
 
 pub fn render_with_width(cst: &Cst, width: usize) -> String {
+    render_with_style(
+        cst,
+        &Style {
+            width,
+            ..Style::default()
+        },
+    )
+}
+
+pub fn render_with_style(cst: &Cst, style: &Style) -> String {
     let mut r = Renderer {
         out: String::new(),
         col: 0,
-        budget: width,
+        style: *style,
     };
     render_top_level(&cst.nodes, &mut r);
     if !r.out.is_empty() && !r.out.ends_with('\n') {
@@ -51,7 +93,7 @@ pub fn render_with_width(cst: &Cst, width: usize) -> String {
 struct Renderer {
     out: String,
     col: usize,
-    budget: usize,
+    style: Style,
 }
 
 impl Renderer {
@@ -71,10 +113,26 @@ impl Renderer {
         for _ in 0..blank_lines {
             self.out.push('\n');
         }
-        for _ in 0..indent {
+        let (tabs, spaces) = if self.style.use_tabs && self.style.tab_width > 0 {
+            (indent / self.style.tab_width, indent % self.style.tab_width)
+        } else {
+            (0, indent)
+        };
+        for _ in 0..tabs {
+            self.out.push('\t');
+        }
+        for _ in 0..spaces {
             self.out.push(' ');
         }
         self.col = indent;
+    }
+
+    fn budget(&self) -> usize {
+        self.style.width
+    }
+
+    fn indent_step(&self) -> usize {
+        self.style.indent_width
     }
 }
 
@@ -186,7 +244,7 @@ fn render_list_with_override(
     r: &mut Renderer,
 ) {
     let info = analyze_list(children);
-    let fits = !info.requires_multi && r.col + info.one_line_width <= r.budget;
+    let fits = !info.requires_multi && r.col + info.one_line_width <= r.budget();
     let open_col = r.col;
     r.write("(");
     if fits {
@@ -312,6 +370,7 @@ fn render_list_multi(
                     struct_count,
                     second_col,
                     open_col,
+                    r.indent_step(),
                 );
                 r.newline_then_indent(count.saturating_sub(1), indent);
                 at_line_start = true;
@@ -339,6 +398,7 @@ fn render_list_multi(
                         struct_count,
                         second_col,
                         open_col,
+                        r.indent_step(),
                     );
                     r.newline_then_indent(0, indent);
                     at_line_start = true;
@@ -380,26 +440,29 @@ fn render_list_multi(
 ///
 /// 1. Before any structural child has rendered → `open_col + 1`.
 /// 2. Special form with at least one header arg (let, defun, when, …)
-///    → `open_col + 2`. The body always indents at +2, even after the
-///    second struct child has rendered.
+///    → `open_col + indent_step`. The body always indents one step,
+///    even after the second struct child has rendered.
 /// 3. Otherwise (function-call form, or `progn`-shaped `Special(0)`
 ///    forms once their first arg has rendered) → align under the
 ///    second struct child if recorded; else fall back to either
-///    `open_col + 2` (Special(0) broken-before-first-arg) or
-///    `open_col + 1` (Default broken-before-first-arg).
+///    `open_col + indent_step` (Special(0) broken-before-first-arg)
+///    or `open_col + 1` (Default broken-before-first-arg — the "+1"
+///    is structural and stays at one space regardless of the
+///    body-indent step).
 fn compute_indent(
     head: Option<&str>,
     struct_count: usize,
     second_col: Option<usize>,
     open_col: usize,
+    indent_step: usize,
 ) -> usize {
     if struct_count == 0 {
         return open_col + 1;
     }
     let kind = head.map(special_kind).unwrap_or(SpecialKind::None);
     match kind {
-        SpecialKind::HasHeader => open_col + 2,
-        SpecialKind::ZeroHeader => second_col.unwrap_or(open_col + 2),
+        SpecialKind::HasHeader => open_col + indent_step,
+        SpecialKind::ZeroHeader => second_col.unwrap_or(open_col + indent_step),
         SpecialKind::None => second_col.unwrap_or(open_col + 1),
     }
 }
@@ -507,6 +570,10 @@ mod tests {
 
     fn fmt_with(src: &str, width: usize) -> String {
         crate::format_with_width(src, width).expect("parse")
+    }
+
+    fn fmt_with_style(src: &str, style: &super::Style) -> String {
+        crate::format_with_style(src, style).expect("parse")
     }
 
     #[test]
@@ -715,5 +782,51 @@ mod tests {
                 "round-trip not idempotent for input:\n{src}\nfirst:\n{once}\nsecond:\n{twice}"
             );
         }
+    }
+
+    #[test]
+    fn indent_width_four_doubles_body_indent() {
+        let style = super::Style {
+            width: 80,
+            indent_width: 4,
+            ..super::Style::default()
+        };
+        // `let` is HasHeader, so the body indents at open_col + 4
+        // instead of the default + 2. The "+1" before the bindings
+        // list stays at one space — that's structural, not an indent
+        // step.
+        let out = fmt_with_style("(let ((x 1))\n  body)", &style);
+        assert_eq!(out, "(let ((x 1))\n    body)\n");
+    }
+
+    #[test]
+    fn use_tabs_emits_tabs_for_indent() {
+        let style = super::Style {
+            width: 80,
+            indent_width: 8,
+            use_tabs: true,
+            tab_width: 8,
+        };
+        // Body indent of 8 with tab-width 8 should be exactly one tab.
+        let out = fmt_with_style("(let ((x 1))\n        body)", &style);
+        assert_eq!(out, "(let ((x 1))\n\tbody)\n");
+    }
+
+    #[test]
+    fn use_tabs_pads_remainder_with_spaces() {
+        let style = super::Style {
+            width: 80,
+            indent_width: 2,
+            use_tabs: true,
+            tab_width: 4,
+        };
+        // Outer (when …) opens at col 0, body at col 2 → 0 tabs + 2
+        // spaces. Inner (when …) opens at col 2 (one space after the
+        // outer head + first arg), body at col 4 → 1 tab + 0 spaces.
+        let out = fmt_with_style(
+            "(when a\n  (when b\n    body))",
+            &style,
+        );
+        assert_eq!(out, "(when a\n  (when b\n\tbody))\n");
     }
 }

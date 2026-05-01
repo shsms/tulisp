@@ -24,27 +24,44 @@ pub mod parse;
 pub mod render;
 
 pub use cst::Cst;
+pub use render::Style;
 
-/// Format a source string with the default 80-column width budget.
-/// Returns the formatted source on success, or a parse error. The
-/// formatter is deterministic and idempotent for any input it
-/// accepts.
+/// Format a source string with the default style (80-column width
+/// budget, two-space indents, no tabs). Returns the formatted source
+/// on success, or a parse error. The formatter is deterministic and
+/// idempotent for any input it accepts.
 pub fn format(source: &str) -> Result<String, parse::ParseError> {
-    format_with_width(source, render::DEFAULT_WIDTH)
+    format_with_style(source, &Style::default())
 }
 
-/// Format a source string with a custom width budget. Lists that
-/// don't fit within `width` columns at their starting position are
-/// rendered multi-line; lists that fit are kept on one line. User
-/// line breaks and comments are always preserved (and force
-/// multi-line layout for the surrounding list).
+/// Format a source string with a custom width budget but otherwise
+/// default style. Lists that don't fit within `width` columns at
+/// their starting position are rendered multi-line; lists that fit
+/// are kept on one line. User line breaks and comments are always
+/// preserved (and force multi-line layout for the surrounding list).
 pub fn format_with_width(
     source: &str,
     width: usize,
 ) -> Result<String, parse::ParseError> {
+    format_with_style(
+        source,
+        &Style {
+            width,
+            ..Style::default()
+        },
+    )
+}
+
+/// Format a source string with a fully-specified [`Style`]. Use this
+/// when you need control over indent step, tab vs. space, or tab
+/// width on top of the column budget.
+pub fn format_with_style(
+    source: &str,
+    style: &Style,
+) -> Result<String, parse::ParseError> {
     let tokens = lex::lex(source);
     let cst = parse::parse_with_source(&tokens, Some(source))?;
-    Ok(render::render_with_width(&cst, width))
+    Ok(render::render_with_style(&cst, style))
 }
 
 /// Parse a source string into a [`Cst`] without rendering. Useful for

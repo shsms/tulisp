@@ -18,24 +18,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 mod diff;
 
+#[derive(Default)]
 struct Args {
     write_in_place: bool,
     check: bool,
     diff: bool,
-    width: usize,
+    style: tulisp_fmt::Style,
     paths: Vec<String>,
-}
-
-impl Default for Args {
-    fn default() -> Self {
-        Self {
-            write_in_place: false,
-            check: false,
-            diff: false,
-            width: tulisp_fmt::render::DEFAULT_WIDTH,
-            paths: Vec::new(),
-        }
-    }
 }
 
 fn main() -> ExitCode {
@@ -48,7 +37,7 @@ fn main() -> ExitCode {
     };
 
     if parsed.paths.is_empty() {
-        return run_stdin(parsed.width, parsed.diff);
+        return run_stdin(&parsed.style, parsed.diff);
     }
 
     let mut expanded: Vec<String> = Vec::new();
@@ -107,10 +96,29 @@ fn parse_args() -> Result<Args, String> {
                 let v = iter
                     .next()
                     .ok_or_else(|| "--width requires a value".to_string())?;
-                out.width = parse_width(&v)?;
+                out.style.width = parse_width(&v)?;
             }
             s if s.starts_with("--width=") => {
-                out.width = parse_width(&s["--width=".len()..])?;
+                out.style.width = parse_width(&s["--width=".len()..])?;
+            }
+            "--use-tabs" => out.style.use_tabs = true,
+            "--indent-width" => {
+                let v = iter
+                    .next()
+                    .ok_or_else(|| "--indent-width requires a value".to_string())?;
+                out.style.indent_width = parse_indent(&v)?;
+            }
+            s if s.starts_with("--indent-width=") => {
+                out.style.indent_width = parse_indent(&s["--indent-width=".len()..])?;
+            }
+            "--tab-width" => {
+                let v = iter
+                    .next()
+                    .ok_or_else(|| "--tab-width requires a value".to_string())?;
+                out.style.tab_width = parse_tab_width(&v)?;
+            }
+            s if s.starts_with("--tab-width=") => {
+                out.style.tab_width = parse_tab_width(&s["--tab-width=".len()..])?;
             }
             "--" => after_separator = true,
             other if other.starts_with('-') => {
@@ -136,6 +144,26 @@ fn parse_width(s: &str) -> Result<usize, String> {
         .map_err(|_| format!("--width: not a non-negative integer: {s}"))?;
     if n < 8 {
         return Err(format!("--width: must be at least 8, got {n}"));
+    }
+    Ok(n)
+}
+
+fn parse_indent(s: &str) -> Result<usize, String> {
+    let n: usize = s
+        .parse()
+        .map_err(|_| format!("--indent-width: not a non-negative integer: {s}"))?;
+    if n == 0 {
+        return Err("--indent-width: must be at least 1".to_string());
+    }
+    Ok(n)
+}
+
+fn parse_tab_width(s: &str) -> Result<usize, String> {
+    let n: usize = s
+        .parse()
+        .map_err(|_| format!("--tab-width: not a non-negative integer: {s}"))?;
+    if n == 0 {
+        return Err("--tab-width: must be at least 1".to_string());
     }
     Ok(n)
 }
@@ -205,7 +233,7 @@ fn run_path(path: &str, args: &Args) -> Outcome {
             return Outcome::Error;
         }
     };
-    let formatted = match tulisp_fmt::format_with_width(&src, args.width) {
+    let formatted = match tulisp_fmt::format_with_style(&src, &args.style) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("{}", e.render(&src, Some(path)));
@@ -289,13 +317,13 @@ fn atomic_write(path: &str, contents: &str) -> io::Result<()> {
     Ok(())
 }
 
-fn run_stdin(width: usize, diff_mode: bool) -> ExitCode {
+fn run_stdin(style: &tulisp_fmt::Style, diff_mode: bool) -> ExitCode {
     let mut src = String::new();
     if let Err(e) = io::stdin().read_to_string(&mut src) {
         eprintln!("tulisp-fmt: stdin: {e}");
         return ExitCode::from(2);
     }
-    let formatted = match tulisp_fmt::format_with_width(&src, width) {
+    let formatted = match tulisp_fmt::format_with_style(&src, style) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("{}", e.render(&src, Some("<stdin>")));
@@ -334,12 +362,24 @@ fn print_help() {
     println!("starting with `.` (e.g. .git) are skipped.");
     println!();
     println!("Options:");
-    println!("  -w, --write       write the formatted result back to each FILE");
-    println!("      --check       exit 1 (and list filenames) if any FILE is unformatted");
-    println!("  -d, --diff        print a unified diff of source vs. formatted; exit 1 if any differ");
-    println!("      --width N     wrap lists past column N (default {})", tulisp_fmt::render::DEFAULT_WIDTH);
-    println!("  -h, --help        print this help and exit");
-    println!("  -V, --version     print version and exit");
+    println!("  -w, --write          write the formatted result back to each FILE");
+    println!("      --check          exit 1 (and list filenames) if any FILE is unformatted");
+    println!("  -d, --diff           print a unified diff of source vs. formatted; exit 1 if any differ");
+    println!(
+        "      --width N        wrap lists past column N (default {})",
+        tulisp_fmt::render::DEFAULT_WIDTH,
+    );
+    println!(
+        "      --indent-width N body-indent step in columns (default {})",
+        tulisp_fmt::render::DEFAULT_INDENT_WIDTH,
+    );
+    println!("      --use-tabs       emit tab characters for indents instead of spaces");
+    println!(
+        "      --tab-width N    columns per tab when --use-tabs is set (default {})",
+        tulisp_fmt::render::DEFAULT_TAB_WIDTH,
+    );
+    println!("  -h, --help           print this help and exit");
+    println!("  -V, --version        print version and exit");
 }
 
 #[cfg(test)]
