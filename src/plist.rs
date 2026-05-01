@@ -536,6 +536,30 @@ mod tests {
     }
 
     #[test]
+    fn test_plistable_round_trip() -> Result<(), Error> {
+        let mut ctx = TulispContext::new();
+        let p = Person {
+            name: "Carol".into(),
+            age: 40,
+            addr: vec!["Pine St".into()],
+            education: None,
+            place: Some("Home".into()),
+            answer: 42,
+        };
+        let obj = p.into_plist(&mut ctx);
+        let q = Person::from_plist(&mut ctx, &obj)?;
+        assert_eq!(q.name, "Carol");
+        assert_eq!(q.age, 40);
+        assert_eq!(q.addr, vec!["Pine St".to_string()]);
+        // None serialises as nil, and the macro reads nil back as None
+        // for Optional fields (instead of erroring on `try_into::<T>`).
+        assert_eq!(q.education, None);
+        assert_eq!(q.place.as_deref(), Some("Home"));
+        assert_eq!(q.answer, 42);
+        Ok(())
+    }
+
+    #[test]
     fn test_plistable_from_lisp_value_no_eval() -> Result<(), Error> {
         // A plist held in a free variable contains already-evaluated
         // values. `from_plist` should pass each value straight through
