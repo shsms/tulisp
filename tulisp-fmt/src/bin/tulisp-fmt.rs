@@ -138,7 +138,7 @@ fn run_path(path: &str, write_in_place: bool, check: bool, width: usize) -> Outc
     let formatted = match tulisp_fmt::format_with_width(&src, width) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("tulisp-fmt: {path}: parse error: {}", e.message);
+            eprintln!("{}", e.render(&src, Some(path)));
             return Outcome::Error;
         }
     };
@@ -223,7 +223,7 @@ fn run_stdin(width: usize) -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(e) => {
-            eprintln!("tulisp-fmt: parse error: {}", e.message);
+            eprintln!("{}", e.render(&src, Some("<stdin>")));
             ExitCode::from(1)
         }
     }

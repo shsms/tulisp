@@ -4,6 +4,7 @@
 //! lexer. Trivia (comments, line breaks) lives alongside structural
 //! nodes inside whatever sequence it appeared in.
 
+use std::fmt;
 use std::ops::Range;
 
 use crate::cst::{Cst, CstNode, ReaderPrefix};
@@ -13,6 +14,71 @@ use crate::lex::{Token, TokenKind};
 pub struct ParseError {
     pub message: String,
     pub span: Range<usize>,
+}
+
+impl ParseError {
+    /// Render this error as a human-readable diagnostic. Resolves the
+    /// byte offset in `source` to a 1-based line and column, copies
+    /// the line, and underlines the offending column with a caret —
+    /// the conventional "rustc-style" form. If `source` is missing
+    /// the offset (e.g. it doesn't match the parsed input), this
+    /// degrades gracefully to `<file>: <message>`.
+    pub fn render(&self, source: &str, file_label: Option<&str>) -> String {
+        let label = file_label.unwrap_or("<input>");
+        let Some((line_no, col_no, line)) = locate(source, self.span.start) else {
+            return format!("{label}: parse error: {}", self.message);
+        };
+        let mut out = String::new();
+        out.push_str(&format!(
+            "{label}:{line_no}:{col_no}: parse error: {}\n",
+            self.message
+        ));
+        out.push_str(line);
+        if !line.ends_with('\n') {
+            out.push('\n');
+        }
+        for _ in 1..col_no {
+            out.push(' ');
+        }
+        out.push('^');
+        out
+    }
+}
+
+impl fmt::Display for ParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for ParseError {}
+
+/// Map a byte offset into `source` to a (1-based line, 1-based
+/// column, source line) triple. Columns are byte offsets within the
+/// line, not display widths — good enough for ASCII-heavy lisp
+/// source. Returns `None` if `offset` is past the end of `source`.
+fn locate(source: &str, offset: usize) -> Option<(usize, usize, &str)> {
+    if offset > source.len() {
+        return None;
+    }
+    let mut line_start = 0usize;
+    let mut line_no = 1usize;
+    for (i, b) in source.as_bytes().iter().enumerate() {
+        if i == offset {
+            break;
+        }
+        if *b == b'\n' {
+            line_start = i + 1;
+            line_no += 1;
+        }
+    }
+    let line_end = source[line_start..]
+        .find('\n')
+        .map(|i| line_start + i)
+        .unwrap_or(source.len());
+    let line = &source[line_start..line_end];
+    let col_no = offset - line_start + 1;
+    Some((line_no, col_no, line))
 }
 
 pub fn parse(tokens: &[Token]) -> Result<Cst, ParseError> {
@@ -254,6 +320,28 @@ mod tests {
         let tokens = crate::lex::lex(")");
         let err = parse_with_source(&tokens, Some(")")).unwrap_err();
         assert!(err.message.contains("unexpected"), "got: {}", err.message);
+    }
+
+    #[test]
+    fn render_error_unexpected_close() {
+        let src = "(foo)\n  )\n";
+        let tokens = crate::lex::lex(src);
+        let err = parse_with_source(&tokens, Some(src)).unwrap_err();
+        let rendered = err.render(src, Some("a.lisp"));
+        assert_eq!(
+            rendered,
+            "a.lisp:2:3: parse error: unexpected `)`\n  )\n  ^",
+        );
+    }
+
+    #[test]
+    fn render_error_unclosed_paren_at_eof() {
+        let src = "(foo\n";
+        let tokens = crate::lex::lex(src);
+        let err = parse_with_source(&tokens, Some(src)).unwrap_err();
+        let rendered = err.render(src, None);
+        assert!(rendered.starts_with("<input>:"), "got: {rendered}");
+        assert!(rendered.contains("unclosed"), "got: {rendered}");
     }
 
     #[test]
