@@ -12,3 +12,14 @@ rust-version = "1.88.0"
 [lib]
 name = "tulisp_fmt"
 path = "src/lib.rs"
+
+[features]
+default = ["bin"]
+# Build the `tulisp-fmt` CLI binary. Disable for library-only use:
+# `tulisp-fmt = { version = "0.1", default-features = false }`.
+bin = []
+
+[[bin]]
+name = "tulisp-fmt"
+path = "src/bin/tulisp-fmt.rs"
+required-features = ["bin"]
