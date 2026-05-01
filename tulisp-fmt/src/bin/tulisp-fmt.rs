@@ -7,16 +7,28 @@
 //!   tulisp-fmt --check FILE…  exit 1 if any FILE differs from formatted
 //!   tulisp-fmt                read from stdin, write to stdout
 //!   tulisp-fmt --help         print this help
+//!   tulisp-fmt --version      print version information
 
 use std::fs;
 use std::io::{self, Read, Write};
 use std::process::ExitCode;
 
-#[derive(Default)]
 struct Args {
     write_in_place: bool,
     check: bool,
+    width: usize,
     paths: Vec<String>,
+}
+
+impl Default for Args {
+    fn default() -> Self {
+        Self {
+            write_in_place: false,
+            check: false,
+            width: tulisp_fmt::render::DEFAULT_WIDTH,
+            paths: Vec::new(),
+        }
+    }
 }
 
 fn main() -> ExitCode {
@@ -29,13 +41,13 @@ fn main() -> ExitCode {
     };
 
     if parsed.paths.is_empty() {
-        return run_stdin();
+        return run_stdin(parsed.width);
     }
 
     let mut differed = false;
     let mut had_error = false;
     for path in &parsed.paths {
-        match run_path(path, parsed.write_in_place, parsed.check) {
+        match run_path(path, parsed.write_in_place, parsed.check, parsed.width) {
             Outcome::Ok => {}
             Outcome::Differs => differed = true,
             Outcome::Error => had_error = true,
@@ -54,7 +66,8 @@ fn main() -> ExitCode {
 fn parse_args() -> Result<Args, String> {
     let mut out = Args::default();
     let mut after_separator = false;
-    for arg in std::env::args().skip(1) {
+    let mut iter = std::env::args().skip(1);
+    while let Some(arg) = iter.next() {
         if after_separator {
             out.paths.push(arg);
             continue;
@@ -64,8 +77,21 @@ fn parse_args() -> Result<Args, String> {
                 print_help();
                 std::process::exit(0);
             }
+            "-V" | "--version" => {
+                println!("tulisp-fmt {}", env!("CARGO_PKG_VERSION"));
+                std::process::exit(0);
+            }
             "-w" | "--write" => out.write_in_place = true,
             "--check" => out.check = true,
+            "--width" => {
+                let v = iter
+                    .next()
+                    .ok_or_else(|| "--width requires a value".to_string())?;
+                out.width = parse_width(&v)?;
+            }
+            s if s.starts_with("--width=") => {
+                out.width = parse_width(&s["--width=".len()..])?;
+            }
             "--" => after_separator = true,
             other if other.starts_with('-') => {
                 return Err(format!("unknown option: {other}"));
@@ -82,13 +108,23 @@ fn parse_args() -> Result<Args, String> {
     Ok(out)
 }
 
+fn parse_width(s: &str) -> Result<usize, String> {
+    let n: usize = s
+        .parse()
+        .map_err(|_| format!("--width: not a non-negative integer: {s}"))?;
+    if n < 8 {
+        return Err(format!("--width: must be at least 8, got {n}"));
+    }
+    Ok(n)
+}
+
 enum Outcome {
     Ok,
     Differs,
     Error,
 }
 
-fn run_path(path: &str, write_in_place: bool, check: bool) -> Outcome {
+fn run_path(path: &str, write_in_place: bool, check: bool, width: usize) -> Outcome {
     let src = match fs::read_to_string(path) {
         Ok(s) => s,
         Err(e) => {
@@ -96,7 +132,7 @@ fn run_path(path: &str, write_in_place: bool, check: bool) -> Outcome {
             return Outcome::Error;
         }
     };
-    let formatted = match tulisp_fmt::format(&src) {
+    let formatted = match tulisp_fmt::format_with_width(&src, width) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("tulisp-fmt: {path}: parse error: {}", e.message);
@@ -127,13 +163,13 @@ fn run_path(path: &str, write_in_place: bool, check: bool) -> Outcome {
     Outcome::Ok
 }
 
-fn run_stdin() -> ExitCode {
+fn run_stdin(width: usize) -> ExitCode {
     let mut src = String::new();
     if let Err(e) = io::stdin().read_to_string(&mut src) {
         eprintln!("tulisp-fmt: stdin: {e}");
         return ExitCode::from(2);
     }
-    match tulisp_fmt::format(&src) {
+    match tulisp_fmt::format_with_width(&src, width) {
         Ok(s) => {
             if let Err(e) = io::stdout().write_all(s.as_bytes()) {
                 eprintln!("tulisp-fmt: stdout: {e}");
@@ -158,7 +194,9 @@ fn print_help() {
     println!("by default. Pass `-w` to overwrite the file in place.");
     println!();
     println!("Options:");
-    println!("  -w, --write     write the formatted result back to each FILE");
-    println!("      --check     exit 1 (and list filenames) if any FILE is unformatted");
-    println!("  -h, --help      print this help and exit");
+    println!("  -w, --write       write the formatted result back to each FILE");
+    println!("      --check       exit 1 (and list filenames) if any FILE is unformatted");
+    println!("      --width N     wrap lists past column N (default {})", tulisp_fmt::render::DEFAULT_WIDTH);
+    println!("  -h, --help        print this help and exit");
+    println!("  -V, --version     print version and exit");
 }
