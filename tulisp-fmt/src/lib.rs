@@ -30,6 +30,13 @@ pub use cst::Cst;
 /// any input it accepts.
 pub fn format(source: &str) -> Result<String, parse::ParseError> {
     let tokens = lex::lex(source);
-    let cst = parse::parse(&tokens)?;
+    let cst = parse::parse_with_source(&tokens, Some(source))?;
     Ok(render::render(&cst))
+}
+
+/// Parse a source string into a [`Cst`] without rendering. Useful for
+/// tooling that wants to inspect or transform the tree directly.
+pub fn parse(source: &str) -> Result<Cst, parse::ParseError> {
+    let tokens = lex::lex(source);
+    parse::parse_with_source(&tokens, Some(source))
 }
