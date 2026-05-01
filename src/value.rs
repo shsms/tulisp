@@ -1,11 +1,12 @@
 use crate::{
     Number, TulispObject,
+    bytecode::CompiledDefun,
     cons::Cons,
     error::Error,
     object::{
         Span,
         wrappers::{
-            TulispFn,
+            DefunFn, TulispFn,
             generic::{Shared, SharedMut, SyncSend},
         },
     },
@@ -33,6 +34,27 @@ impl std::fmt::Display for DefunParam {
             self.param, self.is_rest, self.is_optional
         ))
     }
+}
+
+/// Compile-time arity metadata for a `ctx.defun`-registered fn.
+/// Recorded on `TulispValue::Defun` so the VM compiler can reject
+/// arity mismatches at compile time, before any args are pushed.
+/// Populated from the `TulispCallable` const generics at registration
+/// time, so the values are exact for typed-arg arms; Plist arms
+/// register with `required: 0, optional: 0, has_rest: true` because
+/// arity is in the plist contents and validated at runtime by
+/// `Plistable::from_plist`.
+///
+/// Marked `pub` (and `#[doc(hidden)]`) only because it appears as a
+/// field of the public `TulispValue::Defun` variant — same reason
+/// `DefunFn` and `DefunParams` are `pub`. Item #6 in `todo.md` plans
+/// to demote both along with `TulispValue` itself.
+#[doc(hidden)]
+#[derive(Debug, Default, Clone)]
+pub struct DefunArity {
+    pub required: usize,
+    pub optional: usize,
+    pub has_rest: bool,
 }
 
 #[doc(hidden)]
@@ -144,10 +166,18 @@ pub struct SymbolBindings {
 }
 
 impl SymbolBindings {
+    /// Debug-only: number of values currently pushed onto this
+    /// symbol's stack. Used by `TulispContext::debug_special_stacks_total`
+    /// to detect ~defvar~ scope-leak regressions.
+    #[doc(hidden)]
+    pub(crate) fn stack_depth(&self) -> usize {
+        self.items.len()
+    }
+
     #[inline(always)]
     pub(crate) fn set(&mut self, to_set: TulispObject) -> Result<(), Error> {
         if self.constant {
-            return Err(Error::undefined(format!(
+            return Err(Error::type_mismatch(format!(
                 "Can't set constant symbol: {}",
                 self.name
             )));
@@ -164,7 +194,7 @@ impl SymbolBindings {
     #[inline(always)]
     pub(crate) fn set_global(&mut self, to_set: TulispObject) -> Result<(), Error> {
         if self.constant {
-            return Err(Error::undefined(format!(
+            return Err(Error::type_mismatch(format!(
                 "Can't set constant symbol: {}",
                 self.name
             )));
@@ -181,7 +211,7 @@ impl SymbolBindings {
     #[inline(always)]
     pub(crate) fn set_scope(&mut self, to_set: TulispObject) -> Result<(), Error> {
         if self.constant {
-            return Err(Error::undefined(format!(
+            return Err(Error::type_mismatch(format!(
                 "Can't set constant symbol: {}",
                 self.name
             )));
@@ -222,7 +252,7 @@ impl SymbolBindings {
     #[inline(always)]
     pub(crate) fn get_as_number(&self) -> Result<crate::Number, Error> {
         let Some(item) = self.items.last() else {
-            return Err(Error::type_mismatch(format!(
+            return Err(Error::uninitialized(format!(
                 "Variable definition is void: {}",
                 self.name
             )));
@@ -233,7 +263,7 @@ impl SymbolBindings {
     #[inline(always)]
     pub(crate) fn get_as_bool(&self) -> Result<bool, Error> {
         let Some(item) = self.items.last() else {
-            return Err(Error::type_mismatch(format!(
+            return Err(Error::uninitialized(format!(
                 "Variable definition is void: {}",
                 self.name
             )));
@@ -281,6 +311,15 @@ impl SymbolBindings {
 // concern. Growth is bounded in practice: each `LexAllocator` reuses
 // freed ids through its own free list before bumping this counter.
 static LEX_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Debug-only: sum of all per-id stack lengths in the current
+/// thread's `LEX_STACKS`. Steady growth indicates a push without
+/// matching pop somewhere (e.g. `BeginScope` without `EndScope` on
+/// some control-flow path).
+#[doc(hidden)]
+pub fn debug_lex_stacks_total() -> usize {
+    LEX_STACKS.with(|s| s.borrow().iter().map(|v| v.len()).sum())
+}
 
 /// Per-context allocator for LexBinding ids. Held by the context and
 /// by every `LexBinding` it creates (via a `Shared` ref on the
@@ -476,7 +515,9 @@ impl LexBinding {
         if let Some(slot) = &self.inner.captured {
             return Ok(slot.borrow().clone());
         }
-        let got = with_lex_stack(self.inner.id, |s| s.last().map(|slot| slot.borrow().clone()));
+        let got = with_lex_stack(self.inner.id, |s| {
+            s.last().map(|slot| slot.borrow().clone())
+        });
         got.ok_or_else(|| {
             Error::uninitialized(format!("Variable definition is void: {}", self.inner.name))
         })
@@ -550,6 +591,17 @@ pub enum TulispValue {
     },
     Any(Shared<dyn TulispAny>),
     Func(Shared<dyn TulispFn>),
+    /// A `ctx.defun`-registered Rust function, with already-evaluated
+    /// args. Distinct from `Func` (defspecial-style raw args) so the
+    /// VM can dispatch via `RustCallTyped` — args are pushed onto the
+    /// stack one by one and the closure receives them as a slice,
+    /// without ever calling `ctx.eval` itself. Keeps the VM lock from
+    /// being re-entered when a defun's arg expression is itself a
+    /// `CompiledDefun` call.
+    Defun {
+        call: Shared<dyn DefunFn>,
+        arity: DefunArity,
+    },
     Macro(Shared<dyn TulispFn>),
     Defmacro {
         params: DefunParams,
@@ -558,6 +610,9 @@ pub enum TulispValue {
     Lambda {
         params: DefunParams,
         body: TulispObject,
+    },
+    CompiledDefun {
+        value: CompiledDefun,
     },
     Bounce,
 }
@@ -593,6 +648,7 @@ impl std::fmt::Debug for TulispValue {
             Self::Splice { value } => f.debug_struct("Splice").field("value", value).finish(),
             Self::Any(arg0) => write!(f, "Any({:?} = {})", arg0.type_id(), arg0),
             Self::Func(_) => write!(f, "Func"),
+            Self::Defun { .. } => write!(f, "Defun"),
             Self::Macro(_) => write!(f, "Macro"),
             Self::Defmacro { params, body } => f
                 .debug_struct("Defmacro")
@@ -604,7 +660,8 @@ impl std::fmt::Debug for TulispValue {
                 .field("params", params)
                 .field("body", body)
                 .finish(),
-            Self::Bounce => write!(f, "Bounce"),
+            Self::CompiledDefun { .. } => f.debug_struct("CompiledDefun").finish(),
+            Self::Bounce => f.debug_struct("Bounce").finish(),
         }
     }
 }
@@ -629,33 +686,35 @@ impl PartialEq for TulispValue {
     }
 }
 
-/// Formats tulisp lists non-recursively.
-fn fmt_list(mut vv: TulispObject, f: &mut std::fmt::Formatter<'_>) -> Result<(), Error> {
-    if let Err(e) = f.write_char('(') {
-        return Err(Error::type_mismatch(format!("When trying to 'fmt': {}", e)));
-    };
+/// Formats tulisp lists non-recursively. Returns
+/// `std::fmt::Result` so formatter errors propagate up to the
+/// `Display::fmt` caller; the only other failure source is
+/// `car`/`cdr` on a `TulispValue::List`, which can't actually fail
+/// (we wouldn't be in `fmt_list` otherwise) — convert any
+/// theoretical break of that invariant into a generic
+/// `std::fmt::Error` rather than swallowing it.
+fn fmt_list(mut vv: TulispObject, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.write_char('(')?;
     let mut add_space = false;
     loop {
-        let rest = vv.cdr()?;
-        if !add_space {
+        let car = vv.car().map_err(|_| std::fmt::Error)?;
+        let rest = vv.cdr().map_err(|_| std::fmt::Error)?;
+        if add_space {
+            f.write_char(' ')?;
+        } else {
             add_space = true;
-        } else if let Err(e) = f.write_char(' ') {
-            return Err(Error::type_mismatch(format!("When trying to 'fmt': {}", e)));
-        };
-        write!(f, "{}", vv.car()?)
-            .map_err(|e| Error::type_mismatch(format!("When trying to 'fmt': {}", e)))?;
+        }
+        write!(f, "{}", car)?;
         if rest.null() {
             break;
-        } else if !rest.consp() {
-            write!(f, " . {}", rest)
-                .map_err(|e| Error::type_mismatch(format!("When trying to 'fmt': {}", e)))?;
+        }
+        if !rest.consp() {
+            write!(f, " . {}", rest)?;
             break;
-        };
+        }
         vv = rest;
     }
-    if let Err(e) = f.write_char(')') {
-        return Err(Error::type_mismatch(format!("When trying to 'fmt': {}", e)));
-    };
+    f.write_char(')')?;
     Ok(())
 }
 
@@ -667,11 +726,25 @@ impl std::fmt::Display for TulispValue {
             TulispValue::Symbol { value } => f.write_str(&value.name),
             TulispValue::LexicalBinding { binding } => f.write_str(binding.name()),
             TulispValue::Number { value, .. } => f.write_fmt(format_args!("{}", value)),
-            TulispValue::String { value, .. } => f.write_fmt(format_args!(r#""{}""#, value)),
-            vv @ TulispValue::List { .. } => {
-                fmt_list(vv.clone().into_ref(None), f).unwrap_or(());
-                Ok(())
+            TulispValue::String { value, .. } => {
+                // Round-trip: the parser only knows the `\n`, `\t`,
+                // `\\`, `\"` escapes (`parse.rs::read_string`). Match
+                // those four exactly so a Display'd string parses
+                // back to the same value. Other chars pass through —
+                // they read as literal one-char characters.
+                f.write_char('"')?;
+                for ch in value.chars() {
+                    match ch {
+                        '"' => f.write_str(r#"\""#)?,
+                        '\\' => f.write_str(r"\\")?,
+                        '\n' => f.write_str(r"\n")?,
+                        '\t' => f.write_str(r"\t")?,
+                        c => f.write_char(c)?,
+                    }
+                }
+                f.write_char('"')
             }
+            vv @ TulispValue::List { .. } => fmt_list(vv.clone().into_ref(None), f),
             TulispValue::Quote { value, .. } => f.write_fmt(format_args!("'{}", value)),
             TulispValue::Backquote { value, .. } => f.write_fmt(format_args!("`{}", value)),
             TulispValue::Unquote { value, .. } => f.write_fmt(format_args!(",{}", value)),
@@ -680,9 +753,11 @@ impl std::fmt::Display for TulispValue {
             TulispValue::Any(value) => f.write_fmt(format_args!("{}", value)),
             TulispValue::T => f.write_str("t"),
             TulispValue::Func(_) => f.write_str("Func"),
+            TulispValue::Defun { .. } => f.write_str("Defun"),
             TulispValue::Macro(_) => f.write_str("Macro"),
             TulispValue::Defmacro { .. } => f.write_str("Defmacro"),
             TulispValue::Lambda { .. } => f.write_str("Defun"),
+            TulispValue::CompiledDefun { .. } => f.write_str("CompiledDefun"),
         }
     }
 }
@@ -727,9 +802,9 @@ impl TulispValue {
         match self {
             TulispValue::Symbol { value } => value.set(to_set),
             TulispValue::LexicalBinding { binding } => binding.set(to_set),
-            _ => Err(Error::type_mismatch(
-                "Can bind values only to Symbols".to_string(),
-            )),
+            _ => Err(Error::type_mismatch(format!(
+                "Expected Symbol: Can't assign to {self}"
+            ))),
         }
     }
 
@@ -740,9 +815,9 @@ impl TulispValue {
             // LexicalBindings have no "global" slot — setting the
             // global cell of a lexical binding is nonsensical. Fall
             // through to the same error as non-symbols.
-            _ => Err(Error::type_mismatch(
-                "Can bind values only to Symbols".to_string(),
-            )),
+            _ => Err(Error::type_mismatch(format!(
+                "Expected Symbol: Can't assign to {self}"
+            ))),
         }
     }
 
@@ -854,6 +929,32 @@ impl TulispValue {
             TulispValue::Symbol { value } => value.boundp(),
             TulispValue::LexicalBinding { binding } => binding.boundp(),
             _ => false,
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn set_car(&mut self, new_car: TulispObject) -> Result<(), Error> {
+        match self {
+            TulispValue::List { cons, .. } => {
+                cons.set_car(new_car);
+                Ok(())
+            }
+            _ => Err(Error::type_mismatch(format!(
+                "setcar: expected cons, got: {self}"
+            ))),
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn set_cdr(&mut self, new_cdr: TulispObject) -> Result<(), Error> {
+        match self {
+            TulispValue::List { cons, .. } => {
+                cons.set_cdr(new_cdr);
+                Ok(())
+            }
+            _ => Err(Error::type_mismatch(format!(
+                "setcdr: expected cons, got: {self}"
+            ))),
         }
     }
 
@@ -970,7 +1071,7 @@ impl TulispValue {
             TulispValue::Number {
                 value: Number::Float(value),
                 ..
-            } => Ok(value.trunc() as i64),
+            } => crate::number::f64_to_i64_checked(value.trunc(), "try_int"),
             TulispValue::Number {
                 value: Number::Int(value),
                 ..
@@ -1006,7 +1107,7 @@ impl TulispValue {
     }
 
     #[inline(always)]
-    pub(crate) fn is_bounce(&self) -> bool {
+    pub fn is_bounce(&self) -> bool {
         matches!(self, TulispValue::Bounce)
     }
 
@@ -1187,13 +1288,11 @@ impl From<Shared<dyn TulispAny>> for TulispValue {
 
 impl FromIterator<TulispObject> for TulispValue {
     fn from_iter<T: IntoIterator<Item = TulispObject>>(iter: T) -> Self {
-        let mut list = TulispValue::Nil;
+        let mut builder = crate::cons::ListBuilder::new();
         for item in iter {
-            // because only push is called, and never append, it is safe to
-            // ignore the returned Result.
-            let _ = list.push(item);
+            builder.push(item);
         }
-        list
+        builder.build().take()
     }
 }
 

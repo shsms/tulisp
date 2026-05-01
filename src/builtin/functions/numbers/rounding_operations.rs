@@ -1,4 +1,4 @@
-use crate::{Error, TulispContext};
+use crate::{Error, TulispContext, number::f64_to_i64_checked};
 
 /// Combine N and optional DIVISOR into a single f64, matching Elisp's
 /// `(floor N &optional DIVISOR)` family which all divide N by DIVISOR before
@@ -15,22 +15,22 @@ fn combined(n: f64, divisor: Option<f64>) -> Result<f64, Error> {
 
 pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defun("floor", |n: f64, divisor: Option<f64>| {
-        Ok(combined(n, divisor)?.floor() as i64)
+        f64_to_i64_checked(combined(n, divisor)?.floor(), "floor")
     });
 
     ctx.defun("ceiling", |n: f64, divisor: Option<f64>| {
-        Ok(combined(n, divisor)?.ceil() as i64)
+        f64_to_i64_checked(combined(n, divisor)?.ceil(), "ceiling")
     });
 
     ctx.defun("truncate", |n: f64, divisor: Option<f64>| {
-        Ok(combined(n, divisor)?.trunc() as i64)
+        f64_to_i64_checked(combined(n, divisor)?.trunc(), "truncate")
     });
 
     ctx.defun("round", |n: f64, divisor: Option<f64>| {
         // Banker's rounding (round half to even) to match Elisp.
         let v = combined(n, divisor)?;
-        let out = if (v - v.trunc()).abs() == 0.5 {
-            let truncated = v.trunc() as i64;
+        let rounded = if (v - v.trunc()).abs() == 0.5 {
+            let truncated = f64_to_i64_checked(v.trunc(), "round")?;
             if truncated % 2 == 0 {
                 truncated
             } else if v > 0.0 {
@@ -39,9 +39,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 truncated - 1
             }
         } else {
-            v.round() as i64
+            f64_to_i64_checked(v.round(), "round")?
         };
-        Ok(out)
+        Ok(rounded)
     });
 
     ctx.defun("ffloor", |x: f64| x.floor());

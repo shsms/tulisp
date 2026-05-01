@@ -13,7 +13,25 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     ctx.defun(
         "last",
-        |list: TulispObject, n: Option<i64>| -> Result<TulispObject, Error> { lists::last(&list, n) },
+        |list: TulispObject, n: Option<i64>| -> Result<TulispObject, Error> {
+            lists::last(&list, n)
+        },
+    );
+
+    ctx.defun(
+        "setcar",
+        |cell: TulispObject, val: TulispObject| -> Result<TulispObject, Error> {
+            cell.set_car(val.clone())?;
+            Ok(val)
+        },
+    );
+
+    ctx.defun(
+        "setcdr",
+        |cell: TulispObject, val: TulispObject| -> Result<TulispObject, Error> {
+            cell.set_cdr(val.clone())?;
+            Ok(val)
+        },
     );
 
     macro_rules! impl_all_cxr {

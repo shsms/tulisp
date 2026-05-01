@@ -1,7 +1,8 @@
 use std::{collections::HashMap, iter::Peekable, str::Chars};
 
 use crate::{
-    Error, Number, TulispContext, TulispObject, TulispValue, eval::macroexpand, object::Span,
+    Error, Number, TulispContext, TulispObject, TulispValue, destruct_bind, eval::macroexpand,
+    list, object::Span,
 };
 
 struct Tokenizer<'a> {
@@ -85,9 +86,23 @@ impl Tokenizer<'_> {
         while let Some(ch) = self.next_char() {
             match ch {
                 '\\' => {
+                    // Common control-char escapes match Emacs / C.
+                    // Hex / octal / Unicode (`\xHH`, `\NNN`,
+                    // `\u{HHHH}`) aren't supported yet — the reader
+                    // errors on unknown escapes rather than passing
+                    // them through, partly to flag typos and partly
+                    // because Display only round-trips the four it
+                    // emits (`\"`, `\\`, `\n`, `\t`).
                     let out_ch = match self.next_char()? {
                         'n' => '\n',
                         't' => '\t',
+                        'r' => '\r',
+                        'b' => '\u{08}', // backspace
+                        'f' => '\u{0c}', // form feed
+                        'v' => '\u{0b}', // vertical tab
+                        'a' => '\u{07}', // alarm / bell
+                        'e' => '\u{1b}', // escape
+                        '0' => '\u{00}', // null
                         '\\' => '\\',
                         '"' => '"',
                         e => {
@@ -133,6 +148,94 @@ impl Tokenizer<'_> {
         self.read_num_ident_impl(start_pos, String::new(), true, false)
     }
 
+    /// Read a `#x` / `#o` / `#b` integer literal. Caller has just
+    /// peeked the radix-prefix letter; this consumes that letter and
+    /// the digits that follow, with an optional `+`/`-` sign between
+    /// the prefix and the first digit (Emacs allows `#x-10` for -16).
+    fn read_radix_int(
+        &mut self,
+        start_pos: (usize, usize),
+        radix: u32,
+        prefix: &str,
+    ) -> Option<Token> {
+        self.next_char()?; // consume the prefix letter
+        let mut digits = String::new();
+        if matches!(self.peek_char(), Some('-' | '+')) {
+            digits.push(self.next_char()?);
+        }
+        while let Some(c) = self.peek_char() {
+            if c.is_digit(radix) {
+                digits.push(c);
+                self.next_char()?;
+            } else {
+                break;
+            }
+        }
+        let span = Span::new(self.file_id, start_pos, (self.line, self.pos));
+        if digits.is_empty() || digits == "-" || digits == "+" {
+            return Some(Token::ParserError(ParserError::syntax_error(
+                format!("{prefix}: expected digits after radix prefix"),
+                span,
+            )));
+        }
+        match i64::from_str_radix(&digits, radix) {
+            Ok(value) => Some(Token::Integer { span, value }),
+            Err(e) => Some(Token::ParserError(ParserError::syntax_error(
+                format!("{prefix}{digits}: {e}"),
+                span,
+            ))),
+        }
+    }
+
+    /// Read a `?X` character literal. Returns the character's code
+    /// point as an `Integer` token. Supports the same backslash
+    /// escapes as string literals (`?\n`, `?\t`, `?\\`, `?\"`,
+    /// `?\r`, `?\b`, `?\f`, `?\v`, `?\a`, `?\e`, `?\0`); plus
+    /// `?\'` which is convenient for `?\'`-style apostrophe.
+    fn read_char_literal(&mut self) -> Option<Token> {
+        let start_pos = (self.line, self.pos + 1);
+        self.next_char()?; // consume '?'
+        let span_for = |toklen: &Tokenizer<'_>| -> Span {
+            Span::new(toklen.file_id, start_pos, (toklen.line, toklen.pos))
+        };
+        let value: i64 = match self.next_char() {
+            Some('\\') => match self.next_char() {
+                Some('n') => '\n' as i64,
+                Some('t') => '\t' as i64,
+                Some('r') => '\r' as i64,
+                Some('b') => 0x08,
+                Some('f') => 0x0c,
+                Some('v') => 0x0b,
+                Some('a') => 0x07,
+                Some('e') => 0x1b,
+                Some('0') => 0x00,
+                Some('\\') => '\\' as i64,
+                Some('\'') => '\'' as i64,
+                Some('"') => '"' as i64,
+                // Emacs reads `?\j` as just `j` for unknown escapes;
+                // keep that — easier to remove later than to add.
+                Some(c) => c as i64,
+                None => {
+                    return Some(Token::ParserError(ParserError::syntax_error(
+                        "Unexpected EOF after ?\\".to_string(),
+                        span_for(self),
+                    )));
+                }
+            },
+            Some(c) => c as i64,
+            None => {
+                return Some(Token::ParserError(ParserError::syntax_error(
+                    "Unexpected EOF after ?".to_string(),
+                    span_for(self),
+                )));
+            }
+        };
+        Some(Token::Integer {
+            span: span_for(self),
+            value,
+        })
+    }
+
     fn read_num_ident_impl(
         &mut self,
         start_pos: (usize, usize),
@@ -141,11 +244,30 @@ impl Tokenizer<'_> {
         mut is_float: bool,
     ) -> Option<Token> {
         let mut first_char = output.is_empty();
+        // Scientific-notation state. `seen_e` blocks a second `e`/`E`,
+        // `expect_exp_sign` lets one `+`/`-` follow `e`/`E` without
+        // tipping the token into ident mode.
+        let mut seen_e = false;
+        let mut expect_exp_sign = false;
 
         while let Some(ch) = self.peek_char() {
             match ch {
                 ')' | ' ' | '\t' | '\n' | '\r' => {
                     break;
+                }
+                'e' | 'E' if (is_int || is_float) && !first_char && !seen_e => {
+                    // Enter exponent mode: any preceding digits/dot
+                    // make this a float, regardless of `is_int`.
+                    is_int = false;
+                    is_float = true;
+                    seen_e = true;
+                    expect_exp_sign = true;
+                    output.push(ch);
+                }
+                '-' | '+' if expect_exp_sign && (is_int || is_float) => {
+                    // Sign of the exponent — stays in float mode.
+                    expect_exp_sign = false;
+                    output.push(ch);
                 }
                 '-' => {
                     if !first_char {
@@ -154,7 +276,10 @@ impl Tokenizer<'_> {
                     }
                     output.push(ch);
                 }
-                '0'..='9' => output.push(ch),
+                '0'..='9' => {
+                    expect_exp_sign = false;
+                    output.push(ch);
+                }
                 '_' if (is_int || is_float) && !first_char => {}
                 '.' => {
                     if is_int && !is_float {
@@ -187,18 +312,63 @@ impl Tokenizer<'_> {
             let span = Span::new(self.file_id, start_pos, (self.line, self.pos));
             match output.parse::<f64>() {
                 Ok(value) => Some(Token::Float { span, value }),
+                // `1e` / `1e+` (and similar) eagerly entered exponent
+                // mode but never produced an exponent digit. Emacs
+                // reads these as identifiers — fall back rather than
+                // erroring on a syntactically valid Lisp symbol.
+                Err(_) if seen_e => Some(Token::Ident {
+                    span,
+                    value: output,
+                }),
                 Err(e) => Some(Token::ParserError(ParserError::syntax_error(
                     format!("{e}: {output}"),
                     span,
                 ))),
             }
         } else {
+            let span = Span::new(self.file_id, start_pos, (self.line, self.pos));
+            // Emacs' `1.0e+INF` / `-1.0e+INF` / `0.0e+NaN` /
+            // `-0.0e+NaN` shapes — uppercase suffix only, only `e+`
+            // (not `e-`). Mantissa value is ignored; only its sign
+            // matters. Lowercase / `e-` variants stay as identifiers,
+            // matching Emacs' reader.
+            if let Some(value) = parse_emacs_inf_nan(&output) {
+                return Some(Token::Float { span, value });
+            }
             Some(Token::Ident {
-                span: Span::new(self.file_id, start_pos, (self.line, self.pos)),
+                span,
                 value: output,
             })
         }
     }
+}
+
+/// Recognize the `<mantissa>e+INF` / `<mantissa>e+NaN` shapes that
+/// Emacs' reader uses for the special float values. The mantissa
+/// value is irrelevant (`5.5e+INF` and `1.0e+INF` both produce
+/// `+INF`); only its sign carries through. Returns `None` for
+/// anything else (so the caller can fall back to identifier).
+fn parse_emacs_inf_nan(s: &str) -> Option<f64> {
+    for (suffix, base) in [("e+INF", f64::INFINITY), ("e+NaN", f64::NAN)] {
+        let Some(prefix) = s.strip_suffix(suffix) else {
+            continue;
+        };
+        // Mantissa must itself be a finite f64 (rules out empty,
+        // double-dot, leading-letter, etc.). The mantissa's value is
+        // discarded — only its sign matters.
+        if let Ok(mantissa) = prefix.parse::<f64>()
+            && mantissa.is_finite()
+        {
+            return Some(if prefix.starts_with('-') {
+                // `-f64::NAN` flips the sign bit; `-f64::INFINITY`
+                // produces `f64::NEG_INFINITY`.
+                -base
+            } else {
+                base
+            });
+        }
+    }
+    None
 }
 
 impl Iterator for Tokenizer<'_> {
@@ -252,37 +422,67 @@ impl Iterator for Tokenizer<'_> {
                     });
                 }
                 '#' => {
+                    // Capture the sigil's position before consuming
+                    // it. Computing the start column from the
+                    // post-consume `pos` would underflow if the
+                    // tokenizer ever reset `pos` (e.g. on a newline)
+                    // between the sigil and its companion char —
+                    // can't happen today because `#'` / `#x` etc.
+                    // must be adjacent, but the explicit start_pos
+                    // keeps the span correct under any future
+                    // tokenizer change.
+                    let start_pos = (self.line, self.pos + 1);
                     self.next_char()?;
-                    if self.peek_char()? == '\'' {
-                        self.next_char()?;
-                        return Some(Token::SharpQuote {
-                            span: Span::new(
-                                self.file_id,
-                                (self.line, self.pos - 1),
-                                (self.line, self.pos),
-                            ),
-                        });
+                    // `peek_char()?` would silently terminate the
+                    // tokenizer at EOF, hiding the bad input. Match
+                    // explicitly so we can surface a `ParserError`.
+                    match self.peek_char() {
+                        Some('\'') => {
+                            self.next_char()?;
+                            return Some(Token::SharpQuote {
+                                span: Span::new(self.file_id, start_pos, (self.line, self.pos)),
+                            });
+                        }
+                        Some('x' | 'X') => return self.read_radix_int(start_pos, 16, "#x"),
+                        Some('o' | 'O') => return self.read_radix_int(start_pos, 8, "#o"),
+                        Some('b' | 'B') => return self.read_radix_int(start_pos, 2, "#b"),
+                        Some(_) => {
+                            return Some(Token::ParserError(ParserError::syntax_error(
+                                "Unknown token #.  Did you mean #' ?".to_string(),
+                                Span::new(self.file_id, start_pos, (self.line, self.pos)),
+                            )));
+                        }
+                        None => {
+                            return Some(Token::ParserError(ParserError::syntax_error(
+                                "Unexpected EOF after #".to_string(),
+                                Span::new(self.file_id, start_pos, (self.line, self.pos)),
+                            )));
+                        }
                     }
-                    return Some(Token::ParserError(ParserError::syntax_error(
-                        "Unknown token #.  Did you mean #' ?".to_string(),
-                        Span::new(self.file_id, (self.line, self.pos), (self.line, self.pos)),
-                    )));
                 }
+                '?' => return self.read_char_literal(),
                 ',' => {
+                    let start_pos = (self.line, self.pos + 1);
                     self.next_char()?;
-                    if self.peek_char()? == '@' {
-                        self.next_char()?;
-                        return Some(Token::Splice {
-                            span: Span::new(
-                                self.file_id,
-                                (self.line, self.pos - 1),
-                                (self.line, self.pos),
-                            ),
-                        });
+                    match self.peek_char() {
+                        Some('@') => {
+                            self.next_char()?;
+                            return Some(Token::Splice {
+                                span: Span::new(self.file_id, start_pos, (self.line, self.pos)),
+                            });
+                        }
+                        Some(_) => {
+                            return Some(Token::Comma {
+                                span: Span::new(self.file_id, start_pos, (self.line, self.pos)),
+                            });
+                        }
+                        None => {
+                            return Some(Token::ParserError(ParserError::syntax_error(
+                                "Unexpected EOF after ,".to_string(),
+                                Span::new(self.file_id, start_pos, (self.line, self.pos)),
+                            )));
+                        }
                     }
-                    return Some(Token::Comma {
-                        span: Span::new(self.file_id, (self.line, self.pos), (self.line, self.pos)),
-                    });
                 }
                 '"' => {
                     return self.read_string();
@@ -299,7 +499,6 @@ struct Parser<'a, 'b> {
     tokenizer: Peekable<Tokenizer<'a>>,
     ctx: &'b mut TulispContext,
     ints: HashMap<i64, TulispObject>,
-    strings: HashMap<String, TulispObject>,
     #[cfg(feature = "etags")]
     follow_load_files: bool,
 }
@@ -331,15 +530,15 @@ impl Parser<'_, '_> {
             tokenizer: Tokenizer::new(file_id, program).peekable(),
             ctx,
             ints: Default::default(),
-            strings: Default::default(),
             #[cfg(feature = "etags")]
             follow_load_files,
         }
     }
 
     fn parse_list(&mut self, start_span: Span) -> Result<TulispObject, Error> {
-        let mut inner = TulispObject::nil();
+        let mut builder = crate::cons::ListBuilder::new();
         let mut got_dot = false;
+        let mut full_span: Option<Span> = None;
         loop {
             let Some(token) = self.tokenizer.peek() else {
                 return Err(Error::parsing_error("Unclosed list".to_string())
@@ -347,11 +546,11 @@ impl Parser<'_, '_> {
             };
             match token {
                 Token::CloseParen { span: end_span } => {
-                    inner.with_span(Some(Span {
+                    full_span = Some(Span {
                         file_id: self.file_id,
                         start: start_span.start,
                         end: end_span.end,
-                    }));
+                    });
                     break;
                 }
                 Token::Dot { .. } => {
@@ -360,7 +559,7 @@ impl Parser<'_, '_> {
                 }
                 _ => {
                     let next = self.parse_value()?.unwrap();
-                    inner.push(next)?;
+                    builder.push(next);
                 }
             }
         }
@@ -371,19 +570,21 @@ impl Parser<'_, '_> {
         if got_dot {
             let next = self.parse_value()?.unwrap();
             if let Some(Token::CloseParen { span: end_span }) = self.tokenizer.next() {
-                inner.with_span(Some(Span {
+                full_span = Some(Span {
                     file_id: self.file_id,
                     start: start_span.start,
                     end: end_span.end,
-                }));
+                });
             } else {
                 return Err(Error::parsing_error(
                     "Expected only one item in list after dot.".to_string(),
                 )
                 .with_trace(next));
             }
-            inner.append(next)?;
+            builder.append(next)?;
         }
+
+        let mut inner = builder.build().with_span(full_span);
 
         #[cfg(feature = "etags")]
         if self.follow_load_files
@@ -478,7 +679,10 @@ impl Parser<'_, '_> {
                     }
                 };
                 Ok(Some(
-                    TulispValue::Unquote { value: next }.into_ref(Some(span)),
+                    TulispValue::Unquote {
+                        value: macroexpand(self.ctx, next)?,
+                    }
+                    .into_ref(Some(span)),
                 ))
             }
             Token::Splice { span } => {
@@ -493,17 +697,13 @@ impl Parser<'_, '_> {
                     TulispValue::Splice { value: next }.into_ref(Some(span)),
                 ))
             }
-            Token::String { span, value } => Ok(Some(match self.strings.get(&value) {
-                Some(vv) => vv.with_span(Some(span)),
-                None => {
-                    let vv = TulispValue::String {
-                        value: value.clone(),
-                    }
-                    .into_ref(Some(span));
-                    self.strings.insert(value, vv.clone());
-                    vv
-                }
-            })),
+            // Each string literal gets a fresh `TulispObject` —
+            // matching Emacs' `(eq "hello" "hello") => nil`. Interning
+            // would make `eq` collide and, more importantly, alias any
+            // future `aset`-style mutation across unrelated literals.
+            Token::String { span, value } => {
+                Ok(Some(TulispValue::String { value }.into_ref(Some(span))))
+            }
 
             Token::Integer { span, value } => Ok(Some(match self.ints.get(&value) {
                 Some(vv) => vv.with_span(Some(span)),
@@ -542,12 +742,88 @@ impl Parser<'_, '_> {
     }
 
     fn parse(&mut self) -> Result<TulispObject, Error> {
-        let output = TulispObject::nil();
+        let mut builder = crate::cons::ListBuilder::new();
         while let Some(next) = self.parse_value()? {
-            output.push(next)?;
+            builder.push(next);
         }
-        macroexpand(self.ctx, output)
+        macroexpand(self.ctx, builder.build())
     }
+}
+
+pub(crate) fn mark_tail_calls(
+    ctx: &mut TulispContext,
+    name: TulispObject,
+    body: TulispObject,
+) -> Result<TulispObject, Error> {
+    if !body.consp() {
+        return Ok(body);
+    }
+    let mut builder = crate::cons::ListBuilder::new();
+    let mut body_iter = body.base_iter();
+    let mut tail = body_iter.next().unwrap();
+    for next in body_iter {
+        builder.push(tail);
+        tail = next;
+    }
+    if !tail.consp() {
+        return Ok(body);
+    }
+    let span = tail.span();
+    let ctxobj = tail.ctxobj();
+    let tail_ident = tail.car()?;
+    let tail_name_str = tail_ident.as_symbol()?;
+    let is_self_call = tail_ident.eq(&name);
+    // A call to another VM-compiled defun in tail position is also
+    // a TCO opportunity. The call site uses the same `Bounce` shape
+    // as self-recursion; `compile_fn_defun_bounce_call` emits a
+    // `TailCall` for it (loop-style unwind in the caller), which
+    // gives mutual recursion bounded Rust stack usage. We can only
+    // mark when the target is already registered — forward
+    // references (callee defined after caller) miss this and fall
+    // through to a regular `Call`.
+    let is_known_vm_defun = ctx
+        .compiler
+        .as_ref()
+        .is_some_and(|c| c.defun_args.contains_key(&tail_ident.addr_as_usize()));
+    let new_tail = if is_self_call
+        || is_known_vm_defun
+        || ctx
+            .eval(&tail_ident)
+            .is_ok_and(|f| matches!(&f.inner_ref().0, TulispValue::Lambda { .. }))
+    {
+        let ret_tail = TulispObject::nil().append(tail.cdr()?)?.to_owned();
+        list!(,ctx.intern("list")
+              ,TulispValue::Bounce.into_ref(None)
+              ,tail_ident
+              ,@ret_tail)?
+    } else if tail_name_str == "progn" || tail_name_str == "let" || tail_name_str == "let*" {
+        list!(,tail_ident ,@mark_tail_calls(ctx, name, tail.cdr()?)?)?
+    } else if tail_name_str == "if" {
+        destruct_bind!((_if condition then_body &rest else_body) = tail);
+        list!(,tail_ident
+            ,condition.clone()
+            ,mark_tail_calls(
+                ctx,
+                name.clone(),
+                list!(,then_body)?
+            )?.car()?
+            ,@mark_tail_calls(ctx, name, else_body)?
+        )?
+    } else if tail_name_str == "cond" {
+        destruct_bind!((_cond &rest conds) = tail);
+        let mut ret = list!(,tail_ident)?;
+        for cond in conds.base_iter() {
+            destruct_bind!((condition &rest body) = cond);
+            ret = list!(,@ret
+                ,list!(,condition.clone()
+                    ,@mark_tail_calls(ctx, name.clone(), body)?)?)?;
+        }
+        ret
+    } else {
+        tail
+    };
+    builder.push(new_tail.with_ctxobj(ctxobj).with_span(span));
+    Ok(builder.build())
 }
 
 pub fn parse(

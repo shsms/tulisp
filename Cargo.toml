@@ -30,6 +30,10 @@ lto = true
 name = "fib"
 harness = false
 
+[[bench]]
+name = "list_build"
+harness = false
+
 [features]
 sync = []
 big_functions = []

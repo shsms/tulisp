@@ -67,7 +67,9 @@ ErrorKind!(
     (OSError,         pub os_error),
     (TypeMismatch,    pub type_mismatch),
     (PlistError,      pub plist_error),
+    (AlistError,      pub alist_error),
     (MissingArgument, pub missing_argument),
+    (ArityMismatch,   pub(crate) arity_mismatch),
     (Undefined,       pub(crate) undefined),
     (Uninitialized,   pub(crate) uninitialized),
     (ParsingError,    pub(crate) parsing_error),
@@ -88,9 +90,10 @@ pub struct Error {
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "ERR {}:", self.kind)?;
-        if !self.desc.is_empty() {
-            write!(f, " {}", self.desc)?;
+        if self.desc.is_empty() {
+            write!(f, "ERR {}", self.kind)?;
+        } else {
+            write!(f, "ERR {}: {}", self.kind, self.desc)?;
         }
         for span_obj in &self.backtrace {
             if span_obj.numberp() || span_obj.symbolp() || span_obj.stringp() {
@@ -122,6 +125,15 @@ impl std::fmt::Debug for Error {
 }
 
 impl Error {
+    /// Creates a new [`Error`] with the given kind and description.
+    pub(crate) fn new(kind: ErrorKind, desc: impl Into<String>) -> Self {
+        Self {
+            kind,
+            desc: desc.into(),
+            backtrace: vec![],
+        }
+    }
+
     /// Creates a new `Throw` error with the given tag and value.
     pub fn throw(tag: TulispObject, value: TulispObject) -> Self {
         Self {
@@ -145,15 +157,11 @@ impl Error {
 
     /// Formats the error into a human-readable string, including backtrace information.
     pub fn format(&self, ctx: &TulispContext) -> String {
-        let mut span_str = format!(
-            "ERR {}:{}",
-            self.kind,
-            if self.desc.is_empty() {
-                String::new()
-            } else {
-                format!(" {}", self.desc)
-            }
-        );
+        let mut span_str = if self.desc.is_empty() {
+            format!("ERR {}", self.kind)
+        } else {
+            format!("ERR {}: {}", self.kind, self.desc)
+        };
         for span in &self.backtrace {
             let prefix = self.format_span(ctx, span);
             if prefix.is_empty() {
@@ -175,6 +183,24 @@ impl Error {
 
 impl Error {
     /// Adds a trace span to the error's backtrace.
+    ///
+    /// Dedup is **positional** — only collapses against the
+    /// `backtrace.last()` entry, not the full set. Today the
+    /// well-formedness invariant that justifies that is:
+    ///
+    /// 1. `eval_basic` and `eval_form` wrap an inner result with
+    ///    `with_trace(expr.clone())` once each, in nested order.
+    /// 2. The VM's `run_impl` walks `trace_ranges` from
+    ///    innermost-out and applies them with `with_trace(form)` in
+    ///    order, so the same form can't appear non-adjacently in the
+    ///    same trace.
+    ///
+    /// A refactor that reorders trace application — e.g. attaching
+    /// an outer form before the inner one is finalized — could
+    /// produce duplicates that this last-only check misses. If that
+    /// happens, switch to a set-based dedup (e.g. by
+    /// `addr_as_usize`) and update the call sites that rely on the
+    /// last-only collapse.
     pub fn with_trace(mut self, span: TulispObject) -> Self {
         if self.backtrace.last().is_some_and(|last| last.eq(&span)) {
             return self;

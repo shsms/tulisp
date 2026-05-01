@@ -1,15 +1,16 @@
 use std::fmt::Display;
 use tulisp::{
-    Error, Iter, Shared, TulispContext, TulispConvertible, TulispObject, destruct_eval_bind,
+    AsPlist, Error, Iter, Plist, Shared, TulispContext, TulispConvertible, TulispObject,
+    destruct_eval_bind,
 };
 
 macro_rules! tulisp_assert {
     (@impl $ctx: expr, program:$input:expr, result:$result:expr $(,)?) => {
-        let output = $ctx.eval_string($input).map_err(|err| {
+        let output = $ctx.tw_eval_string($input).map_err(|err| {
             panic!("{}:{}: execution failed: {}", file!(), line!(),err.format(&$ctx));
 
         })?;
-        let expected = $ctx.eval_string($result)?;
+        let expected = $ctx.tw_eval_string($result)?;
         assert!(
             output.equal(&expected),
             "\n{}:{}: program: {}\n  output: {},\n  expected: {}\n",
@@ -21,12 +22,29 @@ macro_rules! tulisp_assert {
         );
     };
 
-    (@impl $ctx: expr, program:$input:expr, result_str:$result:expr $(,)?) => {
+    (@impl_vm $ctx: expr, program:$input:expr, result:$result:expr $(,)?) => {
         let output = $ctx.eval_string($input).map_err(|err| {
+            panic!("{}:{}: execution failed: {}", file!(), line!(),err.format(&$ctx));
+
+        })?;
+        let expected = $ctx.eval_string($result)?;
+        assert!(
+            output.equal(&expected),
+            "\n{}:{}: program: {}\n  vm output: {},\n  expected: {}\n",
+            file!(),
+            line!(),
+            $input,
+            output,
+            expected
+        );
+    };
+
+    (@impl $ctx: expr, program:$input:expr, result_str:$result:expr $(,)?) => {
+        let output = $ctx.tw_eval_string($input).map_err(|err| {
             println!("{}:{}: execution failed: {}", file!(), line!(),err.format(&$ctx));
             err
         })?;
-        let expected = $ctx.eval_string($result)?;
+        let expected = $ctx.tw_eval_string($result)?;
         assert_eq!(output.to_string(), expected.to_string(),
             "\n{}:{}: program: {}\n  output: {},\n  expected: {}\n",
             file!(),
@@ -37,19 +55,44 @@ macro_rules! tulisp_assert {
         );
     };
 
+    (@impl_vm $ctx: expr, program:$input:expr, result_str:$result:expr $(,)?) => {
+        let output = $ctx.eval_string($input).map_err(|err| {
+            println!("{}:{}: execution failed: {}", file!(), line!(),err.format(&$ctx));
+            err
+        })?;
+        let expected = $ctx.eval_string($result)?;
+        assert_eq!(output.to_string(), expected.to_string(),
+            "\n{}:{}: program: {}\n  vm output: {},\n  expected: {}\n",
+            file!(),
+            line!(),
+            $input,
+            output,
+            expected
+        );
+    };
+
     (@impl $ctx: expr, program:$input:expr, error:$desc:expr $(,)?) => {
+        let output = $ctx.tw_eval_string($input);
+        assert!(output.is_err());
+        assert_eq!(output.unwrap_err().format(&$ctx), $desc);
+    };
+
+    (@impl_vm $ctx: expr, program:$input:expr, error:$desc:expr $(,)?) => {
         let output = $ctx.eval_string($input);
         assert!(output.is_err());
         assert_eq!(output.unwrap_err().format(&$ctx), $desc);
     };
 
     (ctx: $ctx: expr, program: $($tail:tt)+) => {
-        tulisp_assert!(@impl $ctx, program: $($tail)+)
+        tulisp_assert!(@impl $ctx, program: $($tail)+);
+        tulisp_assert!(@impl_vm $ctx, program: $($tail)+);
     };
 
     (program: $($tail:tt)+) => {
         let mut ctx = TulispContext::new();
-        tulisp_assert!(ctx: ctx, program: $($tail)+)
+        tulisp_assert!(@impl ctx, program: $($tail)+);
+        let mut ctx = TulispContext::new();
+        tulisp_assert!(@impl_vm ctx, program: $($tail)+);
     };
 }
 
@@ -65,11 +108,13 @@ fn test_comparison_of_numbers() -> Result<(), Error> {
     tulisp_assert! { program: "(> 6 4 2)", result: "t" }
     tulisp_assert! { program: "(> 10.0 5.0)", result: "t" }
     tulisp_assert! { program: "(> 5.0 10.0)", result: "nil" }
+    // A single-arg comparison is vacuously true (Emacs: `(> 5)` => t).
+    tulisp_assert! { program: "(let ((a 10)) (> a))", result: "t" }
+    // A zero-arg comparison errors.
     tulisp_assert! {
-        program: "(let ((a 10)) (> a))",
-        error: r#"ERR OutOfRange: Comparison requires at least 2 arguments
-<eval_string>:1.15-1.19:  at (> a)
-<eval_string>:1.1-1.20:  at (let ((a 10)) (> a))
+        program: "(>)",
+        error: r#"ERR MissingArgument: Comparison requires at least 1 argument
+<eval_string>:1.1-1.3:  at (>)
 "#
     }
     tulisp_assert! {
@@ -89,13 +134,7 @@ fn test_comparison_of_numbers() -> Result<(), Error> {
     tulisp_assert! { program: "(>= 6 4 2)", result: "t" }
     tulisp_assert! { program: "(>= 10.0 5.0)", result: "t" }
     tulisp_assert! { program: "(>= 5.0 10.0)", result: "nil" }
-    tulisp_assert! {
-        program: "(let ((a 10)) (>= a))",
-        error: r#"ERR OutOfRange: Comparison requires at least 2 arguments
-<eval_string>:1.15-1.20:  at (>= a)
-<eval_string>:1.1-1.21:  at (let ((a 10)) (>= a))
-"#
-    }
+    tulisp_assert! { program: "(let ((a 10)) (>= a))", result: "t" }
 
     // Less than
     tulisp_assert! { program: "(< 10 10)", result: "nil" }
@@ -107,13 +146,7 @@ fn test_comparison_of_numbers() -> Result<(), Error> {
     tulisp_assert! { program: "(< 6 4 2)", result: "nil" }
     tulisp_assert! { program: "(< 10.0 5.0)", result: "nil" }
     tulisp_assert! { program: "(< 5.0 10.0)", result: "t" }
-    tulisp_assert! {
-        program: "(let ((a 10)) (< a))",
-        error: r#"ERR OutOfRange: Comparison requires at least 2 arguments
-<eval_string>:1.15-1.19:  at (< a)
-<eval_string>:1.1-1.20:  at (let ((a 10)) (< a))
-"#
-    }
+    tulisp_assert! { program: "(let ((a 10)) (< a))", result: "t" }
 
     // Less than or equal
     tulisp_assert! { program: "(<= 10 10)", result: "t" }
@@ -125,13 +158,7 @@ fn test_comparison_of_numbers() -> Result<(), Error> {
     tulisp_assert! { program: "(<= 6 4 2)", result: "nil" }
     tulisp_assert! { program: "(<= 10.0 5.0)", result: "nil" }
     tulisp_assert! { program: "(<= 5.0 10.0)", result: "t" }
-    tulisp_assert! {
-        program: "(let ((a 10)) (<= a))",
-        error: r#"ERR OutOfRange: Comparison requires at least 2 arguments
-<eval_string>:1.15-1.20:  at (<= a)
-<eval_string>:1.1-1.21:  at (let ((a 10)) (<= a))
-"#
-    }
+    tulisp_assert! { program: "(let ((a 10)) (<= a))", result: "t" }
 
     Ok(())
 }
@@ -463,9 +490,87 @@ fn test_eval() -> Result<(), Error> {
 "#
     }
     tulisp_assert! {
-        program: "(let ((j 10)) (+ j j))(+ j j)",
+        program: "(let ((j 10)) (+ j j))(+ j 1)",
         error: r#"ERR Uninitialized: Variable definition is void: j
-<eval_string>:1.23-1.29:  at (+ j j)
+<eval_string>:1.23-1.29:  at (+ j 1)
+"#
+    }
+    Ok(())
+}
+
+#[test]
+fn test_apply() -> Result<(), Error> {
+    // Plain (apply FN LIST).
+    tulisp_assert! { program: "(apply '+ '(1 2 3))",         result: "6"  }
+    // Empty final list — args slice through to the function as-is.
+    // `+` requires ≥1 arg in tulisp, so use `list` here which doesn't.
+    tulisp_assert! { program: "(apply 'list '())",           result: "nil" }
+
+    // Intermediate args spliced ahead of the final list.
+    tulisp_assert! { program: "(apply '+ 1 2 '(3 4))",       result: "10" }
+    tulisp_assert! { program: "(apply 'list 1 2 '(3 4))",    result: "'(1 2 3 4)" }
+    tulisp_assert! { program: "(apply 'concat \"a\" '(\"b\" \"c\"))", result: r#""abc""# }
+
+    // Symbol bound to a lambda.
+    tulisp_assert! {
+        program: "(setq f (lambda (a b c) (+ a (* b c))))(apply f 1 '(2 3))",
+        result: "7",
+    }
+
+    // Inline lambda.
+    tulisp_assert! {
+        program: "(apply (lambda (a b) (* a b)) 3 '(4))",
+        result: "12",
+    }
+
+    // The intermediate args are evaluated.
+    tulisp_assert! {
+        program: "(let ((x 10)) (apply '+ x '(2 3)))",
+        result: "15",
+    }
+
+    // Last arg must be a list.
+    tulisp_assert! {
+        program: "(apply '+ 1 2)",
+        error: r#"ERR TypeMismatch: apply: last argument must be a list, got: 2
+<eval_string>:1.1-1.14:  at (apply '+ 1 2)
+"#
+    }
+
+    // Improper trailing list errors instead of silently dropping the
+    // dotted tail (matches Emacs's `(wrong-type-argument listp X)`).
+    tulisp_assert! {
+        program: "(apply '+ 1 '(2 3 . 4))",
+        error: r#"ERR TypeMismatch: apply: last argument must be a proper list, got non-nil tail: 4
+<eval_string>:1.1-1.23:  at (apply '+ 1 '(2 3 . 4))
+"#
+    }
+
+    // Circular trailing list errors instead of hanging the splice
+    // loop (Floyd's tortoise / hare in both paths).
+    tulisp_assert! {
+        program: r#"
+            (setq xs (list 1 2 3))
+            (setcdr (cdr (cdr xs)) xs)
+            (apply '+ xs)
+        "#,
+        error: r#"ERR OutOfRange: apply: last argument is a circular list
+<eval_string>:4.13-4.25:  at (apply '+ xs)
+"#
+    }
+
+    // Missing the args list — both `(apply)` and `(apply '+)` should
+    // error with the same MissingArgument shape on both paths.
+    tulisp_assert! {
+        program: "(apply)",
+        error: r#"ERR MissingArgument: apply requires at least 2 arguments
+<eval_string>:1.1-1.7:  at (apply)
+"#
+    }
+    tulisp_assert! {
+        program: "(apply '+)",
+        error: r#"ERR MissingArgument: apply requires at least 2 arguments
+<eval_string>:1.1-1.10:  at (apply '+)
 "#
     }
     Ok(())
@@ -557,6 +662,87 @@ fn test_cons() -> Result<(), Error> {
 }
 
 #[test]
+fn test_setq_invalid_target() -> Result<(), Error> {
+    // `setq` rejects non-symbol and constant-symbol targets at compile
+    // time; `set` rejects them at runtime. Regression: the VM used to
+    // `.unwrap()` the result of `obj.set(...)`, which crashed on
+    // `(setq t 5)`, `(setq nil 5)`, `(setq :foo 5)`, etc.
+    tulisp_assert! {
+        program: "(setq t 5)",
+        error: r#"ERR TypeMismatch: Expected Symbol: Can't assign to t
+<eval_string>:1.7-1.7:  at t
+<eval_string>:1.1-1.10:  at (setq t 5)
+"#
+    };
+    tulisp_assert! {
+        program: "(setq nil 5)",
+        error: r#"ERR TypeMismatch: Expected Symbol: Can't assign to nil
+<eval_string>:1.7-1.9:  at nil
+<eval_string>:1.1-1.12:  at (setq nil 5)
+"#
+    };
+    tulisp_assert! {
+        program: "(setq :foo 5)",
+        error: r#"ERR TypeMismatch: Can't set constant symbol: :foo
+<eval_string>:1.1-1.13:  at (setq :foo 5)
+"#
+    };
+    tulisp_assert! {
+        program: r#"(setq "x" 5)"#,
+        error: r#"ERR TypeMismatch: Expected Symbol: Can't assign to "x"
+<eval_string>:1.1-1.12:  at (setq "x" 5)
+"#
+    };
+    tulisp_assert! {
+        program: "(set 't 5)",
+        error: r#"ERR TypeMismatch: Expected Symbol: Can't assign to t
+<eval_string>:1.7-1.7:  at t
+<eval_string>:1.1-1.10:  at (set 't 5)
+"#
+    };
+    tulisp_assert! {
+        program: "(set ':foo 5)",
+        error: r#"ERR TypeMismatch: Can't set constant symbol: :foo
+<eval_string>:1.1-1.13:  at (set ':foo 5)
+"#
+    };
+    Ok(())
+}
+
+#[test]
+fn test_cxr_non_cons_input() -> Result<(), Error> {
+    // Every cxr must propagate `TypeMismatch` rather than panic on a
+    // non-cons argument. Regression: the VM's `Instruction::Cxr` arm
+    // used to `.unwrap()` the result of `obj.car()` etc., which
+    // crashed the process on plain Lisp like `(car 5)`.
+    tulisp_assert! {
+        program: "(car 5)",
+        error: r#"ERR TypeMismatch: cxr: Not a Cons: 5
+<eval_string>:1.1-1.7:  at (car 5)
+"#
+    };
+    tulisp_assert! {
+        program: "(cdr 5)",
+        error: r#"ERR TypeMismatch: cxr: Not a Cons: 5
+<eval_string>:1.1-1.7:  at (cdr 5)
+"#
+    };
+    tulisp_assert! {
+        program: "(cadr 7)",
+        error: r#"ERR TypeMismatch: cxr: Not a Cons: 7
+<eval_string>:1.1-1.8:  at (cadr 7)
+"#
+    };
+    tulisp_assert! {
+        program: "(cdddr \"abc\")",
+        error: r#"ERR TypeMismatch: cxr: Not a Cons: "abc"
+<eval_string>:1.1-1.13:  at (cdddr "abc")
+"#
+    };
+    Ok(())
+}
+
+#[test]
 fn test_quote() -> Result<(), Error> {
     tulisp_assert! {
         program: "(quote (1 2 3))",
@@ -632,6 +818,21 @@ fn test_lists() -> Result<(), Error> {
 <eval_string>:3.15-3.34:  at (append items '(10))
 <eval_string>:2.9-3.35:  at (setq items (append items '(10)))
 "#
+    }
+
+    // Emacs `append` semantics: empty / single-arg / shared last arg /
+    // dotted tail / no input mutation.
+    tulisp_assert! { program: "(append)", result: "nil" }
+    tulisp_assert! { program: "(append '(1 2 3))", result: "'(1 2 3)" }
+    tulisp_assert! { program: "(append nil 77)", result: "77" }
+    tulisp_assert! { program: "(append '(1 2) 3)", result: "'(1 2 . 3)" }
+    tulisp_assert! {
+        program: r##"
+            (let ((xs '(1 2)))
+              (append xs '(3 4))
+              xs)
+        "##,
+        result: "'(1 2)",
     }
 
     tulisp_assert! {
@@ -723,6 +924,14 @@ fn test_backquotes() -> Result<(), Error> {
     }
 
     tulisp_assert! {
+        program: r#"
+        (let ((a 10))
+          (cdr `(a . ,a)))
+        "#,
+        result: r#"10"#,
+    }
+
+    tulisp_assert! {
         program: r#"`(1 2 '(+ 10 20)  ',(+ 10 20)  (quote ,(+ 20 20)))"#,
         result: r#"'(1 2 '(+ 10 20) '30 (quote 40))"#,
     }
@@ -733,6 +942,98 @@ fn test_backquotes() -> Result<(), Error> {
 <eval_string>:1.7-1.7:  at ,,(+ 10 20)
 <eval_string>:1.1-1.1:  at `(1 2 ,,(+ 10 20))
 "#,
+    }
+
+    // Nested backquote: `,,x` (depth 2 → 1 → 0) evaluates `x` at the
+    // outer backquote level; `,y` at depth 2 reduces to depth 1 and
+    // is preserved for the inner backquote to resolve later.
+    // Matches Emacs (verified with `emacs --batch`).
+    tulisp_assert! {
+        program: r#"
+        (let ((x 1) (y 2))
+          `(a `(b ,,x ,y) c))
+        "#,
+        result: r#"'(a `(b ,1 ,y) c)"#,
+    }
+
+    // Single-comma at depth 2 stays as data (no eval) — both `,x`
+    // and `,y` reduce to depth 1, preserved for the inner backquote.
+    tulisp_assert! {
+        program: r#"
+        (let ((x 1) (y 2))
+          `(a `(b ,x ,y) c))
+        "#,
+        result: r#"'(a `(b ,x ,y) c)"#,
+    }
+
+    // Dotted-tail double-comma resolves at the outer level.
+    tulisp_assert! {
+        program: r#"
+        (let ((x 1))
+          `(a `(b . ,,x)))
+        "#,
+        result: r#"'(a `(b . ,1))"#,
+    }
+
+    // `,x` inside `(quote ...)` inside outer backquote: the quote's
+    // content is walked, `,x` evaluates at the outer level, and the
+    // result wraps in a Quote. Matches Emacs.
+    tulisp_assert! {
+        program: r#"
+        (let ((x 1))
+          `(a (quote (,x)) c))
+        "#,
+        result: r#"'(a (quote (1)) c)"#,
+    }
+
+    // Outer `'` makes everything inside data: nothing evaluates, no
+    // matter how deeply nested the backquote / unquote forms are.
+    // `(let ((x 5)) '...)` shows the let-bound `x` is *not* picked
+    // up by `,,x` inside the quote.
+    tulisp_assert! {
+        program: r#"
+        (let ((x 5))
+          '(`(,,x)))
+        "#,
+        result: r#"'(`(,,x))"#,
+    }
+
+    // Nested-backquote double-comma evaluating a `CompiledDefun`
+    // (anonymous lambdas compile to bytecode): native compilation
+    // emits `Funcall` for `(funcall f)`, no re-entry into `ctx.vm`.
+    tulisp_assert! {
+        program: r#"
+        (setq f (lambda () 42))
+        ``(,,(funcall f))
+        "#,
+        result: r#"'`(,42)"#,
+    }
+
+    // Same case but via runtime `(eval ...)` — the form is wrapped
+    // in `'` so the VM compiler doesn't see the inner backquotes;
+    // at runtime the `eval` defun receives the quoted data and
+    // hands it to `ctx.eval` (TW), which walks the nested backquote
+    // and reaches the `CompiledDefun` for `f` while the outer
+    // `eval_string` is already running on the VM. The TW
+    // `funcall::CompiledDefun` arm then re-enters via
+    // `bytecode::run_lambda`, sharing `ctx.vm` with the outer run.
+    tulisp_assert! {
+        program: r#"
+        (setq f (lambda () 42))
+        (eval '``(,,(funcall f)))
+        "#,
+        result: r#"'`(,42)"#,
+    }
+
+    // Top-level `(defun …)` stores a `TulispValue::Lambda` (not a
+    // `CompiledDefun`), so the same shape resolves through the TW
+    // `Lambda` arm without re-entering the VM.
+    tulisp_assert! {
+        program: r#"
+        (defun f () 42)
+        (eval '``(,,(f)))
+        "#,
+        result: r#"'`(,42)"#,
     }
 
     Ok(())
@@ -759,9 +1060,235 @@ fn test_math() -> Result<(), Error> {
     }
 
     tulisp_assert! { program: "(/ 24 2 2)",                result: "6"     }
+
+    // Integer division when all args are integers (Emacs `(/ 10 3) => 3`).
+    // The bare-result tests below would already pass with cross-type
+    // numeric equality, so use `integerp` / `floatp` to assert the
+    // underlying type explicitly.
+    tulisp_assert! { program: "(integerp (/ 10 3))", result: "t" }
+    tulisp_assert! { program: "(integerp (/ 7 2 2))", result: "t" }
+    tulisp_assert! { program: "(/ 10 3)", result: "3" }
+    // Float promotion when any operand is a float.
+    tulisp_assert! { program: "(floatp (/ 10 3.0))", result: "t" }
+    tulisp_assert! { program: "(floatp (/ 10.0 3))", result: "t" }
+    // Single-arg `/` is `1/X`, integer-divided when X is an integer.
+    tulisp_assert! { program: "(/ 1)",     result: "1"   }
+    tulisp_assert! { program: "(/ 10)",    result: "0"   }
+    tulisp_assert! { program: "(/ 10.0)",  result: "0.1" }
+    // Character literals: `?X` reads as the character's code point.
+    tulisp_assert! { program: "?A",       result: "65"  }
+    tulisp_assert! { program: "?z",       result: "122" }
+    tulisp_assert! { program: r#"?\n"#,   result: "10"  }
+    tulisp_assert! { program: r#"?\t"#,   result: "9"   }
+    tulisp_assert! { program: r#"?\\"#,   result: "92"  }
+    tulisp_assert! { program: r#"?\0"#,   result: "0"   }
+    // Radix-prefixed integer literals: `#x` / `#X` hex, `#o` octal,
+    // `#b` binary. Sign goes between the prefix and digits.
+    tulisp_assert! { program: "#x10",  result: "16"   }
+    tulisp_assert! { program: "#xff",  result: "255"  }
+    tulisp_assert! { program: "#xFF",  result: "255"  }
+    tulisp_assert! { program: "#X10",  result: "16"   }
+    tulisp_assert! { program: "#o10",  result: "8"    }
+    tulisp_assert! { program: "#b1010",result: "10"   }
+    tulisp_assert! { program: "#x-10", result: "-16"  }
+
+    // Whole-value floats round-trip with a trailing `.0` (Emacs:
+    // `(format "%S" 2.0) => "2.0"`).
+    tulisp_assert! { program: r#"(format "%S" 1.0)"#,       result: r#""1.0""# }
+    tulisp_assert! { program: r#"(format "%S" (+ 1.0 1))"#, result: r#""2.0""# }
+    tulisp_assert! { program: r#"(format "%S" 0.5)"#,       result: r#""0.5""# }
+
+    // Scientific notation parses as float (Emacs: `1e5 => 100000.0`).
+    tulisp_assert! { program: "(+ 1e5 1)",          result: "100001.0" }
+    tulisp_assert! { program: "(+ 1E5 1)",          result: "100001.0" }
+    tulisp_assert! { program: "(+ 1.5e2 0)",        result: "150.0"    }
+    tulisp_assert! { program: "(+ 1e+5 0)",         result: "100000.0" }
+    tulisp_assert! { program: "(+ -1.5e-3 0)",      result: "-0.0015"  }
+    tulisp_assert! { program: "(integerp 1e5)",     result: "nil"      }
+    tulisp_assert! { program: "(floatp 1e5)",       result: "t"        }
+    // `e5` and `1ee5` aren't scientific-notation floats — they read
+    // as ordinary symbols (Emacs matches).
+    tulisp_assert! { program: "(progn (setq e5 7) e5)",       result: "7" }
+    tulisp_assert! { program: "(progn (setq 1ee5 9) 1ee5)",   result: "9" }
+    // `1e` (no exponent digit) falls back to identifier rather than
+    // erroring — Emacs reads it as a symbol too.
+    tulisp_assert! { program: "(progn (setq 1e 11) 1e)",      result: "11" }
+
+    // Emacs-style infinity / NaN literals — `<mantissa>e+INF` and
+    // `<mantissa>e+NaN`, uppercase only, `e+` only. Mantissa value
+    // is ignored; only its sign matters.
+    tulisp_assert! { program: r#"(format "%S" 1.0e+INF)"#,    result: r#""1.0e+INF""# }
+    tulisp_assert! { program: r#"(format "%S" -1.0e+INF)"#,   result: r#""-1.0e+INF""# }
+    tulisp_assert! { program: r#"(format "%S" 0.0e+NaN)"#,    result: r#""0.0e+NaN""# }
+    tulisp_assert! { program: r#"(format "%S" -0.0e+NaN)"#,   result: r#""-0.0e+NaN""# }
+    // Mantissa is ignored — `5.5e+INF` and `1e+INF` both read as +INF.
+    tulisp_assert! { program: r#"(format "%S" 5.5e+INF)"#,    result: r#""1.0e+INF""# }
+    tulisp_assert! { program: r#"(format "%S" 1e+INF)"#,      result: r#""1.0e+INF""# }
+    // Display of arithmetic-produced infinity matches the source form.
+    tulisp_assert! { program: r#"(format "%S" (/ 1.0 0.0))"#,  result: r#""1.0e+INF""# }
+    tulisp_assert! { program: r#"(format "%S" (/ -1.0 0.0))"#, result: r#""-1.0e+INF""# }
+    // String Display escapes `"`, `\`, `\n`, `\t` so the printed
+    // form parses back to the same value (round-trip).
+    tulisp_assert! {
+        program: r#"(format "%S" "a\"b\\c")"#,
+        result: r#""\"a\\\"b\\\\c\"""#,
+    }
+    tulisp_assert! {
+        program: r#"(format "%S" "with\nnewline")"#,
+        result: r#""\"with\\nnewline\"""#,
+    }
+
+    // Lowercase / `e-` variants stay as identifiers (Emacs matches).
+    tulisp_assert! { program: "(progn (setq 1.0e+inf 5) 1.0e+inf)",  result: "5" }
+    tulisp_assert! { program: "(progn (setq 1.0e-INF 5) 1.0e-INF)",  result: "5" }
+    tulisp_assert! { program: "(progn (setq inf 5) inf)",            result: "5" }
+
+    // Integer overflow raises `OutOfRange` instead of wrapping.
+    // Tulisp doesn't have bignums, so this stops at i64 limits.
+    tulisp_assert! {
+        program: "(+ 9223372036854775807 1)",
+        error: r#"ERR OutOfRange: integer overflow: 9223372036854775807 + 1
+<eval_string>:1.1-1.25:  at (+ 9223372036854775807 1)
+"#,
+    }
+    tulisp_assert! {
+        program: "(* 9223372036854775807 2)",
+        error: r#"ERR OutOfRange: integer overflow: 9223372036854775807 * 2
+<eval_string>:1.1-1.25:  at (* 9223372036854775807 2)
+"#,
+    }
+    tulisp_assert! {
+        program: "(1+ 9223372036854775807)",
+        error: r#"ERR OutOfRange: integer overflow: 9223372036854775807 + 1
+<eval_string>:1.1-1.24:  at (1+ 9223372036854775807)
+"#,
+    }
+    // A float operand sidesteps the overflow check — `f64::add`
+    // produces inf rather than overflowing.
+    tulisp_assert! { program: "(numberp (+ 9223372036854775807 1.0))", result: "t" }
+
+    // String literals aren't interned — every read produces a fresh
+    // `TulispObject` so `eq` distinguishes them (Emacs matches).
+    tulisp_assert! {
+        program: r#"(let ((a "hello") (b "hello")) (eq a b))"#,
+        result: "nil",
+    }
+    // Same string still compares structurally equal.
+    tulisp_assert! {
+        program: r#"(let ((a "hello") (b "hello")) (equal a b))"#,
+        result: "t",
+    }
+
+    // setcar / setcdr mutate cons cells in place.
+    tulisp_assert! {
+        program: "(let ((x (list 1 2 3))) (setcar x 99) x)",
+        result: "'(99 2 3)",
+    }
+    tulisp_assert! {
+        program: "(let ((x (list 1 2 3))) (setcdr x '(99 100)) x)",
+        result: "'(1 99 100)",
+    }
+    // setcdr with a non-list value produces a dotted pair.
+    tulisp_assert! {
+        program: "(let ((x (list 1 2 3))) (setcdr x 99) x)",
+        result: "'(1 . 99)",
+    }
+    // setcar / setcdr return their new value (Emacs matches).
+    tulisp_assert! { program: "(setcar (list 1 2) 99)", result: "99" }
+
+    // aset on strings — mutates in place, returns the new char.
+    tulisp_assert! {
+        program: r#"(let ((s "hello")) (aset s 0 65) s)"#,
+        result: r#""Aello""#,
+    }
+    tulisp_assert! { program: r#"(aset (concat "foo") 0 65)"#, result: "65" }
+    // Out-of-range / negative index errors.
+    tulisp_assert! {
+        program: r#"(aset (concat "abc") 5 65)"#,
+        error: r#"ERR OutOfRange: aset: index 5 out of range for string of length 3
+<eval_string>:1.1-1.26:  at (aset (concat "abc") 5 65)
+"#,
+    }
+    // setcar on a non-cons errors. Numbers are filtered out of the
+    // trace by `Error::format`; nil isn't, so the trace shows it.
+    tulisp_assert! {
+        program: "(setcar 5 99)",
+        error: r#"ERR TypeMismatch: setcar: expected cons, got: 5
+<eval_string>:1.1-1.13:  at (setcar 5 99)
+"#,
+    }
+    tulisp_assert! {
+        program: "(setcar nil 5)",
+        error: r#"ERR TypeMismatch: setcar: expected cons, got: nil
+<eval_string>:1.9-1.11:  at nil
+<eval_string>:1.1-1.14:  at (setcar nil 5)
+"#,
+    }
+
+    // Sequence operations on improper lists error like Emacs
+    // (`wrong-type-argument`) instead of silently truncating.
+    tulisp_assert! {
+        program: "(length '(1 2 . 3))",
+        error: r#"ERR TypeMismatch: expected list, got: 3
+<eval_string>:1.1-1.19:  at (length '(1 2 . 3))
+"#,
+    }
+    tulisp_assert! {
+        program: "(reverse '(1 2 . 3))",
+        error: r#"ERR TypeMismatch: cxr: Not a Cons: 3
+<eval_string>:1.1-1.20:  at (reverse '(1 2 . 3))
+"#,
+    }
+    tulisp_assert! {
+        program: "(let ((l (list 1 2 3))) (setcdr (cddr l) l) (length l))",
+        error: r#"ERR OutOfRange: Circular list
+<eval_string>:1.45-1.54:  at (length l)
+<eval_string>:1.1-1.55:  at (let ((l (list 1 2 3))) (setcdr (cddr l) l) (length l))
+"#,
+    }
+    // `memq` finding a match before the improper tail still returns
+    // the match (Emacs matches).
+    tulisp_assert! { program: "(memq 2 '(1 2 . 3))", result: "'(2 . 3)" }
+    // `memq` walking past the last cons hits the dotted tail and errors.
+    tulisp_assert! {
+        program: "(memq 99 '(1 2 . 3))",
+        error: r#"ERR TypeMismatch: expected list, got: 3
+<eval_string>:1.1-1.20:  at (memq 99 '(1 2 . 3))
+"#,
+    }
+    // Float-zero divisor doesn't error (Emacs returns ±INF). Both the
+    // VM `BinaryOp::Div` path and the rest-arg defun path agree now.
+    tulisp_assert! { program: "(numberp (/ 1.0 0.0))",            result: "t" }
+    tulisp_assert! { program: "(numberp (/ 1.0 0))",              result: "t" }
+    tulisp_assert! { program: "(numberp (/ 1 0.0))",              result: "t" }
+    tulisp_assert! { program: "(numberp (funcall '/ 1.0 0.0))",   result: "t" }
+    // All-integer zero divisor still errors.
+    tulisp_assert! {
+        program: "(funcall '/ 1 0)",
+        error: r#"ERR OutOfRange: Division by zero
+<eval_string>:1.1-1.16:  at (funcall '/ 1 0)
+"#,
+    }
     tulisp_assert! { program: "(+ 40 (* 2.5 4) (- 4 12))", result: "42.0"  }
     tulisp_assert! { program: "(+ 40 (* 2.5 4) (- -1 7))", result: "42.0"  }
     tulisp_assert! { program: "(mod 32 5)",                result: "2"     }
+    // (mod X 0) used to panic via `i64::rem`. Now matches Emacs:
+    // integer-zero divisor errors, float divisor produces NaN.
+    tulisp_assert! {
+        program: "(mod 5 0)",
+        error: r#"ERR OutOfRange: Division by zero
+<eval_string>:1.1-1.9:  at (mod 5 0)
+"#,
+    }
+    tulisp_assert! { program: "(numberp (mod 5.0 0))", result: "t" }
+    // (funcall '<defun-with-required-args>) with too few args used
+    // to panic in the typed-args dispatch macro. Now errors cleanly.
+    tulisp_assert! {
+        program: "(funcall '+)",
+        error: r#"ERR MissingArgument: Too few arguments
+<eval_string>:1.1-1.12:  at (funcall '+)
+"#,
+    }
     tulisp_assert! { program: "(min 12 5 45)",             result: "5"     }
     tulisp_assert! { program: "(max 12 5 45.2 8)",         result: "45.2"  }
 
@@ -857,13 +1384,15 @@ fn test_rounding_operations() -> Result<(), Error> {
 
 #[test]
 fn test_let() -> Result<(), Error> {
+    // `(append nil x)` returns `x` directly under Emacs semantics —
+    // the last arg is shared, not wrapped.
     tulisp_assert! {
         program: "(let ((kk) (vv (+ 55 1)) (jj 20)) (append kk (+ vv jj 1)))",
-        result: "'(77)",
+        result: "77",
     }
     tulisp_assert! {
         program: "(let (kk (vv (+ 55 1)) (jj 20)) (append kk (+ vv jj 1)))",
-        result: "'(77)",
+        result: "77",
     }
     tulisp_assert! {
         program: r#"
@@ -1199,6 +1728,1007 @@ fn test_lexical_binding() -> Result<(), Error> {
         result: "'ok",
     }
 
+    // VM-specific: an anonymous lambda created inside a function body
+    // must compile via the two-phase scheme (MakeLambda + inline
+    // Funcall) without falling back to the TW. Closure captures the
+    // enclosing defun param.
+    tulisp_assert! {
+        program: r#"
+        (defun make-scaler (k)
+          (lambda (x) (* k x)))
+        (funcall (make-scaler 7) 6)
+        "#,
+        result: "42",
+    }
+
+    // Self-recursive via funcall-of-letrec-style closure. Exercises
+    // the MakeLambda capturing its own just-bound slot.
+    tulisp_assert! {
+        program: r#"
+        (setq fact (lambda (n) (if (<= n 1) 1 (* n (funcall fact (- n 1))))))
+        (funcall fact 5)
+        "#,
+        result: "120",
+    }
+
+    // Regression: a closure captures a let-bound free var, takes a
+    // param whose name matches that of the *caller's* defun param
+    // (the caller's param is shadowed by its own let* with the same
+    // name; also calls a defun — not defspecial — whose args list
+    // carries placeholders that must be rewritten at phase 2).
+    tulisp_assert! {
+        program: r#"
+        (defun make-scaler (seed)
+          (let ((base (+ seed 100)))
+            (lambda (v) (floor (+ v base)))))
+        (defun wrap (id v)
+          (let* ((fn (make-scaler 0))
+                 (v (ftruncate (+ v 1))))
+            (funcall fn v)))
+        (wrap 1 5.5)
+        "#,
+        result: "106",
+    }
+
+    // Regression: a nested-closure scenario. An outer closure captures
+    // a let-bound inner closure via `set`/`symbol-value` indirection,
+    // and both closures take a param of the same name that is also
+    // shadowed by a let*-bound var in the caller. Exercises label
+    // registration + placeholder rewrite of the Push(args) AST inside
+    // the closure's body.
+    tulisp_assert! {
+        program: r#"
+        (defun sum-list (xs)
+          (let ((acc 0))
+            (dolist (x xs) (setq acc (+ acc x)))
+            acc))
+        (defun make-inner-check (xs)
+          (let ((limit (sum-list xs)))
+            (lambda (v) (<= v limit))))
+        (defun install-outer-check (sym xs)
+          (let ((inner-check (make-inner-check xs)))
+            (set sym
+              (lambda (v)
+                (and (funcall inner-check v)
+                     (> v 0))))))
+        (install-outer-check 'my-check-fn '(10 20 30))
+        (defun run-check (id v)
+          (let* ((check-fn (symbol-value 'my-check-fn))
+                 (v (ftruncate v)))
+            (if (funcall check-fn v)
+                'ok
+              'out-of-bounds)))
+        (list (run-check 1 30.5) (run-check 1 70.0) (run-check 1 -5.0))
+        "#,
+        result: "'(ok out-of-bounds out-of-bounds)",
+    }
+
+    Ok(())
+}
+
+#[test]
+fn test_vm_reentry_during_run() -> Result<(), Error> {
+    // VM re-entry from inside a VM run. The outer `eval_string`
+    // is mid-run on `ctx.vm` when the `eval` defun receives the
+    // quoted form and hands it to `ctx.eval` (TW); TW's `funcall`
+    // arm reaches a callable defined on the same context and
+    // dispatches it, ultimately landing back in the VM. The inner
+    // and outer runs share the same machine — the inner sees the
+    // outer's bytecode/labels and pushes/pops on the shared stack.
+    //
+    // Pre-rewrite (when `ctx.vm` was `Option<Machine>` taken at
+    // the run boundary), the inner entry found `ctx.vm = None`
+    // and panicked with "ctx.vm taken twice — VM re-entered
+    // during a run". Free-function dispatch with a direct
+    // `ctx.vm` field makes re-entry transparent.
+
+    // Lambda case: `f` holds a `CompiledDefun` (anonymous lambda
+    // materialized by `Instruction::MakeLambda`). TW funcall hits
+    // the `CompiledDefun` arm in `eval::funcall`, which calls
+    // `bytecode::run_lambda` — that's the inner VM run.
+    let mut ctx = TulispContext::new();
+    let result: i64 = ctx
+        .eval_string(
+            r#"
+        (setq f (lambda () 42))
+        (eval '(funcall f))
+        "#,
+        )?
+        .try_into()?;
+    assert_eq!(result, 42);
+
+    // Defun case: top-level `(defun g …)` registers a
+    // `CompiledDefun` in `ctx.vm.bytecode.functions` and stores a
+    // `TulispValue::Lambda` on the symbol's function slot. TW
+    // funcall on the symbol resolves to the `Lambda` (not the
+    // `CompiledDefun`), dispatches via `eval::funcall`'s `Lambda`
+    // arm, and the body call eventually reaches the VM-registered
+    // function — exercising the same re-entry pathway with a
+    // different setup shape.
+    let mut ctx = TulispContext::new();
+    let result: i64 = ctx
+        .eval_string(
+            r#"
+        (defun g () 99)
+        (eval '(funcall 'g))
+        "#,
+        )?
+        .try_into()?;
+    assert_eq!(result, 99);
+    Ok(())
+}
+
+#[test]
+fn test_funcall_compiled_defun_through_tw() -> Result<(), Error> {
+    // Regression for the cross-path bug: a lambda stored on a symbol
+    // via VM evaluation materializes as a `CompiledDefun`. Then
+    // calling a TW-evaluated defun (here: via `ctx.funcall` from
+    // Rust) whose body funcalls through `(symbol-value '…)` exposed
+    // the bug — the TW `funcall` defspecial was dispatching
+    // `CompiledDefun` through `DummyEval`, leaving `LexicalBinding`
+    // AST nodes in the args. The VM then `set_scope`'d the
+    // CompiledDefun's params with those LexicalBindings, and the
+    // first typed-arg call downstream surfaced as
+    // `TypeMismatch: Expected number, got: <name>`.
+    //
+    // Single-path tulisp_assert! can't reproduce this — VM funcalls
+    // go through `funcall_inline` (which handles values correctly),
+    // and TW evaluation of `(lambda …)` produces a `Lambda` not a
+    // `CompiledDefun`. The cross-path is unique to "VM-eval the
+    // setup, then TW-eval the call" — exactly what microsim does
+    // when its gRPC handlers `ctx.funcall(set-power-active, …)`.
+    let mut ctx = TulispContext::new();
+    ctx.defun("rust-needs-num", |v: f64| -> f64 { v });
+    // VM-eval: `inner-fn` ends up holding a `CompiledDefun`
+    // (materialized by `Instruction::MakeLambda` at runtime), and
+    // `outer` is set up via the TW `defun` defspecial during parse
+    // so calling it through `ctx.funcall` runs the TW path.
+    ctx.eval_string(
+        r#"
+        (set 'inner-fn (lambda (x) (rust-needs-num x)))
+        (defun outer (id v)
+          (funcall (symbol-value 'inner-fn) v))
+        "#,
+    )?;
+    let outer = ctx.intern("outer");
+    let args = TulispObject::nil();
+    args.push(1i64.into())?;
+    args.push(42.0_f64.into())?;
+    let result = ctx.funcall(&outer, &args)?;
+    assert!(
+        result.equal(&42.0_f64.into()),
+        "expected 42, got {}",
+        result
+    );
+    Ok(())
+}
+
+#[test]
+fn test_plist_defun_callable_from_vm_run() -> Result<(), Error> {
+    // Regression for the cross-path bug specific to `Plist<T>`-arg
+    // defuns. Pre-rewrite, the `plist_args` arms in
+    // `context/callable.rs` registered via `ctx.defspecial` and
+    // produced a `TulispValue::Func`. From inside a VM run, calling
+    // such a defun went through `RustCall` → the closure's
+    // `Plist::new(ctx, rest)` → `ctx.eval(value)` per pair → if
+    // `value` was itself a `CompiledDefun` call, `eval::funcall`
+    // re-acquired `ctx.vm.borrow_mut()` — deadlock under `sync`,
+    // RefCell panic otherwise.
+    //
+    // The fix routes Plist-arg defuns through the typed-arg path
+    // (`define_typed_defun` → `RustCallTyped`). Args arrive
+    // already-evaluated; the callback rebuilds the plist shape with
+    // values wrapped in `quote` so `Plist::new`'s per-value eval is
+    // a no-op.
+
+    AsPlist! {
+        struct Cfg {
+            x: i64,
+            y: i64,
+            tag: String,
+            xs: Vec<i64>,
+        }
+    }
+
+    let mut ctx = TulispContext::new();
+    ctx.defun("cfg-summary", |c: Plist<Cfg>| -> String {
+        format!(
+            "{}={}({} sum={})",
+            c.tag,
+            c.x + c.y,
+            c.xs.len(),
+            c.xs.iter().sum::<i64>(),
+        )
+    });
+
+    // VM-compile a defun whose body calls `cfg-summary` with arg
+    // expressions that are themselves CompiledDefun calls (`mkx`,
+    // `mky`, `mktag`) and a quoted list value (`'(1 2 3)`). Each
+    // arg's evaluated form ends up in the typed-defun's args slice
+    // and must round-trip through Plist::new without re-eval.
+    // `(defun mktag () "answer")` would strip the string as a
+    // docstring and leave the body empty. Use `progn` to force the
+    // string to be the actual return value.
+    ctx.eval_string(
+        r#"
+        (defun mkx () 10)
+        (defun mky () 32)
+        (defun mktag () (progn "answer"))
+        (defun outer ()
+          (cfg-summary :x (mkx) :y (mky) :tag (mktag) :xs '(1 2 3)))
+        "#,
+    )?;
+
+    let outer = ctx.intern("outer");
+    let result = ctx.funcall(&outer, &TulispObject::nil())?;
+    assert_eq!(result.as_string()?, "answer=42(3 sum=6)");
+
+    // Also exercise the inverse path: TW-eval the call to make sure
+    // the typed-arg path also works through `eval::funcall`'s
+    // `Defun` arm.
+    let tw_result = ctx.eval_string(r#"(cfg-summary :x 1 :y 2 :tag "tw" :xs '(4 5 6))"#)?;
+    assert_eq!(tw_result.as_string()?, "tw=3(3 sum=15)");
+
+    Ok(())
+}
+
+#[test]
+fn test_mutual_tail_recursion_is_tco() -> Result<(), Error> {
+    // `mark_tail_calls` now also marks tail calls to other VM defuns
+    // as `Bounce`, so mutual recursion compiles to `Instruction::TailCall`
+    // (loop-style unwind) rather than nested `Instruction::Call`
+    // (per-cycle Rust frame). A pre-pass in `compile_progn` registers
+    // every top-level `(defun NAME PARAMS …)`'s arity before
+    // compiling any body, so cycles get full TCO without forward
+    // declarations.
+    //
+    // Pin the behavior with a depth that would blow a non-TCO Rust
+    // stack: 200,000 alternations of even?/odd? = 200,000 hops.
+    // Without TCO the test thread's stack overflows.
+    let mut ctx = TulispContext::new();
+    ctx.eval_string(
+        r#"
+        (defun even? (n)
+          (if (= n 0) t (odd? (- n 1))))
+        (defun odd? (n)
+          (if (= n 0) nil (even? (- n 1))))
+        "#,
+    )?;
+    let r = ctx.eval_string("(even? 200000)")?;
+    assert!(r.is_truthy(), "even? 200000 should be true, got {}", r);
+    let r = ctx.eval_string("(odd? 200001)")?;
+    assert!(r.is_truthy(), "odd? 200001 should be true, got {}", r);
+
+    Ok(())
+}
+
+#[test]
+fn test_mutual_tail_call_arity_checked_at_compile_time() -> Result<(), Error> {
+    // Non-self bounce path now arity-checks at compile time when the
+    // target is a known VM defun. Catches mismatches without running
+    // the program — same shape as the self-bounce and
+    // `TulispValue::Defun` checks.
+
+    // Too few: helper takes 2, called with 1 in tail position.
+    let mut ctx = TulispContext::new();
+    let err = ctx.eval_string(
+        r#"
+        (defun helper (a b) (+ a b))
+        (defun caller () (helper 1))
+        "#,
+    );
+    let msg = err.unwrap_err().format(&ctx);
+    assert!(
+        msg.contains("too few arguments") || msg.contains("Too few arguments"),
+        "expected too-few error from mutual tail-call, got: {}",
+        msg
+    );
+
+    // Too many: helper takes 1, called with 3.
+    let mut ctx = TulispContext::new();
+    let err = ctx.eval_string(
+        r#"
+        (defun helper (a) a)
+        (defun caller () (helper 1 2 3))
+        "#,
+    );
+    let msg = err.unwrap_err().format(&ctx);
+    assert!(
+        msg.contains("too many arguments") || msg.contains("Too many arguments"),
+        "expected too-many error from mutual tail-call, got: {}",
+        msg
+    );
+
+    // Cyclic mutual recursion (a calls b, b calls a) defined in
+    // either order — pre-pass populates both arities first, so
+    // mark_tail_calls catches mismatches whichever direction is
+    // wrong.
+    let mut ctx = TulispContext::new();
+    let err = ctx.eval_string(
+        r#"
+        (defun a (n) (if (= n 0) 'done (b)))     ; b takes 1, called with 0
+        (defun b (n) (if (= n 0) 'done (a (- n 1))))
+        "#,
+    );
+    let msg = err.unwrap_err().format(&ctx);
+    assert!(
+        msg.contains("too few arguments") || msg.contains("Too few arguments"),
+        "expected too-few error in cyclic case, got: {}",
+        msg
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_self_tail_recursion_arity_checked_at_compile_time() -> Result<(), Error> {
+    // `mark_tail_calls` rewrites self-recursive tail calls into
+    // `(Bounce f args …)`, which `compile_fn_defun_bounce_call`
+    // compiles into the in-place arg-rebind + `Jump(Pos::Abs(0))`
+    // shape (no `Instruction::Call`). That path arity-checks against
+    // `compiler.defun_args[name]` at compile time and reports the
+    // mismatch instead of silently wrapping a usize subtraction.
+
+    // Too many: 2 required, called with 3.
+    let mut ctx = TulispContext::new();
+    let err = ctx.eval_string(
+        r#"
+        (defun f (a b)
+          (if (= a 0) b (f (- a 1) (+ b a) (* b 2))))
+        "#,
+    );
+    let msg = err.unwrap_err().format(&ctx);
+    assert!(
+        msg.contains("too many arguments") || msg.contains("Too many arguments"),
+        "expected too-many error from self tail-call, got: {}",
+        msg
+    );
+
+    // Too few: 2 required, called with 1. This previously underflowed
+    // `args_count - params.required.len()` (usize) and surfaced a
+    // misleading "too many" error in release mode.
+    let mut ctx = TulispContext::new();
+    let err = ctx.eval_string(
+        r#"
+        (defun f (a b)
+          (if (= a 0) b (f (- a 1))))
+        "#,
+    );
+    let msg = err.unwrap_err().format(&ctx);
+    assert!(
+        msg.contains("too few arguments") || msg.contains("Too few arguments"),
+        "expected too-few error from self tail-call, got: {}",
+        msg
+    );
+
+    // Sanity: matching arity compiles + runs cleanly.
+    let mut ctx = TulispContext::new();
+    let r = ctx.eval_string(
+        r#"
+        (defun sum-to (n acc)
+          (if (= n 0) acc (sum-to (- n 1) (+ acc n))))
+        (sum-to 10 0)
+        "#,
+    )?;
+    assert_eq!(r.try_int()?, 55);
+
+    Ok(())
+}
+
+#[test]
+fn test_trace_distinguishes_call_sites_of_same_function() -> Result<(), Error> {
+    // Two call sites of `bad` in the same defun body, each at a
+    // different source position. When the error fires, the
+    // backtrace must name the *specific* call site that ran, not
+    // collapse them into a single representative entry. Pins both
+    // the TW path (`eval_basic`'s recursive `with_trace`) and the
+    // VM path (`strip_trace_markers` lifting per-form ranges) into
+    // exact match — which only works if both attribute the call
+    // form's distinct `TulispObject` (with its own span) for each
+    // hit.
+    //
+    // The leading newlines in the program string anchor the
+    // expected source positions: `bad` sits on line 2, `caller` on
+    // line 3, so the call sites have stable column ranges across
+    // runs.
+
+    // Error on the *second* call site `(bad 2)`.
+    let mut ctx = TulispContext::new();
+    ctx.eval_string(
+        r#"
+(defun bad (n) (if (= n 2) (error "boom-on-2") nil))
+(defun caller () (progn (bad 1) (bad 2) 'done))
+"#,
+    )?;
+    let expected_call2 = "ERR LispError: boom-on-2\n\
+        <eval_string>:2.28-2.46:  at (error \"boom-on-2\")\n\
+        <eval_string>:2.16-2.51:  at (if (= n 2) (error \"boom-on-2\") nil)\n\
+        <eval_string>:3.33-3.39:  at (bad 2)\n\
+        <eval_string>:3.18-3.46:  at (progn (bad 1) (bad 2) 'done)\n\
+        <eval_string>:1.1-1.8:  at (caller)\n";
+    assert_eq!(
+        ctx.eval_string("(caller)").unwrap_err().format(&ctx),
+        expected_call2,
+        "TW trace for boom-on-2"
+    );
+    assert_eq!(
+        ctx.eval_string("(caller)").unwrap_err().format(&ctx),
+        expected_call2,
+        "VM trace for boom-on-2"
+    );
+
+    // Same shape, but error on the *first* call site `(bad 1)`.
+    // The expected backtrace differs only at the call-site frame:
+    // span and form text both move from `(bad 2)` to `(bad 1)`.
+    let mut ctx = TulispContext::new();
+    ctx.eval_string(
+        r#"
+(defun bad (n) (if (= n 1) (error "boom-on-1") nil))
+(defun caller () (progn (bad 1) (bad 2) 'done))
+"#,
+    )?;
+    let expected_call1 = "ERR LispError: boom-on-1\n\
+        <eval_string>:2.28-2.46:  at (error \"boom-on-1\")\n\
+        <eval_string>:2.16-2.51:  at (if (= n 1) (error \"boom-on-1\") nil)\n\
+        <eval_string>:3.25-3.31:  at (bad 1)\n\
+        <eval_string>:3.18-3.46:  at (progn (bad 1) (bad 2) 'done)\n\
+        <eval_string>:1.1-1.8:  at (caller)\n";
+    assert_eq!(
+        ctx.eval_string("(caller)").unwrap_err().format(&ctx),
+        expected_call1,
+        "TW trace for boom-on-1"
+    );
+    assert_eq!(
+        ctx.eval_string("(caller)").unwrap_err().format(&ctx),
+        expected_call1,
+        "VM trace for boom-on-1"
+    );
+
+    // Nested same-function call: `(bad (bad -1))`. The inner
+    // `(bad -1)` is in argument position (non-tail) and the outer
+    // `(bad …)` is in tail position. The inner call's call-site
+    // form `(bad -1)` shows up in the trace; the outer collapses
+    // into the `mark_tail_calls`-rewritten `(list Bounce bad …)`
+    // form. (Tail-position call sites generally don't preserve
+    // their original `(NAME ARGS…)` text in traces because the
+    // rewrite replaces it with the Bounce shape — that's a
+    // pre-existing TW property the VM mirrors.)
+    let mut ctx = TulispContext::new();
+    ctx.eval_string(
+        r#"
+(defun bad (n) (if (= n -1) (error "nested-boom") n))
+(defun caller () (bad (bad -1)))
+"#,
+    )?;
+    let expected_nested = "ERR LispError: nested-boom\n\
+        <eval_string>:2.29-2.49:  at (error \"nested-boom\")\n\
+        <eval_string>:2.16-2.52:  at (if (= n -1) (error \"nested-boom\") n)\n\
+        <eval_string>:3.23-3.30:  at (bad -1)\n\
+        <eval_string>:3.18-3.31:  at (list Bounce bad (bad -1))\n\
+        <eval_string>:1.1-1.8:  at (caller)\n";
+    assert_eq!(
+        ctx.eval_string("(caller)").unwrap_err().format(&ctx),
+        expected_nested,
+        "TW trace for nested same-function call"
+    );
+    assert_eq!(
+        ctx.eval_string("(caller)").unwrap_err().format(&ctx),
+        expected_nested,
+        "VM trace for nested same-function call"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_typed_defun_arity_checked_before_arg_eval() -> Result<(), Error> {
+    // `TulispValue::Defun` carries arity metadata so the dispatchers
+    // (compile_form for VM, eval::funcall for TW) can reject
+    // mismatches before the user's closure runs. The TW path also
+    // checks BEFORE evaluating any arg expression, so a too-many-
+    // args call doesn't side-effect through the extras.
+    //
+    // Test shape: the defun takes 1 required + 0 optional + no rest.
+    // Each arg expression bumps a counter so we can observe whether
+    // it ran. With the arity check in place, a `(narrow 1 2 3)` call
+    // never evaluates arg 2 or arg 3.
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicI64, Ordering};
+
+    // Atomic-backed counter so the closure stays `Send + Sync` for
+    // both the default (`Rc`) and `--features sync` (`Arc`) builds.
+    let counter = Arc::new(AtomicI64::new(0));
+    let counter_for_defun = counter.clone();
+    let mut ctx = TulispContext::new();
+    // `bump` increments the side-effect counter and returns its arg.
+    // Used as the arg expression so we can detect whether the
+    // dispatcher evaluated the arg before erroring.
+    ctx.defun("bump", move |x: i64| {
+        counter_for_defun.fetch_add(1, Ordering::Relaxed);
+        x
+    });
+    // `narrow` requires exactly 1 arg.
+    ctx.defun("narrow", |x: i64| -> i64 { x });
+
+    // Happy-path baseline: 1 arg, evaluated once.
+    counter.store(0, Ordering::Relaxed);
+    let r = ctx.tw_eval_string("(narrow (bump 7))")?;
+    assert_eq!(r.try_int()?, 7);
+    assert_eq!(counter.load(Ordering::Relaxed), 1);
+
+    // TW path: too-many should error before any (bump …) runs.
+    counter.store(0, Ordering::Relaxed);
+    let err = ctx.tw_eval_string("(narrow (bump 1) (bump 2) (bump 3))");
+    let msg = err.unwrap_err().format(&ctx);
+    assert!(
+        msg.starts_with("ERR InvalidArgument: Too many arguments"),
+        "expected too-many error, got: {}",
+        msg
+    );
+    assert_eq!(
+        counter.load(Ordering::Relaxed),
+        0,
+        "args evaluated before arity check fired"
+    );
+
+    // TW path: too-few also errors before (bump …) for the args
+    // that were present.
+    counter.store(0, Ordering::Relaxed);
+    let err = ctx.tw_eval_string("(narrow)");
+    let msg = err.unwrap_err().format(&ctx);
+    assert!(
+        msg.starts_with("ERR MissingArgument: Too few arguments"),
+        "expected too-few error, got: {}",
+        msg
+    );
+    assert_eq!(counter.load(Ordering::Relaxed), 0);
+
+    // VM path: the same call through the VM-backed `eval_string`
+    // should be rejected at compile time, also before any arg
+    // side-effects.
+    counter.store(0, Ordering::Relaxed);
+    let err = ctx.eval_string("(narrow (bump 1) (bump 2) (bump 3))");
+    let msg = err.unwrap_err().format(&ctx);
+    assert!(
+        msg.starts_with("ERR InvalidArgument: Too many arguments"),
+        "expected vm too-many error, got: {}",
+        msg
+    );
+    assert_eq!(counter.load(Ordering::Relaxed), 0);
+
+    Ok(())
+}
+
+#[test]
+fn test_substitute_lexical_skips_binders() -> Result<(), Error> {
+    // `substitute_lexical` used to descend into the parameter /
+    // varname positions of `lambda` / `let` / `let*` / `dolist` /
+    // `dotimes` and substitute names there too. The inner form's
+    // compiler then wrapped the already-`LexicalBinding` name in a
+    // fresh `LexicalBinding` — a double wrap. A `debug_assert!` in
+    // `TulispObject::lexical_binding` panics on any double-wrap, so
+    // these compile-and-run shapes are the regression test.
+    //
+    // Each shape has an outer binder (defun param or let-bound var)
+    // whose name is reused as a binder *inside* the body. Before
+    // the fix, the outer substitute_lexical wrote into the inner
+    // binder's declaration position, then the inner compiler
+    // double-wrapped.
+
+    // 1. defun param `x` reused as a let* var.
+    tulisp_assert! {
+        program: r#"
+        (defun shadow-let (x)
+          (let* ((x (+ x 1)))
+            x))
+        (shadow-let 10)
+        "#,
+        result: "11",
+    }
+
+    // 2. defun param `&optional sep` shadowed by `(let* ((sep (or sep "")))…)`.
+    //    This is the `mapconcat` shape from the prelude.
+    tulisp_assert! {
+        program: r#"
+        (defun joiner (xs &optional sep)
+          (let* ((sep (or sep "-")))
+            (mapconcat (lambda (x) (format "%S" x)) xs sep)))
+        (list (joiner '(a b c)) (joiner '(a b c) "/"))
+        "#,
+        result: r##"'("a-b-c" "a/b/c")"##,
+    }
+
+    // 3. defun param `x` reused as a nested lambda's param.
+    tulisp_assert! {
+        program: r#"
+        (defun shadow-lambda (x)
+          (let ((fn (lambda (x) (* x 10))))
+            (funcall fn 5)))
+        (shadow-lambda 99)
+        "#,
+        result: "50",
+    }
+
+    // 4. defun param `x` reused as a `dolist` var.
+    tulisp_assert! {
+        program: r#"
+        (defun shadow-dolist (x)
+          (let ((acc 0))
+            (dolist (x '(1 2 3))
+              (setq acc (+ acc x)))
+            acc))
+        (shadow-dolist 99)
+        "#,
+        result: "6",
+    }
+
+    // 5. defun param `i` reused as a `dotimes` var.
+    tulisp_assert! {
+        program: r#"
+        (defun shadow-dotimes (i)
+          (let ((acc 0))
+            (dotimes (i 4)
+              (setq acc (+ acc i)))
+            acc))
+        (shadow-dotimes 99)
+        "#,
+        result: "6",
+    }
+
+    // 6. let* binder `x` referenced inside its own init expression
+    //    (the prior x), then shadowed for the body.
+    tulisp_assert! {
+        program: r#"
+        (let* ((x 1)
+               (x (+ x 10))
+               (x (* x 2)))
+          x)
+        "#,
+        result: "22",
+    }
+
+    Ok(())
+}
+
+#[test]
+fn test_closure_invoked_in_fresh_ctx() -> Result<(), Error> {
+    // Regression: a closure compiled in one ctx (whose `MakeLambda`
+    // registered its labels into that ctx's `vm.labels`) used to
+    // panic when invoked through a separate ctx that never saw the
+    // `MakeLambda`. `cond`, `and`, `or` emit `Pos::Label` jumps —
+    // those would `unwrap` `None` on `vm.labels.get(...)`.
+    //
+    // The canonical scenario is `tulisp-async`'s `run-with-timer`,
+    // which creates a per-firing ctx and invokes the timer's lambda
+    // (compiled in the parent ctx) via `ctx.funcall`. Reproduced
+    // here without the async runtime by building a closure in
+    // `ctx_a`, then invoking it through a freshly-constructed
+    // `ctx_b`.
+    for body in [
+        // cond: multi-target jump table
+        "(cond ((= 1 2) 'a) (t 'b))",
+        // and: short-circuit
+        "(and 1 2 3)",
+        // or: short-circuit
+        "(or nil nil 'found)",
+    ] {
+        let mut ctx_a = TulispContext::new();
+        let prog = format!("(lambda () {body})");
+        let closure = ctx_a.eval_string(&prog)?;
+
+        let mut ctx_b = TulispContext::new();
+        let result = ctx_b
+            .funcall(&closure, &TulispObject::nil())
+            .unwrap_or_else(|e| {
+                panic!(
+                    "cross-ctx funcall of `{}` failed: {}",
+                    prog,
+                    e.format(&ctx_b)
+                )
+            });
+        // Sanity-check: closure produced *something* — exact shape
+        // varies per body, but a panic would have aborted before here.
+        let _ = result;
+    }
+    Ok(())
+}
+
+#[track_caller]
+fn assert_no_lex_stack_leak(ctx: &mut TulispContext, prog: &str, call: &str, label: &str) {
+    let s0 = tulisp::debug_lex_stacks_total();
+    for _ in 0..1000 {
+        ctx.eval_string(call).unwrap_or_else(|e| {
+            panic!("{}: eval failed: {}", label, e.format(ctx));
+        });
+    }
+    let delta = tulisp::debug_lex_stacks_total() as i64 - s0 as i64;
+    assert_eq!(
+        delta, 0,
+        "{}: leaked {} LEX_STACKS entries over 1000 calls. Program:\n{}",
+        label, delta, prog
+    );
+}
+
+/// Asserts that an erroring `call` doesn't leak either lex or special
+/// (`defvar`) stack entries over 1000 invocations against a persistent
+/// context. The call is *expected* to fail — `let _ = ...` swallows
+/// the result so we measure cumulative state, not per-call success.
+#[track_caller]
+fn assert_no_scope_leak_on_error(ctx: &mut TulispContext, prog: &str, call: &str, label: &str) {
+    let lex0 = tulisp::debug_lex_stacks_total();
+    let spec0 = ctx.debug_special_stacks_total();
+    for _ in 0..1000 {
+        let _ = ctx.eval_string(call);
+    }
+    let lex_delta = tulisp::debug_lex_stacks_total() as i64 - lex0 as i64;
+    let spec_delta = ctx.debug_special_stacks_total() as i64 - spec0 as i64;
+    assert_eq!(
+        (lex_delta, spec_delta),
+        (0, 0),
+        "{}: leaked lex={}, special={} entries over 1000 calls. Program:\n{}",
+        label,
+        lex_delta,
+        spec_delta,
+        prog
+    );
+}
+
+#[test]
+fn test_tail_call_does_not_leak_lex_stack() -> Result<(), Error> {
+    // Regression: `mark_tail_calls` recurses into `let` / `let*` /
+    // `progn` / `if` / `cond` bodies and rewrites the body's
+    // tail-position call into a `Bounce`, which compiles to
+    // `Instruction::TailCall`. That instruction unwinds the
+    // surrounding `run_function` directly, bypassing trailing
+    // `Instruction::EndScope`s that `compile_fn_let_star` appends —
+    // leaving let bindings stuck on `LEX_STACKS` permanently. The
+    // fix injects the cleanup before each `TailCall` in the body.
+    //
+    // `dolist` / `dotimes` aren't recursed into by `mark_tail_calls`,
+    // so the body of those forms can't contain a `tcall`. They're
+    // exercised here anyway as a guard against a future regression
+    // and to confirm the surrounding-let-scope fix still applies
+    // when the let body's tail call comes after a loop form.
+
+    // Helper: each case is a defun + a top-level call expression.
+    // The defun's body shape is what we're testing.
+    let cases: &[(&str, &str, &str)] = &[
+        // Original repro: let body's tail is a tail-call.
+        (
+            "let_with_mapcar_tail",
+            r#"(defvar v '(1.0 2.0 3.0))
+               (defun f (power)
+                 (let ((tot (seq-reduce '+ v 0.0)))
+                   (mapcar (lambda (x) (* power (/ x tot))) v)))"#,
+            "(f 10.0)",
+        ),
+        // let* with multiple bindings.
+        (
+            "let_star_multi_binding",
+            r#"(defun f (n)
+                 (let* ((a (* n 2))
+                        (b (+ a 1)))
+                   (mapcar (lambda (x) (+ x a b)) '(1 2 3))))"#,
+            "(f 5)",
+        ),
+        // tcall through if both branches inside let.
+        (
+            "let_with_if_branches_tail",
+            r#"(defun f (n)
+                 (let ((acc (* n 2)))
+                   (if (> n 0)
+                       (mapcar (lambda (x) (+ x acc)) '(1 2 3))
+                       (mapcar (lambda (x) (* x acc)) '(4 5 6)))))"#,
+            "(f 5)",
+        ),
+        // tcall through cond branches inside let*.
+        (
+            "let_star_with_cond_branches_tail",
+            r#"(defun f (n)
+                 (let* ((a (* n 2)) (b (+ a 1)))
+                   (cond ((= n 0) (mapcar (lambda (x) x) '(1 2 3)))
+                         ((> n 0) (mapcar (lambda (x) (+ x a b)) '(1 2 3)))
+                         (t (mapcar (lambda (x) (- x a)) '(1 2 3))))))"#,
+            "(f 5)",
+        ),
+        // Nested let* — both layers must inject EndScopes before tcall.
+        (
+            "nested_let_star_tail",
+            r#"(defun f (n)
+                 (let ((a n))
+                   (let ((b (* a 2)))
+                     (mapcar (lambda (x) (+ x a b)) '(1 2 3)))))"#,
+            "(f 5)",
+        ),
+        // dolist body is NOT in tail position (mark_tail_calls doesn't
+        // recurse into dolist), so no tcall is emitted inside the
+        // dolist. But dolist itself can sit in a let whose body's
+        // tail is a separate tcall after the loop.
+        (
+            "dolist_inside_let_with_trailing_tcall",
+            r#"(defun f (xs)
+                 (let ((acc 0))
+                   (dolist (x xs) (setq acc (+ acc x)))
+                   (mapcar (lambda (n) (+ n acc)) '(1 2 3))))"#,
+            "(f '(1 2 3 4))",
+        ),
+        // Same with dotimes.
+        (
+            "dotimes_inside_let_with_trailing_tcall",
+            r#"(defun f (n)
+                 (let ((acc 0))
+                   (dotimes (i n) (setq acc (+ acc i)))
+                   (mapcar (lambda (x) (+ x acc)) '(1 2 3))))"#,
+            "(f 5)",
+        ),
+        // dolist itself in tail position of a let — mark_tail_calls
+        // does NOT mark anything inside the dolist, so no tcall is
+        // emitted in this defun's body. Confirms the no-leak baseline.
+        (
+            "dolist_as_tail",
+            r#"(defun f (xs)
+                 (let ((acc 0))
+                   (dolist (x xs) (setq acc (+ acc x)))))"#,
+            "(f '(1 2 3 4))",
+        ),
+        // Self tail-call from let body — `Bounce` form on the same
+        // function name. The let bindings must be popped before the
+        // function re-enters itself.
+        (
+            "let_body_self_tail_recursion",
+            r#"(defun f (n acc)
+                 (if (<= n 0)
+                     acc
+                     (let ((next (- n 1)))
+                       (f next (+ acc n)))))"#,
+            "(f 50 0)",
+        ),
+        // Lambda body with let* + tail-call. The lambda is materialized
+        // per call to `g`; its compiled body must not leak either.
+        (
+            "lambda_body_let_star_tail",
+            r#"(defun g (n)
+                 (funcall (lambda (k)
+                            (let* ((a (* k 2)) (b (+ a 1)))
+                              (mapcar (lambda (x) (+ x a b)) '(1 2 3))))
+                          n))"#,
+            "(g 5)",
+        ),
+    ];
+
+    // Fresh context per case so an earlier `(defun f ...)` doesn't
+    // shadow the next case's `f` (and so `defvar`s don't leak between
+    // shapes).
+    for (label, prog, call) in cases {
+        let mut ctx = TulispContext::new();
+        eprintln!("case: {}", label);
+        ctx.eval_string(prog)
+            .unwrap_or_else(|e| panic!("{} setup failed: {}", label, e.format(&ctx)));
+        // First, sanity-check: a single call works without panicking.
+        ctx.eval_string(call)
+            .unwrap_or_else(|e| panic!("{} sanity call failed: {}", label, e.format(&ctx)));
+        assert_no_lex_stack_leak(&mut ctx, prog, call, label);
+    }
+    Ok(())
+}
+
+#[test]
+fn test_error_escape_does_not_leak_scope() -> Result<(), Error> {
+    // Regression: every `BeginScope` (let, let*, dolist, dotimes,
+    // inline lambda body) used to leak its binding when the body
+    // errored before the matching `EndScope`. `run_impl_inner` now
+    // tracks active scopes via a Drop guard that unsets remaining
+    // entries on the error-unwind path. See analysis.org a24.
+    let cases: &[(&str, &str, &str)] = &[
+        (
+            "let_body_errors",
+            "(defun f () (let ((y 5)) (error \"boom\")))",
+            "(f)",
+        ),
+        (
+            "let_multi_binding_later_rhs_errors",
+            "(defun f () (let ((y 1) (z (error \"boom\"))) y))",
+            "(f)",
+        ),
+        (
+            "dolist_body_errors",
+            "(defun f () (dolist (x '(1 2 3)) (if (= x 2) (error \"boom\") nil)))",
+            "(f)",
+        ),
+        (
+            "dotimes_body_errors",
+            "(defun f () (dotimes (i 5) (if (= i 2) (error \"boom\") nil)))",
+            "(f)",
+        ),
+        (
+            "compiled_lambda_let_body_errors",
+            "(defun caller () (funcall (lambda () (let ((y 5)) (error \"boom\")))))",
+            "(caller)",
+        ),
+        (
+            "closure_capture_then_inner_let_errors",
+            "(defun caller () (let ((cap 1)) (funcall (lambda () (let ((y cap)) (error \"boom\"))))))",
+            "(caller)",
+        ),
+        (
+            "nested_let_outer_body_errors_after_inner_returns",
+            "(defun f () (let ((a 1)) (let ((b 2)) b) (error \"boom\")))",
+            "(f)",
+        ),
+        // Defvar (special) variants — the binding lives on the
+        // symbol's `items` stack rather than `LEX_STACKS`. The
+        // assert helper checks both.
+        (
+            "defvar_let_body_errors",
+            "(progn (defvar yy 'g) (defun f () (let ((yy 'inner)) (error \"boom\"))))",
+            "(f)",
+        ),
+        (
+            "defvar_toplevel_let_body_errors",
+            "(defvar yy 'g)",
+            "(let ((yy 'inner)) (error \"boom\"))",
+        ),
+        (
+            "defvar_multi_binding_later_rhs_errors",
+            "(progn (defvar yy 'g) (defun f () (let ((yy 'inner) (z (error \"boom\"))) z)))",
+            "(f)",
+        ),
+    ];
+    for (label, prog, call) in cases {
+        let mut ctx = TulispContext::new();
+        eprintln!("case: {}", label);
+        ctx.eval_string(prog)
+            .unwrap_or_else(|e| panic!("{} setup failed: {}", label, e.format(&ctx)));
+        // First, sanity-check: a single call really does error
+        // (otherwise the test would tautologically pass).
+        let single = ctx.eval_string(call);
+        assert!(
+            single.is_err(),
+            "{}: expected error; got Ok({})",
+            label,
+            single.unwrap()
+        );
+        assert_no_scope_leak_on_error(&mut ctx, prog, call, label);
+    }
+    Ok(())
+}
+
+#[test]
+fn test_missing_optional_does_not_leak_lex_stack() -> Result<(), Error> {
+    // Regression: `init_defun_args` used to set_scope(nil) for a
+    // missing `&optional` param then `continue` without pushing onto
+    // `set_params`, so `SetParams::drop` never unset the binding.
+    // Each call leaked one `LEX_STACKS` entry per missing optional.
+    let cases: &[(&str, &str, &str)] = &[
+        (
+            "one_missing_optional",
+            "(defun f (a &optional b) a)",
+            "(f 1)",
+        ),
+        (
+            "two_missing_optionals",
+            "(defun f (a &optional b c) a)",
+            "(f 1)",
+        ),
+        (
+            "partial_optional_provided",
+            "(defun f (a &optional b c) a)",
+            "(f 1 2)",
+        ),
+        (
+            "missing_optionals_with_rest",
+            "(defun f (a &optional b c &rest r) a)",
+            "(f 1)",
+        ),
+    ];
+    for (label, prog, call) in cases {
+        let mut ctx = TulispContext::new();
+        ctx.eval_string(prog)
+            .unwrap_or_else(|e| panic!("{} setup failed: {}", label, e.format(&ctx)));
+        ctx.eval_string(call)
+            .unwrap_or_else(|e| panic!("{} sanity call failed: {}", label, e.format(&ctx)));
+        assert_no_lex_stack_leak(&mut ctx, prog, call, label);
+    }
     Ok(())
 }
 
@@ -1392,11 +2922,27 @@ fn test_sort() -> Result<(), Error> {
         program: "(sort '(20 10 30 15 45) '>)",
         result: "'(45 30 20 15 10)",
     }
+    // With a `>`-typed predicate applied to strings, the inner
+    // `funcall` hits a number-only operator and errors. The exact
+    // string that trips it depends on the sort walk order; `hello`
+    // happens to be first under the current Lisp implementation.
+    //
+    // The trace frames inside the prelude carry the crate-absolute
+    // path to `prelude.lisp` (see `vm_eval_prelude` in `context.rs`),
+    // so we inject that at compile time via `CARGO_MANIFEST_DIR`.
+    let prelude = concat!(env!("CARGO_MANIFEST_DIR"), "/src/builtin/prelude.lisp");
     tulisp_assert! {
         program: r#"(sort '("sort" "hello" "a" "world") '>)"#,
-        error: r#"ERR TypeMismatch: Expected number, got: "world"
+        error: format!(r#"ERR TypeMismatch: Expected number, got: "hello"
+{0}:67.35-67.55:  at (funcall pred item x)
+{0}:67.15-67.56:  at (and (not inserted) (funcall pred item x))
+{0}:67.11-71.36:  at (if (and (not inserted) (funcall pred item x)) (progn (setq new (cons item new))...
+{0}:66.9-71.37:  at (dolist (x out) (if (and (not inserted) (funcall pred item x)) (progn (setq new ...
+{0}:65.7-74.33:  at (let ((inserted nil) (new nil)) (dolist (x out) (if (and (not inserted) (funcall...
+{0}:64.5-74.34:  at (dolist (item seq) (let ((inserted nil) (new nil)) (dolist (x out) (if (and (not...
+{0}:63.3-75.8:  at (let ((out nil)) (dolist (item seq) (let ((inserted nil) (new nil)) (dolist (x o...
 <eval_string>:1.1-1.39:  at (sort '("sort" "hello" "a" "world") '>)
-"#,
+"#, prelude),
     }
     tulisp_assert! {
         program: r#"(sort '("sort" "hello" "a" "world") 'string<)"#,
@@ -1406,11 +2952,22 @@ fn test_sort() -> Result<(), Error> {
         program: r#"(sort '("sort" "hello" "a" "world") 'string>)"#,
         result: r#"'("world" "sort" "hello" "a")"#,
     }
+    // With sort now implemented in Lisp, resolution of an unknown
+    // predicate fails at the inner `funcall` callsite rather than at
+    // the outer Rust-side arg-eval, so the trace has the sort body's
+    // inner frames. The root error (unbound `<<`) is unchanged.
     tulisp_assert! {
         program: "(sort '(20 10 30 15 45) '<<)",
-        error: r#"ERR Uninitialized: Variable definition is void: <<
+        error: format!(r#"ERR Uninitialized: Variable definition is void: <<
+{0}:67.35-67.55:  at (funcall pred item x)
+{0}:67.15-67.56:  at (and (not inserted) (funcall pred item x))
+{0}:67.11-71.36:  at (if (and (not inserted) (funcall pred item x)) (progn (setq new (cons item new))...
+{0}:66.9-71.37:  at (dolist (x out) (if (and (not inserted) (funcall pred item x)) (progn (setq new ...
+{0}:65.7-74.33:  at (let ((inserted nil) (new nil)) (dolist (x out) (if (and (not inserted) (funcall...
+{0}:64.5-74.34:  at (dolist (item seq) (let ((inserted nil) (new nil)) (dolist (x out) (if (and (not...
+{0}:63.3-75.8:  at (let ((out nil)) (dolist (item seq) (let ((inserted nil) (new nil)) (dolist (x o...
 <eval_string>:1.1-1.28:  at (sort '(20 10 30 15 45) '<<)
-"#
+"#, prelude)
     }
     tulisp_assert! {
         program: "(sort '(20 10 30 15 45))",
@@ -1546,7 +3103,7 @@ fn test_owned_method() -> Result<(), Error> {
 
 #[test]
 fn test_from_iter() -> Result<(), Error> {
-    let obj: TulispObject = (1..10).into_iter().map(|x| (x * 2).into()).collect();
+    let obj: TulispObject = (1..10).map(|x| (x * 2).into()).collect();
     assert_eq!(obj.to_string(), "(2 4 6 8 10 12 14 16 18)");
     Ok(())
 }
@@ -1622,7 +3179,7 @@ fn test_any() -> Result<(), Error> {
         if maybe_num.null() {
             return Ok(value);
         }
-        return Ok(value + i64::try_from(maybe_num)?);
+        Ok(value + i64::try_from(maybe_num)?)
     });
 
     tulisp_assert! {

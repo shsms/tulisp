@@ -1,253 +1,120 @@
 /*!
-A list of currently implemented functions and macros:
+Built-in functions and macros registered on every [`TulispContext`].
 
+Names match the [Emacs Lisp manual] where applicable; semantic
+differences from Emacs are called out inline.
 
-## Arithmetic Operations
+[`TulispContext`]: crate::TulispContext
+[Emacs Lisp manual]: https://www.gnu.org/software/emacs/manual/html_node/elisp/
 
-Click [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Arithmetic-Operations.html) for the Emacs lisp manual page for arithmetic operations.
+# Numbers
 
-| Name  | Status | Details |
-|-------|--------|---------|
-| `1+`  | ☑️      |         |
-| `1-`  | ☑️      |         |
-| `+`   | ☑️      |         |
-| `-`   | ☑️      |         |
-| `*`   | ☑️      |         |
-| `/`   | ☑️      |         |
-| `%`   | 🔳     |         |
-| `mod` | ☑️      |         |
+- **Arithmetic**: `+`, `-`, `*`, `/`, `mod`, `1+`, `1-`.
+- **Comparison**: `=`, `<`, `>`, `<=`, `>=`, `eql`, `max`, `min`, `abs`.
+- **Math**: `expt`, `sqrt`, `isnan`.
+- **Numerical conversion**: `floor`, `ceiling`, `truncate`, `round`,
+  `ffloor`, `fceiling`, `ftruncate`, `fround`. The integer-returning
+  forms take an optional divisor; `round` uses banker's rounding.
 
-## Conditionals
+# Strings
 
-Click  [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Conditionals.html) for the Emacs lisp manual page for conditionals.
+- **Construction**: `concat`, `format`, `make-string` (takes `(N CHAR)`
+  where `CHAR` is an integer).
+- **Comparison**: `string<` / `string-lessp`, `string>` / `string-greaterp`,
+  `string=` / `string-equal`.
+- **Output**: `princ`, `print` (behaves like `princ`, not Emacs's `print`),
+  `prin1-to-string`.
+- **Mutation**: `aset` (replaces a single char at an index).
 
-| Name        | Status | Details                                          |
-|-------------|--------|--------------------------------------------------|
-| `if`        | ☑️      |                                                  |
-| `when`      | ☑️      |                                                  |
-| `unless`    | ☑️      |                                                  |
-| `cond`      | ☑️      |                                                  |
-| `not`      | ☑️      |                                                  |
-| `and`      | ☑️      |                                                  |
-| `or`      | ☑️      |                                                  |
-| `xor`      | ☑️      |                                                  |
-| `if-let`    | ☑️
-| `when-let`  | ☑️     |                                                  |
-| `while-let` | ☑️     |                                                  |
+# Lists
 
-## Comparison of Numbers
+- **Construction**: `cons`, `list`, `append`.
+- **Access**: `car`, `cdr`, every `c[ad]+r` form up to four `a`/`d`s,
+  `nth`, `nthcdr`, `last` (errors on circular lists).
+- **Modification**: `setcar`, `setcdr`.
+- **Length / membership**: `length` (also for strings; cycle-safe),
+  `memq`, `memql`, `member`.
+- **Sequence operations**: `reverse`, `sort`, `mapcar`, `mapconcat`,
+  `string-join`, `seq-map`, `seq-filter`, `seq-reduce`, `seq-find`,
+  `seq-take`, `seq-drop`.
+- **Alists**: `assoc`, `alist-get`.
+- **Plists**: `plist-get`.
 
-Click [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Comparison-of-Numbers.html) for the Emacs lisp manual page for comparison of numbers.
+Tulisp has no vector type — sequence functions are list-only.
 
-| Name  | Status | Details |
-|-------|--------|---------|
-| `>`   | ☑️      |         |
-| `<`   | ☑️      |         |
-| `>=`  | ☑️      |         |
-| `<=`  | ☑️      |         |
-| `=`   | ☑️      |         |
-| `eql` | ☑️     |         |
-| `/=`  | 🔳     |         |
-| `max` | ☑️      |         |
-| `min` | ☑️      |         |
-| `abs` | ☑️      |         |
+# Symbols and variables
 
+- **Bindings**: `let`, `let*`, `setq`, `set`, `symbol-value`.
+- **Symbols**: `intern` (always uses the default obarray), `make-symbol`,
+  `gensym`.
+- **Declaration**: `defvar` (sets only when unbound — preserves value
+  across reloads).
+- **Constants**: `nil`, `t`.
 
-## Comparison of Strings
+# Functions and macros
 
-Click [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Text-Comparison.html) for the Emacs lisp manual page for comparison of strings. Not all methods are implemented.
+- **Definitions**: `defun`, `defmacro`, `lambda`, `declare`.
+- **Invocation**: `eval`, `funcall`, `apply`, `macroexpand`.
+- **Quoting**: `quote` (also written `'expr`), backquote / unquote /
+  splice (`` ` ``, `,`, `,@`).
+- **Threading**: `->` / `thread-first`, `->>` / `thread-last`.
 
-| Name              | Status | Details |
-|-------------------|--------|---------|
-| `string>`         | ☑️      |         |
-| `string<`         | ☑️      |         |
-| `string=`         | ☑️      |         |
-| `string-lessp`    | ☑️      |         |
-| `string-greaterp` | ☑️      |         |
-| `string-equal`    | ☑️      |         |
+Tail-call optimisation is applied to recursive functions automatically.
 
+# Control flow
 
-## Equality Predicates
+- **Branches and loops**: `if`, `cond`, `when`, `unless`, `progn`,
+  `while`, `dolist`, `dotimes`.
+- **Logic**: `and`, `or`, `not`, `xor`.
+- **Pattern-matching binds**: `if-let`, `if-let*`, `when-let`,
+  `while-let`.
 
-Click [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Equality-Predicates.html) for the Emacs lisp manual page for equality predicates.
+# Predicates
 
-| Name    | Status | Details |
-|---------|--------|---------|
-| `eq`    | ☑️      |         |
-| `equal` | ☑️      |         |
+- **Types**: `consp`, `listp`, `floatp`, `integerp`, `numberp`,
+  `stringp`, `symbolp`, `keywordp`, `boundp`, `null`.
+- **Equality**: `eq`, `equal`, `eql`.
 
+# Hash tables
 
-## Accessing Elements of Lists
+`make-hash-table` (no arguments; uses `eql` as the test function),
+`puthash`, `gethash` (optional 3rd `default` argument).
 
-Click [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/List-Elements.html) for the Emacs lisp manual page for accessing elements of lists.
+# Time
 
-| Name          | Status | Details                                                 |
-|---------------|--------|---------------------------------------------------------|
-| `car`         | ☑️      |                                                         |
-| `cdr`         | ☑️      |                                                         |
-| `car-safe`    | 🔳     |                                                         |
-| `cdr-safe`    | 🔳     |                                                         |
-| `pop`         | 🔳     |                                                         |
-| `nth`         | ☑️      |                                                         |
-| `nthcdr`      | ☑️      |                                                         |
-| `take`        | 🔳     |                                                         |
-| `ntake`       | 🔳     |                                                         |
-| `last`        | ☑️      | not cycle-safe                                          |
-| `safe-lentgh` | 🔳     | not until we have a cycle-detection algorithm for lists |
-| `caar`        | ☑️      |                                                         |
-| `cadr`        | ☑️      |                                                         |
-| `cdar`        | ☑️      |                                                         |
-| `cddr`        | ☑️      |                                                         |
-| `cxxxr` * 8   | ☑️      |                                                         |
-| `cxxxxr` * 16 | ☑️      |                                                         |
-| `butlast`     | 🔳     |                                                         |
-| `nbutlast`    | 🔳     |                                                         |
+`current-time` returns a `(ticks . hz)` pair (typically `hz =
+1_000_000_000` for nanosecond resolution).
 
+`time-add`, `time-subtract`, `time-less-p`, `time-equal-p` each take
+two times — either integer Unix-epoch seconds or `(ticks . hz)`
+pairs. `format-seconds` formats a duration.
 
-## Sequence Functions
+# Errors
 
-Click [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Sequence-Functions.html) for the Emacs lisp manual page for sequences.
-
-`Tulisp` doesn't have vectors.  Instead, we use lists for everything.  This means that the sequence functions are implemented just for lists.  They are not available for strings either, but they might be in the future.
-
-Because there are a huge number of sequence functions that are not yet implemented, the following table only lists the ones that are implemented, and a few that might be implemented in the near future.
-
-| Name         | Status | Details |
-|--------------|--------|---------|
-| `length`     | ☑️      | works on lists and strings |
-| `make-string`| ☑️      | takes (N CHAR), where CHAR is an integer |
-| `reverse`    | ☑️      |         |
-| `sort`       | ☑️      |         |
-| `mapconcat`  | ☑️      |         |
-| `string-join`| ☑️      |         |
-| `seq-map`    | ☑️      |         |
-| `seq-filter` | ☑️      |         |
-| `seq-reduce` | ☑️      |         |
-| `seq-find`   | ☑️      |         |
-| `seq-drop`   | ☑️      |         |
-| `seq-take`   | ☑️      |         |
-| `memq`       | ☑️      |         |
-| `memql`      | ☑️      |         |
-| `member`     | ☑️      |         |
-| `seq-uniq`   | 🔳     |         |
-| `seq-some`  | 🔳     |         |
-| `seq-every-p` | 🔳     |         |
-| `seq-contains-p` | 🔳     |         |
-| `seq-position` | 🔳     |         |
-| `seq-positions` | 🔳     |         |
-| `seq-subseq` | 🔳     |         |
-| `seq-let` | 🔳     |         |
-
-## Hash Tables
-
-Click [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Hash-Tables.html) for the Emacs lisp manual page for hash tables.
-
-| Name               | Status | Details |
-|--------------------|--------|---------|
-| `make-hash-table`  | ☑️     | takes no arguments, uses `eql` as the test function. |
-| `puthash`          | ☑️     |         |
-| `gethash`          | ☑️     |         |
-
-## Time Calculations
-
-These functions are described in the [time of
- day](https://www.gnu.org/software/emacs/manual/html_node/elisp/Time-of-Day.html)
- and [time
- calculations](https://www.gnu.org/software/emacs/manual/html_node/elisp/Time-Calculations.html)
- Emacs lisp manual pages.
-
-`time-less-p`, `time-equal-p`, `test-subtract`, `test-add` all take two arguments.  The
-arguments can be integers representing a number of seconds since the Unix epoch,
-or they can be `(ticks . hz)` values, representing `ticks/hz` values seconds since
-the unix epoch.
-
-| Name             | Status | Details                                                                                                           |
-|------------------|--------|-------------------------------------------------------------------------------------------------------------------|
-| `current-time`   | ☑️      | Returns a `(ticks . hz)` value, usually with a hz value of 1000000000, corresponding to a nano-second resolution. |
-| `time-less-p`    | ☑️      |                                                                                                                   |
-| `time-equal-p`   | ☑️      |                                                                                                                   |
-| `test-subtract`  | ☑️      |                                                                                                                   |
-| `test-add`       | ☑️      |                                                                                                                   |
-| `format-seconds` | ☑️      |                                                                                                                   |
-
-## Math Functions
-
-| Name        | Status | Details |
-|-------------|--------|---------|
-| `expt`      | ☑️      |        |
-| `sqrt`      | ☑️      |        |
-| `abs`       | ☑️      |        |
-
-## Error handling
-
-| Name                                                                                                   | Status | Details |
-|--------------------------------------------------------------------------------------------------------|--------|---------|
-| [`error`](https://www.gnu.org/software/emacs/manual/html_node/elisp/Signaling-Errors.html#index-error) | ☑️      |         |
-| [`throw`](https://www.gnu.org/software/emacs/manual/html_node/elisp/Catch-and-Throw.html#index-throw)  | ☑️      |         |
-| [`catch`](https://www.gnu.org/software/emacs/manual/html_node/elisp/Catch-and-Throw.html#index-catch)  | ☑️      |         |
-
-## Others
-
-These functions need to be organized into categories.  They are grouped here for now.
-
-| Name                                                                                                    | Status | Details                                           |
-|---------------------------------------------------------------------------------------------------------|--------|---------------------------------------------------|
-| [`while`](https://www.gnu.org/software/emacs/manual/html_node/eintr/while.html)                         | ☑️      |                                                   |
-| [`format`](https://www.gnu.org/software/emacs/manual/html_node/elisp/Formatting-Strings.html)           | ☑️      |                                                   |
-| [`let`](https://www.gnu.org/software/emacs/manual/html_node/eintr/let.html)                             | ☑️      |                                                   |
-| [`let*`](https://www.gnu.org/software/emacs/manual/html_node/elisp/Local-Variables.html#index-let_002a) | ☑️      |                                                   |
-| [`progn`](https://www.gnu.org/software/emacs/manual/html_node/eintr/progn.html)                         | ☑️      |                                                   |
-| `defun`                                                                                                 | ☑️      |                                                   |
-| `defmacro`                                                                                              | ☑️      |                                                   |
-| `defvar`                                                                                                | ☑️      | sets only when unbound; preserves value on reload |
-| `lambda`                                                                                                | ☑️      |                                                   |
-| `quote`                                                                                                 | ☑️      |                                                   |
-| `null`                                                                                                  | ☑️      |                                                   |
-| `eval`                                                                                                  | ☑️      |                                                   |
-| `funcall`                                                                                               | ☑️      |                                                   |
-| `macroexpand`                                                                                           | ☑️      |                                                   |
-| `cons`                                                                                                  | ☑️      |                                                   |
-| `append`                                                                                                | ☑️      |                                                   |
-| `dolist`                                                                                                | ☑️      |                                                   |
-| `dotimes`                                                                                               | ☑️      |                                                   |
-| `list`                                                                                                  | ☑️      |                                                   |
-| `mapcar`                                                                                                | ☑️      |                                                   |
-| `assoc`                                                                                                 | ☑️      |                                                   |
-| `alist-get`                                                                                             | ☑️      |                                                   |
-| `plist-get`                                                                                             | ☑️      |                                                   |
-| `print`                                                                                                 | ☑️      | behaves like `princ`, not like emacs lisp `print` |
-| `princ`                                                                                                 | ☑️      |                                                   |
-| `prin1-to-string`                                                                                       | ☑️      |                                                   |
-| `set`                                                                                                   | ☑️      |                                                   |
-| `setq`                                                                                                  | ☑️      |                                                   |
-| `concat`                                                                                                | ☑️      | for strings                                       |
-| `load`                                                                                                  | ☑️      |                                                   |
-| `intern`                                                                                                | ☑️      | no optional obarray param, always uses default.   |
-| `make-symbol`                                                                                           | ☑️      |                                                   |
-| `gensym`                                                                                                | ☑️      |                                                   |
-| `floor`                                                                                                 | ☑️      | takes optional divisor                            |
-| `ceiling`                                                                                               | ☑️      | takes optional divisor                            |
-| `truncate`                                                                                              | ☑️      | takes optional divisor                            |
-| `round`                                                                                                 | ☑️      | banker's rounding, takes optional divisor         |
-| `ffloor`                                                                                                | ☑️      |                                                   |
-| `fceiling`                                                                                              | ☑️      |                                                   |
-| `fround`                                                                                                | ☑️      |                                                   |
-| `ftruncate`                                                                                             | ☑️      |                                                   |
-
-## Other predicates
-
-| Name       | Status | Details |
-|------------|--------|---------|
-| `symbolp`  | ☑️      |         |
-| `numberp`  | ☑️      |         |
-| `stringp`  | ☑️      |         |
-| `listp`    | ☑️      |         |
-| `consp`    | ☑️      |         |
-| `floatp`   | ☑️      |         |
-| `integerp` | ☑️      |         |
-| `boundp`   | ☑️      |         |
-| `keywordp` | ☑️      |         |
+`error`, `throw`, `catch`, `condition-case`.
 */
 
 pub(crate) mod functions;
 pub(crate) mod macros;
+
+use crate::{Error, TulispObject};
+
+/// Validate that `target` is a writable variable cell. Used by both
+/// the VM compiler (~setq~) and the TW ~setq~ defspecial so the two
+/// dispatch paths reject the same inputs with the same error shape,
+/// at compile time, before any value expression evaluates.
+pub(crate) fn check_settable_target(target: &TulispObject) -> Result<(), Error> {
+    if !target.symbolp() {
+        return Err(
+            Error::type_mismatch(format!("Expected Symbol: Can't assign to {}", target))
+                .with_trace(target.clone()),
+        );
+    }
+    if target.keywordp() {
+        return Err(
+            Error::type_mismatch(format!("Can't set constant symbol: {}", target))
+                .with_trace(target.clone()),
+        );
+    }
+    Ok(())
+}

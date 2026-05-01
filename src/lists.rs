@@ -1,20 +1,44 @@
-use crate::{
-    Error, TulispContext, TulispObject,
-    eval::{DummyEval, funcall},
-    list,
-};
+use crate::{Error, TulispObject};
 
 /// Returns the number of elements in the given list, or the number of
-/// characters if the argument is a string.
+/// characters if the argument is a string. Errors on a circular list
+/// rather than infloop'ing.
 pub fn length(list: &TulispObject) -> Result<i64, Error> {
-    let count = if list.stringp() {
-        list.as_string()?.chars().count()
-    } else {
-        list.base_iter().count()
-    };
-    count
-        .try_into()
-        .map_err(|e: _| Error::out_of_range(format!("{}", e)))
+    if list.stringp() {
+        let n = list.as_string()?.chars().count();
+        return n
+            .try_into()
+            .map_err(|e: _| Error::out_of_range(format!("{}", e)));
+    }
+    // Floyd's tortoise / hare: hare advances two cells per step; if
+    // it ever lands on the same cell as the tortoise (advancing by
+    // one), the list is circular. Without this check `setcdr` cycles
+    // (now reachable via the `setcdr` defun) would infloop here.
+    let mut slow = list.clone();
+    let mut fast = list.clone();
+    let mut count: i64 = 0;
+    loop {
+        if fast.null() {
+            return Ok(count);
+        }
+        if !fast.consp() {
+            return Err(Error::type_mismatch(format!("expected list, got: {fast}")));
+        }
+        fast = fast.cdr()?;
+        count += 1;
+        if fast.null() {
+            return Ok(count);
+        }
+        if !fast.consp() {
+            return Err(Error::type_mismatch(format!("expected list, got: {fast}")));
+        }
+        fast = fast.cdr()?;
+        count += 1;
+        slow = slow.cdr()?;
+        if slow.eq_ptr(&fast) {
+            return Err(Error::out_of_range("Circular list".to_string()));
+        }
+    }
 }
 
 /// Returns the last link in the given list.
@@ -67,146 +91,3 @@ pub fn nth(n: i64, list: TulispObject) -> Result<TulispObject, Error> {
     nthcdr(n, list).and_then(|x| x.car())
 }
 
-/// Makes an alist from the given arguments.
-pub fn alist_from<const N: usize>(input: [(TulispObject, TulispObject); N]) -> TulispObject {
-    let alist = TulispObject::nil();
-    for (key, value) in input.into_iter() {
-        let _ = alist.push(TulispObject::cons(key, value));
-    }
-    alist
-}
-
-/// Makes a plist from the given arguments.
-pub fn plist_from<const N: usize>(input: [(TulispObject, TulispObject); N]) -> TulispObject {
-    let plist = TulispObject::nil();
-    for (key, value) in input.into_iter() {
-        let _ = plist.push(key);
-        let _ = plist.push(value);
-    }
-    plist
-}
-
-/// Returns the first association for key in alist, comparing key against the
-/// alist elements using testfn if it is a function, and equal otherwise.
-///
-/// Read more about `alist`s
-/// [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Association-Lists.html).
-pub fn assoc(
-    ctx: &mut TulispContext,
-    key: &TulispObject,
-    alist: &TulispObject,
-    testfn: Option<TulispObject>,
-) -> Result<TulispObject, Error> {
-    if !alist.listp() {
-        return Err(Error::type_mismatch(format!(
-            "expected alist. got: {}",
-            alist
-        )));
-    }
-    if let Some(testfn) = testfn {
-        let pred = ctx.eval(&testfn)?;
-
-        let testfn = |_1: &TulispObject, _2: &TulispObject| -> Result<bool, Error> {
-            funcall::<DummyEval>(ctx, &pred, &list!(,_1.clone() ,_2.clone()).unwrap())
-                .map(|x| x.is_truthy())
-        };
-        assoc_find(key, alist, testfn)
-    } else {
-        let testfn = |_1: &TulispObject, _2: &TulispObject| Ok(_1.equal(_2));
-        assoc_find(key, alist, testfn)
-    }
-}
-
-/// Finds the first association (key . value) by comparing key with alist
-/// elements, and, if found, returns the value of that association.
-///
-/// Read more about `alist`s
-/// [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Association-Lists.html).
-pub fn alist_get(
-    ctx: &mut TulispContext,
-    key: &TulispObject,
-    alist: &TulispObject,
-    default_value: Option<TulispObject>,
-    _remove: Option<TulispObject>, // TODO: implement after `setf`
-    testfn: Option<TulispObject>,
-) -> Result<TulispObject, Error> {
-    let x = assoc(ctx, key, alist, testfn)?;
-    if x.is_truthy() {
-        x.cdr()
-    } else {
-        Ok(default_value.unwrap_or_else(TulispObject::nil))
-    }
-}
-
-fn assoc_find(
-    key: &TulispObject,
-    alist: &TulispObject,
-    mut testfn: impl FnMut(&TulispObject, &TulispObject) -> Result<bool, Error>,
-) -> Result<TulispObject, Error> {
-    let mut cur = alist.clone();
-    while cur.consp() {
-        if cur.caar_and_then(|caar| testfn(caar, key))? {
-            return cur.car();
-        }
-        cur = cur.cdr()?;
-    }
-    Ok(TulispObject::nil())
-}
-
-/// Returns the value of the property `property` stored in the property list
-/// `plist`.
-///
-/// Read more about `plist`s
-/// [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Property-Lists.html).
-pub fn plist_get(plist: &TulispObject, property: &TulispObject) -> Result<TulispObject, Error> {
-    let mut cur = plist.clone();
-    while cur.consp() {
-        if cur.car_and_then(|car| Ok(car.eq(property)))? {
-            return cur.cadr();
-        }
-        cur = cur.cddr()?;
-    }
-    Ok(TulispObject::nil())
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::lists::{Error, TulispContext, alist_from, alist_get, plist_from, plist_get};
-
-    #[test]
-    fn test_alist() -> Result<(), Error> {
-        let mut ctx = TulispContext::new();
-        let a = ctx.intern("a");
-        let b = ctx.intern("b");
-        let c = ctx.intern("c");
-        let d = ctx.intern("d");
-        let list = alist_from([
-            (a.clone(), 20.into()),
-            (b.clone(), 30.into()),
-            (c.clone(), 40.into()),
-        ]);
-        assert!(alist_get(&mut ctx, &b, &list, None, None, None)?.equal(&30.into()));
-        assert_eq!(
-            alist_get(&mut ctx, &d, &list, None, None, None)?.null(),
-            true
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn test_plist() -> Result<(), Error> {
-        let mut ctx = TulispContext::new();
-        let a = ctx.intern("a");
-        let b = ctx.intern("b");
-        let c = ctx.intern("c");
-        let d = ctx.intern("d");
-        let list = plist_from([
-            (a.clone(), 20.into()),
-            (b.clone(), 30.into()),
-            (c.clone(), 40.into()),
-        ]);
-        assert!(plist_get(&list, &b)?.equal(&30.into()));
-        assert_eq!(plist_get(&list, &d)?.null(), true);
-        Ok(())
-    }
-}

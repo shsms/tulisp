@@ -137,8 +137,9 @@ where
             .map_err(|e| e.with_trace(value.clone()))
     }
     fn into_tulisp(self) -> TulispObject {
-        TulispValue::from_iter(self.into_iter().map(|x| TulispConvertible::into_tulisp(x)))
-            .into_ref(None)
+        self.into_iter()
+            .map(TulispConvertible::into_tulisp)
+            .collect()
     }
 }
 

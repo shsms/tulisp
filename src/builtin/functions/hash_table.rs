@@ -68,13 +68,15 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     ctx.defun(
         "gethash",
-        |key: TulispObject, table: HashTable| -> TulispObject {
+        |key: TulispObject, table: HashTable, default: Option<TulispObject>| -> TulispObject {
+            // Match Emacs `(gethash KEY TABLE &optional DEFAULT)` —
+            // returns DEFAULT (nil if omitted) when KEY isn't present.
             table
                 .inner
                 .borrow_mut()
                 .get(&key.into())
                 .cloned()
-                .unwrap_or(TulispObject::nil())
+                .unwrap_or_else(|| default.unwrap_or_else(TulispObject::nil))
         },
     );
 

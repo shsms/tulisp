@@ -1,6 +1,47 @@
+//! Property-list (plist) primitives and the typed [`Plistable`] layer.
+//!
+//! A plist is a flat alternating-key/value list, e.g. `(:a 1 :b 2)`.
+//! See [the Emacs Lisp manual] for the canonical reference.
+//!
+//! [the Emacs Lisp manual]: https://www.gnu.org/software/emacs/manual/html_node/elisp/Property-Lists.html
+
 use std::ops::Deref;
 
 use crate::{Error, TulispContext, TulispObject};
+
+/// Makes a plist from the given arguments.
+pub fn plist_from<const N: usize>(input: [(TulispObject, TulispObject); N]) -> TulispObject {
+    let mut builder = crate::cons::ListBuilder::new();
+    for (key, value) in input.into_iter() {
+        builder.push(key);
+        builder.push(value);
+    }
+    builder.build()
+}
+
+/// Returns the value of the property `property` stored in the property list
+/// `plist`.
+pub fn plist_get(plist: &TulispObject, property: &TulispObject) -> Result<TulispObject, Error> {
+    // Floyd's tortoise / hare: hare advances by `cddr` (two cells) per
+    // iteration — the natural plist step — and tortoise by `cdr`. If
+    // they ever meet, the plist is circular. Mirrors `lists::length`
+    // and `alist::assoc`.
+    let mut slow = plist.clone();
+    let mut cur = plist.clone();
+    loop {
+        if !cur.consp() {
+            return Ok(TulispObject::nil());
+        }
+        if cur.car_and_then(|car| Ok(car.eq(property)))? {
+            return cur.cadr();
+        }
+        cur = cur.cddr()?;
+        slow = slow.cdr()?;
+        if slow.eq_ptr(&cur) {
+            return Err(Error::out_of_range("Circular plist".to_string()));
+        }
+    }
+}
 
 /// A typed wrapper around a Lisp plist, for use as a [`defun`](crate::TulispContext::defun) argument.
 ///
@@ -41,9 +82,9 @@ impl<T> Plist<T>
 where
     T: Plistable,
 {
-    pub(crate) fn new(ctx: &mut TulispContext, obj: &TulispObject) -> Result<Self, Error> {
+    pub(crate) fn new(ctx: &mut TulispContext, args: &[TulispObject]) -> Result<Self, Error> {
         Ok(Self {
-            plist: T::from_plist(ctx, obj)?,
+            plist: T::from_plist_as_slice(ctx, args)?,
         })
     }
 
@@ -65,13 +106,32 @@ where
 
 /// Conversion between a Rust struct and a Lisp plist.
 ///
-/// Implement this trait to use a struct as the argument type of a
-/// [`defun`](crate::TulispContext::defun)-registered function via [`Plist<T>`].
+/// The plist's values are treated as already-evaluated lisp objects
+/// and passed through to the field types' `TryFrom<TulispObject>` impls
+/// without further evaluation — which is what you want for plists held
+/// in free variables, literals, or any value already produced by the
+/// interpreter:
 ///
-/// The [`AsPlist!`](macro@crate::AsPlist) macro generates this implementation
-/// automatically from a struct definition.
+/// ```ignore
+/// let cfg = MyType::from_plist(&mut ctx, &obj)?;
+/// ```
+///
+/// The [`AsPlist!`](macro@crate::AsPlist) macro generates both
+/// `from_plist_as_slice` and `from_plist` from a struct definition.
 pub trait Plistable {
-    /// Deserialize `obj` (a Lisp plist) into `Self`.
+    /// Deserialize `Self` from a flat `[k0, v0, k1, v1, …]` slice of
+    /// already-evaluated lisp values. The defun-arg path (`Plist<T>`)
+    /// calls this directly with the evaluated arg slice.
+    fn from_plist_as_slice(
+        ctx: &mut TulispContext,
+        kvs: &[TulispObject],
+    ) -> Result<Self, Error>
+    where
+        Self: Sized;
+
+    /// Deserialize an already-evaluated lisp plist value into `Self`.
+    /// Iterates `obj.base_iter()` directly without an intermediate
+    /// `Vec`.
     fn from_plist(ctx: &mut TulispContext, obj: &TulispObject) -> Result<Self, Error>
     where
         Self: Sized;
@@ -155,20 +215,28 @@ macro_rules! AsPlist {
         Err($crate::Error::plist_error(concat!("Missing ", $key_name, " field")))
     };
 
-    (@extract-field $ctx:ident, $value:ident, None) => {
-        Some($ctx.eval($value)?.try_into()?)
+    (@extract-field $value:ident, None) => {
+        if $value.null() {
+            None
+        } else {
+            Some($value.try_into()?)
+        }
     };
 
-    (@extract-field $ctx:ident, $value:ident, Some($e: expr)) => {
-        Some($ctx.eval($value)?.try_into()?)
+    (@extract-field $value:ident, Some($e: expr)) => {
+        if $value.null() {
+            None
+        } else {
+            Some($value.try_into()?)
+        }
     };
 
-    (@extract-field $ctx:ident, $value:ident, $e: expr) => {
-        $ctx.eval($value)?.try_into()?
+    (@extract-field $value:ident, $e: expr) => {
+        $value.try_into()?
     };
 
-    (@extract-field $ctx:ident, $value:ident) => {
-        $ctx.eval($value)?.try_into()?
+    (@extract-field $value:ident) => {
+        $value.try_into()?
     };
 
     (
@@ -189,8 +257,9 @@ macro_rules! AsPlist {
         }
 
         impl $crate::Plistable for $struct_name {
-            fn from_plist(
-                ctx: &mut TulispContext, plist: &$crate::TulispObject
+            fn from_plist_as_slice(
+                ctx: &mut TulispContext,
+                kvs: &[$crate::TulispObject],
             ) -> Result<Self, $crate::Error> {
                 #[derive(Default)]
                 struct Builder {
@@ -214,9 +283,7 @@ macro_rules! AsPlist {
                     $($field: $crate::AsPlist!(@key-name $field $(<$field_key>)?)),+
                 });
 
-                let plist = plist.base_iter().collect::<Vec<_>>();
-
-                let (kvpairs, extra) = plist.as_chunks::<2>();
+                let (kvpairs, extra) = kvs.as_chunks::<2>();
 
                 if !extra.is_empty() {
                     return Err($crate::Error::plist_error(
@@ -228,7 +295,56 @@ macro_rules! AsPlist {
 
                 for [key, value] in kvpairs {
                     $(if key.eq(&symbols.$field) {
-                        builder.$field = Some($crate::AsPlist!(@extract-field ctx, value $(, $($default)+)?));
+                        let value = value.clone();
+                        builder.$field = Some($crate::AsPlist!(@extract-field value $(, $($default)+)?));
+                    } else)+ {
+                        return Err($crate::Error::plist_error(format!(
+                            "Unexpected key in plist: {}",
+                            key
+                        )));
+                    }
+                }
+
+                builder.build()
+            }
+
+            fn from_plist(
+                ctx: &mut TulispContext,
+                obj: &$crate::TulispObject,
+            ) -> Result<Self, $crate::Error> {
+                #[derive(Default)]
+                struct Builder {
+                    $($field: Option<$type>),+
+                }
+
+                impl Builder {
+                    fn build(self) -> Result<$struct_name, $crate::Error> {
+                        Ok($struct_name {
+                            $($field: if let Some(f) = self.$field { f } else {
+                                $crate::AsPlist!(
+                                    @missing-field
+                                    $crate::AsPlist!(@key-name $field $(<$field_key>)?),
+                                    $( $($default)+ )?
+                                )?}),+
+                        })
+                    }
+                }
+
+                let symbols = $crate::intern!(ctx => {
+                    $($field: $crate::AsPlist!(@key-name $field $(<$field_key>)?)),+
+                });
+
+                let mut iter = obj.base_iter();
+                let mut builder = Builder::default();
+
+                while let Some(key) = iter.next() {
+                    let Some(value) = iter.next() else {
+                        return Err($crate::Error::plist_error(
+                            "Expected an even number of items in the plist",
+                        ));
+                    };
+                    $(if key.eq(&symbols.$field) {
+                        builder.$field = Some($crate::AsPlist!(@extract-field value $(, $($default)+)?));
                     } else)+ {
                         return Err($crate::Error::plist_error(format!(
                             "Unexpected key in plist: {}",
@@ -245,7 +361,7 @@ macro_rules! AsPlist {
                     $($field: $crate::AsPlist!(@key-name $field $(<$field_key>)?)),+
                 });
 
-                $crate::lists::plist_from([
+                $crate::plist::plist_from([
                     $((symbols.$field.clone(), self.$field.into())),+
                 ])
             }
@@ -255,11 +371,47 @@ macro_rules! AsPlist {
 
 #[cfg(test)]
 mod tests {
+    use super::{plist_from, plist_get};
     use crate::{
-        Error, Plist,
-        context::TulispContext,
+        Error, Plist, Plistable, TulispContext,
         test_utils::{eval_assert_equal, eval_assert_error},
     };
+
+    #[test]
+    fn test_plist_primitives() -> Result<(), Error> {
+        let mut ctx = TulispContext::new();
+        let a = ctx.intern("a");
+        let b = ctx.intern("b");
+        let c = ctx.intern("c");
+        let d = ctx.intern("d");
+        let list = plist_from([
+            (a.clone(), 20.into()),
+            (b.clone(), 30.into()),
+            (c.clone(), 40.into()),
+        ]);
+        assert!(plist_get(&list, &b)?.equal(&30.into()));
+        assert!(plist_get(&list, &d)?.null());
+        Ok(())
+    }
+
+    #[test]
+    fn test_plist_get_detects_cycle() {
+        // Build a circular plist: cdr of the tail cell points back to
+        // the head, so iteration via `cddr` never reaches a non-cons.
+        let mut ctx = TulispContext::new();
+        ctx.eval_string(
+            r#"
+            (setq x (list :a 1 :b 2))
+            (setcdr (cdr (cdr (cdr x))) x)
+            "#,
+        )
+        .unwrap();
+        let x = ctx.eval_string("x").unwrap();
+        let missing = ctx.intern(":missing");
+        let err = plist_get(&x, &missing).unwrap_err();
+        let msg = err.format(&ctx);
+        assert!(msg.contains("Circular plist"), "got: {msg}");
+    }
 
     AsPlist! {
         #[derive(Default)]
@@ -286,7 +438,7 @@ mod tests {
     }
 
     #[test]
-    fn test_plist() -> Result<(), Error> {
+    fn test_plistable() -> Result<(), Error> {
         let mut ctx = TulispContext::new();
 
         ctx.defun("get-name", |person: Plist<Person>| person.name.clone())
@@ -320,6 +472,15 @@ mod tests {
             &mut ctx,
             r#"(get-edu :first-name "Alice" :age 30 :addr nil :edu "School")"#,
             r#""School""#,
+        );
+
+        // Explicit nil for an optional field is read as `None`, not as
+        // a value to extract via `try_into::<String>()`. (Before the
+        // nil-handling fix this errored with "expected string, got: nil".)
+        eval_assert_equal(
+            &mut ctx,
+            r#"(get-edu :first-name "Alice" :age 30 :addr nil :edu nil)"#,
+            r#""Unknown""#,
         );
 
         eval_assert_equal(
@@ -370,6 +531,58 @@ mod tests {
 <eval_string>:1.1-1.29:  at (get-age :first-name "Alice")
 "#,
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_plistable_round_trip() -> Result<(), Error> {
+        let mut ctx = TulispContext::new();
+        let p = Person {
+            name: "Carol".into(),
+            age: 40,
+            addr: vec!["Pine St".into()],
+            education: None,
+            place: Some("Home".into()),
+            answer: 42,
+        };
+        let obj = p.into_plist(&mut ctx);
+        let q = Person::from_plist(&mut ctx, &obj)?;
+        assert_eq!(q.name, "Carol");
+        assert_eq!(q.age, 40);
+        assert_eq!(q.addr, vec!["Pine St".to_string()]);
+        // None serialises as nil, and the macro reads nil back as None
+        // for Optional fields (instead of erroring on `try_into::<T>`).
+        assert_eq!(q.education, None);
+        assert_eq!(q.place.as_deref(), Some("Home"));
+        assert_eq!(q.answer, 42);
+        Ok(())
+    }
+
+    #[test]
+    fn test_plistable_from_lisp_value_no_eval() -> Result<(), Error> {
+        // A plist held in a free variable contains already-evaluated
+        // values. `from_plist` should pass each value straight through
+        // to its `TryFrom<TulispObject>` impl with no further
+        // evaluation — so a list field like `addr` resolves cleanly
+        // instead of erroring on "calling string as function".
+        let mut ctx = TulispContext::new();
+        ctx.eval_string(
+            r#"(setq x '(:first-name "Bob"
+                          :age 25
+                          :addr ("Main St" "Oak Ave")
+                          :place "Office"))"#,
+        )?;
+        let x = ctx.eval_string("x")?;
+
+        // The default `from_plist` shortcut uses DummyEval.
+        let p = Person::from_plist(&mut ctx, &x)?;
+        assert_eq!(p.name, "Bob");
+        assert_eq!(p.age, 25);
+        assert_eq!(p.addr, vec!["Main St".to_string(), "Oak Ave".to_string()]);
+        assert_eq!(p.place.as_deref(), Some("Office"));
+        // `:edu` is omitted — its default kicks in.
+        assert_eq!(p.education, None);
 
         Ok(())
     }

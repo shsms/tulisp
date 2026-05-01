@@ -1,9 +1,4 @@
-use crate::{
-    Error, TulispContext, TulispObject,
-    eval::{DummyEval, funcall},
-    list, lists,
-};
-use std::cmp::Ordering;
+use crate::{Error, TulispContext, TulispObject, TulispValue, lists};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defun("length", |list: TulispObject| {
@@ -11,64 +6,13 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     });
 
     ctx.defun("reverse", |list: TulispObject| {
-        Ok(list
-            .base_iter()
-            .fold(TulispObject::nil(), |acc, item| TulispObject::cons(item, acc)))
+        let mut iter = list.base_iter();
+        let result = iter.by_ref().fold(TulispObject::nil(), |acc, item| {
+            TulispObject::cons(item, acc)
+        });
+        iter.take_error()?;
+        Ok(result)
     });
-
-    ctx.defun(
-        "seq-map",
-        |ctx: &mut TulispContext, func: TulispObject, seq: TulispObject| ctx.map(&func, &seq),
-    );
-
-    ctx.defun(
-        "seq-reduce",
-        |ctx: &mut TulispContext, func: TulispObject, seq: TulispObject, initial: TulispObject| {
-            ctx.reduce(&func, &seq, &initial)
-        },
-    );
-
-    ctx.defun(
-        "seq-filter",
-        |ctx: &mut TulispContext, func: TulispObject, seq: TulispObject| ctx.filter(&func, &seq),
-    );
-
-    ctx.defun(
-        "seq-find",
-        |ctx: &mut TulispContext,
-         func: TulispObject,
-         seq: TulispObject,
-         default: Option<TulispObject>| {
-            let func = ctx.eval(&func)?;
-            for item in seq.base_iter() {
-                if funcall::<DummyEval>(ctx, &func, &list!(item.clone())?)?.is_truthy() {
-                    return Ok(item);
-                }
-            }
-            Ok(default.unwrap_or_else(TulispObject::nil))
-        },
-    );
-
-    ctx.defun(
-        "mapconcat",
-        |ctx: &mut TulispContext,
-         func: TulispObject,
-         seq: TulispObject,
-         sep: Option<String>| {
-            let mapped = ctx.map(&func, &seq)?;
-            let sep = sep.unwrap_or_default();
-            let mut out = String::new();
-            let mut first = true;
-            for item in mapped.base_iter() {
-                if !first {
-                    out.push_str(&sep);
-                }
-                first = false;
-                out.push_str(&item.as_string()?);
-            }
-            Ok(TulispObject::from(out))
-        },
-    );
 
     ctx.defun(
         "string-join",
@@ -76,13 +20,15 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             let sep = sep.unwrap_or_default();
             let mut out = String::new();
             let mut first = true;
-            for item in strings.base_iter() {
+            let mut iter = strings.base_iter();
+            for item in iter.by_ref() {
                 if !first {
                     out.push_str(&sep);
                 }
                 first = false;
                 out.push_str(&item.as_string()?);
             }
+            iter.take_error()?;
             Ok(TulispObject::from(out))
         },
     );
@@ -92,24 +38,61 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         if n <= 0 {
             return Ok(ret);
         }
-        for item in seq.base_iter().take(n as usize) {
+        let mut iter = seq.base_iter();
+        for item in iter.by_ref().take(n as usize) {
             ret.push(item)?;
         }
+        iter.take_error()?;
         Ok(ret)
     });
 
     ctx.defun("seq-drop", |seq: TulispObject, n: i64| {
         let ret = TulispObject::nil();
         let mut skipped = 0i64;
-        for item in seq.base_iter() {
+        let mut iter = seq.base_iter();
+        for item in iter.by_ref() {
             if skipped < n {
                 skipped += 1;
                 continue;
             }
             ret.push(item)?;
         }
+        iter.take_error()?;
         Ok(ret)
     });
+
+    // `(aset STRING INDEX CHAR)` mutates the character at INDEX in
+    // STRING and returns CHAR. Tulisp doesn't have vectors yet, so
+    // this is string-only — Emacs additionally supports vectors and
+    // bool-vectors. CHAR is an integer code point (Tulisp has no
+    // character literals); UTF-8 string layout is handled by
+    // collecting to `Vec<char>` and reassembling.
+    ctx.defun(
+        "aset",
+        |s: TulispObject, idx: i64, ch: i64| -> Result<TulispObject, Error> {
+            let s_str = s.as_string()?;
+            let new_char = u32::try_from(ch)
+                .ok()
+                .and_then(char::from_u32)
+                .ok_or_else(|| {
+                    Error::out_of_range(format!("aset: invalid character code: {}", ch))
+                })?;
+            let idx_usize = usize::try_from(idx)
+                .map_err(|_| Error::out_of_range(format!("aset: negative index: {}", idx)))?;
+            let mut chars: Vec<char> = s_str.chars().collect();
+            if idx_usize >= chars.len() {
+                return Err(Error::out_of_range(format!(
+                    "aset: index {} out of range for string of length {}",
+                    idx,
+                    chars.len()
+                )));
+            }
+            chars[idx_usize] = new_char;
+            let new_string: String = chars.into_iter().collect();
+            s.assign(TulispValue::String { value: new_string });
+            Ok(TulispObject::from(ch))
+        },
+    );
 
     ctx.defun("make-string", |n: i64, ch: i64| {
         if n < 0 {
@@ -124,74 +107,58 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 ch
             )));
         };
-        let mut out = String::with_capacity(n as usize);
+        // `String::with_capacity(n)` (the previous form) would OOM
+        // and abort the process for huge `n`. Compute the actual
+        // byte cost (chars can be multi-byte UTF-8) and use
+        // `try_reserve_exact` so a request the system can't satisfy
+        // comes back as a Lisp `OutOfRange` error.
+        let n_usize = n as usize;
+        let bytes_needed = n_usize.checked_mul(c.len_utf8()).ok_or_else(|| {
+            Error::out_of_range(format!("make-string: length {} overflows usize", n))
+        })?;
+        let mut out = String::new();
+        out.try_reserve_exact(bytes_needed).map_err(|_| {
+            Error::out_of_range(format!(
+                "make-string: cannot allocate {n} chars ({bytes_needed} bytes)"
+            ))
+        })?;
         for _ in 0..n {
             out.push(c);
         }
         Ok(TulispObject::from(out))
     });
 
-    ctx.defun("memq", |elt: TulispObject, list: TulispObject| {
+    fn member_with(
+        list: TulispObject,
+        elt: &TulispObject,
+        eq: impl Fn(&TulispObject, &TulispObject) -> bool,
+    ) -> Result<TulispObject, Error> {
         let mut cur = list;
         while cur.consp() {
-            if cur.car_and_then(|car| Ok(car.eq(&elt)))? {
+            if cur.car_and_then(|car| Ok(eq(car, elt)))? {
                 return Ok(cur);
             }
             cur = cur.cdr()?;
         }
+        // `cur` is non-cons: either nil (clean end) or an
+        // improper-list tail. Reject the latter the way Emacs does.
+        if !cur.null() {
+            return Err(Error::type_mismatch(format!("expected list, got: {cur}")));
+        }
         Ok(TulispObject::nil())
+    }
+
+    ctx.defun("memq", |elt: TulispObject, list: TulispObject| {
+        member_with(list, &elt, |a, b| a.eq(b))
     });
 
     ctx.defun("memql", |elt: TulispObject, list: TulispObject| {
-        let mut cur = list;
-        while cur.consp() {
-            if cur.car_and_then(|car| Ok(car.eql(&elt)))? {
-                return Ok(cur);
-            }
-            cur = cur.cdr()?;
-        }
-        Ok(TulispObject::nil())
+        member_with(list, &elt, |a, b| a.eql(b))
     });
 
     ctx.defun("member", |elt: TulispObject, list: TulispObject| {
-        let mut cur = list;
-        while cur.consp() {
-            if cur.car_and_then(|car| Ok(car.equal(&elt)))? {
-                return Ok(cur);
-            }
-            cur = cur.cdr()?;
-        }
-        Ok(TulispObject::nil())
+        member_with(list, &elt, |a, b| a.equal(b))
     });
-
-    ctx.defun(
-        "sort",
-        |ctx: &mut TulispContext, seq: TulispObject, pred: TulispObject| {
-            let pred = ctx.eval(&pred)?;
-            let mut vec: Vec<_> = seq.base_iter().collect();
-            let mut err = None;
-            vec.sort_by(|v1, v2| {
-                if funcall::<DummyEval>(ctx, &pred, &list!(v1.clone(), v2.clone()).unwrap())
-                    .map(|v| v.null())
-                    .unwrap_or_else(|x| {
-                        err = Some(x);
-                        false
-                    })
-                {
-                    Ordering::Less
-                } else {
-                    Ordering::Greater
-                }
-            });
-            if let Some(err) = err {
-                return Err(err);
-            }
-            let ret = vec.iter().fold(TulispObject::nil(), |v1, v2| {
-                TulispObject::cons(v2.clone(), v1)
-            });
-            Ok(ret)
-        },
-    );
 }
 
 #[cfg(test)]
@@ -270,11 +237,7 @@ mod tests {
     #[test]
     fn test_member() {
         let ctx = &mut TulispContext::new();
-        eval_assert_equal(
-            ctx,
-            r#"(member "b" '("a" "b" "c"))"#,
-            r#"'("b" "c")"#,
-        );
+        eval_assert_equal(ctx, r#"(member "b" '("a" "b" "c"))"#, r#"'("b" "c")"#);
         eval_assert_equal(ctx, r#"(member "z" '("a" "b"))"#, "nil");
     }
 

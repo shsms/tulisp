@@ -11,6 +11,21 @@ impl<T> TulispFn for T where
 {
 }
 
+/// Raw-args closure used by `ctx.defun`-registered functions. Args
+/// arrive already evaluated (the TW or VM evaluates each arg before
+/// dispatch), so the closure never re-enters `ctx.eval` and cannot
+/// re-borrow `ctx.vm` mid-run.
+pub trait DefunFn:
+    Fn(&mut TulispContext, &[TulispObject]) -> Result<TulispObject, Error> + generic::SyncSend + 'static
+{
+}
+impl<T> DefunFn for T where
+    T: Fn(&mut TulispContext, &[TulispObject]) -> Result<TulispObject, Error>
+        + generic::SyncSend
+        + 'static
+{
+}
+
 #[cfg(not(feature = "sync"))]
 pub mod generic {
     use std::ops::Deref;
@@ -42,6 +57,10 @@ pub mod generic {
 
     impl Shared<dyn TulispAny> {
         pub(crate) fn new_tulisp_fn(val: impl TulispFn) -> Shared<dyn TulispFn> {
+            Shared(std::rc::Rc::new(val))
+        }
+
+        pub(crate) fn new_defun_fn(val: impl DefunFn) -> Shared<dyn DefunFn> {
             Shared(std::rc::Rc::new(val))
         }
 
@@ -113,6 +132,12 @@ pub mod generic {
             std::rc::Rc::strong_count(&self.0)
         }
     }
+
+    impl<T: Default> Default for SharedMut<T> {
+        fn default() -> Self {
+            SharedMut::new(T::default())
+        }
+    }
 }
 
 #[cfg(feature = "sync")]
@@ -146,6 +171,10 @@ pub mod generic {
 
     impl Shared<dyn TulispAny> {
         pub(crate) fn new_tulisp_fn(val: impl TulispFn) -> Shared<dyn TulispFn> {
+            Shared(std::sync::Arc::new(val))
+        }
+
+        pub(crate) fn new_defun_fn(val: impl DefunFn) -> Shared<dyn DefunFn> {
             Shared(std::sync::Arc::new(val))
         }
 
@@ -212,6 +241,12 @@ pub mod generic {
 
         pub fn strong_count(&self) -> usize {
             std::sync::Arc::strong_count(&self.0)
+        }
+    }
+
+    impl<T: Default> Default for SharedMut<T> {
+        fn default() -> Self {
+            SharedMut::new(T::default())
         }
     }
 }
