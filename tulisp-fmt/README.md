@@ -46,6 +46,7 @@ Options:
       --use-tabs       emit tab characters for indents instead of spaces
       --tab-width N    columns per tab when --use-tabs is set (default 8)
       --range S:E      format only top-level forms overlapping byte range [S, E)
+      --no-alist-one-per-line  keep alists on one line when they fit
   -h, --help           print this help and exit
   -V, --version        print version and exit
 ```
@@ -105,6 +106,7 @@ width = 100
 indent_width = 2
 use_tabs = false
 tab_width = 8
+alist_one_per_line = true
 ```
 
 Unknown keys are an error so typos are loud. CLI flags always win
@@ -120,6 +122,12 @@ over file settings — unset CLI flags fall through to the file.
   `defvar`, `defconst`, `defspecial`.
 - Bindings of `let` / `let*` get one binding per line whenever the
   bindings list goes multi-line.
+- Dotted pairs (`(k . v)`) are atomic — they never break across
+  lines (continuing inside one would otherwise align under the `.`).
+- Lists whose every structural child is a dotted pair (alists)
+  render one pair per line by default, even when they fit on a
+  single line. Disable with `--no-alist-one-per-line` or
+  `alist_one_per_line = false` in the config.
 - `(declare (indent N))` on a top-level `defmacro` is harvested in a
   pre-pass; calls to that macro indent according to N for the rest of
   the file.

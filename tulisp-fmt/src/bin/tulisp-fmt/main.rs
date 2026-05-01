@@ -110,6 +110,10 @@ fn parse_args() -> Result<Args, String> {
                 out.style.use_tabs = true;
                 out.style_set.use_tabs = true;
             }
+            "--no-alist-one-per-line" => {
+                out.style.alist_one_per_line = false;
+                out.style_set.alist_one_per_line = true;
+            }
             "--range" => {
                 let v = iter
                     .next()
@@ -461,6 +465,7 @@ fn print_help() {
         tulisp_fmt::render::DEFAULT_TAB_WIDTH,
     );
     println!("      --range S:E      format only top-level forms overlapping byte range [S, E)");
+    println!("      --no-alist-one-per-line  keep alists on one line when they fit");
     println!("  -h, --help           print this help and exit");
     println!("  -V, --version        print version and exit");
 }

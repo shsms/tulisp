@@ -46,12 +46,18 @@ pub const DEFAULT_TAB_WIDTH: usize = 8;
 /// regardless. `use_tabs` switches indent emission from spaces to
 /// `\t` runs of `tab_width` columns each, with any sub-tab remainder
 /// padded with spaces — matching Emacs's `indent-tabs-mode`.
+///
+/// `alist_one_per_line` renders any list whose every structural
+/// child is a dotted pair (`(k . v)`) with one pair per line, even
+/// when the whole list would fit on one line. Set to false to keep
+/// the default fits-or-breaks behavior.
 #[derive(Clone, Copy, Debug)]
 pub struct Style {
     pub width: usize,
     pub indent_width: usize,
     pub use_tabs: bool,
     pub tab_width: usize,
+    pub alist_one_per_line: bool,
 }
 
 impl Default for Style {
@@ -61,6 +67,7 @@ impl Default for Style {
             indent_width: DEFAULT_INDENT_WIDTH,
             use_tabs: false,
             tab_width: DEFAULT_TAB_WIDTH,
+            alist_one_per_line: true,
         }
     }
 }
@@ -417,7 +424,20 @@ fn render_list_with_override(
     r: &mut Renderer,
 ) {
     let info = analyze_list(children);
-    let fits = !info.requires_multi && r.col + info.one_line_width <= r.budget();
+    // Dotted pair: keep on one line whenever it has no user breaks /
+    // comments forcing it apart. Breaking inside `(k . v)` produces
+    // ugly output (the formatter would align under the `.`) and
+    // serves no purpose — the pair is a structural unit.
+    let is_pair = is_dotted_pair(children) && !info.requires_multi;
+    // Alist: every structural child is a dotted pair. With the
+    // style flag set (default), force one pair per line even when
+    // the whole list would fit on a single line.
+    let force_alist_multi =
+        r.style.alist_one_per_line && !is_pair && is_alist(children);
+    let fits = is_pair
+        || (!force_alist_multi
+            && !info.requires_multi
+            && r.col + info.one_line_width <= r.budget());
     let open_col = r.col;
     r.write("(");
     if fits {
@@ -434,9 +454,40 @@ fn render_list_with_override(
                 CstNode::LineBreak { .. } | CstNode::Comment { .. }
             )
         });
-        render_list_multi(children, open_col, !user_laid_out, header_override, r);
+        // Alists override the header arity to 0 so every cons cell
+        // gets its own line; built-in special forms keep theirs.
+        let effective_override = if force_alist_multi {
+            Some(0)
+        } else {
+            header_override
+        };
+        render_list_multi(children, open_col, !user_laid_out, effective_override, r);
     }
     r.write(")");
+}
+
+/// True if `children` represents a dotted pair — i.e. contains a `.`
+/// atom as a structural element separating the head from the tail.
+fn is_dotted_pair(children: &[CstNode]) -> bool {
+    children
+        .iter()
+        .any(|c| matches!(c, CstNode::Atom { text, .. } if text == "."))
+}
+
+/// True if `children` represents an alist: at least two structural
+/// children, every one of them a list that is itself a dotted pair.
+fn is_alist(children: &[CstNode]) -> bool {
+    let mut count = 0usize;
+    for child in children {
+        match child {
+            CstNode::LineBreak { .. } | CstNode::Comment { .. } => {}
+            CstNode::List { children, .. } if is_dotted_pair(children) => {
+                count += 1;
+            }
+            _ => return false,
+        }
+    }
+    count >= 2
 }
 
 /// Render the bindings list of a `let` / `let*` form. Same shape as
@@ -990,10 +1041,10 @@ mod tests {
     #[test]
     fn use_tabs_emits_tabs_for_indent() {
         let style = super::Style {
-            width: 80,
             indent_width: 8,
             use_tabs: true,
             tab_width: 8,
+            ..super::Style::default()
         };
         // Body indent of 8 with tab-width 8 should be exactly one tab.
         let out = fmt_with_style("(let ((x 1))\n        body)", &style);
@@ -1032,6 +1083,36 @@ mod tests {
         // Force narrow width so the call wraps. `my-progn` head sits
         // alone, every arg breaks under it.
         assert!(out.contains("(my-progn\n"), "got:\n{out}");
+    }
+
+    #[test]
+    fn dotted_pair_stays_on_one_line_under_narrow_width() {
+        // (banana . yellow) is 17 chars; at width 12 it would
+        // normally break, but dotted pairs are atomic.
+        let out = fmt_with("(banana . yellow)", 12);
+        assert_eq!(out, "(banana . yellow)\n");
+    }
+
+    #[test]
+    fn alist_breaks_one_pair_per_line_by_default() {
+        let out = fmt("'((a . 1) (b . 2))");
+        assert_eq!(out, "'((a . 1)\n  (b . 2))\n");
+    }
+
+    #[test]
+    fn alist_one_per_line_can_be_disabled() {
+        let style = super::Style {
+            alist_one_per_line: false,
+            ..super::Style::default()
+        };
+        let out = fmt_with_style("'((a . 1) (b . 2))", &style);
+        assert_eq!(out, "'((a . 1) (b . 2))\n");
+    }
+
+    #[test]
+    fn three_pair_alist_aligns_under_first() {
+        let out = fmt("'((a . 1) (b . 2) (c . 3))");
+        assert_eq!(out, "'((a . 1)\n  (b . 2)\n  (c . 3))\n");
     }
 
     #[test]
@@ -1076,10 +1157,9 @@ mod tests {
     #[test]
     fn use_tabs_pads_remainder_with_spaces() {
         let style = super::Style {
-            width: 80,
-            indent_width: 2,
             use_tabs: true,
             tab_width: 4,
+            ..super::Style::default()
         };
         // Outer (when …) opens at col 0, body at col 2 → 0 tabs + 2
         // spaces. Inner (when …) opens at col 2 (one space after the

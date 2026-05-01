@@ -40,6 +40,7 @@ pub struct SetFlags {
     pub indent_width: bool,
     pub use_tabs: bool,
     pub tab_width: bool,
+    pub alist_one_per_line: bool,
 }
 
 /// Walk upward from `start` (a file or directory) looking for
@@ -98,6 +99,11 @@ pub fn apply(path: &Path, style: &mut Style, flags: SetFlags) -> Result<(), Stri
                     if style.tab_width == 0 {
                         return Err("tab_width: must be at least 1".to_string());
                     }
+                }
+            }
+            "alist_one_per_line" => {
+                if !flags.alist_one_per_line {
+                    style.alist_one_per_line = parse_bool(v, k)?;
                 }
             }
             other => return Err(format!("unknown key `{other}`")),
