@@ -17,6 +17,9 @@ pub use context::{Rest, TulispContext};
 mod error;
 pub use error::{Error, ErrorKind};
 
+pub mod alist;
+pub use alist::{alist_from, alist_get, assoc};
+
 pub mod lists;
 
 pub mod plist;

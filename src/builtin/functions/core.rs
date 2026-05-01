@@ -7,7 +7,6 @@ use crate::eval::DummyEval;
 use crate::eval::Eval;
 use crate::eval::EvalInto;
 use crate::eval::substitute_lexical;
-use crate::lists;
 use crate::object::wrappers::generic::{Shared, SharedMut};
 use crate::value::{DefunParams, LexAllocator};
 use std::convert::TryInto;
@@ -693,7 +692,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
          key: TulispObject,
          alist: TulispObject,
          testfn: Option<TulispObject>|
-         -> Result<TulispObject, Error> { lists::assoc(ctx, &key, &alist, testfn) },
+         -> Result<TulispObject, Error> { crate::alist::assoc(ctx, &key, &alist, testfn) },
     );
 
     ctx.defun(
@@ -706,7 +705,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
          testfn: Option<TulispObject>|
          -> Result<TulispObject, Error> {
             // TODO: implement remove after `setf`.
-            lists::alist_get(ctx, &key, &alist, default_value, remove, testfn)
+            crate::alist::alist_get(ctx, &key, &alist, default_value, remove, testfn)
         },
     );
 
