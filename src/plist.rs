@@ -63,17 +63,17 @@ pub fn plist_get(plist: &TulispObject, property: &TulispObject) -> Result<Tulisp
 ///     5.0
 /// );
 /// ```
-pub struct Plist<T: Plistable<Eval>> {
+pub struct Plist<T: Plistable> {
     plist: T,
 }
 
 impl<T> Plist<T>
 where
-    T: Plistable<Eval>,
+    T: Plistable,
 {
     pub(crate) fn new(ctx: &mut TulispContext, obj: &TulispObject) -> Result<Self, Error> {
         Ok(Self {
-            plist: <T as Plistable<Eval>>::from_plist(ctx, obj)?,
+            plist: T::from_plist_with::<Eval>(ctx, obj)?,
         })
     }
 
@@ -84,7 +84,7 @@ where
 
 impl<T> Deref for Plist<T>
 where
-    T: Plistable<Eval>,
+    T: Plistable,
 {
     type Target = T;
 
@@ -95,39 +95,47 @@ where
 
 /// Conversion between a Rust struct and a Lisp plist.
 ///
-/// Parameterized over an [`Evaluator`] strategy `E`:
-///
-/// - `Plistable<DummyEval>` (the default) treats values in the plist as
-///   already-evaluated lisp values and converts them as-is. Use this
-///   when the plist comes from a free variable, a literal, or any
-///   value already produced by the interpreter.
-/// - `Plistable<Eval>` re-evaluates each value before conversion.
-///   `Plist<T>` (the [`defun`](crate::TulispContext::defun) argument
-///   wrapper) uses this strategy because the argument list reaches
-///   `Plistable` unevaluated.
-///
-/// The [`AsPlist!`](macro@crate::AsPlist) macro generates a blanket
-/// `impl<E: Evaluator> Plistable<E>` for the given struct, so a single
-/// derivation covers both strategies.
-///
-/// # Call-site syntax
-///
-/// Because the macro generates impls for every `E`, a bare
-/// `T::from_plist(...)` call is ambiguous. Name the trait explicitly:
+/// The default entry point [`from_plist`](Self::from_plist) treats the
+/// plist's values as already-evaluated lisp objects and passes each
+/// through unchanged — which is what you want for plists held in free
+/// variables, literals, or any value already produced by the
+/// interpreter:
 ///
 /// ```ignore
-/// // Already-evaluated plist (free variable, literal, etc.) — default:
-/// let cfg = <MyType as Plistable>::from_plist(&mut ctx, &obj)?;
-///
-/// // Or, if values are unevaluated forms that should be evaluated:
-/// let cfg = <MyType as Plistable<Eval>>::from_plist(&mut ctx, &obj)?;
+/// let cfg = MyType::from_plist(&mut ctx, &obj)?;
 /// ```
-pub trait Plistable<E: Evaluator = DummyEval> {
+///
+/// To re-evaluate each value during conversion (e.g. when the plist
+/// holds unevaluated forms), pick a different [`Evaluator`] strategy
+/// via [`from_plist_with`](Self::from_plist_with):
+///
+/// ```ignore
+/// let cfg = MyType::from_plist_with::<Eval>(&mut ctx, &obj)?;
+/// ```
+///
+/// The [`AsPlist!`](macro@crate::AsPlist) macro generates the
+/// `from_plist_with` and `into_plist` implementations from a struct
+/// definition; the no-eval shortcut is provided as a default method on
+/// the trait.
+pub trait Plistable {
     /// Deserialize `obj` (a Lisp plist) into `Self` using `E` to resolve
-    /// each value.
-    fn from_plist(ctx: &mut TulispContext, obj: &TulispObject) -> Result<Self, Error>
+    /// each value. Implementation hook the [`AsPlist!`] macro fills in;
+    /// most callers want [`from_plist`](Self::from_plist) instead.
+    fn from_plist_with<E: Evaluator>(
+        ctx: &mut TulispContext,
+        obj: &TulispObject,
+    ) -> Result<Self, Error>
     where
         Self: Sized;
+
+    /// Deserialize an already-evaluated lisp plist into `Self`. Each
+    /// value is passed through as-is, with no further evaluation.
+    fn from_plist(ctx: &mut TulispContext, obj: &TulispObject) -> Result<Self, Error>
+    where
+        Self: Sized,
+    {
+        Self::from_plist_with::<DummyEval>(ctx, obj)
+    }
 
     /// Serialize `self` into a Lisp plist.
     fn into_plist(self, ctx: &mut TulispContext) -> TulispObject;
@@ -241,8 +249,8 @@ macro_rules! AsPlist {
             $($( #[$($field_meta)+] )* $field_vis $field: $type),+
         }
 
-        impl<E: $crate::Evaluator> $crate::Plistable<E> for $struct_name {
-            fn from_plist(
+        impl $crate::Plistable for $struct_name {
+            fn from_plist_with<E: $crate::Evaluator>(
                 ctx: &mut TulispContext, plist: &$crate::TulispObject
             ) -> Result<Self, $crate::Error> {
                 #[derive(Default)]
@@ -310,7 +318,7 @@ macro_rules! AsPlist {
 mod tests {
     use super::{plist_from, plist_get};
     use crate::{
-        DummyEval, Error, Plist, Plistable, TulispContext,
+        Error, Plist, Plistable, TulispContext,
         test_utils::{eval_assert_equal, eval_assert_error},
     };
 
@@ -460,21 +468,14 @@ mod tests {
         )?;
         let x = ctx.eval_string("x")?;
 
-        // Default-evaluator (DummyEval) form via the trait alias.
-        // `Person::from_plist(...)` would be ambiguous because `Person`
-        // implements `Plistable<E>` for every `E`, so name the trait
-        // explicitly to pick up the trait-level default.
-        let p = <Person as Plistable>::from_plist(&mut ctx, &x)?;
+        // The default `from_plist` shortcut uses DummyEval.
+        let p = Person::from_plist(&mut ctx, &x)?;
         assert_eq!(p.name, "Bob");
         assert_eq!(p.age, 25);
         assert_eq!(p.addr, vec!["Main St".to_string(), "Oak Ave".to_string()]);
         assert_eq!(p.place.as_deref(), Some("Office"));
         // `:edu` is omitted — its default kicks in.
         assert_eq!(p.education, None);
-
-        // Explicit DummyEval is equivalent.
-        let p2 = <Person as Plistable<DummyEval>>::from_plist(&mut ctx, &x)?;
-        assert_eq!(p2.name, "Bob");
 
         Ok(())
     }
