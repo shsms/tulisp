@@ -138,9 +138,12 @@ pub(super) fn compile_fn_let_star(
             .active_let_scopes
             .truncate(scope_depth);
         let mut body = body_result?;
-        if body.is_empty() {
-            return Ok(vec![]);
-        }
+        // Even when the body compiles to no instructions — body is `t`
+        // or a single binding reference in a discard-result context —
+        // the binding-init expressions sitting in `result` may have
+        // side effects that *must* run. The previous `body.is_empty()
+        // → return vec![]` shortcut elided them along with the body
+        // and silently dropped `(let ((x (mutate))) t)`'s `mutate`.
         result.append(&mut body);
         for param in params {
             result.push(Instruction::EndScope(param));

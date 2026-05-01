@@ -1432,6 +1432,42 @@ fn test_let() -> Result<(), Error> {
 }
 
 #[test]
+fn test_let_discard_result_runs_init_side_effects() -> Result<(), Error> {
+    // Regression: a `let` whose result is discarded — top-level form
+    // in a loaded file, body in a discard-result position — must
+    // still evaluate the binding-init expressions. The bytecode
+    // compiler used to short-circuit `let` whose body compiled to
+    // zero instructions and drop the inits along with the body,
+    // silently swallowing side effects like `(let ((x (mutate))) t)`.
+    tulisp_assert! {
+        program: "(progn (setq c 0) (let ((a (progn (setq c (1+ c)) c))) a) c)",
+        result: "1",
+    }
+    tulisp_assert! {
+        program: "(progn (setq c 0) (let* ((a (progn (setq c (1+ c)) c))) a) c)",
+        result: "1",
+    }
+    // Body that doesn't reference the binding at all (just `t`) —
+    // the init still has to run.
+    tulisp_assert! {
+        program: "(progn (setq c 0) (let ((_ (progn (setq c (1+ c)) c))) t) c)",
+        result: "1",
+    }
+    // Sequential lets in one progn each contribute their side
+    // effects; the bug used to elide every one of them.
+    tulisp_assert! {
+        program: "(progn
+                    (setq c 0)
+                    (defun bump () (setq c (1+ c)) c)
+                    (let ((a (bump))) t)
+                    (let ((b (bump))) t)
+                    c)",
+        result: "2",
+    }
+    Ok(())
+}
+
+#[test]
 fn test_lexical_binding() -> Result<(), Error> {
     tulisp_assert! {
         program: r#"
