@@ -51,9 +51,21 @@ fn main() -> ExitCode {
         return run_stdin(parsed.width, parsed.diff);
     }
 
+    let mut expanded: Vec<String> = Vec::new();
+    let mut walk_error = false;
+    for raw in &parsed.paths {
+        match expand_path(raw, &mut expanded) {
+            Ok(()) => {}
+            Err(e) => {
+                eprintln!("tulisp-fmt: {raw}: {e}");
+                walk_error = true;
+            }
+        }
+    }
+
     let mut differed = false;
-    let mut had_error = false;
-    for path in &parsed.paths {
+    let mut had_error = walk_error;
+    for path in &expanded {
         match run_path(path, &parsed) {
             Outcome::Ok => {}
             Outcome::Differs => differed = true,
@@ -126,6 +138,57 @@ fn parse_width(s: &str) -> Result<usize, String> {
         return Err(format!("--width: must be at least 8, got {n}"));
     }
     Ok(n)
+}
+
+/// File extensions we consider "lisp source" when an arg is a
+/// directory. Files passed explicitly are formatted regardless of
+/// extension — extension filtering only kicks in during recursive
+/// directory traversal.
+const LISP_EXTS: &[&str] = &["lisp", "el"];
+
+/// Push every formattable file under `arg` onto `out`. If `arg` is
+/// a regular file (or symlink to one), it's pushed as-is. If it's a
+/// a directory, the tree is walked and every `*.lisp` / `*.el` file
+/// is collected. Hidden directories (those whose names start with
+/// `.`) are skipped to avoid descending into `.git/` and friends.
+fn expand_path(arg: &str, out: &mut Vec<String>) -> io::Result<()> {
+    let p = Path::new(arg);
+    let meta = fs::symlink_metadata(p)?;
+    if !meta.file_type().is_dir() {
+        out.push(arg.to_string());
+        return Ok(());
+    }
+    walk_dir(p, out)
+}
+
+fn walk_dir(dir: &Path, out: &mut Vec<String>) -> io::Result<()> {
+    let mut entries: Vec<_> = fs::read_dir(dir)?.collect::<Result<_, _>>()?;
+    // Stable order so output is deterministic across runs and
+    // platforms — `read_dir` order is not specified.
+    entries.sort_by_key(|e| e.file_name());
+    for entry in entries {
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        if name_str.starts_with('.') {
+            continue;
+        }
+        let ftype = entry.file_type()?;
+        let path = entry.path();
+        if ftype.is_dir() {
+            walk_dir(&path, out)?;
+        } else if ftype.is_file() {
+            let ext = path
+                .extension()
+                .and_then(|s| s.to_str())
+                .unwrap_or_default();
+            if LISP_EXTS.contains(&ext)
+                && let Some(s) = path.to_str()
+            {
+                out.push(s.to_string());
+            }
+        }
+    }
+    Ok(())
 }
 
 enum Outcome {
@@ -260,13 +323,15 @@ fn run_stdin(width: usize, diff_mode: bool) -> ExitCode {
 }
 
 fn print_help() {
-    println!("Usage: tulisp-fmt [OPTIONS] [FILE...]");
+    println!("Usage: tulisp-fmt [OPTIONS] [FILE|DIR...]");
     println!();
     println!("Format Emacs Lisp / tulisp source files.");
     println!();
     println!("With no FILE argument, reads from stdin and writes to stdout.");
     println!("With FILE arguments, formats each file and writes the result to stdout");
-    println!("by default. Pass `-w` to overwrite the file in place.");
+    println!("by default. Pass `-w` to overwrite the file in place. Directory");
+    println!("arguments are walked recursively for *.lisp and *.el files; entries");
+    println!("starting with `.` (e.g. .git) are skipped.");
     println!();
     println!("Options:");
     println!("  -w, --write       write the formatted result back to each FILE");
@@ -275,4 +340,64 @@ fn print_help() {
     println!("      --width N     wrap lists past column N (default {})", tulisp_fmt::render::DEFAULT_WIDTH);
     println!("  -h, --help        print this help and exit");
     println!("  -V, --version     print version and exit");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn walks_lisp_extensions_skips_dotdirs() {
+        let tmp = tempdir();
+        // Layout:
+        //   <tmp>/a.lisp        — pick
+        //   <tmp>/sub/b.el      — pick
+        //   <tmp>/sub/c.txt     — skip (wrong ext)
+        //   <tmp>/.hidden/d.el  — skip (hidden parent)
+        fs::create_dir(tmp.join("sub")).unwrap();
+        fs::create_dir(tmp.join(".hidden")).unwrap();
+        fs::write(tmp.join("a.lisp"), "()").unwrap();
+        fs::write(tmp.join("sub/b.el"), "()").unwrap();
+        fs::write(tmp.join("sub/c.txt"), "()").unwrap();
+        fs::write(tmp.join(".hidden/d.el"), "()").unwrap();
+
+        let mut out = Vec::new();
+        expand_path(tmp.to_str().unwrap(), &mut out).unwrap();
+        out.sort();
+        let rels: Vec<_> = out
+            .iter()
+            .map(|p| Path::new(p).strip_prefix(&tmp).unwrap().to_owned())
+            .collect();
+        assert_eq!(
+            rels,
+            vec![PathBuf::from("a.lisp"), PathBuf::from("sub/b.el")],
+        );
+    }
+
+    #[test]
+    fn explicit_file_keeps_extension() {
+        let tmp = tempdir();
+        let f = tmp.join("oddly_named.txt");
+        fs::write(&f, "()").unwrap();
+        let mut out = Vec::new();
+        expand_path(f.to_str().unwrap(), &mut out).unwrap();
+        assert_eq!(out, vec![f.to_str().unwrap().to_string()]);
+    }
+
+    /// Minimal `mktemp -d` substitute. Returns a directory path
+    /// scoped to a unique nanosecond/pid suffix; we don't bother
+    /// removing it — `/tmp` is fine for test detritus and keeping
+    /// the failing-test artefacts around helps debugging.
+    fn tempdir() -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.subsec_nanos())
+            .unwrap_or(0);
+        let p = std::env::temp_dir().join(format!(
+            "tulisp-fmt-walk-{}-{nanos}",
+            std::process::id(),
+        ));
+        fs::create_dir_all(&p).unwrap();
+        p
+    }
 }
