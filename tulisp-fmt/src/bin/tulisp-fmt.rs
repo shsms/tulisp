@@ -9,9 +9,12 @@
 //!   tulisp-fmt --help         print this help
 //!   tulisp-fmt --version      print version information
 
+use std::ffi::OsString;
 use std::fs;
 use std::io::{self, Read, Write};
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 struct Args {
     write_in_place: bool,
@@ -150,7 +153,7 @@ fn run_path(path: &str, write_in_place: bool, check: bool, width: usize) -> Outc
         if formatted == src {
             return Outcome::Ok;
         }
-        if let Err(e) = fs::write(path, &formatted) {
+        if let Err(e) = atomic_write(path, &formatted) {
             eprintln!("tulisp-fmt: {path}: {e}");
             return Outcome::Error;
         }
@@ -161,6 +164,48 @@ fn run_path(path: &str, write_in_place: bool, check: bool, width: usize) -> Outc
         return Outcome::Error;
     }
     Outcome::Ok
+}
+
+/// Write `contents` to `path` atomically: stage to a sibling temp
+/// file, fsync it, then `rename` over the target. A crash mid-write
+/// leaves the original file intact (the rename is the commit point).
+/// The temp file lives in the same directory so the rename stays on
+/// one filesystem and is atomic on POSIX.
+fn atomic_write(path: &str, contents: &str) -> io::Result<()> {
+    let target = Path::new(path);
+    let dir = target.parent().filter(|p| !p.as_os_str().is_empty());
+    let file_name = target.file_name().ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidInput, "path has no file name")
+    })?;
+
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.subsec_nanos())
+        .unwrap_or(0);
+    let mut tmp_name = OsString::from(".");
+    tmp_name.push(file_name);
+    tmp_name.push(format!(".tulisp-fmt.{}.{nanos}.tmp", std::process::id()));
+
+    let tmp_path: PathBuf = match dir {
+        Some(d) => d.join(&tmp_name),
+        None => PathBuf::from(&tmp_name),
+    };
+
+    let written = (|| -> io::Result<()> {
+        let mut f = fs::File::create(&tmp_path)?;
+        f.write_all(contents.as_bytes())?;
+        f.sync_all()?;
+        Ok(())
+    })();
+    if let Err(e) = written {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(e);
+    }
+    if let Err(e) = fs::rename(&tmp_path, target) {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(e);
+    }
+    Ok(())
 }
 
 fn run_stdin(width: usize) -> ExitCode {
