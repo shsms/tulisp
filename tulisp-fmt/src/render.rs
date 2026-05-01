@@ -51,6 +51,11 @@ pub const DEFAULT_TAB_WIDTH: usize = 8;
 /// child is a dotted pair (`(k . v)`) with one pair per line, even
 /// when the whole list would fit on one line. Set to false to keep
 /// the default fits-or-breaks behavior.
+///
+/// `final_newline` (default true) ensures the output ends with `\n`,
+/// which is what files want. Set to false for snippet rendering
+/// (embedding a value into a `<pre>`, a textarea, a stack-trace
+/// line) so the consumer doesn't have to `trim_end` themselves.
 #[derive(Clone, Copy, Debug)]
 pub struct Style {
     pub width: usize,
@@ -58,6 +63,7 @@ pub struct Style {
     pub use_tabs: bool,
     pub tab_width: usize,
     pub alist_one_per_line: bool,
+    pub final_newline: bool,
 }
 
 impl Default for Style {
@@ -68,6 +74,7 @@ impl Default for Style {
             use_tabs: false,
             tab_width: DEFAULT_TAB_WIDTH,
             alist_one_per_line: true,
+            final_newline: true,
         }
     }
 }
@@ -94,10 +101,18 @@ pub fn render_with_style(cst: &Cst, style: &Style) -> String {
         user_indent: collect_indent_declarations(cst),
     };
     render_top_level(&cst.nodes, &mut r);
-    if !r.out.is_empty() && !r.out.ends_with('\n') {
+    if style.final_newline && !r.out.is_empty() && !r.out.ends_with('\n') {
         r.out.push('\n');
     }
-    align_trailing_comments(&r.out)
+    let mut aligned = align_trailing_comments(&r.out);
+    if !style.final_newline {
+        // Strip every trailing `\n` so snippet consumers don't have
+        // to `trim_end` themselves. Last-line user line-breaks would
+        // otherwise leak through as a trailing newline.
+        let trimmed_len = aligned.trim_end_matches('\n').len();
+        aligned.truncate(trimmed_len);
+    }
+    aligned
 }
 
 /// Walk top-level forms for `(defmacro NAME ... (declare (indent N))
@@ -1083,6 +1098,37 @@ mod tests {
         // Force narrow width so the call wraps. `my-progn` head sits
         // alone, every arg breaks under it.
         assert!(out.contains("(my-progn\n"), "got:\n{out}");
+    }
+
+    #[test]
+    fn final_newline_off_strips_trailing_newlines_for_snippets() {
+        let style = super::Style {
+            final_newline: false,
+            ..super::Style::default()
+        };
+        // Multi-line output: the inserted line breaks survive, only
+        // the trailing one is stripped.
+        let out = fmt_with_style("'((a . 1) (b . 2))", &style);
+        assert_eq!(out, "'((a . 1)\n  (b . 2))");
+
+        // Single-line output: no trailing newline.
+        let out = fmt_with_style("(foo bar)", &style);
+        assert_eq!(out, "(foo bar)");
+
+        // Empty input stays empty.
+        let out = fmt_with_style("", &style);
+        assert_eq!(out, "");
+
+        // User-supplied trailing blank lines are also stripped — the
+        // snippet caller wants a clean tail.
+        let out = fmt_with_style("(foo)\n\n", &style);
+        assert_eq!(out, "(foo)");
+    }
+
+    #[test]
+    fn final_newline_on_is_default_behavior() {
+        // Sanity: default still produces a trailing newline.
+        assert!(fmt("(foo)").ends_with('\n'));
     }
 
     #[test]

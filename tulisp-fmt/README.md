@@ -74,8 +74,17 @@ let style = Style {
     indent_width: 4,
     use_tabs: true,
     tab_width: 4,
+    ..Style::default()
 };
 let out = format_with_style(src, &style).unwrap();
+
+// Snippet mode — embedding a value into a `<pre>` or textarea.
+// `final_newline: false` skips the trailing `\n` so the consumer
+// doesn't have to `trim_end()` themselves.
+let snippet = format_with_style(
+    src,
+    &Style { final_newline: false, ..Style::default() },
+).unwrap();
 
 // Format only top-level forms touching [start, end), preserving the rest.
 let out = format_range(src, 120, 200, &Style::default()).unwrap();
