@@ -6,7 +6,9 @@
 //! [the Emacs Lisp manual]: https://www.gnu.org/software/emacs/manual/html_node/elisp/Association-Lists.html
 
 use crate::{
-    DummyEval, Error, Evaluator, TulispContext, TulispObject, eval::funcall, list,
+    Error, TulispContext, TulispObject,
+    eval::{DummyEval, funcall},
+    list,
 };
 
 /// Makes an alist from the given arguments.
@@ -36,7 +38,7 @@ pub fn assoc(
         let pred = ctx.eval(&testfn)?;
 
         let testfn = |_1: &TulispObject, _2: &TulispObject| -> Result<bool, Error> {
-            funcall::<crate::eval::DummyEval>(ctx, &pred, &list!(,_1.clone() ,_2.clone()).unwrap())
+            funcall::<DummyEval>(ctx, &pred, &list!(,_1.clone() ,_2.clone()).unwrap())
                 .map(|x| x.is_truthy())
         };
         assoc_find(key, alist, testfn)
@@ -124,30 +126,15 @@ fn assoc_find(
 /// for return through [`into_alist`](Self::into_alist) directly, or
 /// through [`alist_from`].
 ///
-/// The [`AsAlist!`](macro@crate::AsAlist) macro generates the
-/// `from_alist_with` and `into_alist` implementations from a struct
-/// definition; the no-eval shortcut is provided as a default method on
-/// the trait.
+/// The [`AsAlist!`](macro@crate::AsAlist) macro generates both methods
+/// from a struct definition.
 pub trait Alistable {
-    /// Deserialize `obj` (a Lisp alist of dotted pairs) into `Self`
-    /// using `E` to resolve each value. Implementation hook the
-    /// [`AsAlist!`] macro fills in; most callers want
-    /// [`from_alist`](Self::from_alist) instead.
-    fn from_alist_with<E: Evaluator>(
-        ctx: &mut TulispContext,
-        obj: &TulispObject,
-    ) -> Result<Self, Error>
-    where
-        Self: Sized;
-
-    /// Deserialize an already-evaluated lisp alist into `Self`. Each
-    /// value is passed through as-is, with no further evaluation.
+    /// Deserialize an already-evaluated lisp alist (a list of dotted
+    /// pairs) into `Self`. Each value is passed through as-is, with no
+    /// further evaluation.
     fn from_alist(ctx: &mut TulispContext, obj: &TulispObject) -> Result<Self, Error>
     where
-        Self: Sized,
-    {
-        Self::from_alist_with::<DummyEval>(ctx, obj)
-    }
+        Self: Sized;
 
     /// Serialize `self` into a Lisp alist of dotted pairs.
     fn into_alist(self, ctx: &mut TulispContext) -> TulispObject;
@@ -209,28 +196,28 @@ macro_rules! AsAlist {
         Err($crate::Error::alist_error(concat!("Missing ", $key_name, " field")))
     };
 
-    (@extract-field $ctx:ident, $value:ident, None) => {
+    (@extract-field $value:ident, None) => {
         if $value.null() {
             None
         } else {
-            Some(<E as $crate::Evaluator>::eval($ctx, $value)?.into_owned().try_into()?)
+            Some($value.try_into()?)
         }
     };
 
-    (@extract-field $ctx:ident, $value:ident, Some($e: expr)) => {
+    (@extract-field $value:ident, Some($e: expr)) => {
         if $value.null() {
             None
         } else {
-            Some(<E as $crate::Evaluator>::eval($ctx, $value)?.into_owned().try_into()?)
+            Some($value.try_into()?)
         }
     };
 
-    (@extract-field $ctx:ident, $value:ident, $e: expr) => {
-        <E as $crate::Evaluator>::eval($ctx, $value)?.into_owned().try_into()?
+    (@extract-field $value:ident, $e: expr) => {
+        $value.try_into()?
     };
 
-    (@extract-field $ctx:ident, $value:ident) => {
-        <E as $crate::Evaluator>::eval($ctx, $value)?.into_owned().try_into()?
+    (@extract-field $value:ident) => {
+        $value.try_into()?
     };
 
     (
@@ -251,7 +238,7 @@ macro_rules! AsAlist {
         }
 
         impl $crate::Alistable for $struct_name {
-            fn from_alist_with<E: $crate::Evaluator>(
+            fn from_alist(
                 ctx: &mut TulispContext, alist: &$crate::TulispObject
             ) -> Result<Self, $crate::Error> {
                 #[derive(Default)]
@@ -286,10 +273,9 @@ macro_rules! AsAlist {
                         )));
                     }
                     let key = entry.car()?;
-                    let value_owned = entry.cdr()?;
-                    let value = &value_owned;
+                    let value = entry.cdr()?;
                     $(if key.eq(&symbols.$field) {
-                        builder.$field = Some($crate::AsAlist!(@extract-field ctx, value $(, $($default)+)?));
+                        builder.$field = Some($crate::AsAlist!(@extract-field value $(, $($default)+)?));
                     } else)+ {
                         return Err($crate::Error::alist_error(format!(
                             "Unexpected key in alist: {}",
