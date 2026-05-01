@@ -109,6 +109,55 @@ ctx.defun("connect", |cfg: Plist<ServerConfig>| -> String {
 // (connect :host "example.com" :port 443)  => "example.com:443"
 ```
 
+A field declared `Option<T>` resolves to `None` when the keyword is absent
+*and* when it's explicitly given as `nil`. Default values are supplied with
+`{= expr}` and used only when the keyword is absent.
+
+To deserialize a plist held in a free variable (rather than collected from a
+defun's arguments), call
+[`Plistable::from_plist`](https://docs.rs/tulisp/latest/tulisp/trait.Plistable.html#tymethod.from_plist)
+directly:
+
+```rust,ignore
+ctx.eval_string("(setq settings '(:host \"localhost\" :port 9000))")?;
+let obj = ctx.eval_string("settings")?;
+let cfg = ServerConfig::from_plist(&mut ctx, &obj)?;
+```
+
+## Alist-shaped structs with `AsAlist!`
+
+For structs that are passed in as a single alist argument (rather than as a
+flat keyword list), use
+[`AsAlist!`](https://docs.rs/tulisp/latest/tulisp/macro.AsAlist.html), which
+derives [`Alistable`](https://docs.rs/tulisp/latest/tulisp/trait.Alistable.html).
+The trait's [`from_alist`](https://docs.rs/tulisp/latest/tulisp/trait.Alistable.html#tymethod.from_alist)
+and [`into_alist`](https://docs.rs/tulisp/latest/tulisp/trait.Alistable.html#tymethod.into_alist)
+methods convert between the struct and a Lisp alist of dotted pairs.
+
+```rust
+use tulisp::{TulispContext, Alistable, AsAlist};
+
+AsAlist! {
+    struct Person {
+        name<"first-name">: String,
+        age: i64,
+        place: Option<String> {= Some("Home".to_string())},
+    }
+}
+
+let mut ctx = TulispContext::new();
+ctx.eval_string(
+    r#"(setq alice '((first-name . "Alice") (age . 30)))"#,
+).unwrap();
+let obj = ctx.eval_string("alice").unwrap();
+let alice = Person::from_alist(&mut ctx, &obj).unwrap();
+assert_eq!(alice.name, "Alice");
+```
+
+There is no `Alist<T>` wrapper analogous to `Plist<T>` because alists arrive
+as a single value (not a flat keyword-argument list), so they pass through
+the normal `TulispObject` argument types.
+
 ## Opaque Rust values
 
 Any `Clone + Display` type can be stored in a
