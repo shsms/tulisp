@@ -210,11 +210,19 @@ macro_rules! AsAlist {
     };
 
     (@extract-field $ctx:ident, $value:ident, None) => {
-        Some(<E as $crate::Evaluator>::eval($ctx, $value)?.into_owned().try_into()?)
+        if $value.null() {
+            None
+        } else {
+            Some(<E as $crate::Evaluator>::eval($ctx, $value)?.into_owned().try_into()?)
+        }
     };
 
     (@extract-field $ctx:ident, $value:ident, Some($e: expr)) => {
-        Some(<E as $crate::Evaluator>::eval($ctx, $value)?.into_owned().try_into()?)
+        if $value.null() {
+            None
+        } else {
+            Some(<E as $crate::Evaluator>::eval($ctx, $value)?.into_owned().try_into()?)
+        }
     };
 
     (@extract-field $ctx:ident, $value:ident, $e: expr) => {
@@ -373,11 +381,7 @@ mod tests {
     }
 
     #[test]
-    fn test_alistable_into_alist() -> Result<(), Error> {
-        // into_alist emits every field including Optional ones (None
-        // shows up as nil). That output isn't round-trippable through
-        // from_alist when Option<T> is None — Option<T> has no
-        // `TryFrom<TulispObject>` impl. Just verify the shape here.
+    fn test_alistable_round_trip() -> Result<(), Error> {
         let mut ctx = TulispContext::new();
         let p = Person {
             name: "Carol".into(),
@@ -388,10 +392,34 @@ mod tests {
             answer: 42,
         };
         let obj = p.into_alist(&mut ctx);
-        let formatted = format!("{}", obj);
-        assert!(formatted.contains("(first-name . \"Carol\")"), "{formatted}");
-        assert!(formatted.contains("(age . 40)"), "{formatted}");
-        assert!(formatted.contains("(answer . 42)"), "{formatted}");
+        let q = Person::from_alist(&mut ctx, &obj)?;
+        assert_eq!(q.name, "Carol");
+        assert_eq!(q.age, 40);
+        assert_eq!(q.addr, vec!["Pine St".to_string()]);
+        // None serializes as nil; the macro now reads nil back as None
+        // for optional fields rather than erroring on `try_into::<T>`.
+        assert_eq!(q.education, None);
+        assert_eq!(q.place.as_deref(), Some("Home"));
+        assert_eq!(q.answer, 42);
+        Ok(())
+    }
+
+    #[test]
+    fn test_alistable_explicit_nil_is_none() -> Result<(), Error> {
+        // Optional fields explicitly set to nil in the alist resolve
+        // to None, regardless of what default the field declared.
+        let mut ctx = TulispContext::new();
+        ctx.eval_string(
+            r#"(setq x '((first-name . "Bob")
+                          (age . 25)
+                          (addr . nil)
+                          (place . nil)))"#,
+        )?;
+        let x = ctx.eval_string("x")?;
+        let p = Person::from_alist(&mut ctx, &x)?;
+        assert_eq!(p.place, None);
+        // `edu` is absent → its `None` default kicks in.
+        assert_eq!(p.education, None);
         Ok(())
     }
 

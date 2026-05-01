@@ -1,5 +1,4 @@
 use crate::object::wrappers::generic::SyncSend;
-use crate::value::TulispValue;
 use crate::{Error, Rest, TulispContext, TulispObject};
 
 pub trait TulispCallable<
@@ -547,19 +546,13 @@ mod plist_args {
     use super::*;
 
     /// Reassemble a typed-defun's already-evaluated args slice into the
-    /// `(KEY VALUE …)` shape `Plist::new` expects. Keywords self-evaluate
-    /// so they pass through unchanged; values get wrapped in `quote` so
-    /// `Plist::new`'s per-value `ctx.eval` (inside `Plistable::from_plist`)
-    /// is a no-op — otherwise an already-evaluated list value would
-    /// re-eval and either error or double-evaluate.
+    /// `(KEY VALUE …)` shape `Plist::new` expects. Values pass through
+    /// unchanged — `Plist::new` uses `DummyEval`, so there's no inner
+    /// re-eval to defeat with quoting.
     fn build_plist_obj(args: &[TulispObject]) -> Result<TulispObject, Error> {
         let plist = TulispObject::nil();
-        for (i, arg) in args.iter().enumerate() {
-            if i.is_multiple_of(2) {
-                plist.push(arg.clone())?;
-            } else {
-                plist.push(TulispValue::Quote { value: arg.clone() }.into_ref(None))?;
-            }
+        for arg in args.iter() {
+            plist.push(arg.clone())?;
         }
         Ok(plist)
     }

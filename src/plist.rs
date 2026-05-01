@@ -7,7 +7,7 @@
 
 use std::ops::Deref;
 
-use crate::{DummyEval, Error, Eval, Evaluator, TulispContext, TulispObject};
+use crate::{DummyEval, Error, Evaluator, TulispContext, TulispObject};
 
 /// Makes a plist from the given arguments.
 pub fn plist_from<const N: usize>(input: [(TulispObject, TulispObject); N]) -> TulispObject {
@@ -72,8 +72,12 @@ where
     T: Plistable,
 {
     pub(crate) fn new(ctx: &mut TulispContext, obj: &TulispObject) -> Result<Self, Error> {
+        // Defun args are already evaluated by the typed-defun call path,
+        // so the inner evaluator must be `DummyEval` — re-evaluating a
+        // value like `("foo" "bar")` would try to call `"foo"` as a
+        // function. `from_plist` is the DummyEval shortcut.
         Ok(Self {
-            plist: T::from_plist_with::<Eval>(ctx, obj)?,
+            plist: T::from_plist(ctx, obj)?,
         })
     }
 
@@ -217,11 +221,19 @@ macro_rules! AsPlist {
     };
 
     (@extract-field $ctx:ident, $value:ident, None) => {
-        Some(<E as $crate::Evaluator>::eval($ctx, $value)?.into_owned().try_into()?)
+        if $value.null() {
+            None
+        } else {
+            Some(<E as $crate::Evaluator>::eval($ctx, $value)?.into_owned().try_into()?)
+        }
     };
 
     (@extract-field $ctx:ident, $value:ident, Some($e: expr)) => {
-        Some(<E as $crate::Evaluator>::eval($ctx, $value)?.into_owned().try_into()?)
+        if $value.null() {
+            None
+        } else {
+            Some(<E as $crate::Evaluator>::eval($ctx, $value)?.into_owned().try_into()?)
+        }
     };
 
     (@extract-field $ctx:ident, $value:ident, $e: expr) => {
@@ -398,6 +410,15 @@ mod tests {
             &mut ctx,
             r#"(get-edu :first-name "Alice" :age 30 :addr nil :edu "School")"#,
             r#""School""#,
+        );
+
+        // Explicit nil for an optional field is read as `None`, not as
+        // a value to extract via `try_into::<String>()`. (Before the
+        // nil-handling fix this errored with "expected string, got: nil".)
+        eval_assert_equal(
+            &mut ctx,
+            r#"(get-edu :first-name "Alice" :age 30 :addr nil :edu nil)"#,
+            r#""Unknown""#,
         );
 
         eval_assert_equal(
