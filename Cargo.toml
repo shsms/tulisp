@@ -38,3 +38,6 @@ harness = false
 sync = []
 big_functions = []
 etags = []
+
+[workspace]
+members = ["tulisp-fmt"]

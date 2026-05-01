@@ -1,0 +1,14 @@
+[package]
+name = "tulisp-fmt"
+description = "Source code formatter for tulisp / Emacs Lisp."
+version = "0.1.0"
+repository = "https://github.com/shsms/tulisp"
+license = "GPL-3.0"
+edition = "2024"
+keywords = ["lisp", "emacs-lisp", "formatter", "tulisp"]
+categories = ["development-tools::cargo-plugins", "text-processing"]
+rust-version = "1.88.0"
+
+[lib]
+name = "tulisp_fmt"
+path = "src/lib.rs"
