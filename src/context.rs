@@ -629,7 +629,16 @@ impl TulispContext {
             .unwrap_or_else(|| "<unknown>".to_string())
     }
 
-    pub(crate) fn parse_file(&mut self, filename: &str) -> Result<TulispObject, Error> {
+    /// Parse `filename` and return its top-level forms as a
+    /// `TulispObject` list, without evaluating them. Useful for
+    /// tooling (linters, analyzers, source-rewriters) that wants the
+    /// AST without running it.
+    ///
+    /// `filename` is interned in the context's filename table so any
+    /// later error traces from these forms cite the file by name.
+    /// Re-parsing the same path reuses the existing entry; the table
+    /// only grows on first sight of a new path.
+    pub fn parse_file(&mut self, filename: &str) -> Result<TulispObject, Error> {
         let contents = fs::read_to_string(filename)
             .map_err(|e| Error::os_error(format!("Unable to read file: {filename}. Error: {e}")))?;
         let idx = if let Some(idx) = self.filenames.iter().position(|x| x == filename) {
