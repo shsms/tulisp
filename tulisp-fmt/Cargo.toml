@@ -21,5 +21,5 @@ bin = []
 
 [[bin]]
 name = "tulisp-fmt"
-path = "src/bin/tulisp-fmt.rs"
+path = "src/bin/tulisp-fmt/main.rs"
 required-features = ["bin"]

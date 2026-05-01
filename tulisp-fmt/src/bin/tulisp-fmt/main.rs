@@ -16,9 +16,12 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+mod diff;
+
 struct Args {
     write_in_place: bool,
     check: bool,
+    diff: bool,
     width: usize,
     paths: Vec<String>,
 }
@@ -28,6 +31,7 @@ impl Default for Args {
         Self {
             write_in_place: false,
             check: false,
+            diff: false,
             width: tulisp_fmt::render::DEFAULT_WIDTH,
             paths: Vec::new(),
         }
@@ -44,13 +48,13 @@ fn main() -> ExitCode {
     };
 
     if parsed.paths.is_empty() {
-        return run_stdin(parsed.width);
+        return run_stdin(parsed.width, parsed.diff);
     }
 
     let mut differed = false;
     let mut had_error = false;
     for path in &parsed.paths {
-        match run_path(path, parsed.write_in_place, parsed.check, parsed.width) {
+        match run_path(path, &parsed) {
             Outcome::Ok => {}
             Outcome::Differs => differed = true,
             Outcome::Error => had_error = true,
@@ -86,6 +90,7 @@ fn parse_args() -> Result<Args, String> {
             }
             "-w" | "--write" => out.write_in_place = true,
             "--check" => out.check = true,
+            "-d" | "--diff" => out.diff = true,
             "--width" => {
                 let v = iter
                     .next()
@@ -102,8 +107,10 @@ fn parse_args() -> Result<Args, String> {
             _ => out.paths.push(arg),
         }
     }
-    if out.write_in_place && out.check {
-        return Err("--write and --check are mutually exclusive".to_string());
+    let mode_count =
+        usize::from(out.write_in_place) + usize::from(out.check) + usize::from(out.diff);
+    if mode_count > 1 {
+        return Err("--write, --check, and --diff are mutually exclusive".to_string());
     }
     if (out.write_in_place || out.check) && out.paths.is_empty() {
         return Err("--write / --check require at least one FILE".to_string());
@@ -127,7 +134,7 @@ enum Outcome {
     Error,
 }
 
-fn run_path(path: &str, write_in_place: bool, check: bool, width: usize) -> Outcome {
+fn run_path(path: &str, args: &Args) -> Outcome {
     let src = match fs::read_to_string(path) {
         Ok(s) => s,
         Err(e) => {
@@ -135,21 +142,32 @@ fn run_path(path: &str, write_in_place: bool, check: bool, width: usize) -> Outc
             return Outcome::Error;
         }
     };
-    let formatted = match tulisp_fmt::format_with_width(&src, width) {
+    let formatted = match tulisp_fmt::format_with_width(&src, args.width) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("{}", e.render(&src, Some(path)));
             return Outcome::Error;
         }
     };
-    if check {
+    if args.check {
         if formatted != src {
             println!("{path}");
             return Outcome::Differs;
         }
         return Outcome::Ok;
     }
-    if write_in_place {
+    if args.diff {
+        let d = diff::unified_diff(path, &src, &formatted);
+        if d.is_empty() {
+            return Outcome::Ok;
+        }
+        if let Err(e) = io::stdout().write_all(d.as_bytes()) {
+            eprintln!("tulisp-fmt: stdout: {e}");
+            return Outcome::Error;
+        }
+        return Outcome::Differs;
+    }
+    if args.write_in_place {
         if formatted == src {
             return Outcome::Ok;
         }
@@ -208,24 +226,36 @@ fn atomic_write(path: &str, contents: &str) -> io::Result<()> {
     Ok(())
 }
 
-fn run_stdin(width: usize) -> ExitCode {
+fn run_stdin(width: usize, diff_mode: bool) -> ExitCode {
     let mut src = String::new();
     if let Err(e) = io::stdin().read_to_string(&mut src) {
         eprintln!("tulisp-fmt: stdin: {e}");
         return ExitCode::from(2);
     }
-    match tulisp_fmt::format_with_width(&src, width) {
-        Ok(s) => {
-            if let Err(e) = io::stdout().write_all(s.as_bytes()) {
-                eprintln!("tulisp-fmt: stdout: {e}");
-                return ExitCode::from(2);
-            }
-            ExitCode::SUCCESS
-        }
+    let formatted = match tulisp_fmt::format_with_width(&src, width) {
+        Ok(s) => s,
         Err(e) => {
             eprintln!("{}", e.render(&src, Some("<stdin>")));
-            ExitCode::from(1)
+            return ExitCode::from(1);
         }
+    };
+    let payload = if diff_mode {
+        let d = diff::unified_diff("<stdin>", &src, &formatted);
+        if d.is_empty() {
+            return ExitCode::SUCCESS;
+        }
+        d
+    } else {
+        formatted
+    };
+    if let Err(e) = io::stdout().write_all(payload.as_bytes()) {
+        eprintln!("tulisp-fmt: stdout: {e}");
+        return ExitCode::from(2);
+    }
+    if diff_mode {
+        ExitCode::from(1)
+    } else {
+        ExitCode::SUCCESS
     }
 }
 
@@ -241,6 +271,7 @@ fn print_help() {
     println!("Options:");
     println!("  -w, --write       write the formatted result back to each FILE");
     println!("      --check       exit 1 (and list filenames) if any FILE is unformatted");
+    println!("  -d, --diff        print a unified diff of source vs. formatted; exit 1 if any differ");
     println!("      --width N     wrap lists past column N (default {})", tulisp_fmt::render::DEFAULT_WIDTH);
     println!("  -h, --help        print this help and exit");
     println!("  -V, --version     print version and exit");
