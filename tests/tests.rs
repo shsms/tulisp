@@ -546,6 +546,19 @@ fn test_apply() -> Result<(), Error> {
 "#
     }
 
+    // Circular trailing list errors instead of hanging the splice
+    // loop (Floyd's tortoise / hare in both paths).
+    tulisp_assert! {
+        program: r#"
+            (setq xs (list 1 2 3))
+            (setcdr (cdr (cdr xs)) xs)
+            (apply '+ xs)
+        "#,
+        error: r#"ERR OutOfRange: apply: last argument is a circular list
+<eval_string>:4.13-4.25:  at (apply '+ xs)
+"#
+    }
+
     // Missing the args list — both `(apply)` and `(apply '+)` should
     // error with the same MissingArgument shape on both paths.
     tulisp_assert! {
