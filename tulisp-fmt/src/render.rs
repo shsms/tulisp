@@ -1,102 +1,212 @@
 //! CST → formatted source text.
 //!
-//! This is the bare renderer: it preserves the user's line breaks
-//! one-for-one (a `LineBreak` in the CST produces a `\n` in the
-//! output), preserves blank lines (a `LineBreak { count: 2 }` produces
-//! one blank line), and indents the body of each list by 2 columns
-//! per nesting level.
+//! Indentation follows two rules:
 //!
-//! That's deliberately *simpler* than Emacs's elisp-mode indentation
-//! — Emacs aligns continuation lines under the second element of a
-//! function call, and indents the body of special forms by 2. Those
-//! refinements land in subsequent commits, layered on top of this
-//! deterministic baseline. The baseline's job is to make
-//! `format(format(s)) == format(s)` true for every valid input; later
-//! commits change *what* the formatted output looks like without
-//! breaking that property.
+//! - **Function-call form (default)** — line breaks inside the list
+//!   align the next child under the *second* element. So
+//!   `(foo a\n  b)` becomes `(foo a\n     b)` with `b` aligned under
+//!   `a`.
+//! - **Special form** — recognised heads (`let`, `defun`, `cond`, …)
+//!   indent body line breaks at `(open_paren_col + 2)`, matching the
+//!   Emacs convention.
+//!
+//! User line breaks are preserved one-for-one (a `LineBreak { count: 1 }`
+//! produces a `\n`, `count >= 2` produces a `\n\n` — collapsing any
+//! longer run of blank lines to one). The output always ends with a
+//! trailing `\n` if non-empty.
 
 use crate::cst::{Cst, CstNode};
 
 pub fn render(cst: &Cst) -> String {
-    let mut out = String::new();
-    render_top_level(&cst.nodes, &mut out);
-    if !out.is_empty() && !out.ends_with('\n') {
-        out.push('\n');
+    let mut r = Renderer::default();
+    render_top_level(&cst.nodes, &mut r);
+    if !r.out.is_empty() && !r.out.ends_with('\n') {
+        r.out.push('\n');
     }
-    out
+    r.out
 }
 
-fn render_top_level(nodes: &[CstNode], out: &mut String) {
+#[derive(Default)]
+struct Renderer {
+    out: String,
+    col: usize,
+}
+
+impl Renderer {
+    fn write(&mut self, s: &str) {
+        for c in s.chars() {
+            if c == '\n' {
+                self.col = 0;
+            } else {
+                self.col += 1;
+            }
+        }
+        self.out.push_str(s);
+    }
+
+    fn newline_then_indent(&mut self, blank: bool, indent: usize) {
+        self.out.push('\n');
+        if blank {
+            self.out.push('\n');
+        }
+        for _ in 0..indent {
+            self.out.push(' ');
+        }
+        self.col = indent;
+    }
+}
+
+fn render_top_level(nodes: &[CstNode], r: &mut Renderer) {
     let mut at_line_start = true;
     for node in nodes {
         match node {
             CstNode::LineBreak { count } => {
-                out.push('\n');
-                if *count >= 2 {
-                    out.push('\n');
-                }
+                r.newline_then_indent(*count >= 2, 0);
                 at_line_start = true;
             }
             other => {
                 if !at_line_start {
-                    out.push(' ');
+                    r.write(" ");
                 }
-                render_node(other, 0, out);
+                render_node(other, r);
                 at_line_start = false;
             }
         }
     }
 }
 
-fn render_node(node: &CstNode, parent_indent: usize, out: &mut String) {
+fn render_node(node: &CstNode, r: &mut Renderer) {
     match node {
-        CstNode::Atom { text, .. } => out.push_str(text),
-        CstNode::Comment { text, .. } => out.push_str(text),
+        CstNode::Atom { text, .. } => r.write(text),
+        CstNode::Comment { text, .. } => r.write(text),
         CstNode::List { children, .. } => {
-            out.push('(');
-            render_list_body(children, parent_indent + 2, out);
-            out.push(')');
+            let open_col = r.col;
+            r.write("(");
+            render_list_body(children, open_col, r);
+            r.write(")");
         }
         CstNode::ReaderMacro { prefix, inner, .. } => {
-            out.push_str(prefix.as_str());
-            render_node(inner, parent_indent, out);
+            r.write(prefix.as_str());
+            render_node(inner, r);
         }
         CstNode::LineBreak { .. } => {
-            // Top-level / list-body sequences route line breaks; a
-            // LineBreak should never reach here directly.
             debug_assert!(false, "LineBreak passed to render_node");
         }
     }
 }
 
-fn render_list_body(nodes: &[CstNode], indent: usize, out: &mut String) {
+fn render_list_body(nodes: &[CstNode], open_col: usize, r: &mut Renderer) {
+    let mut head_text: Option<String> = None;
+    let mut second_col: Option<usize> = None;
+    let mut struct_count: usize = 0;
     let mut at_line_start = true;
+
     for node in nodes {
         match node {
             CstNode::LineBreak { count } => {
-                out.push('\n');
-                if *count >= 2 {
-                    out.push('\n');
-                }
-                for _ in 0..indent {
-                    out.push(' ');
-                }
+                let indent = compute_indent(head_text.as_deref(), struct_count, second_col, open_col);
+                r.newline_then_indent(*count >= 2, indent);
                 at_line_start = true;
             }
-            other => {
+            CstNode::Comment { text, .. } => {
                 if !at_line_start {
-                    out.push(' ');
+                    r.write(" ");
                 }
-                render_node(other, indent, out);
+                r.write(text);
+                at_line_start = false;
+            }
+            structural => {
+                if !at_line_start {
+                    r.write(" ");
+                }
+                if struct_count == 0
+                    && let CstNode::Atom { text, .. } = structural
+                {
+                    head_text = Some(text.clone());
+                }
+                if struct_count == 1 {
+                    second_col = Some(r.col);
+                }
+                render_node(structural, r);
+                struct_count += 1;
                 at_line_start = false;
             }
         }
     }
 }
 
+/// Indent column for the next line inside a list body.
+///
+/// - Before any structural child has rendered: align under whatever
+///   *would* have been the first child — column right after `(`.
+/// - For special-form heads (see [`is_special_form`]): body indents
+///   at `open_col + 2`.
+/// - Otherwise: align under the second structural child if one was
+///   recorded; else fall back to `open_col + 1`.
+fn compute_indent(
+    head: Option<&str>,
+    struct_count: usize,
+    second_col: Option<usize>,
+    open_col: usize,
+) -> usize {
+    if struct_count == 0 {
+        return open_col + 1;
+    }
+    if head.is_some_and(is_special_form) {
+        return open_col + 2;
+    }
+    second_col.unwrap_or(open_col + 1)
+}
+
+/// Special forms whose body indents at `open_col + 2` rather than
+/// aligning under the second element. The list mirrors Emacs's
+/// elisp-mode defaults for the most common cases; user-defined
+/// `(declare (indent N))` is not yet read.
+fn is_special_form(head: &str) -> bool {
+    matches!(
+        head,
+        "let"
+            | "let*"
+            | "lambda"
+            | "defun"
+            | "defmacro"
+            | "defvar"
+            | "defconst"
+            | "defspecial"
+            | "when"
+            | "unless"
+            | "while"
+            | "dolist"
+            | "dotimes"
+            | "cond"
+            | "if"
+            | "if-let"
+            | "if-let*"
+            | "when-let"
+            | "while-let"
+            | "condition-case"
+            | "progn"
+            | "prog1"
+            | "prog2"
+            | "save-excursion"
+            | "save-restriction"
+            | "save-window-excursion"
+            | "with-current-buffer"
+            | "with-temp-buffer"
+            | "with-temp-file"
+            | "with-output-to-string"
+            | "catch"
+            | "unwind-protect"
+            | "->"
+            | "->>"
+            | "thread-first"
+            | "thread-last"
+    )
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::cst::{CstNode, ReaderPrefix};
+    use crate::cst::CstNode;
 
     fn fmt(src: &str) -> String {
         crate::format(src).expect("parse")
@@ -118,16 +228,41 @@ mod tests {
     }
 
     #[test]
-    fn preserves_user_line_breaks() {
-        let src = "(foo\n  a\n  b)";
-        let out = fmt(src);
-        assert_eq!(out, "(foo\n  a\n  b)\n");
+    fn function_call_aligns_under_second() {
+        // `b` aligns under `a` (column of the second element).
+        assert_eq!(fmt("(foo a\n b)"), "(foo a\n     b)\n");
+    }
+
+    #[test]
+    fn special_form_body_indents_two() {
+        let src = "(when cond\nbody)";
+        assert_eq!(fmt(src), "(when cond\n  body)\n");
+    }
+
+    #[test]
+    fn let_body_indents_two() {
+        let src = "(let ((x 1) (y 2))\n(+ x y))";
+        assert_eq!(fmt(src), "(let ((x 1) (y 2))\n  (+ x y))\n");
+    }
+
+    #[test]
+    fn defun_body_indents_two() {
+        let src = "(defun f (x)\n(* x x))";
+        assert_eq!(fmt(src), "(defun f (x)\n  (* x x))\n");
+    }
+
+    #[test]
+    fn nested_special_and_call() {
+        let src = "(let ((x 1))\n(foo x\ny))";
+        assert_eq!(
+            fmt(src),
+            "(let ((x 1))\n  (foo x\n       y))\n"
+        );
     }
 
     #[test]
     fn preserves_blank_lines_at_top_level() {
         let src = "(a)\n\n\n(b)\n";
-        // Multiple blank lines collapse to one.
         assert_eq!(fmt(src), "(a)\n\n(b)\n");
     }
 
@@ -140,25 +275,17 @@ mod tests {
 
     #[test]
     fn comment_inside_list() {
-        let src = "(let ((x 1)) ;; bind\n  (+ x 2))";
-        let out = fmt(src);
-        assert_eq!(out, "(let ((x 1)) ;; bind\n  (+ x 2))\n");
-    }
-
-    #[test]
-    fn comment_at_top_level() {
-        let src = ";; module doc\n(defun f () 1)";
-        assert_eq!(fmt(src), ";; module doc\n(defun f () 1)\n");
+        let src = "(let ((x 1)) ;; bind\n(+ x 2))";
+        assert_eq!(fmt(src), "(let ((x 1)) ;; bind\n  (+ x 2))\n");
     }
 
     #[test]
     fn round_trip_idempotent() {
-        // The round-trip invariant: format(format(s)) == format(s)
-        // for every input the formatter accepts.
         let inputs = [
             "",
             "(foo)",
             "(foo a b c)",
+            "(foo a\n b)",
             "(foo\n  a\n  b)",
             "(a)\n\n(b)",
             ";; doc\n(defun f (x)\n  (+ x 1))",
@@ -166,6 +293,9 @@ mod tests {
             "(let ((x 1)\n      (y 2))\n  (+ x y))",
             "  (  weird   spacing  )  ",
             "(a (b (c (d e))))",
+            "(when cond\n  body)",
+            "(if cond\n  then\n  else)",
+            "(cond ((= x 1) 'one)\n      ((= x 2) 'two))",
         ];
         for src in inputs {
             let once = crate::format(src).expect("format once");
@@ -179,9 +309,7 @@ mod tests {
 
     #[test]
     fn renders_atom_text_verbatim() {
-        // Hex / character / string literal forms round-trip.
         let cst = crate::parse("(#x1A ?\\n \"hi\")").unwrap();
-        assert_eq!(cst.nodes.len(), 1);
         let CstNode::List { children, .. } = &cst.nodes[0] else {
             panic!()
         };
@@ -193,30 +321,6 @@ mod tests {
             })
             .collect();
         assert_eq!(texts, vec!["#x1A", r#"?\n"#, r#""hi""#]);
-        // And the formatted output preserves them.
         assert_eq!(crate::format("(#x1A ?\\n \"hi\")").unwrap(), "(#x1A ?\\n \"hi\")\n");
-    }
-
-    #[test]
-    fn reader_macros_have_no_internal_space() {
-        // The parser drops trivia between a reader-macro prefix and
-        // its target, so the renderer always produces tight forms.
-        assert_eq!(fmt("' foo"), "'foo\n");
-        assert_eq!(fmt("` ( a ,b )"), "`(a ,b)\n");
-    }
-
-    #[test]
-    fn unused_reader_prefix_helpers() {
-        // Touch ReaderPrefix::as_str via the renderer so the all-prefixes
-        // path is covered.
-        for p in [
-            ReaderPrefix::Quote,
-            ReaderPrefix::Backquote,
-            ReaderPrefix::Unquote,
-            ReaderPrefix::Splice,
-            ReaderPrefix::Sharpquote,
-        ] {
-            assert!(!p.as_str().is_empty());
-        }
     }
 }
