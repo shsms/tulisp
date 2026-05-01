@@ -26,6 +26,7 @@ struct Args {
     diff: bool,
     style: tulisp_fmt::Style,
     style_set: config::SetFlags,
+    range: Option<(usize, usize)>,
     paths: Vec<String>,
 }
 
@@ -109,6 +110,15 @@ fn parse_args() -> Result<Args, String> {
                 out.style.use_tabs = true;
                 out.style_set.use_tabs = true;
             }
+            "--range" => {
+                let v = iter
+                    .next()
+                    .ok_or_else(|| "--range requires START:END".to_string())?;
+                out.range = Some(parse_range(&v)?);
+            }
+            s if s.starts_with("--range=") => {
+                out.range = Some(parse_range(&s["--range=".len()..])?);
+            }
             "--indent-width" => {
                 let v = iter
                     .next()
@@ -177,6 +187,22 @@ fn parse_tab_width(s: &str) -> Result<usize, String> {
         return Err("--tab-width: must be at least 1".to_string());
     }
     Ok(n)
+}
+
+fn parse_range(s: &str) -> Result<(usize, usize), String> {
+    let (a, b) = s
+        .split_once(':')
+        .ok_or_else(|| format!("--range: expected START:END, got `{s}`"))?;
+    let start: usize = a
+        .parse()
+        .map_err(|_| format!("--range: bad START `{a}`"))?;
+    let end: usize = b
+        .parse()
+        .map_err(|_| format!("--range: bad END `{b}`"))?;
+    if end < start {
+        return Err(format!("--range: END < START ({end} < {start})"));
+    }
+    Ok((start, end))
 }
 
 /// File extensions we consider "lisp source" when an arg is a
@@ -251,7 +277,7 @@ fn run_path(path: &str, args: &Args) -> Outcome {
             return Outcome::Error;
         }
     };
-    let formatted = match tulisp_fmt::format_with_style(&src, &style) {
+    let formatted = match format_input(&src, &style, args.range) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("{}", e.render(&src, Some(path)));
@@ -348,7 +374,7 @@ fn run_stdin(args: &Args) -> ExitCode {
         eprintln!("tulisp-fmt: stdin: {e}");
         return ExitCode::from(2);
     }
-    let formatted = match tulisp_fmt::format_with_style(&src, &style) {
+    let formatted = match format_input(&src, &style, args.range) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("{}", e.render(&src, Some("<stdin>")));
@@ -388,6 +414,19 @@ fn resolve_style(args: &Args, file: Option<&Path>) -> Result<tulisp_fmt::Style, 
     Ok(style)
 }
 
+/// Format `src` either in full or — when `--range` is set —
+/// restricted to top-level forms overlapping the given byte range.
+fn format_input(
+    src: &str,
+    style: &tulisp_fmt::Style,
+    range: Option<(usize, usize)>,
+) -> Result<String, tulisp_fmt::parse::ParseError> {
+    match range {
+        Some((s, e)) => tulisp_fmt::format_range(src, s, e, style),
+        None => tulisp_fmt::format_with_style(src, style),
+    }
+}
+
 fn print_help() {
     println!("Usage: tulisp-fmt [OPTIONS] [FILE|DIR...]");
     println!();
@@ -421,6 +460,7 @@ fn print_help() {
         "      --tab-width N    columns per tab when --use-tabs is set (default {})",
         tulisp_fmt::render::DEFAULT_TAB_WIDTH,
     );
+    println!("      --range S:E      format only top-level forms overlapping byte range [S, E)");
     println!("  -h, --help           print this help and exit");
     println!("  -V, --version        print version and exit");
 }
