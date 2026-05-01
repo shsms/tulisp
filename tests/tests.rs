@@ -1432,6 +1432,33 @@ fn test_let() -> Result<(), Error> {
 }
 
 #[test]
+fn test_empty_body_yields_nil_in_keep_result_position() -> Result<(), Error> {
+    // Regression: `compile_progn` returned an empty instruction
+    // sequence for empty body lists, so callers in keep-result
+    // position (e.g. inside a `(princ …)`) found nothing on the VM
+    // stack and panicked with `attempt to subtract with overflow`.
+    // Emacs evaluates each of these to nil; tulisp now matches.
+    tulisp_assert! {
+        program: "(progn)",
+        result: "nil",
+    }
+    tulisp_assert! {
+        program: "(let ((x 5)))",
+        result: "nil",
+    }
+    tulisp_assert! {
+        program: "(let* ((x 5)))",
+        result: "nil",
+    }
+    // Empty progn nested in a position that needs a value.
+    tulisp_assert! {
+        program: "(if t (progn) 'else)",
+        result: "nil",
+    }
+    Ok(())
+}
+
+#[test]
 fn test_let_discard_result_runs_init_side_effects() -> Result<(), Error> {
     // Regression: a `let` whose result is discarded — top-level form
     // in a loaded file, body in a discard-result position — must

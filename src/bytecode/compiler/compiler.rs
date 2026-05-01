@@ -130,6 +130,12 @@ pub fn compile_progn(
     drop(compiler);
     if let Some(prev) = prev {
         result.append(&mut compile_expr(ctx, &prev)?);
+    } else if keep_result {
+        // Empty progn body — `(progn)` and `(let ((x 1)))` both end
+        // up here. Per Emacs semantics, the form's value is `nil`.
+        // Without this push, the VM stack underflows when the caller
+        // expects a value.
+        result.push(Instruction::Push(false.into()));
     }
     Ok(result)
 }
