@@ -7,7 +7,7 @@
 
 use std::ops::Deref;
 
-use crate::{Error, TulispContext, TulispObject};
+use crate::{DummyEval, Error, Eval, Evaluator, TulispContext, TulispObject};
 
 /// Makes a plist from the given arguments.
 pub fn plist_from<const N: usize>(input: [(TulispObject, TulispObject); N]) -> TulispObject {
@@ -63,17 +63,17 @@ pub fn plist_get(plist: &TulispObject, property: &TulispObject) -> Result<Tulisp
 ///     5.0
 /// );
 /// ```
-pub struct Plist<T: Plistable> {
+pub struct Plist<T: Plistable<Eval>> {
     plist: T,
 }
 
 impl<T> Plist<T>
 where
-    T: Plistable,
+    T: Plistable<Eval>,
 {
     pub(crate) fn new(ctx: &mut TulispContext, obj: &TulispObject) -> Result<Self, Error> {
         Ok(Self {
-            plist: T::from_plist(ctx, obj)?,
+            plist: <T as Plistable<Eval>>::from_plist(ctx, obj)?,
         })
     }
 
@@ -84,7 +84,7 @@ where
 
 impl<T> Deref for Plist<T>
 where
-    T: Plistable,
+    T: Plistable<Eval>,
 {
     type Target = T;
 
@@ -95,13 +95,36 @@ where
 
 /// Conversion between a Rust struct and a Lisp plist.
 ///
-/// Implement this trait to use a struct as the argument type of a
-/// [`defun`](crate::TulispContext::defun)-registered function via [`Plist<T>`].
+/// Parameterized over an [`Evaluator`] strategy `E`:
 ///
-/// The [`AsPlist!`](macro@crate::AsPlist) macro generates this implementation
-/// automatically from a struct definition.
-pub trait Plistable {
-    /// Deserialize `obj` (a Lisp plist) into `Self`.
+/// - `Plistable<DummyEval>` (the default) treats values in the plist as
+///   already-evaluated lisp values and converts them as-is. Use this
+///   when the plist comes from a free variable, a literal, or any
+///   value already produced by the interpreter.
+/// - `Plistable<Eval>` re-evaluates each value before conversion.
+///   `Plist<T>` (the [`defun`](crate::TulispContext::defun) argument
+///   wrapper) uses this strategy because the argument list reaches
+///   `Plistable` unevaluated.
+///
+/// The [`AsPlist!`](macro@crate::AsPlist) macro generates a blanket
+/// `impl<E: Evaluator> Plistable<E>` for the given struct, so a single
+/// derivation covers both strategies.
+///
+/// # Call-site syntax
+///
+/// Because the macro generates impls for every `E`, a bare
+/// `T::from_plist(...)` call is ambiguous. Name the trait explicitly:
+///
+/// ```ignore
+/// // Already-evaluated plist (free variable, literal, etc.) — default:
+/// let cfg = <MyType as Plistable>::from_plist(&mut ctx, &obj)?;
+///
+/// // Or, if values are unevaluated forms that should be evaluated:
+/// let cfg = <MyType as Plistable<Eval>>::from_plist(&mut ctx, &obj)?;
+/// ```
+pub trait Plistable<E: Evaluator = DummyEval> {
+    /// Deserialize `obj` (a Lisp plist) into `Self` using `E` to resolve
+    /// each value.
     fn from_plist(ctx: &mut TulispContext, obj: &TulispObject) -> Result<Self, Error>
     where
         Self: Sized;
@@ -186,19 +209,19 @@ macro_rules! AsPlist {
     };
 
     (@extract-field $ctx:ident, $value:ident, None) => {
-        Some($ctx.eval($value)?.try_into()?)
+        Some(<E as $crate::Evaluator>::eval($ctx, $value)?.into_owned().try_into()?)
     };
 
     (@extract-field $ctx:ident, $value:ident, Some($e: expr)) => {
-        Some($ctx.eval($value)?.try_into()?)
+        Some(<E as $crate::Evaluator>::eval($ctx, $value)?.into_owned().try_into()?)
     };
 
     (@extract-field $ctx:ident, $value:ident, $e: expr) => {
-        $ctx.eval($value)?.try_into()?
+        <E as $crate::Evaluator>::eval($ctx, $value)?.into_owned().try_into()?
     };
 
     (@extract-field $ctx:ident, $value:ident) => {
-        $ctx.eval($value)?.try_into()?
+        <E as $crate::Evaluator>::eval($ctx, $value)?.into_owned().try_into()?
     };
 
     (
@@ -218,7 +241,7 @@ macro_rules! AsPlist {
             $($( #[$($field_meta)+] )* $field_vis $field: $type),+
         }
 
-        impl $crate::Plistable for $struct_name {
+        impl<E: $crate::Evaluator> $crate::Plistable<E> for $struct_name {
             fn from_plist(
                 ctx: &mut TulispContext, plist: &$crate::TulispObject
             ) -> Result<Self, $crate::Error> {
@@ -287,7 +310,7 @@ macro_rules! AsPlist {
 mod tests {
     use super::{plist_from, plist_get};
     use crate::{
-        Error, Plist, TulispContext,
+        DummyEval, Error, Plist, Plistable, TulispContext,
         test_utils::{eval_assert_equal, eval_assert_error},
     };
 
@@ -417,6 +440,41 @@ mod tests {
 <eval_string>:1.1-1.29:  at (get-age :first-name "Alice")
 "#,
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_plistable_from_lisp_value_no_eval() -> Result<(), Error> {
+        // A plist held in a free variable contains already-evaluated
+        // values. Converting it via `Plistable<DummyEval>` (the default)
+        // should pass each value straight through without
+        // re-evaluating — so a list field like `addr` resolves cleanly
+        // instead of erroring on "calling string as function".
+        let mut ctx = TulispContext::new();
+        ctx.eval_string(
+            r#"(setq x '(:first-name "Bob"
+                          :age 25
+                          :addr ("Main St" "Oak Ave")
+                          :place "Office"))"#,
+        )?;
+        let x = ctx.eval_string("x")?;
+
+        // Default-evaluator (DummyEval) form via the trait alias.
+        // `Person::from_plist(...)` would be ambiguous because `Person`
+        // implements `Plistable<E>` for every `E`, so name the trait
+        // explicitly to pick up the trait-level default.
+        let p = <Person as Plistable>::from_plist(&mut ctx, &x)?;
+        assert_eq!(p.name, "Bob");
+        assert_eq!(p.age, 25);
+        assert_eq!(p.addr, vec!["Main St".to_string(), "Oak Ave".to_string()]);
+        assert_eq!(p.place.as_deref(), Some("Office"));
+        // `:edu` is omitted — its default kicks in.
+        assert_eq!(p.education, None);
+
+        // Explicit DummyEval is equivalent.
+        let p2 = <Person as Plistable<DummyEval>>::from_plist(&mut ctx, &x)?;
+        assert_eq!(p2.name, "Bob");
 
         Ok(())
     }
