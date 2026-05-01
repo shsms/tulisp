@@ -508,9 +508,9 @@ mod tests {
     #[test]
     fn test_plistable_from_lisp_value_no_eval() -> Result<(), Error> {
         // A plist held in a free variable contains already-evaluated
-        // values. Converting it via `Plistable<DummyEval>` (the default)
-        // should pass each value straight through without
-        // re-evaluating — so a list field like `addr` resolves cleanly
+        // values. `from_plist` should pass each value straight through
+        // to its `TryFrom<TulispObject>` impl with no further
+        // evaluation — so a list field like `addr` resolves cleanly
         // instead of erroring on "calling string as function".
         let mut ctx = TulispContext::new();
         ctx.eval_string(

@@ -101,33 +101,36 @@ fn assoc_find(
 
 /// Conversion between a Rust struct and a Lisp alist.
 ///
-/// The default entry point [`from_alist`](Self::from_alist) treats
-/// the alist's values as already-evaluated lisp objects and passes
-/// each through unchanged — which is what you want for alists held
-/// in free variables, literals, or any value already produced by the
-/// interpreter:
+/// Values in the alist are treated as already-evaluated lisp objects
+/// and passed through to the field types' `TryFrom<TulispObject>`
+/// impls without further evaluation:
 ///
 /// ```ignore
 /// let cfg = MyType::from_alist(&mut ctx, &obj)?;
 /// ```
 ///
-/// To re-evaluate each value during conversion (e.g. when the alist
-/// holds unevaluated forms), pick a different [`Evaluator`] strategy
-/// via [`from_alist_with`](Self::from_alist_with):
+/// Unlike [`Plistable`](crate::Plistable), there is no `Alist<T>`
+/// wrapper for use as a [`defun`](crate::TulispContext::defun)
+/// argument — alists arrive as a single value, not as a flat
+/// keyword-argument list, so they are passed through normal
+/// [`TulispObject`] argument types and converted via [`from_alist`]
+/// inside the function body:
 ///
 /// ```ignore
-/// let cfg = MyType::from_alist_with::<Eval>(&mut ctx, &obj)?;
+/// ctx.defun("apply-config", |obj: TulispObject| -> Result<(), Error> {
+///     let cfg = Config::from_alist(/* ctx? */, &obj)?;
+///     // ...
+/// });
 /// ```
 ///
-/// Unlike [`Plistable`](crate::Plistable), `Alistable` does not get an
-/// auto-derived [`TulispConvertible`](crate::TulispConvertible) impl —
-/// `into_alist` needs a context to intern symbol keys, and
-/// `TulispConvertible::into_tulisp` does not take one. Construct alists
-/// for return through [`into_alist`](Self::into_alist) directly, or
-/// through [`alist_from`].
+/// (Because `from_alist` takes a `&mut TulispContext` to intern field
+/// keys, you'll need a closure form that includes ctx as the first
+/// parameter — see [`TulispContext::defun`].)
 ///
-/// The [`AsAlist!`](macro@crate::AsAlist) macro generates both methods
-/// from a struct definition.
+/// The [`AsAlist!`](macro@crate::AsAlist) macro generates both
+/// `from_alist` and `into_alist` from a struct definition.
+///
+/// [`from_alist`]: Self::from_alist
 pub trait Alistable {
     /// Deserialize an already-evaluated lisp alist (a list of dotted
     /// pairs) into `Self`. Each value is passed through as-is, with no
