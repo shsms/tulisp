@@ -26,6 +26,8 @@
 //! The default 80-column budget can be overridden via
 //! [`render_with_width`] / [`crate::format_with_width`].
 
+use std::collections::HashMap;
+
 use crate::cst::{Cst, CstNode};
 
 /// Default width budget (columns).
@@ -82,12 +84,95 @@ pub fn render_with_style(cst: &Cst, style: &Style) -> String {
         out: String::new(),
         col: 0,
         style: *style,
+        user_indent: collect_indent_declarations(cst),
     };
     render_top_level(&cst.nodes, &mut r);
     if !r.out.is_empty() && !r.out.ends_with('\n') {
         r.out.push('\n');
     }
     align_trailing_comments(&r.out)
+}
+
+/// Walk top-level forms for `(defmacro NAME ... (declare (indent N))
+/// ...)` and return a map from macro name to N. Used by the renderer
+/// to indent calls to user-defined macros the same way the macro
+/// author asked, matching Emacs's behavior. The body of `defmacro`
+/// is searched left-to-right for the first `declare` form so the
+/// canonical placement (immediately after the arglist) is honored
+/// without forcing it.
+fn collect_indent_declarations(cst: &Cst) -> HashMap<String, usize> {
+    let mut out = HashMap::new();
+    for node in &cst.nodes {
+        if let Some((name, n)) = parse_defmacro_indent(node) {
+            out.insert(name, n);
+        }
+    }
+    out
+}
+
+fn parse_defmacro_indent(node: &CstNode) -> Option<(String, usize)> {
+    let CstNode::List { children, .. } = node else {
+        return None;
+    };
+    let structural: Vec<&CstNode> = children
+        .iter()
+        .filter(|c| !matches!(c, CstNode::LineBreak { .. } | CstNode::Comment { .. }))
+        .collect();
+    let head = match structural.first()? {
+        CstNode::Atom { text, .. } => text.as_str(),
+        _ => return None,
+    };
+    if head != "defmacro" {
+        return None;
+    }
+    let name = match structural.get(1)? {
+        CstNode::Atom { text, .. } => text.clone(),
+        _ => return None,
+    };
+    // Body forms start at index 3 (after head, name, arglist).
+    for body in structural.iter().skip(3) {
+        if let Some(n) = read_indent_declaration(body) {
+            return Some((name, n));
+        }
+    }
+    None
+}
+
+/// Recognise a `(declare ... (indent N) ...)` form and return N, or
+/// `None` for anything else. Other declarations (`debug`, `doc-string`,
+/// arbitrary user spec items) are ignored.
+fn read_indent_declaration(node: &CstNode) -> Option<usize> {
+    let CstNode::List { children, .. } = node else {
+        return None;
+    };
+    let structural: Vec<&CstNode> = children
+        .iter()
+        .filter(|c| !matches!(c, CstNode::LineBreak { .. } | CstNode::Comment { .. }))
+        .collect();
+    let head = match structural.first()? {
+        CstNode::Atom { text, .. } => text.as_str(),
+        _ => return None,
+    };
+    if head != "declare" {
+        return None;
+    }
+    for spec in structural.iter().skip(1) {
+        let CstNode::List { children: sc, .. } = spec else {
+            continue;
+        };
+        let ss: Vec<&CstNode> = sc
+            .iter()
+            .filter(|c| !matches!(c, CstNode::LineBreak { .. } | CstNode::Comment { .. }))
+            .collect();
+        if let Some(CstNode::Atom { text, .. }) = ss.first()
+            && text == "indent"
+            && let Some(CstNode::Atom { text: n_text, .. }) = ss.get(1)
+            && let Ok(n) = n_text.parse::<usize>()
+        {
+            return Some(n);
+        }
+    }
+    None
 }
 
 /// Walk the rendered output and pad consecutive lines that end with
@@ -179,6 +264,9 @@ struct Renderer {
     out: String,
     col: usize,
     style: Style,
+    /// `(declare (indent N))` declarations harvested from top-level
+    /// `defmacro` forms in the same input. Indexed by macro name.
+    user_indent: HashMap<String, usize>,
 }
 
 impl Renderer {
@@ -456,6 +544,7 @@ fn render_list_multi(
                     second_col,
                     open_col,
                     r.indent_step(),
+                    &r.user_indent,
                 );
                 r.newline_then_indent(count.saturating_sub(1), indent);
                 at_line_start = true;
@@ -472,8 +561,8 @@ fn render_list_multi(
                 // every subsequent struct child gets a line break
                 // before it — but only if we're forcing breaks
                 // (i.e., the user didn't already lay this list out).
-                let header_args =
-                    header_override.unwrap_or_else(|| header_size(head_text.as_deref()));
+                let header_args = header_override
+                    .unwrap_or_else(|| header_size(head_text.as_deref(), &r.user_indent));
                 let needs_forced_break = force_breaks
                     && !at_line_start
                     && struct_count > header_args;
@@ -484,6 +573,7 @@ fn render_list_multi(
                         second_col,
                         open_col,
                         r.indent_step(),
+                        &r.user_indent,
                     );
                     r.newline_then_indent(0, indent);
                     at_line_start = true;
@@ -540,11 +630,14 @@ fn compute_indent(
     second_col: Option<usize>,
     open_col: usize,
     indent_step: usize,
+    user_indent: &HashMap<String, usize>,
 ) -> usize {
     if struct_count == 0 {
         return open_col + 1;
     }
-    let kind = head.map(special_kind).unwrap_or(SpecialKind::None);
+    let kind = head
+        .map(|h| special_kind(h, user_indent))
+        .unwrap_or(SpecialKind::None);
     match kind {
         SpecialKind::HasHeader => open_col + indent_step,
         SpecialKind::ZeroHeader => second_col.unwrap_or(open_col + indent_step),
@@ -568,7 +661,14 @@ enum SpecialKind {
     HasHeader,
 }
 
-fn special_kind(head: &str) -> SpecialKind {
+fn special_kind(head: &str, user_indent: &HashMap<String, usize>) -> SpecialKind {
+    if let Some(&n) = user_indent.get(head) {
+        return if n == 0 {
+            SpecialKind::ZeroHeader
+        } else {
+            SpecialKind::HasHeader
+        };
+    }
     match head {
         "progn" | "prog1" | "prog2" | "cond" => SpecialKind::ZeroHeader,
         h if is_special_form(h) => SpecialKind::HasHeader,
@@ -588,9 +688,12 @@ fn special_kind(head: &str) -> SpecialKind {
 ///   (head + name + arglist / var + form fit on the opening line;
 ///   body breaks).
 /// - All other special forms: 1.
-fn header_size(head: Option<&str>) -> usize {
+fn header_size(head: Option<&str>, user_indent: &HashMap<String, usize>) -> usize {
     let Some(head) = head else { return 1 };
-    match special_kind(head) {
+    if let Some(&n) = user_indent.get(head) {
+        return n;
+    }
+    match special_kind(head, user_indent) {
         SpecialKind::None => 1,
         SpecialKind::ZeroHeader => 0,
         SpecialKind::HasHeader => match head {
@@ -895,6 +998,40 @@ mod tests {
         // Body indent of 8 with tab-width 8 should be exactly one tab.
         let out = fmt_with_style("(let ((x 1))\n        body)", &style);
         assert_eq!(out, "(let ((x 1))\n\tbody)\n");
+    }
+
+    #[test]
+    fn declare_indent_one_makes_macro_a_when_alike() {
+        // Define a macro with `(declare (indent 1))` and then call
+        // it. The body should indent at +2 of the open-paren even
+        // when broken before it — same shape as `when`.
+        let src = "\
+(defmacro my-when (cond &rest body) (declare (indent 1)) `(if ,cond (progn ,@body)))
+
+(my-when (foo)
+  (do-this)
+  (do-that))
+";
+        let out = fmt(src);
+        assert!(
+            out.contains("(my-when (foo)\n  (do-this)\n  (do-that))"),
+            "got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn declare_indent_zero_makes_macro_a_progn_alike() {
+        // (declare (indent 0)) → ZeroHeader; head sits alone, every
+        // body arg breaks.
+        let src = "\
+(defmacro my-progn (&rest body) (declare (indent 0)) `(progn ,@body))
+
+(my-progn (a) (b) (c))
+";
+        let out = fmt_with(src, 18);
+        // Force narrow width so the call wraps. `my-progn` head sits
+        // alone, every arg breaks under it.
+        assert!(out.contains("(my-progn\n"), "got:\n{out}");
     }
 
     #[test]
