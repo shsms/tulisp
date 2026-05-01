@@ -38,189 +38,70 @@ fn main() {
 ## Exposing Rust functions
 
 [`TulispContext::defun`](https://docs.rs/tulisp/latest/tulisp/struct.TulispContext.html#method.defun)
-is the primary way to register Rust functions.
-Argument evaluation, arity checking, and type conversion are handled
-automatically.
-
-```rust
-use tulisp::{TulispContext, Rest};
-
-let mut ctx = TulispContext::new();
-
-// Fixed arguments
-ctx.defun("add", |a: i64, b: i64| a + b);
-
-// Optional arguments (Lisp &optional)
-ctx.defun("greet", |name: String, greeting: Option<String>| {
-    format!("{}, {}!", greeting.unwrap_or("Hello".into()), name)
-});
-
-// Variadic arguments (Lisp &rest)
-ctx.defun("sum", |items: Rest<f64>| -> f64 { items.into_iter().sum() });
-
-// Fallible function
-ctx.defun("safe-div", |a: i64, b: i64| -> Result<i64, tulisp::Error> {
-    if b == 0 {
-        Err(tulisp::Error::invalid_argument("Division by zero"))
-    } else {
-        Ok(a / b)
-    }
-});
-```
-
-Supported argument and return types include `i64`, `f64`, `bool`, `String`,
+handles argument evaluation, arity checking, and type conversion
+automatically.  Built-in arg/return types include `i64`, `f64`, `bool`,
+`String`,
 [`Number`](https://docs.rs/tulisp/latest/tulisp/enum.Number.html),
-`Vec<T>`, and [`TulispObject`](https://docs.rs/tulisp/latest/tulisp/struct.TulispObject.html).
-Add `&mut TulispContext` as the first parameter to access the interpreter.
-Any type can be made passable by implementing
-[`TulispConvertible`](https://docs.rs/tulisp/latest/tulisp/trait.TulispConvertible.html).
+`Vec<T>`, and
+[`TulispObject`](https://docs.rs/tulisp/latest/tulisp/struct.TulispObject.html).
+Use `Option<T>` for `&optional` parameters,
+[`Rest<T>`](https://docs.rs/tulisp/latest/tulisp/struct.Rest.html) for
+`&rest`, a `Result<T, Error>` return type for fallible functions, and
+`&mut TulispContext` as the first parameter to access the interpreter
+from the function body.  Custom Rust types become passable by
+implementing
+[`TulispConvertible`](https://docs.rs/tulisp/latest/tulisp/trait.TulispConvertible.html)
+— most commonly via opaque `Shared<dyn TulispAny>` storage for
+arbitrary `Clone + Display` values.
 
-For advanced use cases — custom evaluation order, implementing control flow —
-use [`defspecial`](https://docs.rs/tulisp/latest/tulisp/struct.TulispContext.html#method.defspecial)
-(raw argument list) or
-[`defmacro`](https://docs.rs/tulisp/latest/tulisp/struct.TulispContext.html#method.defmacro)
-(code transformation before evaluation).
+For raw argument lists and code transformation, see
+[`defspecial`](https://docs.rs/tulisp/latest/tulisp/struct.TulispContext.html#method.defspecial)
+and
+[`defmacro`](https://docs.rs/tulisp/latest/tulisp/struct.TulispContext.html#method.defmacro).
 
-## Keyword-argument functions with `AsPlist!`
+## Keyword-argument and alist-shaped structs
 
-When a function accepts many optional parameters, use a plist as the argument
-list.  The [`AsPlist!`](https://docs.rs/tulisp/latest/tulisp/macro.AsPlist.html)
-macro derives the required
-[`Plistable`](https://docs.rs/tulisp/latest/tulisp/trait.Plistable.html) trait
-for a struct, and
-[`Plist<T>`](https://docs.rs/tulisp/latest/tulisp/struct.Plist.html) as a
-parameter type wires it up automatically.
+When a function accepts many keyword-style parameters, derive
+[`Plistable`](https://docs.rs/tulisp/latest/tulisp/trait.Plistable.html)
+on a struct via
+[`AsPlist!`](https://docs.rs/tulisp/latest/tulisp/macro.AsPlist.html)
+and use
+[`Plist<T>`](https://docs.rs/tulisp/latest/tulisp/struct.Plist.html) as
+the parameter type:
 
 ```rust
 use tulisp::{TulispContext, Plist, AsPlist};
 
 AsPlist! {
-    struct ServerConfig {
-        host: String,
-        port: i64 {= 8080},
-    }
+    struct ServerConfig { host: String, port: i64 {= 8080} }
 }
 
 let mut ctx = TulispContext::new();
 ctx.defun("connect", |cfg: Plist<ServerConfig>| -> String {
     format!("{}:{}", cfg.host, cfg.port)
 });
-// (connect :host "localhost")          => "localhost:8080"
-// (connect :host "example.com" :port 443)  => "example.com:443"
+// (connect :host "example.com" :port 443)  =>  "example.com:443"
 ```
 
-A field declared `Option<T>` resolves to `None` when the keyword is absent
-*and* when it's explicitly given as `nil`. Default values are supplied with
-`{= expr}` and used only when the keyword is absent.
+`{= expr}` provides a default, `field<":custom-key">` overrides the
+keyword name, and `Option<T>` fields read explicit `nil` as `None`.
 
-To deserialize a plist held in a free variable (rather than collected from a
-defun's arguments), call
-[`Plistable::from_plist`](https://docs.rs/tulisp/latest/tulisp/trait.Plistable.html#tymethod.from_plist)
-directly:
-
-```rust,ignore
-ctx.eval_string("(setq settings '(:host \"localhost\" :port 9000))")?;
-let obj = ctx.eval_string("settings")?;
-let cfg = ServerConfig::from_plist(&mut ctx, &obj)?;
-```
-
-## Alist-shaped structs with `AsAlist!`
-
-For structs that are passed in as a single alist argument (rather than as a
-flat keyword list), use
-[`AsAlist!`](https://docs.rs/tulisp/latest/tulisp/macro.AsAlist.html), which
-derives [`Alistable`](https://docs.rs/tulisp/latest/tulisp/trait.Alistable.html).
-The trait's [`from_alist`](https://docs.rs/tulisp/latest/tulisp/trait.Alistable.html#tymethod.from_alist)
-and [`into_alist`](https://docs.rs/tulisp/latest/tulisp/trait.Alistable.html#tymethod.into_alist)
-methods convert between the struct and a Lisp alist of dotted pairs.
-
-```rust
-use tulisp::{TulispContext, Alistable, AsAlist};
-
-AsAlist! {
-    struct Person {
-        name<"first-name">: String,
-        age: i64,
-        place: Option<String> {= Some("Home".to_string())},
-    }
-}
-
-let mut ctx = TulispContext::new();
-ctx.eval_string(
-    r#"(setq alice '((first-name . "Alice") (age . 30)))"#,
-).unwrap();
-let obj = ctx.eval_string("alice").unwrap();
-let alice = Person::from_alist(&mut ctx, &obj).unwrap();
-assert_eq!(alice.name, "Alice");
-```
-
-There is no `Alist<T>` wrapper analogous to `Plist<T>` because alists arrive
-as a single value (not a flat keyword-argument list), so they pass through
-the normal `TulispObject` argument types.
-
-## Opaque Rust values
-
-Any `Clone + Display` type can be stored in a
-[`TulispObject`](https://docs.rs/tulisp/latest/tulisp/struct.TulispObject.html)
-and passed between Rust and Lisp transparently via
-[`Shared::new`](https://docs.rs/tulisp/latest/tulisp/struct.Shared.html) and
-[`TulispObject::as_any`](https://docs.rs/tulisp/latest/tulisp/struct.TulispObject.html#method.as_any).
-
-```rust
-use std::fmt;
-use tulisp::{TulispContext, TulispConvertible, TulispObject, Shared, Error};
-
-#[derive(Clone)]
-struct Point { x: i64, y: i64 }
-
-impl fmt::Display for Point {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "(Point {} {})", self.x, self.y)
-    }
-}
-
-impl TulispConvertible for Point {
-    fn from_tulisp(value: &TulispObject) -> Result<Self, Error> {
-        value.as_any().ok()
-            .and_then(|v| v.downcast_ref::<Point>().cloned())
-            .ok_or_else(|| Error::type_mismatch("Expected Point"))
-    }
-    fn into_tulisp(self) -> TulispObject { Shared::new(self).into() }
-}
-
-let mut ctx = TulispContext::new();
-ctx.defun("make-point", |x: i64, y: i64| Point { x, y });
-ctx.defun("point-x", |p: Point| p.x);
-// (point-x (make-point 3 4)) => 3
-```
+[`AsAlist!`](https://docs.rs/tulisp/latest/tulisp/macro.AsAlist.html) /
+[`Alistable`](https://docs.rs/tulisp/latest/tulisp/trait.Alistable.html)
+mirror the design for alist-shaped values that arrive as a single
+argument (a list of dotted pairs).  For converting a plist or alist
+held in a free variable rather than from a defun call, both traits
+also expose `from_plist` / `from_alist` standalone.
 
 ## Built-in Lisp features
 
-- **Control flow**: `if`, `cond`, `when`, `unless`, `while`, `progn`
-- **Binding**: `let`, `let*`, `setq`, `set`
-- **Functions and macros**: `defun`, `defmacro`, `lambda`, `funcall`, `eval`,
-  `macroexpand`
-- **Lists**: `cons`, `list`, `append`, `nth`, `nthcdr`, `last`, `length`,
-  `mapcar`, `dolist`, `dotimes`
-- **Alists and plists**: `assoc`, `alist-get`, `plist-get`
-- **Strings**: `concat`, `format`, `prin1-to-string`, `princ`, `print`
-- **Arithmetic**: `+`, `-`, `*`, `/`, `mod`, `1+`, `1-`, `abs`, `max`, `min`,
-  `sqrt`, `expt`, `fround`, `ftruncate`
-- **Comparison**: `=`, `/=`, `<`, `<=`, `>`, `>=` (numbers); `string<`,
-  `string>`, `string=` (strings); `eq`, `equal`
-- **Logic**: `and`, `or`, `not`, `xor`
-- **Conditionals**: `if-let`, `if-let*`, `when-let`, `while-let`
-- **Symbols**: `intern`, `make-symbol`, `gensym`
-- **Hash tables**: `make-hash-table`, `gethash`, `puthash`
-- **Error handling**: `error`, `catch`, `throw`
-- **Threading macros**: `->` / `thread-first`, `->>` / `thread-last`
-- **Time**: `current-time`, `time-add`, `time-subtract`, `time-less-p`,
-  `time-equal-p`, `format-seconds`
-- **Quoting**: `'`, `` ` ``, `,`, `,@` (backquote/unquote/splice)
-- **Tail-call optimisation** (TCO) for recursive functions
-- **Lexical scoping** and lexical binding
-
-A full reference is available in the [`builtin`](https://docs.rs/tulisp/latest/tulisp/builtin) module docs.
+Tulisp covers the standard Emacs Lisp shapes — control flow, bindings,
+functions and macros, list / string / arithmetic / hash-table
+operations, threading macros, backquote / unquote, error handling
+(`error`, `catch`, `throw`, `condition-case`), tail-call optimisation,
+and lexical scoping.  See the
+[`builtin`](https://docs.rs/tulisp/latest/tulisp/builtin) module for
+the full list of forms and functions.
 
 ## Cargo features
 
