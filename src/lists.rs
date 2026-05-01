@@ -104,16 +104,6 @@ pub fn alist_from<const N: usize>(input: [(TulispObject, TulispObject); N]) -> T
     builder.build()
 }
 
-/// Makes a plist from the given arguments.
-pub fn plist_from<const N: usize>(input: [(TulispObject, TulispObject); N]) -> TulispObject {
-    let mut builder = crate::cons::ListBuilder::new();
-    for (key, value) in input.into_iter() {
-        builder.push(key);
-        builder.push(value);
-    }
-    builder.build()
-}
-
 /// Returns the first association for key in alist, comparing key against the
 /// alist elements using testfn if it is a function, and equal otherwise.
 ///
@@ -199,25 +189,9 @@ fn assoc_find(
     Ok(TulispObject::nil())
 }
 
-/// Returns the value of the property `property` stored in the property list
-/// `plist`.
-///
-/// Read more about `plist`s
-/// [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Property-Lists.html).
-pub fn plist_get(plist: &TulispObject, property: &TulispObject) -> Result<TulispObject, Error> {
-    let mut cur = plist.clone();
-    while cur.consp() {
-        if cur.car_and_then(|car| Ok(car.eq(property)))? {
-            return cur.cadr();
-        }
-        cur = cur.cddr()?;
-    }
-    Ok(TulispObject::nil())
-}
-
 #[cfg(test)]
 mod tests {
-    use crate::lists::{Error, TulispContext, alist_from, alist_get, plist_from, plist_get};
+    use crate::lists::{Error, TulispContext, alist_from, alist_get};
 
     #[test]
     fn test_alist() -> Result<(), Error> {
@@ -233,23 +207,6 @@ mod tests {
         ]);
         assert!(alist_get(&mut ctx, &b, &list, None, None, None)?.equal(&30.into()));
         assert!(alist_get(&mut ctx, &d, &list, None, None, None)?.null());
-        Ok(())
-    }
-
-    #[test]
-    fn test_plist() -> Result<(), Error> {
-        let mut ctx = TulispContext::new();
-        let a = ctx.intern("a");
-        let b = ctx.intern("b");
-        let c = ctx.intern("c");
-        let d = ctx.intern("d");
-        let list = plist_from([
-            (a.clone(), 20.into()),
-            (b.clone(), 30.into()),
-            (c.clone(), 40.into()),
-        ]);
-        assert!(plist_get(&list, &b)?.equal(&30.into()));
-        assert!(plist_get(&list, &d)?.null());
         Ok(())
     }
 }

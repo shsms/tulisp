@@ -19,6 +19,9 @@ pub use error::{Error, ErrorKind};
 
 pub mod lists;
 
+pub mod plist;
+pub use plist::{plist_from, plist_get};
+
 mod number;
 pub use number::Number;
 

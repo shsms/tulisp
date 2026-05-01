@@ -713,7 +713,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defun(
         "plist-get",
         |plist: TulispObject, property: TulispObject| -> Result<TulispObject, Error> {
-            lists::plist_get(&plist, &property)
+            crate::plist::plist_get(&plist, &property)
         },
     );
 

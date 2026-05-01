@@ -245,7 +245,7 @@ macro_rules! AsPlist {
                     $($field: $crate::AsPlist!(@key-name $field $(<$field_key>)?)),+
                 });
 
-                $crate::lists::plist_from([
+                $crate::plist::plist_from([
                     $((symbols.$field.clone(), self.$field.into())),+
                 ])
             }

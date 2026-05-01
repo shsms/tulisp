@@ -3,7 +3,7 @@ use super::{
     compiler::VMDefunParams,
 };
 use crate::{
-    Error, Number, TulispContext, TulispObject, TulispValue, bytecode::Pos, lists,
+    Error, Number, TulispContext, TulispObject, TulispValue, bytecode::Pos, plist,
     object::wrappers::generic::SharedMut,
 };
 use std::collections::HashMap;
@@ -838,7 +838,7 @@ fn run_impl_inner(
                 let [ref key, ref plist] = ctx.vm.stack[(ctx.vm.stack.len() - 2)..] else {
                     unreachable!()
                 };
-                let value = lists::plist_get(plist, key)?;
+                let value = plist::plist_get(plist, key)?;
                 ctx.vm.stack.truncate(ctx.vm.stack.len() - 2);
                 ctx.vm.stack.push(value);
             }
