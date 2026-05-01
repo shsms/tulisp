@@ -11,20 +11,14 @@ use crate::{
     value::{DefunParams, LexBinding},
 };
 
-/// Strategy for resolving a [`TulispObject`] to its evaluated form.
-///
-/// Used to parameterize conversion paths over whether they should
-/// evaluate values they encounter ([`Eval`]) or treat them as already
-/// evaluated and return them as-is ([`DummyEval`]).
-pub trait Evaluator {
+pub(crate) trait Evaluator {
     fn eval<'a>(
         ctx: &mut TulispContext,
         value: &'a TulispObject,
     ) -> Result<Cow<'a, TulispObject>, Error>;
 }
 
-/// Evaluates the value through the interpreter.
-pub struct Eval;
+pub(crate) struct Eval;
 impl Evaluator for Eval {
     fn eval<'a>(
         ctx: &mut TulispContext,
@@ -34,9 +28,7 @@ impl Evaluator for Eval {
     }
 }
 
-/// Returns the value unchanged. Use when the input is already an
-/// evaluated lisp value.
-pub struct DummyEval;
+pub(crate) struct DummyEval;
 impl Evaluator for DummyEval {
     fn eval<'a>(
         _ctx: &mut TulispContext,

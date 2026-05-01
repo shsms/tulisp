@@ -2,7 +2,6 @@
 
 pub(crate) mod bytecode;
 mod eval;
-pub use eval::{DummyEval, Eval, Evaluator};
 mod macros;
 mod parse;
 
