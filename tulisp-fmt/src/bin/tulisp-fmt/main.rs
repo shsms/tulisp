@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+mod config;
 mod diff;
 
 #[derive(Default)]
@@ -24,6 +25,7 @@ struct Args {
     check: bool,
     diff: bool,
     style: tulisp_fmt::Style,
+    style_set: config::SetFlags,
     paths: Vec<String>,
 }
 
@@ -37,7 +39,7 @@ fn main() -> ExitCode {
     };
 
     if parsed.paths.is_empty() {
-        return run_stdin(&parsed.style, parsed.diff);
+        return run_stdin(&parsed);
     }
 
     let mut expanded: Vec<String> = Vec::new();
@@ -97,28 +99,37 @@ fn parse_args() -> Result<Args, String> {
                     .next()
                     .ok_or_else(|| "--width requires a value".to_string())?;
                 out.style.width = parse_width(&v)?;
+                out.style_set.width = true;
             }
             s if s.starts_with("--width=") => {
                 out.style.width = parse_width(&s["--width=".len()..])?;
+                out.style_set.width = true;
             }
-            "--use-tabs" => out.style.use_tabs = true,
+            "--use-tabs" => {
+                out.style.use_tabs = true;
+                out.style_set.use_tabs = true;
+            }
             "--indent-width" => {
                 let v = iter
                     .next()
                     .ok_or_else(|| "--indent-width requires a value".to_string())?;
                 out.style.indent_width = parse_indent(&v)?;
+                out.style_set.indent_width = true;
             }
             s if s.starts_with("--indent-width=") => {
                 out.style.indent_width = parse_indent(&s["--indent-width=".len()..])?;
+                out.style_set.indent_width = true;
             }
             "--tab-width" => {
                 let v = iter
                     .next()
                     .ok_or_else(|| "--tab-width requires a value".to_string())?;
                 out.style.tab_width = parse_tab_width(&v)?;
+                out.style_set.tab_width = true;
             }
             s if s.starts_with("--tab-width=") => {
                 out.style.tab_width = parse_tab_width(&s["--tab-width=".len()..])?;
+                out.style_set.tab_width = true;
             }
             "--" => after_separator = true,
             other if other.starts_with('-') => {
@@ -233,7 +244,14 @@ fn run_path(path: &str, args: &Args) -> Outcome {
             return Outcome::Error;
         }
     };
-    let formatted = match tulisp_fmt::format_with_style(&src, &args.style) {
+    let style = match resolve_style(args, Some(Path::new(path))) {
+        Ok(s) => s,
+        Err(msg) => {
+            eprintln!("tulisp-fmt: {msg}");
+            return Outcome::Error;
+        }
+    };
+    let formatted = match tulisp_fmt::format_with_style(&src, &style) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("{}", e.render(&src, Some(path)));
@@ -317,20 +335,27 @@ fn atomic_write(path: &str, contents: &str) -> io::Result<()> {
     Ok(())
 }
 
-fn run_stdin(style: &tulisp_fmt::Style, diff_mode: bool) -> ExitCode {
+fn run_stdin(args: &Args) -> ExitCode {
+    let style = match resolve_style(args, None) {
+        Ok(s) => s,
+        Err(msg) => {
+            eprintln!("tulisp-fmt: {msg}");
+            return ExitCode::from(2);
+        }
+    };
     let mut src = String::new();
     if let Err(e) = io::stdin().read_to_string(&mut src) {
         eprintln!("tulisp-fmt: stdin: {e}");
         return ExitCode::from(2);
     }
-    let formatted = match tulisp_fmt::format_with_style(&src, style) {
+    let formatted = match tulisp_fmt::format_with_style(&src, &style) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("{}", e.render(&src, Some("<stdin>")));
             return ExitCode::from(1);
         }
     };
-    let payload = if diff_mode {
+    let payload = if args.diff {
         let d = diff::unified_diff("<stdin>", &src, &formatted);
         if d.is_empty() {
             return ExitCode::SUCCESS;
@@ -343,11 +368,24 @@ fn run_stdin(style: &tulisp_fmt::Style, diff_mode: bool) -> ExitCode {
         eprintln!("tulisp-fmt: stdout: {e}");
         return ExitCode::from(2);
     }
-    if diff_mode {
+    if args.diff {
         ExitCode::from(1)
     } else {
         ExitCode::SUCCESS
     }
+}
+
+/// Compute the per-file style: start from the CLI-set base, then
+/// fold in any `.tulisp-fmt.toml` discovered upward from the file
+/// (or from the current working directory when there's no file).
+/// Fields the CLI explicitly set are protected from being clobbered.
+fn resolve_style(args: &Args, file: Option<&Path>) -> Result<tulisp_fmt::Style, String> {
+    let mut style = args.style;
+    match file {
+        Some(p) => config::load_for(p, &mut style, args.style_set)?,
+        None => config::load_for_cwd(&mut style, args.style_set)?,
+    }
+    Ok(style)
 }
 
 fn print_help() {
@@ -360,6 +398,11 @@ fn print_help() {
     println!("by default. Pass `-w` to overwrite the file in place. Directory");
     println!("arguments are walked recursively for *.lisp and *.el files; entries");
     println!("starting with `.` (e.g. .git) are skipped.");
+    println!();
+    println!(
+        "Style settings can also live in a .tulisp-fmt.toml file discovered by"
+    );
+    println!("walking up from the input. CLI flags always override the file.");
     println!();
     println!("Options:");
     println!("  -w, --write          write the formatted result back to each FILE");
