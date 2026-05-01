@@ -1,23 +1,46 @@
 //! CST → formatted source text.
 //!
-//! Indentation follows two rules:
+//! Two-phase rendering:
 //!
-//! - **Function-call form (default)** — line breaks inside the list
-//!   align the next child under the *second* element. So
-//!   `(foo a\n  b)` becomes `(foo a\n     b)` with `b` aligned under
-//!   `a`.
-//! - **Special form** — recognised heads (`let`, `defun`, `cond`, …)
-//!   indent body line breaks at `(open_paren_col + 2)`, matching the
-//!   Emacs convention.
+//! 1. **Fit-or-break decision per list.** Each list is measured for
+//!    its one-line width. If it fits in the remaining width budget
+//!    (default 80 columns) *and* nothing inside it requires
+//!    multi-line layout (user line breaks, comments), it renders on
+//!    one line. Otherwise it renders multi-line.
 //!
-//! User line breaks and blank lines are preserved verbatim — Emacs's
-//! `indent-region` doesn't touch them, so neither do we. The output
-//! always ends with a trailing `\n` if non-empty.
+//! 2. **Multi-line layout.** User line breaks are preserved
+//!    one-for-one. Additional breaks are inserted between structural
+//!    children where the head's "header arity" requires it — for a
+//!    plain function call, args after the first land on their own
+//!    lines; for `defun`-style two-arg-header forms the name and
+//!    arglist stay with the head; for `progn`-style zero-header
+//!    forms every body arg gets its own line.
+//!
+//! Indentation rules (which column to use for the inserted or
+//! preserved line breaks) match Emacs's lisp-data-mode for the
+//! common cases: function calls align continuation lines under the
+//! second element, `let`/`defun`/`when`/etc. indent the body at
+//! `open_col + 2`, `progn`/`cond` switch from `+2` to align-under-
+//! first-arg once an arg renders on the head's line.
+//!
+//! The default 80-column budget can be overridden via
+//! [`render_with_width`] / [`crate::format_with_width`].
 
 use crate::cst::{Cst, CstNode};
 
+/// Default width budget (columns).
+pub const DEFAULT_WIDTH: usize = 80;
+
 pub fn render(cst: &Cst) -> String {
-    let mut r = Renderer::default();
+    render_with_width(cst, DEFAULT_WIDTH)
+}
+
+pub fn render_with_width(cst: &Cst, width: usize) -> String {
+    let mut r = Renderer {
+        out: String::new(),
+        col: 0,
+        budget: width,
+    };
     render_top_level(&cst.nodes, &mut r);
     if !r.out.is_empty() && !r.out.ends_with('\n') {
         r.out.push('\n');
@@ -25,10 +48,10 @@ pub fn render(cst: &Cst) -> String {
     r.out
 }
 
-#[derive(Default)]
 struct Renderer {
     out: String,
     col: usize,
+    budget: usize,
 }
 
 impl Renderer {
@@ -57,18 +80,36 @@ impl Renderer {
 
 fn render_top_level(nodes: &[CstNode], r: &mut Renderer) {
     let mut at_line_start = true;
+    let mut prev_was_struct = false;
     for node in nodes {
         match node {
             CstNode::LineBreak { count } => {
                 r.newline_then_indent(count.saturating_sub(1), 0);
                 at_line_start = true;
+                prev_was_struct = false;
             }
-            other => {
+            CstNode::Comment { text, .. } => {
                 if !at_line_start {
                     r.write(" ");
                 }
-                render_node(other, r);
+                r.write(text);
                 at_line_start = false;
+                prev_was_struct = false;
+            }
+            structural => {
+                if prev_was_struct && !at_line_start {
+                    // Two top-level forms in a row with no user line
+                    // break between them. Force one — top-level forms
+                    // each get their own line per Lisp convention.
+                    r.newline_then_indent(0, 0);
+                    at_line_start = true;
+                }
+                if !at_line_start {
+                    r.write(" ");
+                }
+                render_node(structural, r);
+                at_line_start = false;
+                prev_was_struct = true;
             }
         }
     }
@@ -78,12 +119,7 @@ fn render_node(node: &CstNode, r: &mut Renderer) {
     match node {
         CstNode::Atom { text, .. } => r.write(text),
         CstNode::Comment { text, .. } => r.write(text),
-        CstNode::List { children, .. } => {
-            let open_col = r.col;
-            r.write("(");
-            render_list_body(children, open_col, r);
-            r.write(")");
-        }
+        CstNode::List { children, .. } => render_list(children, r),
         CstNode::ReaderMacro { prefix, inner, .. } => {
             r.write(prefix.as_str());
             render_node(inner, r);
@@ -94,7 +130,111 @@ fn render_node(node: &CstNode, r: &mut Renderer) {
     }
 }
 
-fn render_list_body(nodes: &[CstNode], open_col: usize, r: &mut Renderer) {
+fn render_list(children: &[CstNode], r: &mut Renderer) {
+    let info = analyze_list(children);
+    let fits = !info.requires_multi && r.col + info.one_line_width <= r.budget;
+    let open_col = r.col;
+    r.write("(");
+    if fits {
+        render_list_one_line(children, r);
+    } else {
+        // Force inserted line breaks only if the list has no user
+        // breaks / comments of its own. If the user already laid the
+        // list out multi-line, preserve their structure exactly —
+        // descendants may still wrap independently to fit the
+        // budget.
+        let user_laid_out = children.iter().any(|c| {
+            matches!(
+                c,
+                CstNode::LineBreak { .. } | CstNode::Comment { .. }
+            )
+        });
+        render_list_multi(children, open_col, !user_laid_out, r);
+    }
+    r.write(")");
+}
+
+#[derive(Default, Clone, Copy)]
+struct NodeInfo {
+    one_line_width: usize,
+    requires_multi: bool,
+}
+
+/// Recursively compute the one-line render width and detect any
+/// user-imposed multi-line requirement (line break or comment) in
+/// the subtree.
+fn analyze(node: &CstNode) -> NodeInfo {
+    match node {
+        CstNode::Atom { text, .. } => NodeInfo {
+            one_line_width: text.chars().count(),
+            requires_multi: false,
+        },
+        CstNode::Comment { .. } | CstNode::LineBreak { .. } => NodeInfo {
+            one_line_width: 0,
+            requires_multi: true,
+        },
+        CstNode::ReaderMacro { prefix, inner, .. } => {
+            let inner = analyze(inner);
+            NodeInfo {
+                one_line_width: prefix.as_str().chars().count() + inner.one_line_width,
+                requires_multi: inner.requires_multi,
+            }
+        }
+        CstNode::List { children, .. } => analyze_list(children),
+    }
+}
+
+fn analyze_list(children: &[CstNode]) -> NodeInfo {
+    let mut total_width = 2; // `(` + `)`
+    let mut requires_multi = false;
+    let mut first = true;
+    for child in children {
+        match child {
+            CstNode::LineBreak { .. } | CstNode::Comment { .. } => {
+                requires_multi = true;
+            }
+            _ => {
+                let info = analyze(child);
+                if info.requires_multi {
+                    requires_multi = true;
+                }
+                if !first {
+                    total_width += 1;
+                }
+                total_width += info.one_line_width;
+                first = false;
+            }
+        }
+    }
+    NodeInfo {
+        one_line_width: total_width,
+        requires_multi,
+    }
+}
+
+fn render_list_one_line(children: &[CstNode], r: &mut Renderer) {
+    let mut first = true;
+    for child in children {
+        // analyze_list verified there are no LineBreak/Comment
+        // nodes in this list before we entered one-line mode.
+        debug_assert!(!matches!(
+            child,
+            CstNode::LineBreak { .. } | CstNode::Comment { .. }
+        ));
+        if !first {
+            r.write(" ");
+        }
+        render_node(child, r);
+        first = false;
+    }
+}
+
+fn render_list_multi(
+    nodes: &[CstNode],
+    open_col: usize,
+    force_breaks: bool,
+    r: &mut Renderer,
+) {
     let mut head_text: Option<String> = None;
     let mut second_col: Option<usize> = None;
     let mut struct_count: usize = 0;
@@ -120,6 +260,24 @@ fn render_list_body(nodes: &[CstNode], open_col: usize, r: &mut Renderer) {
                 at_line_start = false;
             }
             structural => {
+                // After the form's "header" args have rendered,
+                // every subsequent struct child gets a line break
+                // before it — but only if we're forcing breaks
+                // (i.e., the user didn't already lay this list out).
+                let header_args = header_size(head_text.as_deref());
+                let needs_forced_break = force_breaks
+                    && !at_line_start
+                    && struct_count > header_args;
+                if needs_forced_break {
+                    let indent = compute_indent(
+                        head_text.as_deref(),
+                        struct_count,
+                        second_col,
+                        open_col,
+                    );
+                    r.newline_then_indent(0, indent);
+                    at_line_start = true;
+                }
                 if !at_line_start {
                     r.write(" ");
                 }
@@ -193,6 +351,30 @@ fn special_kind(head: &str) -> SpecialKind {
     }
 }
 
+/// Number of structural children — counted *after* the head — that
+/// stay on the head's line in multi-line layout. Args past this
+/// count get a forced line break before them.
+///
+/// - Default function call: 1 (head + first arg fit on the opening
+///   line; subsequent args break).
+/// - `progn`-shaped forms: 0 (head alone on the opening line; every
+///   body arg breaks).
+/// - `defun` / `defmacro` / `defspecial` / `condition-case`: 2
+///   (head + name + arglist / var + form fit on the opening line;
+///   body breaks).
+/// - All other special forms: 1.
+fn header_size(head: Option<&str>) -> usize {
+    let Some(head) = head else { return 1 };
+    match special_kind(head) {
+        SpecialKind::None => 1,
+        SpecialKind::ZeroHeader => 0,
+        SpecialKind::HasHeader => match head {
+            "defun" | "defmacro" | "defspecial" | "condition-case" => 2,
+            _ => 1,
+        },
+    }
+}
+
 /// Special forms whose body indents at `open_col + 2` (the
 /// `HasHeader` regime in [`special_kind`]). Members have at least
 /// one "header" argument (the bindings list, the function name, the
@@ -244,6 +426,10 @@ mod tests {
 
     fn fmt(src: &str) -> String {
         crate::format(src).expect("parse")
+    }
+
+    fn fmt_with(src: &str, width: usize) -> String {
+        crate::format_with_width(src, width).expect("parse")
     }
 
     #[test]
@@ -359,6 +545,69 @@ mod tests {
         assert_eq!(fmt(";; eof comment"), ";; eof comment\n");
     }
 
+    // -------- line wrapping --------
+
+    #[test]
+    fn one_line_when_fits() {
+        // Default budget is 80 cols; this is well under.
+        assert_eq!(fmt("(foo a b c)"), "(foo a b c)\n");
+    }
+
+    #[test]
+    fn function_call_breaks_when_too_wide() {
+        // 20 chars wide; budget 15 forces a break.
+        assert_eq!(
+            fmt_with("(foo arg1 arg2 arg3)", 15),
+            "(foo arg1\n     arg2\n     arg3)\n"
+        );
+    }
+
+    #[test]
+    fn defun_breaks_with_header_on_first_line() {
+        // `defun` header arity is 2 (name + arglist); body breaks.
+        assert_eq!(
+            fmt_with("(defun greet (name) (princ name) (newline))", 30),
+            "(defun greet (name)\n  (princ name)\n  (newline))\n"
+        );
+    }
+
+    #[test]
+    fn progn_breaks_with_head_alone() {
+        // `progn` is ZeroHeader: head on its own line, every body
+        // arg breaks.
+        assert_eq!(
+            fmt_with("(progn step-one step-two step-three)", 18),
+            "(progn\n  step-one\n  step-two\n  step-three)\n"
+        );
+    }
+
+    #[test]
+    fn nested_lists_decide_independently() {
+        // Outer list won't fit; inner list does.
+        let src = "(foo (small a) (small b) (small c))";
+        assert_eq!(
+            fmt_with(src, 24),
+            "(foo (small a)\n     (small b)\n     (small c))\n"
+        );
+    }
+
+    #[test]
+    fn renders_atom_text_verbatim() {
+        let cst = crate::parse("(#x1A ?\\n \"hi\")").unwrap();
+        let CstNode::List { children, .. } = &cst.nodes[0] else {
+            panic!()
+        };
+        let texts: Vec<&str> = children
+            .iter()
+            .filter_map(|n| match n {
+                CstNode::Atom { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(texts, vec!["#x1A", r#"?\n"#, r#""hi""#]);
+        assert_eq!(crate::format("(#x1A ?\\n \"hi\")").unwrap(), "(#x1A ?\\n \"hi\")\n");
+    }
+
     #[test]
     fn round_trip_idempotent() {
         let inputs = [
@@ -389,22 +638,5 @@ mod tests {
                 "round-trip not idempotent for input:\n{src}\nfirst:\n{once}\nsecond:\n{twice}"
             );
         }
-    }
-
-    #[test]
-    fn renders_atom_text_verbatim() {
-        let cst = crate::parse("(#x1A ?\\n \"hi\")").unwrap();
-        let CstNode::List { children, .. } = &cst.nodes[0] else {
-            panic!()
-        };
-        let texts: Vec<&str> = children
-            .iter()
-            .filter_map(|n| match n {
-                CstNode::Atom { text, .. } => Some(text.as_str()),
-                _ => None,
-            })
-            .collect();
-        assert_eq!(texts, vec!["#x1A", r#"?\n"#, r#""hi""#]);
-        assert_eq!(crate::format("(#x1A ?\\n \"hi\")").unwrap(), "(#x1A ?\\n \"hi\")\n");
     }
 }

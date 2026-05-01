@@ -25,13 +25,26 @@ pub mod render;
 
 pub use cst::Cst;
 
-/// Format a source string. Returns the formatted source on success, or
-/// a parse error. The formatter is deterministic and idempotent for
-/// any input it accepts.
+/// Format a source string with the default 80-column width budget.
+/// Returns the formatted source on success, or a parse error. The
+/// formatter is deterministic and idempotent for any input it
+/// accepts.
 pub fn format(source: &str) -> Result<String, parse::ParseError> {
+    format_with_width(source, render::DEFAULT_WIDTH)
+}
+
+/// Format a source string with a custom width budget. Lists that
+/// don't fit within `width` columns at their starting position are
+/// rendered multi-line; lists that fit are kept on one line. User
+/// line breaks and comments are always preserved (and force
+/// multi-line layout for the surrounding list).
+pub fn format_with_width(
+    source: &str,
+    width: usize,
+) -> Result<String, parse::ParseError> {
     let tokens = lex::lex(source);
     let cst = parse::parse_with_source(&tokens, Some(source))?;
-    Ok(render::render(&cst))
+    Ok(render::render_with_width(&cst, width))
 }
 
 /// Parse a source string into a [`Cst`] without rendering. Useful for
