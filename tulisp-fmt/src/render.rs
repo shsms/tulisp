@@ -10,10 +10,9 @@
 //!   indent body line breaks at `(open_paren_col + 2)`, matching the
 //!   Emacs convention.
 //!
-//! User line breaks are preserved one-for-one (a `LineBreak { count: 1 }`
-//! produces a `\n`, `count >= 2` produces a `\n\n` — collapsing any
-//! longer run of blank lines to one). The output always ends with a
-//! trailing `\n` if non-empty.
+//! User line breaks and blank lines are preserved verbatim — Emacs's
+//! `indent-region` doesn't touch them, so neither do we. The output
+//! always ends with a trailing `\n` if non-empty.
 
 use crate::cst::{Cst, CstNode};
 
@@ -44,9 +43,9 @@ impl Renderer {
         self.out.push_str(s);
     }
 
-    fn newline_then_indent(&mut self, blank: bool, indent: usize) {
+    fn newline_then_indent(&mut self, blank_lines: u32, indent: usize) {
         self.out.push('\n');
-        if blank {
+        for _ in 0..blank_lines {
             self.out.push('\n');
         }
         for _ in 0..indent {
@@ -61,7 +60,7 @@ fn render_top_level(nodes: &[CstNode], r: &mut Renderer) {
     for node in nodes {
         match node {
             CstNode::LineBreak { count } => {
-                r.newline_then_indent(*count >= 2, 0);
+                r.newline_then_indent(count.saturating_sub(1), 0);
                 at_line_start = true;
             }
             other => {
@@ -110,7 +109,7 @@ fn render_list_body(nodes: &[CstNode], open_col: usize, r: &mut Renderer) {
                     second_col,
                     open_col,
                 );
-                r.newline_then_indent(*count >= 2, indent);
+                r.newline_then_indent(count.saturating_sub(1), indent);
                 at_line_start = true;
             }
             CstNode::Comment { text, .. } => {
@@ -277,8 +276,10 @@ mod tests {
 
     #[test]
     fn preserves_blank_lines_at_top_level() {
-        let src = "(a)\n\n\n(b)\n";
-        assert_eq!(fmt(src), "(a)\n\n(b)\n");
+        // All blank lines round-trip — Emacs's `indent-region` doesn't
+        // touch them, so we don't either.
+        assert_eq!(fmt("(a)\n\n(b)\n"), "(a)\n\n(b)\n");
+        assert_eq!(fmt("(a)\n\n\n(b)\n"), "(a)\n\n\n(b)\n");
     }
 
     #[test]
