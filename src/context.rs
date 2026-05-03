@@ -200,11 +200,37 @@ impl TulispContext {
             let tags = tags
                 .iter()
                 .map(|(name, loc)| {
+                    // `loc` is the source line of the `ctx.defun(`
+                    // call (Rust track_caller) or the `(defun NAME)`
+                    // form (Lisp parse). For multi-line Rust
+                    // registrations the name string lives a few
+                    // lines later -- emacs\'s tag-find then can\'t
+                    // locate the name on the recorded line and falls
+                    // back to a forward search, landing on the wrong
+                    // occurrence. Walk forward a few lines to find
+                    // the line that actually contains the name and
+                    // use it as the preamble.
+                    let mut adjusted = *loc;
+                    if !file
+                        .get(loc - 1)
+                        .map(|l| l.contains(name.as_str()))
+                        .unwrap_or(false)
+                    {
+                        for off in 1..=8 {
+                            let cand = loc + off;
+                            if let Some(line) = file.get(cand - 1)
+                                && line.contains(name.as_str())
+                            {
+                                adjusted = cand;
+                                break;
+                            }
+                        }
+                    }
                     format!(
                         "{}{name}{},{}",
-                        file[*loc - 1],
-                        loc,
-                        file[0..loc.saturating_sub(2)]
+                        file[adjusted - 1],
+                        adjusted,
+                        file[0..adjusted.saturating_sub(2)]
                             .iter()
                             .fold(1, |acc, line| acc + line.len() + 1)
                     )
