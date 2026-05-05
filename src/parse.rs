@@ -589,21 +589,23 @@ impl Parser<'_, '_> {
         #[cfg(feature = "etags")]
         if self.follow_load_files
             && let Ok("load") = inner.car()?.as_symbol().as_ref().map(|x| x.as_str())
+            && let Ok(filename) = inner.cadr().and_then(|c| c.as_string())
         {
-            let filename = inner.cadr()?.as_string()?;
-            let contents = std::fs::read_to_string(&filename).map_err(|e| {
-                Error::os_error(format!("Unable to read file: {filename}. Error: {e}"))
-            })?;
-            self.ctx.filenames.push(filename.to_string());
-            // Parse the file to populate the tags table, but ignore the
-            // result since we only care about the side effect of populating
-            // the tags table.
-            let _ = parse(
-                self.ctx,
-                self.ctx.filenames.len() - 1,
-                contents.as_str(),
-                self.follow_load_files,
-            );
+            // Only (load "literal-path") gets followed for tag
+            // discovery. (load some-var) / (load (compute-path))
+            // get silently skipped — without a static path we
+            // can't know which file to descend into, and aborting
+            // the parse here would drop every defun that comes
+            // after the dynamic-load form.
+            if let Ok(contents) = std::fs::read_to_string(&filename) {
+                self.ctx.filenames.push(filename.to_string());
+                let _ = parse(
+                    self.ctx,
+                    self.ctx.filenames.len() - 1,
+                    contents.as_str(),
+                    self.follow_load_files,
+                );
+            }
         }
 
         if let Ok("defun" | "defmacro" | "defvar") =
