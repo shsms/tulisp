@@ -404,9 +404,7 @@ fn is_top_level_definition(node: &CstNode) -> bool {
     });
     matches!(
         head,
-        Some(
-            "defun" | "defmacro" | "defvar" | "defconst" | "defspecial"
-        )
+        Some("defun" | "defmacro" | "defvar" | "defconst" | "defspecial")
     )
 }
 
@@ -447,8 +445,7 @@ fn render_list_with_override(
     // Alist: every structural child is a dotted pair. With the
     // style flag set (default), force one pair per line even when
     // the whole list would fit on a single line.
-    let force_alist_multi =
-        r.style.alist_one_per_line && !is_pair && is_alist(children);
+    let force_alist_multi = r.style.alist_one_per_line && !is_pair && is_alist(children);
     let fits = is_pair
         || (!force_alist_multi
             && !info.requires_multi
@@ -463,12 +460,9 @@ fn render_list_with_override(
         // list out multi-line, preserve their structure exactly —
         // descendants may still wrap independently to fit the
         // budget.
-        let user_laid_out = children.iter().any(|c| {
-            matches!(
-                c,
-                CstNode::LineBreak { .. } | CstNode::Comment { .. }
-            )
-        });
+        let user_laid_out = children
+            .iter()
+            .any(|c| matches!(c, CstNode::LineBreak { .. } | CstNode::Comment { .. }));
         // Alists override the header arity to 0 so every cons cell
         // gets its own line; built-in special forms keep theirs.
         let effective_override = if force_alist_multi {
@@ -476,9 +470,90 @@ fn render_list_with_override(
         } else {
             header_override
         };
-        render_list_multi(children, open_col, !user_laid_out, effective_override, r);
+
+        // For default function calls (`SpecialKind::None`), the
+        // aligned-under-first-arg multi-line layout sometimes
+        // marches the indent off the right edge — the cascade
+        // happens for deeply nested forms or long heads. Try
+        // aligned first, measure the max column we wrote to, and
+        // if it overran the budget, roll back and re-render
+        // hanging (every arg breaks onto its own line at
+        // `open_col + indent_step`). Special forms (`let` /
+        // `defun` / `progn` / …) already hang via SpecialKind, so
+        // they don't need the trial.
+        let head_text = first_atom_text(children);
+        let kind = head_text
+            .map(|h| special_kind(h, &r.user_indent))
+            .unwrap_or(SpecialKind::None);
+        let allow_hanging_fallback =
+            matches!(kind, SpecialKind::None) && !user_laid_out && !force_alist_multi;
+
+        if allow_hanging_fallback {
+            let snap_len = r.out.len();
+            let snap_col = r.col;
+            render_list_multi(
+                children,
+                open_col,
+                !user_laid_out,
+                effective_override,
+                false,
+                r,
+            );
+            let max_col = max_appended_col(&r.out, snap_len, snap_col);
+            // +1 accounts for the closing `)` we'll write after
+            // the trial finishes — it lands on the last content
+            // line and adds one column to its width.
+            if max_col + 1 > r.budget() {
+                r.out.truncate(snap_len);
+                r.col = snap_col;
+                render_list_multi(children, open_col, !user_laid_out, Some(0), true, r);
+            }
+        } else {
+            render_list_multi(
+                children,
+                open_col,
+                !user_laid_out,
+                effective_override,
+                false,
+                r,
+            );
+        }
     }
     r.write(")");
+}
+
+/// Text of the first atom child (the form's head), or None for an
+/// empty list / a list whose head isn't an atom.
+fn first_atom_text(children: &[CstNode]) -> Option<&str> {
+    for c in children {
+        match c {
+            CstNode::LineBreak { .. } | CstNode::Comment { .. } => continue,
+            CstNode::Atom { text, .. } => return Some(text.as_str()),
+            _ => return None,
+        }
+    }
+    None
+}
+
+/// Maximum column reached while writing the bytes appended to
+/// `out` since `snap_len`, given the renderer's column was
+/// `start_col` at the snapshot. Matches `Renderer::write`'s
+/// per-char column accounting (every non-`\n` char advances col
+/// by 1; `\n` resets to 0).
+fn max_appended_col(out: &str, snap_len: usize, start_col: usize) -> usize {
+    let mut col = start_col;
+    let mut max = start_col;
+    for c in out[snap_len..].chars() {
+        if c == '\n' {
+            col = 0;
+        } else {
+            col += 1;
+            if col > max {
+                max = col;
+            }
+        }
+    }
+    max
 }
 
 /// True if `children` represents a dotted pair — i.e. contains a `.`
@@ -594,6 +669,7 @@ fn render_list_multi(
     open_col: usize,
     force_breaks: bool,
     header_override: Option<usize>,
+    force_hanging: bool,
     r: &mut Renderer,
 ) {
     let mut head_text: Option<String> = None;
@@ -611,6 +687,7 @@ fn render_list_multi(
                     open_col,
                     r.indent_step(),
                     &r.user_indent,
+                    force_hanging,
                 );
                 r.newline_then_indent(count.saturating_sub(1), indent);
                 at_line_start = true;
@@ -629,9 +706,8 @@ fn render_list_multi(
                 // (i.e., the user didn't already lay this list out).
                 let header_args = header_override
                     .unwrap_or_else(|| header_size(head_text.as_deref(), &r.user_indent));
-                let needs_forced_break = force_breaks
-                    && !at_line_start
-                    && struct_count > header_args;
+                let needs_forced_break =
+                    force_breaks && !at_line_start && struct_count > header_args;
                 if needs_forced_break {
                     let indent = compute_indent(
                         head_text.as_deref(),
@@ -640,6 +716,7 @@ fn render_list_multi(
                         open_col,
                         r.indent_step(),
                         &r.user_indent,
+                        force_hanging,
                     );
                     r.newline_then_indent(0, indent);
                     at_line_start = true;
@@ -661,9 +738,7 @@ fn render_list_multi(
                 let is_let_bindings = struct_count == 1
                     && matches!(head_text.as_deref(), Some("let" | "let*"))
                     && matches!(structural, CstNode::List { .. });
-                if is_let_bindings
-                    && let CstNode::List { children, .. } = structural
-                {
+                if is_let_bindings && let CstNode::List { children, .. } = structural {
                     render_let_bindings(children, r);
                 } else {
                     render_node(structural, r);
@@ -697,13 +772,22 @@ fn compute_indent(
     open_col: usize,
     indent_step: usize,
     user_indent: &HashMap<String, usize>,
+    force_hanging: bool,
 ) -> usize {
     if struct_count == 0 {
         return open_col + 1;
     }
-    let kind = head
-        .map(|h| special_kind(h, user_indent))
-        .unwrap_or(SpecialKind::None);
+    // `force_hanging` is set when `render_list_with_override`
+    // determined an aligned-under-first-arg layout would overflow
+    // the budget. Treat the form as `ZeroHeader` (every arg
+    // breaks onto its own line at `open_col + indent_step`)
+    // regardless of its real `SpecialKind`.
+    let kind = if force_hanging {
+        SpecialKind::ZeroHeader
+    } else {
+        head.map(|h| special_kind(h, user_indent))
+            .unwrap_or(SpecialKind::None)
+    };
     match kind {
         SpecialKind::HasHeader => open_col + indent_step,
         SpecialKind::ZeroHeader => second_col.unwrap_or(open_col + indent_step),
@@ -872,10 +956,7 @@ mod tests {
     #[test]
     fn nested_special_and_call() {
         let src = "(let ((x 1))\n(foo x\ny))";
-        assert_eq!(
-            fmt(src),
-            "(let ((x 1))\n  (foo x\n       y))\n"
-        );
+        assert_eq!(fmt(src), "(let ((x 1))\n  (foo x\n       y))\n");
     }
 
     #[test]
@@ -915,10 +996,7 @@ mod tests {
 
     #[test]
     fn trailing_single_semicolon() {
-        assert_eq!(
-            fmt("(foo) ; trailing\n(bar)"),
-            "(foo) ; trailing\n(bar)\n"
-        );
+        assert_eq!(fmt("(foo) ; trailing\n(bar)"), "(foo) ; trailing\n(bar)\n");
     }
 
     #[test]
@@ -1003,7 +1081,10 @@ mod tests {
             })
             .collect();
         assert_eq!(texts, vec!["#x1A", r#"?\n"#, r#""hi""#]);
-        assert_eq!(crate::format("(#x1A ?\\n \"hi\")").unwrap(), "(#x1A ?\\n \"hi\")\n");
+        assert_eq!(
+            crate::format("(#x1A ?\\n \"hi\")").unwrap(),
+            "(#x1A ?\\n \"hi\")\n"
+        );
     }
 
     #[test]
@@ -1210,10 +1291,42 @@ mod tests {
         // Outer (when …) opens at col 0, body at col 2 → 0 tabs + 2
         // spaces. Inner (when …) opens at col 2 (one space after the
         // outer head + first arg), body at col 4 → 1 tab + 0 spaces.
-        let out = fmt_with_style(
-            "(when a\n  (when b\n    body))",
-            &style,
-        );
+        let out = fmt_with_style("(when a\n  (when b\n    body))", &style);
         assert_eq!(out, "(when a\n  (when b\n\tbody))\n");
+    }
+
+    /// When laying out aligned-under-first-arg would push a child
+    /// past the budget, every arg breaks to its own line at
+    /// `open_col + indent_step` instead of cascading right.
+    #[test]
+    fn falls_back_to_hanging_when_aligned_overflows() {
+        // Aligned would put each arg at col 5 ending col 13 — 1
+        // past the budget once the closing `)` is added. Hanging
+        // indents at col 2, ends col 10, and fits cleanly.
+        let out = fmt_with("(foo arg-aaaa arg-bbbb arg-cccc)", 12);
+        assert_eq!(out, "(foo\n  arg-aaaa\n  arg-bbbb\n  arg-cccc)\n");
+    }
+
+    /// A form whose continuation args fit at aligned_col stays
+    /// aligned — the fallback only fires when aligned would
+    /// overflow.
+    #[test]
+    fn aligned_layout_kept_when_continuation_args_fit() {
+        // (foo a b c) doesn't fit width 8 one-line, but laid out
+        // aligned the widest line (`     c)`) is 7 chars, leaving
+        // budget room for the closing paren.
+        let out = fmt_with("(foo a b c)", 8);
+        assert_eq!(out, "(foo a\n     b\n     c)\n");
+    }
+
+    /// Special forms (`let`, `when`, etc.) already hang at
+    /// `open_col + indent_step`; the fallback shouldn't perturb
+    /// their layout.
+    #[test]
+    fn special_forms_unchanged_by_aligned_fallback() {
+        // Body args of (when …) indent at +2, not under the
+        // condition.
+        let out = fmt_with("(when condition body-form-1 body-form-2)", 30);
+        assert_eq!(out, "(when condition\n  body-form-1\n  body-form-2)\n");
     }
 }
