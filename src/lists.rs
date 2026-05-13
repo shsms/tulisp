@@ -53,9 +53,6 @@ pub fn last(list: &TulispObject, n: Option<i64>) -> Result<TulispObject, Error> 
         )));
     }
 
-    // TODO: emacs' implementation uses the `safe-length` function for this, but
-    // we don't have a `safe-length` function yet, because we don't have a way
-    // to detect cycles in lists.
     let len = length(list)?;
     if let Some(n) = n {
         if n < 0 {
