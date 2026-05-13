@@ -122,10 +122,7 @@ pub trait Plistable {
     /// Deserialize `Self` from a flat `[k0, v0, k1, v1, …]` slice of
     /// already-evaluated lisp values. The defun-arg path (`Plist<T>`)
     /// calls this directly with the evaluated arg slice.
-    fn from_plist_as_slice(
-        ctx: &mut TulispContext,
-        kvs: &[TulispObject],
-    ) -> Result<Self, Error>
+    fn from_plist_as_slice(ctx: &mut TulispContext, kvs: &[TulispObject]) -> Result<Self, Error>
     where
         Self: Sized;
 

@@ -3,8 +3,8 @@ use super::{
     compiler::VMDefunParams,
 };
 use crate::{
-    Error, Number, TulispContext, TulispObject, TulispValue, bytecode::Pos, plist,
-    object::wrappers::generic::SharedMut,
+    Error, Number, TulispContext, TulispObject, TulispValue, bytecode::Pos,
+    object::wrappers::generic::SharedMut, plist,
 };
 use std::collections::HashMap;
 
