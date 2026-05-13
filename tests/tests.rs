@@ -3428,6 +3428,59 @@ fn test_symbol_creation() -> Result<(), Error> {
 /// surrounding form was ever called. Now the cache is gated on
 /// `car.symbolp()`; list cars rebuild the callable at runtime
 /// instead.
+/// Emacs Lisp keeps function bindings and value bindings in separate
+/// namespaces. A `(let ((f x))` introduces a *value* binding on `f`;
+/// `(funcall 'f)` resolves the *function* binding (because the
+/// symbol arrives quoted, so funcall walks the function cell). The
+/// two should not interfere.
+///
+/// Tulisp had a speculative todo entry (b2) flagging this as a place
+/// where lex-binding might diverge from Emacs under shadowing. The
+/// cases below verify each scenario — quoted symbol funcall, lambda-
+/// valued let binding, Rust-side ctx.defun, closure capture — and
+/// all behave as Emacs does. The entry can come out of todo.org;
+/// this test pins the behavior so a future lex-binding regression
+/// surfaces it.
+#[test]
+fn test_funcall_shadowing_keeps_namespaces_separate() -> Result<(), Error> {
+    // (defun f) + (funcall 'f) under value-shadowing — function
+    // binding wins.
+    tulisp_assert! { program:
+        "(defun f () 'global) (let ((f 'shadow)) (funcall 'f))",
+        result: "'global"
+    }
+    // Even when the shadowing let-value is itself a callable, the
+    // function binding still wins for quoted-symbol funcall.
+    tulisp_assert! { program:
+        "(defun f () 'global)
+         (let ((f (lambda () 'shadow))) (funcall 'f))",
+        result: "'global"
+    }
+    // A closure that references the symbol funcall'd by name resolves
+    // the function cell at *call* time, not at lambda creation —
+    // shadowing in the outer let doesn't reach into the closure.
+    tulisp_assert! { program:
+        "(defun f () 'global)
+         (let ((g (lambda () (funcall 'f))))
+           (let ((f 'shadow))
+             (funcall g)))",
+        result: "'global"
+    }
+
+    // Rust-side variant: ctx.defun-registered closure under value
+    // shadowing. The Rust dispatch should still fire — function
+    // cell vs value cell separation holds regardless of which side
+    // registered the function.
+    let mut ctx = TulispContext::new();
+    ctx.defun("rust-f", || "rust-global".to_string());
+    assert_eq!(
+        ctx.eval_string("(let ((rust-f 'shadow)) (funcall 'rust-f))")?
+            .to_string(),
+        "\"rust-global\"",
+    );
+    Ok(())
+}
+
 #[test]
 fn test_prog1_prog2() -> Result<(), Error> {
     // prog1 returns FIRST, evaluates BODY for side effects.
