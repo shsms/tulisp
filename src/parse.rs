@@ -630,8 +630,19 @@ impl Parser<'_, '_> {
         }
         if inner.consp() {
             let name = inner.car()?;
-            let ctxobj = self.ctx.eval(&name).ok();
-            inner.with_ctxobj(ctxobj);
+            // Only cache a ctxobj when the car is a symbol — looking
+            // up a function binding is what the cache pays off. A
+            // list-shaped car (e.g. a cond clause `((some-fn args)
+            // body...)`, an IIFE `((lambda …) args)`, a let binding
+            // pair init) would otherwise be *invoked* by this eval
+            // at parse time, firing any side effect before the
+            // surrounding form actually runs. Symbol cars are the
+            // only static-resolvable case anyway; for list cars the
+            // runtime path rebuilds the callable on every call.
+            if name.symbolp() {
+                let ctxobj = self.ctx.eval(&name).ok();
+                inner.with_ctxobj(ctxobj);
+            }
         }
         Ok(inner)
     }

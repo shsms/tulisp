@@ -3420,6 +3420,51 @@ fn test_symbol_creation() -> Result<(), Error> {
     Ok(())
 }
 
+/// The parser caches a callable resolution on every list it builds
+/// to skip the symbol → function lookup at runtime. The previous
+/// implementation cached unconditionally, which meant a list-shaped
+/// car (a cond predicate, an IIFE head, a let binding init) got
+/// *evaluated* at parse time — side effects fired before the
+/// surrounding form was ever called. Now the cache is gated on
+/// `car.symbolp()`; list cars rebuild the callable at runtime
+/// instead.
+#[test]
+fn test_parse_does_not_eval_list_cars() -> Result<(), Error> {
+    // A defun whose body has a cond with a side-effecting predicate
+    // must not fire that predicate during defun registration.
+    tulisp_assert! { program:
+        "(progn
+           (setq c 0)
+           (defun bump () (setq c (1+ c)) c)
+           (defun nc () (cond ((bump) 1) (t 2)))
+           c)",
+        result_str: "0"
+    }
+    // Calling the defun runs the predicate exactly once.
+    tulisp_assert! { program:
+        "(progn
+           (setq c 0)
+           (defun bump () (setq c (1+ c)) c)
+           (defun nc () (cond ((bump) 1) (t 2)))
+           (nc)
+           c)",
+        result_str: "1"
+    }
+    // IIFE — list car that's a lambda — keeps working after the
+    // cache is skipped; the runtime path rebuilds the lambda value.
+    tulisp_assert! { program: "((lambda (x) (* x 2)) 21)", result: "42" }
+    // let binding-init expressions don't fire at parse time either.
+    tulisp_assert! { program:
+        "(progn
+           (setq c 0)
+           (defun bump () (setq c (1+ c)) c)
+           (defun nl () (let ((a (bump))) a))
+           c)",
+        result_str: "0"
+    }
+    Ok(())
+}
+
 #[test]
 fn test_underscore_ident() -> Result<(), Error> {
     // A lone underscore is a valid identifier, not a number.
