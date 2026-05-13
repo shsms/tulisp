@@ -90,4 +90,3 @@ pub fn nthcdr(n: i64, list: TulispObject) -> Result<TulispObject, Error> {
 pub fn nth(n: i64, list: TulispObject) -> Result<TulispObject, Error> {
     nthcdr(n, list).and_then(|x| x.car())
 }
-

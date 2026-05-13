@@ -275,11 +275,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     fn impl_let(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
         destruct_bind!((varlist &rest body) = args);
-        if !body.consp() {
-            return Err(Error::type_mismatch(
-                "let: expected varlist and body".to_string(),
-            ));
-        }
+        // `body` may be nil — `(let ((x 5)))` is well-formed and
+        // evaluates to nil per Emacs. `eval_progn` returns nil for
+        // an empty form list, so no explicit check is needed.
         // For non-special vars, create a fresh LexicalBinding per
         // evaluation that directly owns its slot (via
         // `lexical_binding_captured`) and rewrite the body to reference

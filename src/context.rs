@@ -200,11 +200,37 @@ impl TulispContext {
             let tags = tags
                 .iter()
                 .map(|(name, loc)| {
+                    // `loc` is the source line of the `ctx.defun(`
+                    // call (Rust track_caller) or the `(defun NAME)`
+                    // form (Lisp parse). For multi-line Rust
+                    // registrations the name string lives a few
+                    // lines later -- emacs\'s tag-find then can\'t
+                    // locate the name on the recorded line and falls
+                    // back to a forward search, landing on the wrong
+                    // occurrence. Walk forward a few lines to find
+                    // the line that actually contains the name and
+                    // use it as the preamble.
+                    let mut adjusted = *loc;
+                    if !file
+                        .get(loc - 1)
+                        .map(|l| l.contains(name.as_str()))
+                        .unwrap_or(false)
+                    {
+                        for off in 1..=8 {
+                            let cand = loc + off;
+                            if let Some(line) = file.get(cand - 1)
+                                && line.contains(name.as_str())
+                            {
+                                adjusted = cand;
+                                break;
+                            }
+                        }
+                    }
                     format!(
                         "{}{name}{},{}",
-                        file[*loc - 1],
-                        loc,
-                        file[0..loc.saturating_sub(2)]
+                        file[adjusted - 1],
+                        adjusted,
+                        file[0..adjusted.saturating_sub(2)]
                             .iter()
                             .fold(1, |acc, line| acc + line.len() + 1)
                     )
@@ -629,7 +655,16 @@ impl TulispContext {
             .unwrap_or_else(|| "<unknown>".to_string())
     }
 
-    pub(crate) fn parse_file(&mut self, filename: &str) -> Result<TulispObject, Error> {
+    /// Parse `filename` and return its top-level forms as a
+    /// `TulispObject` list, without evaluating them. Useful for
+    /// tooling (linters, analyzers, source-rewriters) that wants the
+    /// AST without running it.
+    ///
+    /// `filename` is interned in the context's filename table so any
+    /// later error traces from these forms cite the file by name.
+    /// Re-parsing the same path reuses the existing entry; the table
+    /// only grows on first sight of a new path.
+    pub fn parse_file(&mut self, filename: &str) -> Result<TulispObject, Error> {
         let contents = fs::read_to_string(filename)
             .map_err(|e| Error::os_error(format!("Unable to read file: {filename}. Error: {e}")))?;
         let idx = if let Some(idx) = self.filenames.iter().position(|x| x == filename) {
