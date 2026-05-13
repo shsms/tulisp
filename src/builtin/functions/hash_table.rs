@@ -73,7 +73,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             // returns DEFAULT (nil if omitted) when KEY isn't present.
             table
                 .inner
-                .borrow_mut()
+                .borrow()
                 .get(&key.into())
                 .cloned()
                 .unwrap_or_else(|| default.unwrap_or_else(TulispObject::nil))

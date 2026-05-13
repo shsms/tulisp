@@ -27,9 +27,11 @@ enum RestEnum<T> {
 impl From<Rest<TulispObject>> for TulispObject {
     fn from(val: Rest<TulispObject>) -> Self {
         match val.values {
-            RestEnum::Typed(..) => {
-                unreachable!()
-            }
+            // `FromIterator` dispatches `T = TulispObject` to `Boxed`,
+            // so `Typed` is only reachable if a future caller builds
+            // `RestEnum::Typed` directly. Collect to keep the
+            // conversion total — same shape `Boxed` returns.
+            RestEnum::Typed(values) => values.into_iter().collect(),
             RestEnum::Boxed(obj, _) => obj,
         }
     }

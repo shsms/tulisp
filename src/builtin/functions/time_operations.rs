@@ -104,9 +104,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 let matched = match ch {
                     'y' => (duration.as_secs() / 3600 / 24 / 365).to_string(),
                     'd' => (duration.as_secs() / 3600 / 24 % 365).to_string(),
-                    'h' => (duration.as_secs() / 3600 % 24 % 365).to_string(),
-                    'm' => (duration.as_secs() / 60 % 60 % 24 % 365).to_string(),
-                    's' => (duration.as_secs() % 60 % 60 % 24 % 365).to_string(),
+                    'h' => (duration.as_secs() / 3600 % 24).to_string(),
+                    'm' => (duration.as_secs() / 60 % 60).to_string(),
+                    's' => (duration.as_secs() % 60).to_string(),
                     '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' => {
                         prefix.push(ch);
                         continue;
