@@ -2997,13 +2997,13 @@ fn test_sort() -> Result<(), Error> {
     tulisp_assert! {
         program: r#"(sort '("sort" "hello" "a" "world") '>)"#,
         error: format!(r#"ERR TypeMismatch: Expected number, got: "hello"
-{0}:67.35-67.55:  at (funcall pred item x)
-{0}:67.15-67.56:  at (and (not inserted) (funcall pred item x))
-{0}:67.11-71.36:  at (if (and (not inserted) (funcall pred item x)) (progn (setq new (cons item new))...
-{0}:66.9-71.37:  at (dolist (x out) (if (and (not inserted) (funcall pred item x)) (progn (setq new ...
-{0}:65.7-74.33:  at (let ((inserted nil) (new nil)) (dolist (x out) (if (and (not inserted) (funcall...
-{0}:64.5-74.34:  at (dolist (item seq) (let ((inserted nil) (new nil)) (dolist (x out) (if (and (not...
-{0}:63.3-75.8:  at (let ((out nil)) (dolist (item seq) (let ((inserted nil) (new nil)) (dolist (x o...
+{0}:80.35-80.55:  at (funcall pred item x)
+{0}:80.15-80.56:  at (and (not inserted) (funcall pred item x))
+{0}:80.11-84.36:  at (if (and (not inserted) (funcall pred item x)) (progn (setq new (cons item new))...
+{0}:79.9-84.37:  at (dolist (x out) (if (and (not inserted) (funcall pred item x)) (progn (setq new ...
+{0}:78.7-87.33:  at (let ((inserted nil) (new nil)) (dolist (x out) (if (and (not inserted) (funcall...
+{0}:77.5-87.34:  at (dolist (item seq) (let ((inserted nil) (new nil)) (dolist (x out) (if (and (not...
+{0}:76.3-88.8:  at (let ((out nil)) (dolist (item seq) (let ((inserted nil) (new nil)) (dolist (x o...
 <eval_string>:1.1-1.39:  at (sort '("sort" "hello" "a" "world") '>)
 "#, prelude),
     }
@@ -3022,13 +3022,13 @@ fn test_sort() -> Result<(), Error> {
     tulisp_assert! {
         program: "(sort '(20 10 30 15 45) '<<)",
         error: format!(r#"ERR Uninitialized: Variable definition is void: <<
-{0}:67.35-67.55:  at (funcall pred item x)
-{0}:67.15-67.56:  at (and (not inserted) (funcall pred item x))
-{0}:67.11-71.36:  at (if (and (not inserted) (funcall pred item x)) (progn (setq new (cons item new))...
-{0}:66.9-71.37:  at (dolist (x out) (if (and (not inserted) (funcall pred item x)) (progn (setq new ...
-{0}:65.7-74.33:  at (let ((inserted nil) (new nil)) (dolist (x out) (if (and (not inserted) (funcall...
-{0}:64.5-74.34:  at (dolist (item seq) (let ((inserted nil) (new nil)) (dolist (x out) (if (and (not...
-{0}:63.3-75.8:  at (let ((out nil)) (dolist (item seq) (let ((inserted nil) (new nil)) (dolist (x o...
+{0}:80.35-80.55:  at (funcall pred item x)
+{0}:80.15-80.56:  at (and (not inserted) (funcall pred item x))
+{0}:80.11-84.36:  at (if (and (not inserted) (funcall pred item x)) (progn (setq new (cons item new))...
+{0}:79.9-84.37:  at (dolist (x out) (if (and (not inserted) (funcall pred item x)) (progn (setq new ...
+{0}:78.7-87.33:  at (let ((inserted nil) (new nil)) (dolist (x out) (if (and (not inserted) (funcall...
+{0}:77.5-87.34:  at (dolist (item seq) (let ((inserted nil) (new nil)) (dolist (x out) (if (and (not...
+{0}:76.3-88.8:  at (let ((out nil)) (dolist (item seq) (let ((inserted nil) (new nil)) (dolist (x o...
 <eval_string>:1.1-1.28:  at (sort '(20 10 30 15 45) '<<)
 "#, prelude)
     }
@@ -3428,6 +3428,50 @@ fn test_symbol_creation() -> Result<(), Error> {
 /// surrounding form was ever called. Now the cache is gated on
 /// `car.symbolp()`; list cars rebuild the callable at runtime
 /// instead.
+#[test]
+fn test_prog1_prog2() -> Result<(), Error> {
+    // prog1 returns FIRST, evaluates BODY for side effects.
+    tulisp_assert! { program:
+        "(let ((trace nil))
+           (prog1 (progn (setq trace (cons 1 trace)) 'first)
+                  (setq trace (cons 2 trace))
+                  (setq trace (cons 3 trace))))",
+        result: "'first"
+    }
+    // Order of evaluation is FIRST, then BODY left-to-right.
+    tulisp_assert! { program:
+        "(let ((trace nil))
+           (prog1 (progn (setq trace (cons 1 trace)) 'first)
+                  (setq trace (cons 2 trace))
+                  (setq trace (cons 3 trace)))
+           (reverse trace))",
+        result: "'(1 2 3)"
+    }
+    // prog1 with no body still returns FIRST.
+    tulisp_assert! { program: "(prog1 42)", result: "42" }
+    // prog2 returns SECOND.
+    tulisp_assert! { program: "(prog2 1 2 3 4)", result: "2" }
+    // prog2 evaluates FIRST, then SECOND, then BODY.
+    tulisp_assert! { program:
+        "(let ((trace nil))
+           (prog2 (setq trace (cons 1 trace))
+                  (setq trace (cons 2 trace))
+                  (setq trace (cons 3 trace)))
+           (reverse trace))",
+        result: "'(1 2 3)"
+    }
+    // Hygiene: a user variable named `prog1-result` doesn't collide
+    // with the macro's internal gensym.
+    tulisp_assert! { program:
+        "(let ((prog1-result 'outer))
+           (prog1 'returned
+                  (setq prog1-result 'mutated))
+           prog1-result)",
+        result: "'mutated"
+    }
+    Ok(())
+}
+
 #[test]
 fn test_parse_does_not_eval_list_cars() -> Result<(), Error> {
     // A defun whose body has a cond with a side-effecting predicate

@@ -56,6 +56,19 @@
       (setq out (concat out s)))
     out))
 
+;; Standard Elisp shape: prog1 returns FIRST after evaluating BODY
+;; for side effects; prog2 does the same but with SECOND. Both bind
+;; the to-return value to a gensym'd symbol so a BODY that itself
+;; uses `prog1-…` / `prog2-…` style names doesn't collide.
+(defmacro prog1 (first &rest body)
+  (let ((sym (gensym "prog1-")))
+    `(let ((,sym ,first))
+       ,@body
+       ,sym)))
+
+(defmacro prog2 (first second &rest body)
+  `(progn ,first (prog1 ,second ,@body)))
+
 (defun sort (seq pred)
   ;; Simple insertion sort — O(n^2), fine for typical Lisp-side use.
   ;; `pred` is called as `(pred a b)` and returns non-nil when `a`
