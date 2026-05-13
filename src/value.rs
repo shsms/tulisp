@@ -756,7 +756,7 @@ impl std::fmt::Display for TulispValue {
             TulispValue::Defun { .. } => f.write_str("Defun"),
             TulispValue::Macro(_) => f.write_str("Macro"),
             TulispValue::Defmacro { .. } => f.write_str("Defmacro"),
-            TulispValue::Lambda { .. } => f.write_str("Defun"),
+            TulispValue::Lambda { .. } => f.write_str("Lambda"),
             TulispValue::CompiledDefun { .. } => f.write_str("CompiledDefun"),
         }
     }
