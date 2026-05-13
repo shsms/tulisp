@@ -363,10 +363,7 @@ pub(super) fn compile_fn_defun(
         } else {
             body.clone()
         };
-        let body = mark_tail_calls(ctx, defun_name.clone(), body).map_err(|e| {
-            println!("mark_tail_calls error: {:?}", e);
-            e
-        })?;
+        let body = mark_tail_calls(ctx, defun_name.clone(), body)?;
         let body = substitute_lexical(body, &mappings)?;
         let mut result = compile_progn_keep_result(ctx, &body)?;
         result.push(Instruction::Ret);
