@@ -514,6 +514,25 @@ pub(crate) fn eval_basic<'a>(
 }
 
 pub fn macroexpand(ctx: &mut TulispContext, inp: TulispObject) -> Result<TulispObject, Error> {
+    macroexpand_depth(ctx, inp, 0)
+}
+
+/// Recurses on each macro expansion and each element's car (the cdr
+/// chain is walked iteratively), so `depth` bounds the native
+/// recursion — deeply nested input raises a catchable error instead of
+/// overflowing the stack.
+fn macroexpand_depth(
+    ctx: &mut TulispContext,
+    inp: TulispObject,
+    depth: u32,
+) -> Result<TulispObject, Error> {
+    let limit = ctx.max_nesting_depth();
+    if depth > limit {
+        return Err(Error::lisp_error(format!(
+            "Lisp nesting exceeds max-nesting-depth ({})",
+            limit
+        )));
+    }
     if !inp.consp() {
         return Ok(inp);
     }
@@ -527,12 +546,12 @@ pub fn macroexpand(ctx: &mut TulispContext, inp: TulispObject) -> Result<TulispO
     let mut x = match &value.inner_ref().0 {
         TulispValue::Macro(func) => {
             let expansion = func(ctx, &expr.cdr()?).map_err(|e| e.with_trace(inp))?;
-            macroexpand(ctx, expansion)?
+            macroexpand_depth(ctx, expansion, depth + 1)?
         }
         TulispValue::Defmacro { params, body } => {
             let expansion =
                 eval_defmacro(ctx, params, body, &expr.cdr()?).map_err(|e| e.with_trace(inp))?;
-            macroexpand(ctx, expansion)?
+            macroexpand_depth(ctx, expansion, depth + 1)?
         }
         _ => expr,
     };
@@ -541,7 +560,7 @@ pub fn macroexpand(ctx: &mut TulispContext, inp: TulispObject) -> Result<TulispO
         let span = x.span();
         let mut builder = crate::cons::ListBuilder::new();
         loop {
-            let car = macroexpand(ctx, x.car()?)?;
+            let car = macroexpand_depth(ctx, x.car()?, depth + 1)?;
             builder.push(car);
 
             let cdr = x.cdr()?;
@@ -843,4 +862,32 @@ fn substitute_lexical_inner(
         }
     };
     Ok(res)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::TulispContext;
+
+    // `macroexpand` on a deeply nested structure raises a catchable
+    // error instead of overflowing the stack. The structure is built
+    // at runtime (a chain of `(when t …)`) to get past the parser's own
+    // cap; run on an 8 MiB thread since the cap (256 in debug) exceeds
+    // the harness's ~2 MiB ceiling. 1000 deep trips the cap but stays
+    // shallow enough to drop without overflowing.
+    #[test]
+    fn macroexpand_deep_structure_errors_without_overflowing() {
+        std::thread::Builder::new()
+            .stack_size(8 * 1024 * 1024)
+            .spawn(|| {
+                let mut ctx = TulispContext::new();
+                let prog = "(let ((x 1)) \
+                            (dotimes (i 1000) (setq x (list 'when t x))) \
+                            (condition-case nil (progn (macroexpand x) nil) (error 'caught)))";
+                let r = ctx.eval_string(prog).expect("should error, not overflow");
+                assert_eq!(r.to_string(), "caught");
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
 }

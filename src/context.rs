@@ -183,6 +183,17 @@ impl TulispContext {
         self.max_eval_depth = depth;
     }
 
+    /// Maximum *structural* nesting depth the parser and `macroexpand`
+    /// descend before raising a catchable error, bounding the
+    /// native-stack recursion they'd do on deeply nested input. Derived
+    /// as 4× [`max_eval_depth`](Self::set_max_eval_depth): data nests
+    /// deeper than calls recurse and the parser's frames are smaller,
+    /// so it can sit higher than the eval cap on the same stack — and
+    /// raising the eval cap lifts it too.
+    pub(crate) fn max_nesting_depth(&self) -> u32 {
+        self.max_eval_depth.saturating_mul(4)
+    }
+
     /// Returns an interned symbol with the given name.
     ///
     /// Read more about creating and interning symbols
