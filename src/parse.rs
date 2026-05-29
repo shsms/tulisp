@@ -568,7 +568,10 @@ impl Parser<'_, '_> {
         let _ = self.tokenizer.next();
 
         if got_dot {
-            let next = self.parse_value()?.unwrap();
+            let Some(next) = self.parse_value()? else {
+                return Err(Error::parsing_error("Unexpected EOF after dot".to_string())
+                    .with_trace(TulispObject::nil().with_span(Some(start_span))));
+            };
             if let Some(Token::CloseParen { span: end_span }) = self.tokenizer.next() {
                 full_span = Some(Span {
                     file_id: self.file_id,
@@ -853,4 +856,28 @@ pub fn parse(
         follow_load_files,
     )
     .parse()
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::TulispContext;
+    use crate::test_utils::eval_assert_error;
+
+    // A dotted-pair tail with no value before end-of-input must
+    // parse-error, not panic. Regression: `parse_list` unwrapped
+    // `parse_value()`, which returns `None` at EOF.
+    #[test]
+    fn dotted_pair_eof_errors_cleanly() {
+        let mut ctx = TulispContext::new();
+        eval_assert_error(
+            &mut ctx,
+            "(1 .",
+            "ERR ParsingError: Unexpected EOF after dot\n<eval_string>:1.1-1.1:  at nil\n",
+        );
+        eval_assert_error(
+            &mut ctx,
+            "(.",
+            "ERR ParsingError: Unexpected EOF after dot\n<eval_string>:1.1-1.1:  at nil\n",
+        );
+    }
 }
