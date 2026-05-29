@@ -401,6 +401,37 @@ fn test_defun() -> Result<(), Error> {
 }
 
 #[test]
+fn test_rust_registration_overrides_prelude_defun() -> Result<(), Error> {
+    // A Rust `defun` registered for a name the built-in prelude
+    // already defines (here `sort`) must win for code compiled after
+    // the registration. Regression: the prelude's `defun` wires the
+    // name into the VM compiler's call-dispatch table, which
+    // `compile_form` consulted before the symbol's global cell —
+    // silently shadowing the Rust override on the VM path.
+    let mut ctx = TulispContext::new();
+    ctx.defun(
+        "sort",
+        |_seq: TulispObject, _pred: TulispObject| -> String { "rust-sort".to_string() },
+    );
+    tulisp_assert! {
+        ctx: ctx,
+        program: r#"(sort '(3 1 2) (lambda (a b) (< a b)))"#,
+        result: r#""rust-sort""#,
+    }
+
+    // A later `defspecial` for the same name re-overrides it: the
+    // eviction is idempotent across repeated registrations.
+    ctx.defspecial("sort", |_ctx, _args| Ok("special-sort".into()));
+    tulisp_assert! {
+        ctx: ctx,
+        program: r#"(sort '(3 1 2) (lambda (a b) (< a b)))"#,
+        result: r#""special-sort""#,
+    }
+
+    Ok(())
+}
+
+#[test]
 fn test_tco() -> Result<(), Error> {
     tulisp_assert! {
         program: r##"

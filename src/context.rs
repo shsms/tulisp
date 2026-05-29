@@ -292,9 +292,31 @@ impl TulispContext {
                 .insert(name.to_owned(), caller.line() as usize);
         }
 
-        self.intern(name)
-            .set_global(TulispValue::Func(Shared::new_tulisp_fn(func)).into_ref(None))
+        let sym = self.intern(name);
+        sym.set_global(TulispValue::Func(Shared::new_tulisp_fn(func)).into_ref(None))
             .unwrap();
+        self.evict_compiled_dispatch(sym.addr_as_usize());
+    }
+
+    /// Drop any compile-time call-dispatch entry recorded for `addr`.
+    ///
+    /// A name first introduced by a Lisp `defun` (notably the built-in
+    /// prelude) wires `addr -> compile_fn_defun_call` into
+    /// `vm_compilers.functions` and stores its `CompiledDefun` in
+    /// `bytecode.functions`. `compile_form` consults that map *before*
+    /// the symbol's global cell, so a later Rust `defun` / `defspecial`
+    /// — which only writes the global cell — would be silently
+    /// shadowed. Evicting both entries makes subsequent user code
+    /// compile against the freshly-registered global binding.
+    ///
+    /// No-op while the compiler is still being built (during
+    /// `TulispContext::new`, the Rust built-ins register before the
+    /// compiler exists), where there is nothing to evict yet.
+    fn evict_compiled_dispatch(&mut self, addr: usize) {
+        if let Some(compiler) = self.compiler.as_mut() {
+            compiler.vm_compilers.functions.remove(&addr);
+            compiler.bytecode.functions.remove(&addr);
+        }
     }
 
     /// Internal: register a `ctx.defun`-style typed-args closure as a
@@ -324,15 +346,16 @@ impl TulispContext {
                 .insert(name.to_owned(), caller.line() as usize);
         }
 
-        self.intern(name)
-            .set_global(
-                TulispValue::Defun {
-                    call: Shared::new_defun_fn(func),
-                    arity,
-                }
-                .into_ref(None),
-            )
-            .unwrap();
+        let sym = self.intern(name);
+        sym.set_global(
+            TulispValue::Defun {
+                call: Shared::new_defun_fn(func),
+                arity,
+            }
+            .into_ref(None),
+        )
+        .unwrap();
+        self.evict_compiled_dispatch(sym.addr_as_usize());
     }
 
     /// Registers a Rust function as a callable Lisp function.
@@ -465,9 +488,10 @@ impl TulispContext {
                 .insert(name.to_owned(), caller.line() as usize);
         }
 
-        self.intern(name)
-            .set_global(TulispValue::Macro(Shared::new_tulisp_fn(func)).into_ref(None))
+        let sym = self.intern(name);
+        sym.set_global(TulispValue::Macro(Shared::new_tulisp_fn(func)).into_ref(None))
             .unwrap();
+        self.evict_compiled_dispatch(sym.addr_as_usize());
     }
 
     pub fn set_load_path<P: AsRef<Path>>(&mut self, path: Option<P>) -> Result<(), Error> {
