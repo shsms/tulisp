@@ -1,31 +1,32 @@
 use crate::{Error, Number, Rest, TulispContext};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    ctx.defun(
-        "+",
-        |first: Number, rest: Rest<Number>| -> Result<Number, Error> {
-            rest.into_iter().try_fold(first, Number::checked_add)
-        },
-    );
+    ctx.defun("+", |args: Rest<Number>| -> Result<Number, Error> {
+        // `(+)` is the additive identity 0, matching Emacs.
+        args.into_iter()
+            .try_fold(Number::Int(0), Number::checked_add)
+    });
 
-    ctx.defun(
-        "-",
-        |first: Number, rest: Rest<Number>| -> Result<Number, Error> {
-            let rest: Vec<Number> = rest.into_iter().collect();
-            if rest.is_empty() {
-                Number::from(0).checked_sub(first)
-            } else {
-                rest.into_iter().try_fold(first, Number::checked_sub)
-            }
-        },
-    );
+    ctx.defun("-", |args: Rest<Number>| -> Result<Number, Error> {
+        // `(-)` is 0, `(- x)` negates, `(- x y …)` subtracts the rest
+        // from the first — matching Emacs.
+        let mut args = args.into_iter();
+        let Some(first) = args.next() else {
+            return Ok(Number::Int(0));
+        };
+        let rest: Vec<Number> = args.collect();
+        if rest.is_empty() {
+            Number::Int(0).checked_sub(first)
+        } else {
+            rest.into_iter().try_fold(first, Number::checked_sub)
+        }
+    });
 
-    ctx.defun(
-        "*",
-        |first: Number, rest: Rest<Number>| -> Result<Number, Error> {
-            rest.into_iter().try_fold(first, Number::checked_mul)
-        },
-    );
+    ctx.defun("*", |args: Rest<Number>| -> Result<Number, Error> {
+        // `(*)` is the multiplicative identity 1, matching Emacs.
+        args.into_iter()
+            .try_fold(Number::Int(1), Number::checked_mul)
+    });
 
     ctx.defun(
         "/",
@@ -108,5 +109,21 @@ mod tests {
             "(% 5 0)",
             "ERR OutOfRange: Division by zero\n<eval_string>:1.1-1.7:  at (% 5 0)\n",
         );
+    }
+
+    // Nullary `+`/`*`/`-` return their identity, matching Emacs.
+    // `(-)` is 0, `(- x)` negates. Exercised on both eval paths by
+    // `eval_assert_equal`, since the VM compiles these as special
+    // forms while the tree-walker dispatches the typed builtin.
+    #[test]
+    fn nullary_arithmetic_uses_identity() {
+        let mut ctx = TulispContext::new();
+        eval_assert_equal(&mut ctx, "(+)", "0");
+        eval_assert_equal(&mut ctx, "(*)", "1");
+        eval_assert_equal(&mut ctx, "(-)", "0");
+        eval_assert_equal(&mut ctx, "(- 5)", "-5");
+        eval_assert_equal(&mut ctx, "(+ 1 2 3)", "6");
+        eval_assert_equal(&mut ctx, "(* 2 3 4)", "24");
+        eval_assert_equal(&mut ctx, "(- 10 1 2)", "7");
     }
 }

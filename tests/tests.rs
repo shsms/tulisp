@@ -1314,10 +1314,12 @@ fn test_math() -> Result<(), Error> {
     tulisp_assert! { program: "(numberp (mod 5.0 0))", result: "t" }
     // (funcall '<defun-with-required-args>) with too few args used
     // to panic in the typed-args dispatch macro. Now errors cleanly.
+    // (`+` accepts zero args — `(+)` => 0 — so use `1+`, which still
+    // requires one.)
     tulisp_assert! {
-        program: "(funcall '+)",
+        program: "(funcall '1+)",
         error: r#"ERR MissingArgument: Too few arguments
-<eval_string>:1.1-1.12:  at (funcall '+)
+<eval_string>:1.1-1.13:  at (funcall '1+)
 "#,
     }
     tulisp_assert! { program: "(min 12 5 45)",             result: "5"     }
