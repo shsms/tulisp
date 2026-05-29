@@ -63,6 +63,35 @@ intern_from_obarray! {
     }
 }
 
+/// The nesting cap a normal (non-test) build uses, sized to leave the
+/// 8 MiB main thread (used by `cargo run` and typical embeddings)
+/// headroom before it overflows. The per-call native frame varies
+/// enormously — an unoptimized `run_impl` / `eval_lambda` frame is an
+/// order of magnitude larger than a release one — so debug caps far
+/// lower than release for the same stack. The
+/// `profile_default_errors_before_overflowing_target_stack` test
+/// checks each stays below that stack; an embedding on a smaller stack
+/// (e.g. a 2 MiB worker thread) should lower it via
+/// [`TulispContext::set_max_eval_depth`].
+#[cfg(debug_assertions)]
+const PROFILE_MAX_EVAL_DEPTH: u32 = 64;
+#[cfg(not(debug_assertions))]
+const PROFILE_MAX_EVAL_DEPTH: u32 = 1000;
+
+/// Default cap on Lisp-call nesting depth, used when a context is
+/// created. Exceeding it raises a catchable error rather than aborting
+/// the process; tune it per-context with
+/// [`TulispContext::set_max_eval_depth`].
+///
+/// Normal builds use [`PROFILE_MAX_EVAL_DEPTH`]. The test harness runs
+/// on its own ~2 MiB threads (smaller than the 8 MiB main thread debug
+/// targets), so under `cfg(test)` the default drops to a value safe
+/// there; tests that need the profile value set it explicitly.
+#[cfg(test)]
+const DEFAULT_MAX_EVAL_DEPTH: u32 = 16;
+#[cfg(not(test))]
+const DEFAULT_MAX_EVAL_DEPTH: u32 = PROFILE_MAX_EVAL_DEPTH;
+
 /// Represents an instance of the _Tulisp_ interpreter.
 ///
 /// Owns the
@@ -79,6 +108,11 @@ pub struct TulispContext {
     pub(crate) vm: bytecode::Machine,
     pub(crate) load_path: Option<PathBuf>,
     pub(crate) lex_allocator: Shared<LexAllocator>,
+    /// Current Lisp-call nesting depth, bounded by `max_eval_depth`.
+    pub(crate) eval_depth: u32,
+    /// Nesting cap before evaluation raises a catchable error instead
+    /// of overflowing the host's native stack.
+    pub(crate) max_eval_depth: u32,
     #[cfg(feature = "etags")]
     pub(crate) tags_table: HashMap<String, HashMap<String, usize>>,
 }
@@ -102,6 +136,8 @@ impl TulispContext {
             vm: bytecode::Machine::new(),
             load_path: None,
             lex_allocator: Shared::new_sized(LexAllocator::new()),
+            eval_depth: 0,
+            max_eval_depth: DEFAULT_MAX_EVAL_DEPTH,
             #[cfg(feature = "etags")]
             tags_table: HashMap::new(),
         };
@@ -132,6 +168,19 @@ impl TulispContext {
         // labels.
         ctx.compiler.as_mut().unwrap().reset_label_counter();
         ctx
+    }
+
+    /// Sets the maximum Lisp-call nesting depth for this context.
+    ///
+    /// When evaluation nests deeper than this, it raises a catchable
+    /// error instead of overflowing the host's native stack. The
+    /// default is build-dependent — debug builds use a smaller value
+    /// because their stack frames are larger. Raise it for workloads
+    /// with legitimately deep non-tail recursion, bearing in mind the
+    /// available native stack; tail-recursive calls are trampolined
+    /// and don't count toward the limit.
+    pub fn set_max_eval_depth(&mut self, depth: u32) {
+        self.max_eval_depth = depth;
     }
 
     /// Returns an interned symbol with the given name.
@@ -580,6 +629,13 @@ impl TulispContext {
     /// Parses and evaluates the given string, and returns the result.
     /// Routed through the bytecode VM.
     pub fn eval_string(&mut self, string: &str) -> Result<TulispObject, Error> {
+        // Top-level entry — the nesting counter belongs at 0 here.
+        // Resetting heals a count leaked by an earlier evaluation that
+        // unwound through a panic the host caught and then reused this
+        // context; without it, that leak would permanently shrink the
+        // effective depth limit. (`run_impl` / `eval_lambda` keep it
+        // balanced on the normal and error paths.)
+        self.eval_depth = 0;
         let vv = parse(
             self,
             0,
@@ -597,6 +653,8 @@ impl TulispContext {
     /// stable public API — may be removed without notice.
     #[doc(hidden)]
     pub fn tw_eval_string(&mut self, string: &str) -> Result<TulispObject, Error> {
+        // Reset the leaked-on-panic nesting counter; see `eval_string`.
+        self.eval_depth = 0;
         let vv = parse(
             self,
             0,
@@ -729,5 +787,63 @@ impl TulispContext {
     #[allow(dead_code)]
     pub(crate) fn run_bytecode(&mut self, bytecode: Bytecode) -> Result<TulispObject, Error> {
         bytecode::run(self, bytecode)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::TulispContext;
+    use crate::test_utils::eval_assert_equal;
+
+    // The non-test default (`PROFILE_MAX_EVAL_DEPTH`: 64 in debug,
+    // 1000 in release) must raise a catchable error *before*
+    // overflowing the 8 MiB main-thread stack it targets. Run on an
+    // 8 MiB thread and recurse far past the cap, on both the VM and
+    // tree-walker paths (via `eval_assert_equal`): a correctly-sized
+    // cap yields the caught error, whereas a cap set too high for the
+    // stack overflows and aborts the whole test process.
+    //
+    // Only the running build's default is checked — `cargo test`
+    // covers 64 (debug), `cargo test --release` covers 1000.
+    #[test]
+    fn profile_default_errors_before_overflowing_target_stack() {
+        // Match the 8 MiB main thread the profile defaults are sized for.
+        let stack = 8 * 1024 * 1024;
+        std::thread::Builder::new()
+            .stack_size(stack)
+            .spawn(|| {
+                let mut ctx = TulispContext::new();
+                ctx.set_max_eval_depth(super::PROFILE_MAX_EVAL_DEPTH);
+                eval_assert_equal(
+                    &mut ctx,
+                    "(defun f (n) (if (= n 0) 0 (+ 1 (f (- n 1))))) \
+                     (condition-case nil (f 1000000) (error 'caught))",
+                    "'caught",
+                );
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    // The cap is configurable, and tail calls are trampolined so they
+    // don't count toward it: 30000-deep tail recursion completes even
+    // under a cap of 16, while shallow non-tail recursion trips it.
+    #[test]
+    fn limit_is_configurable_and_excludes_tail_calls() {
+        let mut ctx = TulispContext::new();
+        ctx.set_max_eval_depth(16);
+        eval_assert_equal(
+            &mut ctx,
+            "(defun g (n) (if (= n 0) 0 (+ 1 (g (- n 1))))) \
+             (condition-case nil (g 100) (error 'capped))",
+            "'capped",
+        );
+        eval_assert_equal(
+            &mut ctx,
+            "(defun if-tail (n acc) (if (equal n 0) acc (if-tail (- n 1) (+ acc 1)))) \
+             (if-tail 30000 0)",
+            "30000",
+        );
     }
 }

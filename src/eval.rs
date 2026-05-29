@@ -152,6 +152,29 @@ fn eval_lambda<E: Evaluator>(
     body: &TulispObject,
     args: &TulispObject,
 ) -> Result<TulispObject, Error> {
+    // Each non-tail interpreted-lambda call re-enters here, adding a
+    // native frame; tail calls are trampolined in the loop below and
+    // don't. Bound it like the VM's `run_impl` so deep recursion
+    // raises a catchable error instead of overflowing the host stack.
+    if ctx.eval_depth >= ctx.max_eval_depth {
+        return Err(Error::lisp_error(format!(
+            "Lisp nesting exceeds max-eval-depth ({})",
+            ctx.max_eval_depth
+        )));
+    }
+    ctx.eval_depth += 1;
+    let result = eval_lambda_inner::<E>(ctx, params, body, args);
+    ctx.eval_depth -= 1;
+    result
+}
+
+#[inline(always)]
+fn eval_lambda_inner<E: Evaluator>(
+    ctx: &mut TulispContext,
+    params: &DefunParams,
+    body: &TulispObject,
+    args: &TulispObject,
+) -> Result<TulispObject, Error> {
     let mut result = eval_function::<E>(ctx, params, body, args)?;
     while result.is_bounced() {
         let func = result.cadr()?;
