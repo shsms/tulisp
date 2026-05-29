@@ -348,20 +348,11 @@ fn run_impl_inner(
                     BinaryOp::Add => binary_op_checked(a, b, Number::checked_add)?,
                     BinaryOp::Sub => binary_op_checked(a, b, Number::checked_sub)?,
                     BinaryOp::Mul => binary_op_checked(a, b, Number::checked_mul)?,
-                    BinaryOp::Div => {
-                        // Match Emacs: error only when *both* operands
-                        // are integers and the divisor is zero (would
-                        // underlying-panic on `i64::div`); any float
-                        // operand falls through to `Number::Div` which
-                        // produces ±inf for zero divisors, matching
-                        // Emacs' `1.0e+INF` shape.
-                        let an = a.as_number()?;
-                        let bn = b.as_number()?;
-                        if matches!((an, bn), (Number::Int(_), Number::Int(0))) {
-                            return Err(Error::out_of_range("Division by zero"));
-                        }
-                        (an / bn).into()
-                    }
+                    // Errors on an integer zero divisor and on
+                    // `i64::MIN / -1` overflow; a float operand yields
+                    // ±inf for a zero divisor, matching Emacs'
+                    // `1.0e+INF` shape.
+                    BinaryOp::Div => binary_op_checked(a, b, Number::checked_div)?,
                 };
                 ctx.vm.stack.truncate(ctx.vm.stack.len() - 2);
                 ctx.vm.stack.push(vv);
