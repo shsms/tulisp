@@ -108,6 +108,20 @@ pub(crate) fn f64_to_i64_checked(value: f64, op: &str) -> Result<i64, Error> {
     Ok(value as i64)
 }
 
+/// Floored remainder for floats — `a - b*floor(a/b)`, taking the
+/// divisor's sign, matching Emacs `mod`. A zero divisor yields NaN
+/// (the comparisons below are all false for NaN, so it's returned
+/// unadjusted), which Emacs also surfaces for float `mod`.
+#[inline]
+fn floor_mod_f64(a: f64, b: f64) -> f64 {
+    let m = a % b;
+    if m != 0.0 && (m < 0.0) != (b < 0.0) {
+        m + b
+    } else {
+        m
+    }
+}
+
 impl Number {
     /// Like `Add` but raises `OutOfRange` on `Int + Int` overflow
     /// instead of wrapping. Float operands fall through to `f64::add`,
@@ -148,6 +162,51 @@ impl Number {
             (Number::Int(l), Number::Float(r)) => Ok(Number::Float(l as f64 * r)),
             (Number::Float(l), Number::Int(r)) => Ok(Number::Float(l * r as f64)),
             (Number::Float(l), Number::Float(r)) => Ok(Number::Float(l * r)),
+        }
+    }
+
+    /// Integer/float division matching Emacs `/` (integers truncate
+    /// toward zero). Raises `OutOfRange` on an integer zero divisor
+    /// and on `i64::MIN / -1` overflow; float operands divide
+    /// normally, yielding ±inf for a zero divisor as Emacs does.
+    pub(crate) fn checked_div(self, rhs: Number) -> Result<Number, Error> {
+        match (self, rhs) {
+            (Number::Int(_), Number::Int(0)) => {
+                Err(Error::out_of_range("Division by zero".to_string()))
+            }
+            (Number::Int(l), Number::Int(r)) => l
+                .checked_div(r)
+                .map(Number::Int)
+                .ok_or_else(|| Error::out_of_range(format!("integer overflow: {} / {}", l, r))),
+            (Number::Int(l), Number::Float(r)) => Ok(Number::Float(l as f64 / r)),
+            (Number::Float(l), Number::Int(r)) => Ok(Number::Float(l / r as f64)),
+            (Number::Float(l), Number::Float(r)) => Ok(Number::Float(l / r)),
+        }
+    }
+
+    /// Floored modulo matching Emacs `mod`: the result takes the
+    /// divisor's sign (`(mod -7 3)` => 2, `(mod 7 -3)` => -2). Raises
+    /// `OutOfRange` on an integer zero divisor; a float divisor
+    /// yields NaN. A `-1` divisor always yields 0, so the
+    /// `i64::MIN % -1` overflow can't arise.
+    pub(crate) fn checked_mod(self, rhs: Number) -> Result<Number, Error> {
+        match (self, rhs) {
+            (Number::Int(_), Number::Int(0)) => {
+                Err(Error::out_of_range("Division by zero".to_string()))
+            }
+            (Number::Int(_), Number::Int(-1)) => Ok(Number::Int(0)),
+            (Number::Int(l), Number::Int(r)) => {
+                let m = l % r;
+                let m = if m != 0 && (m < 0) != (r < 0) {
+                    m + r
+                } else {
+                    m
+                };
+                Ok(Number::Int(m))
+            }
+            (Number::Int(l), Number::Float(r)) => Ok(Number::Float(floor_mod_f64(l as f64, r))),
+            (Number::Float(l), Number::Int(r)) => Ok(Number::Float(floor_mod_f64(l, r as f64))),
+            (Number::Float(l), Number::Float(r)) => Ok(Number::Float(floor_mod_f64(l, r))),
         }
     }
 }

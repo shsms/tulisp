@@ -11,9 +11,12 @@ pub(super) fn compile_fn_plus(
     let mut result = vec![];
     let args = args.base_iter().collect::<Vec<_>>();
     if args.is_empty() {
-        return Err(Error::arity_mismatch(
-            "+ requires at least 1 argument.".to_string(),
-        ));
+        // `(+)` => 0 (additive identity), matching Emacs.
+        return Ok(if ctx.compiler.as_ref().unwrap().keep_result {
+            vec![Instruction::Push(0.into())]
+        } else {
+            vec![]
+        });
     }
     for arg in args.iter().rev() {
         result.append(&mut compile_expr(ctx, arg)?);
@@ -35,9 +38,12 @@ pub(super) fn compile_fn_minus(
     let mut result = vec![];
     let args = args.base_iter().collect::<Vec<_>>();
     if args.is_empty() {
-        return Err(Error::arity_mismatch(
-            "- requires at least 1 argument.".to_string(),
-        ));
+        // `(-)` => 0, matching Emacs.
+        return Ok(if ctx.compiler.as_ref().unwrap().keep_result {
+            vec![Instruction::Push(0.into())]
+        } else {
+            vec![]
+        });
     }
     for arg in args.iter().rev() {
         result.append(&mut compile_expr(ctx, arg)?);
@@ -66,9 +72,12 @@ pub(super) fn compile_fn_mul(
     let mut result = vec![];
     let args = args.base_iter().collect::<Vec<_>>();
     if args.is_empty() {
-        return Err(Error::arity_mismatch(
-            "* requires at least 1 argument.".to_string(),
-        ));
+        // `(*)` => 1 (multiplicative identity), matching Emacs.
+        return Ok(if ctx.compiler.as_ref().unwrap().keep_result {
+            vec![Instruction::Push(1.into())]
+        } else {
+            vec![]
+        });
     }
     for arg in args.iter().rev() {
         result.append(&mut compile_expr(ctx, arg)?);
@@ -94,9 +103,9 @@ pub(super) fn compile_fn_div(
     let mut result = vec![];
     let args = args.base_iter().collect::<Vec<_>>();
     if args.is_empty() {
-        return Err(Error::arity_mismatch(
-            "/ requires at least 1 argument.".to_string(),
-        ));
+        // `(/)` needs an argument (Emacs errors too); use the same
+        // wording as the tree-walker builtin so both paths agree.
+        return Err(Error::missing_argument("Too few arguments".to_string()));
     }
     for arg in args.iter().rev() {
         result.append(&mut compile_expr(ctx, arg)?);

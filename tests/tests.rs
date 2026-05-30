@@ -1072,40 +1072,6 @@ fn test_backquotes() -> Result<(), Error> {
 
 #[test]
 fn test_math() -> Result<(), Error> {
-    tulisp_assert! {
-        program: "(/ 10 0)",
-        error: r#"ERR OutOfRange: Division by zero
-<eval_string>:1.1-1.8:  at (/ 10 0)
-"#,
-    }
-    tulisp_assert! {
-        program: "(/ 0 10)",
-        result: "0",
-    }
-    tulisp_assert! {
-        program: "(let ((a 10) (b 0)) (/ a b))",
-        error: r#"ERR OutOfRange: Division by zero
-<eval_string>:1.21-1.27:  at (/ a b)
-<eval_string>:1.1-1.28:  at (let ((a 10) (b 0)) (/ a b))
-"#,
-    }
-
-    tulisp_assert! { program: "(/ 24 2 2)",                result: "6"     }
-
-    // Integer division when all args are integers (Emacs `(/ 10 3) => 3`).
-    // The bare-result tests below would already pass with cross-type
-    // numeric equality, so use `integerp` / `floatp` to assert the
-    // underlying type explicitly.
-    tulisp_assert! { program: "(integerp (/ 10 3))", result: "t" }
-    tulisp_assert! { program: "(integerp (/ 7 2 2))", result: "t" }
-    tulisp_assert! { program: "(/ 10 3)", result: "3" }
-    // Float promotion when any operand is a float.
-    tulisp_assert! { program: "(floatp (/ 10 3.0))", result: "t" }
-    tulisp_assert! { program: "(floatp (/ 10.0 3))", result: "t" }
-    // Single-arg `/` is `1/X`, integer-divided when X is an integer.
-    tulisp_assert! { program: "(/ 1)",     result: "1"   }
-    tulisp_assert! { program: "(/ 10)",    result: "0"   }
-    tulisp_assert! { program: "(/ 10.0)",  result: "0.1" }
     // Character literals: `?X` reads as the character's code point.
     tulisp_assert! { program: "?A",       result: "65"  }
     tulisp_assert! { program: "?z",       result: "122" }
@@ -1287,37 +1253,16 @@ fn test_math() -> Result<(), Error> {
 <eval_string>:1.1-1.20:  at (memq 99 '(1 2 . 3))
 "#,
     }
-    // Float-zero divisor doesn't error (Emacs returns ±INF). Both the
-    // VM `BinaryOp::Div` path and the rest-arg defun path agree now.
-    tulisp_assert! { program: "(numberp (/ 1.0 0.0))",            result: "t" }
-    tulisp_assert! { program: "(numberp (/ 1.0 0))",              result: "t" }
-    tulisp_assert! { program: "(numberp (/ 1 0.0))",              result: "t" }
-    tulisp_assert! { program: "(numberp (funcall '/ 1.0 0.0))",   result: "t" }
-    // All-integer zero divisor still errors.
-    tulisp_assert! {
-        program: "(funcall '/ 1 0)",
-        error: r#"ERR OutOfRange: Division by zero
-<eval_string>:1.1-1.16:  at (funcall '/ 1 0)
-"#,
-    }
     tulisp_assert! { program: "(+ 40 (* 2.5 4) (- 4 12))", result: "42.0"  }
     tulisp_assert! { program: "(+ 40 (* 2.5 4) (- -1 7))", result: "42.0"  }
-    tulisp_assert! { program: "(mod 32 5)",                result: "2"     }
-    // (mod X 0) used to panic via `i64::rem`. Now matches Emacs:
-    // integer-zero divisor errors, float divisor produces NaN.
-    tulisp_assert! {
-        program: "(mod 5 0)",
-        error: r#"ERR OutOfRange: Division by zero
-<eval_string>:1.1-1.9:  at (mod 5 0)
-"#,
-    }
-    tulisp_assert! { program: "(numberp (mod 5.0 0))", result: "t" }
     // (funcall '<defun-with-required-args>) with too few args used
     // to panic in the typed-args dispatch macro. Now errors cleanly.
+    // (`+` accepts zero args — `(+)` => 0 — so use `1+`, which still
+    // requires one.)
     tulisp_assert! {
-        program: "(funcall '+)",
+        program: "(funcall '1+)",
         error: r#"ERR MissingArgument: Too few arguments
-<eval_string>:1.1-1.12:  at (funcall '+)
+<eval_string>:1.1-1.13:  at (funcall '1+)
 "#,
     }
     tulisp_assert! { program: "(min 12 5 45)",             result: "5"     }

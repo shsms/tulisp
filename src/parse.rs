@@ -499,6 +499,8 @@ struct Parser<'a, 'b> {
     tokenizer: Peekable<Tokenizer<'a>>,
     ctx: &'b mut TulispContext,
     ints: HashMap<i64, TulispObject>,
+    /// Current parse nesting depth, bounded by `ctx.max_nesting_depth()`.
+    depth: u32,
     #[cfg(feature = "etags")]
     follow_load_files: bool,
 }
@@ -530,6 +532,7 @@ impl Parser<'_, '_> {
             tokenizer: Tokenizer::new(file_id, program).peekable(),
             ctx,
             ints: Default::default(),
+            depth: 0,
             #[cfg(feature = "etags")]
             follow_load_files,
         }
@@ -568,7 +571,10 @@ impl Parser<'_, '_> {
         let _ = self.tokenizer.next();
 
         if got_dot {
-            let next = self.parse_value()?.unwrap();
+            let Some(next) = self.parse_value()? else {
+                return Err(Error::parsing_error("Unexpected EOF after dot".to_string())
+                    .with_trace(TulispObject::nil().with_span(Some(start_span))));
+            };
             if let Some(Token::CloseParen { span: end_span }) = self.tokenizer.next() {
                 full_span = Some(Span {
                     file_id: self.file_id,
@@ -648,6 +654,26 @@ impl Parser<'_, '_> {
     }
 
     fn parse_value(&mut self) -> Result<Option<TulispObject>, Error> {
+        // Every nested list / quote re-enters here, so bounding this
+        // depth bounds the parser's native recursion: deeply nested
+        // input raises a catchable error instead of overflowing the
+        // stack. Downstream walks (compile, `recursive_update_ctxobj`,
+        // …) see only structure this deep, so they're bounded too.
+        self.depth += 1;
+        let limit = self.ctx.max_nesting_depth();
+        if self.depth > limit {
+            self.depth -= 1;
+            return Err(Error::parsing_error(format!(
+                "Lisp nesting exceeds max-nesting-depth ({})",
+                limit
+            )));
+        }
+        let r = self.parse_value_inner();
+        self.depth -= 1;
+        r
+    }
+
+    fn parse_value_inner(&mut self) -> Result<Option<TulispObject>, Error> {
         let Some(token) = self.tokenizer.next() else {
             return Ok(None);
         };
@@ -853,4 +879,54 @@ pub fn parse(
         follow_load_files,
     )
     .parse()
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::TulispContext;
+    use crate::test_utils::eval_assert_error;
+
+    // A dotted-pair tail with no value before end-of-input must
+    // parse-error, not panic. Regression: `parse_list` unwrapped
+    // `parse_value()`, which returns `None` at EOF.
+    #[test]
+    fn dotted_pair_eof_errors_cleanly() {
+        let mut ctx = TulispContext::new();
+        eval_assert_error(
+            &mut ctx,
+            "(1 .",
+            "ERR ParsingError: Unexpected EOF after dot\n<eval_string>:1.1-1.1:  at nil\n",
+        );
+        eval_assert_error(
+            &mut ctx,
+            "(.",
+            "ERR ParsingError: Unexpected EOF after dot\n<eval_string>:1.1-1.1:  at nil\n",
+        );
+    }
+
+    // Deeply nested input raises a catchable parse error instead of
+    // overflowing the stack. The cap (256 in debug) sits above this
+    // harness thread's ~2 MiB ceiling, so run on an 8 MiB thread (the
+    // size the non-test default targets) — an overflow would abort the
+    // whole process rather than fail the assertion.
+    #[test]
+    fn deeply_nested_input_errors_without_overflowing() {
+        std::thread::Builder::new()
+            .stack_size(8 * 1024 * 1024)
+            .spawn(|| {
+                let mut ctx = TulispContext::new();
+                let deep = format!("'{}{}", "(".repeat(100_000), ")".repeat(100_000));
+                let err = ctx.eval_string(&deep).unwrap_err();
+                assert!(
+                    err.to_string().contains("max-nesting-depth"),
+                    "expected a nesting-depth error, got: {}",
+                    err
+                );
+                // Shallow nesting still parses and evaluates fine.
+                assert!(ctx.eval_string("'((((1))))").is_ok());
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
 }
