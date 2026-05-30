@@ -857,4 +857,30 @@ mod tests {
             "30000",
         );
     }
+
+    // The cap also bounds recursion that bounces between the VM and the
+    // tree-walker: `f` runs compiled in the VM but recurses through
+    // `(eval …)`, which re-enters the tree-walker, which calls `f`
+    // again in the VM. The depth is incremented at every `run_impl` /
+    // `eval_lambda` entry — and there is one such entry per interleaved
+    // level — so it tracks across that boundary and the recursion is
+    // caught rather than overflowing. Run on an 8 MiB thread (an
+    // overflow would abort the whole process).
+    #[test]
+    fn cap_bounds_vm_tree_walker_interleaving() {
+        std::thread::Builder::new()
+            .stack_size(8 * 1024 * 1024)
+            .spawn(|| {
+                let mut ctx = TulispContext::new();
+                eval_assert_equal(
+                    &mut ctx,
+                    "(defun f (k) (if (= k 0) 0 (+ 1 (eval (list 'f (- k 1)))))) \
+                     (condition-case nil (f 100000) (error 'caught))",
+                    "'caught",
+                );
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
 }
