@@ -26,6 +26,24 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         },
     );
 
+    // `(unwind-protect BODYFORM UNWINDFORMS...)` evaluates BODYFORM,
+    // then evaluates the UNWINDFORMS for side effects — unconditionally,
+    // whether BODYFORM returned normally, signaled an error, or did a
+    // `throw`. On normal exit the value of BODYFORM is returned. If
+    // BODYFORM errored or threw, the unwind forms still run and then the
+    // original error/throw re-propagates.
+    //
+    // Precedence matches Emacs: an error signaled by an UNWINDFORM
+    // supersedes (masks) the BODYFORM's value or error. `Result::and`
+    // encodes exactly this — `cleanup.and(result)` yields the cleanup
+    // error when cleanup is `Err`, otherwise the BODYFORM's `result`.
+    ctx.defspecial("unwind-protect", |ctx, args| {
+        destruct_bind!((bodyform &rest unwindforms) = args);
+        let result = ctx.eval(&bodyform);
+        let cleanup = ctx.eval_progn(&unwindforms);
+        cleanup.and(result)
+    });
+
     // `(condition-case VAR PROTECTED-FORM HANDLER...)` runs
     // PROTECTED-FORM; on error, walks HANDLERs looking for one whose
     // CONDITION matches. Each HANDLER is `(CONDITION BODY...)` where
@@ -210,6 +228,46 @@ mod tests {
             r#"ERR Throw((tag . 5))
 <eval_string>:1.19-1.32:  at (throw 'tag 5)
 <eval_string>:1.1-1.49:  at (condition-case e (throw 'tag 5) (error 'caught))
+"#,
+        );
+    }
+
+    #[test]
+    fn test_unwind_protect() {
+        let mut ctx = TulispContext::new();
+        // Normal exit returns the body value; cleanup ran (observed
+        // through the side effect on `log`).
+        eval_assert_equal(
+            &mut ctx,
+            "(progn (setq log nil) (list (unwind-protect 42 (setq log 'done)) log))",
+            "'(42 done)",
+        );
+        // Body error: cleanup runs, then the error re-propagates.
+        eval_assert_equal(
+            &mut ctx,
+            r#"(progn (setq log nil)
+                 (list (condition-case nil
+                           (unwind-protect (error "boom") (setq log 'done))
+                         (error 'caught))
+                       log))"#,
+            "'(caught done)",
+        );
+        // Throw in the body: cleanup runs, then the throw is caught by
+        // the outer `catch`.
+        eval_assert_equal(
+            &mut ctx,
+            r#"(progn (setq log nil)
+                 (list (catch 'tag (unwind-protect (throw 'tag 7) (setq log 'done)))
+                       log))"#,
+            "'(7 done)",
+        );
+        // An unwind-form error supersedes the body's error.
+        eval_assert_error(
+            &mut ctx,
+            r#"(unwind-protect (error "body") (error "cleanup"))"#,
+            r#"ERR LispError: cleanup
+<eval_string>:1.32-1.48:  at (error "cleanup")
+<eval_string>:1.1-1.49:  at (unwind-protect (error "body") (error "cleanup"))
 "#,
         );
     }
