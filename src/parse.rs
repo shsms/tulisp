@@ -252,7 +252,7 @@ impl Tokenizer<'_> {
 
         while let Some(ch) = self.peek_char() {
             match ch {
-                ')' | ' ' | '\t' | '\n' | '\r' => {
+                ')' | '[' | ']' | ' ' | '\t' | '\n' | '\r' => {
                     break;
                 }
                 'e' | 'E' if (is_int || is_float) && !first_char && !seen_e => {
@@ -398,6 +398,17 @@ impl Iterator for Tokenizer<'_> {
                     return Some(Token::CloseParen {
                         span: Span::new(self.file_id, (self.line, self.pos), (self.line, self.pos)),
                     });
+                }
+                '[' | ']' => {
+                    // Tulisp has no vector type; reject the syntax
+                    // outright so pasted Elisp fails with a clear
+                    // message instead of brackets being swallowed
+                    // into symbol tokens.
+                    self.next_char()?;
+                    return Some(Token::ParserError(ParserError::syntax_error(
+                        "Vector syntax is not supported".to_string(),
+                        Span::new(self.file_id, (self.line, self.pos), (self.line, self.pos)),
+                    )));
                 }
                 '\'' => {
                     self.next_char()?;
@@ -928,5 +939,36 @@ mod tests {
             .unwrap()
             .join()
             .unwrap();
+    }
+
+    // Tulisp has no vector type. The reader must say so instead of
+    // silently swallowing the brackets into symbol tokens and
+    // failing later with a baffling unrelated error.
+    #[test]
+    fn vector_syntax_rejected() {
+        let mut ctx = TulispContext::new();
+        eval_assert_error(
+            &mut ctx,
+            "(princ [1 2 3])",
+            r#"ERR ParsingError: SyntaxError Vector syntax is not supported
+<eval_string>:1.8-1.8:  at nil
+"#,
+        );
+        eval_assert_error(
+            &mut ctx,
+            "(princ ])",
+            r#"ERR ParsingError: SyntaxError Vector syntax is not supported
+<eval_string>:1.8-1.8:  at nil
+"#,
+        );
+        // A bracket also terminates a symbol token, as in Emacs, so
+        // `foo[1]` can't sneak through as a single symbol name.
+        eval_assert_error(
+            &mut ctx,
+            "(princ 'foo[1])",
+            r#"ERR ParsingError: SyntaxError Vector syntax is not supported
+<eval_string>:1.12-1.12:  at nil
+"#,
+        );
     }
 }
