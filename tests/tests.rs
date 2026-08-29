@@ -97,6 +97,37 @@ macro_rules! tulisp_assert {
 }
 
 #[test]
+fn test_princ_print_newlines() -> Result<(), Error> {
+    // `princ` writes no newline (Emacs semantics); `print` writes the
+    // value plus a trailing newline (deliberately NOT Emacs's
+    // newline-before-and-after). Run the real binary so actual stdout
+    // is observed — this needs an integration test because
+    // CARGO_BIN_EXE is only set for integration targets.
+    //
+    // The pid suffix keeps concurrently running test binaries (the
+    // default and `--features sync` suites) off each other's file.
+    let script = std::env::temp_dir().join(format!(
+        "tulisp_test_princ_print_{}.lisp",
+        std::process::id()
+    ));
+    // Covers the defun `princ`, top-level `print` (the VM PrintPop
+    // instruction), value-position `print` (the VM Print
+    // instruction), and `print` reached through funcall dispatch.
+    std::fs::write(
+        &script,
+        r#"(princ "a")(princ "b")(print 1)(print 2)(princ "end")(princ (print 5))(mapcar 'print '(9))"#,
+    )
+    .map_err(|e| Error::os_error(e.to_string()))?;
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_tulisp"))
+        .arg(&script)
+        .output()
+        .map_err(|e| Error::os_error(e.to_string()))?;
+    let _ = std::fs::remove_file(&script);
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "ab1\n2\nend5\n59\n");
+    Ok(())
+}
+
+#[test]
 fn test_comparison_of_numbers() -> Result<(), Error> {
     // Greater than
     tulisp_assert! { program: "(> 10 10)", result: "nil" }

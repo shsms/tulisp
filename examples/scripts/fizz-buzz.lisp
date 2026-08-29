@@ -9,5 +9,5 @@
 
 (let ((count 1))
   (while (<= count 100)
-    (princ (fizz-buzz count))
+    (princ (format "%s\n" (fizz-buzz count)))
     (setq count (+ 1 count))))
