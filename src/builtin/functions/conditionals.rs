@@ -161,7 +161,7 @@ fn build_binding(
     if length(&binding)? > 2 {
         return Err(Error::syntax_error(format!(
             "`let` bindings can have only one value-form {}",
-            &binding
+            binding
         )));
     }
 
