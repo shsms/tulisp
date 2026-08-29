@@ -155,7 +155,7 @@ impl TulispContext {
         // Use the build-time absolute path of `prelude.lisp` as the
         // synthetic filename so error traces inside these defuns
         // point at the real source file rather than `<eval_string>`.
-        ctx.vm_eval_prelude(
+        ctx.eval_prelude(
             concat!(env!("CARGO_MANIFEST_DIR"), "/src/builtin/prelude.lisp"),
             include_str!("builtin/prelude.lisp"),
         )
@@ -714,19 +714,32 @@ impl TulispContext {
         bytecode::run(self, bytecode)
     }
 
-    /// Evaluate an embedded prelude string through the VM under a
-    /// dedicated file id so any error trace from inside those defuns
-    /// cites the given `filename` instead of the shared
-    /// `<eval_string>` bucket.
-    fn vm_eval_prelude(&mut self, filename: &str, program: &str) -> Result<TulispObject, Error> {
-        let file_id = self
-            .filenames
-            .iter()
-            .position(|x| x == filename)
-            .unwrap_or_else(|| {
-                self.filenames.push(filename.to_owned());
-                self.filenames.len() - 1
-            });
+    /// Evaluates an embedded program string as a prelude: the program
+    /// runs through the bytecode VM under a dedicated file id, so any
+    /// error trace from inside its definitions cites the given
+    /// `filename` instead of the shared `<eval_string>` bucket.
+    ///
+    /// Definitions land in the same global scope as the built-in
+    /// prelude, making them visible to all later evaluations on this
+    /// context. Intended for embedders shipping their own Lisp files
+    /// inside the binary, right after [`TulispContext::new`]:
+    ///
+    /// ```rust,ignore
+    /// let mut ctx = TulispContext::new();
+    /// ctx.eval_prelude("my-prelude.lisp", include_str!("my-prelude.lisp"))?;
+    /// ```
+    ///
+    /// The file id is dedicated per filename string: re-evaluating
+    /// under the same `filename` reuses its file-table entry rather
+    /// than adding a duplicate. `"<eval_string>"` is the reserved
+    /// name of the shared string-evaluation bucket, so don't pass it
+    /// here. Call this outside any active evaluation — it resets the
+    /// nesting counter, like the other top-level entry points.
+    pub fn eval_prelude(&mut self, filename: &str, program: &str) -> Result<TulispObject, Error> {
+        // Top-level entry — reset the leaked-on-panic nesting
+        // counter; see `eval_string`.
+        self.eval_depth = 0;
+        let file_id = self.intern_filename(filename);
         let vv = parse(
             self,
             file_id,
@@ -736,6 +749,17 @@ impl TulispContext {
         )?;
         let bytecode = compile(self, &vv)?;
         bytecode::run(self, bytecode)
+    }
+
+    /// Interns `filename` in the context's filename table and returns
+    /// its file id, reusing the entry if the name was seen before.
+    fn intern_filename(&mut self, filename: &str) -> usize {
+        if let Some(idx) = self.filenames.iter().position(|x| x == filename) {
+            idx
+        } else {
+            self.filenames.push(filename.to_owned());
+            self.filenames.len() - 1
+        }
     }
 
     pub(crate) fn get_filename(&self, file_id: usize) -> String {
@@ -760,12 +784,7 @@ impl TulispContext {
     pub fn parse_file(&mut self, filename: &str) -> Result<TulispObject, Error> {
         let contents = fs::read_to_string(filename)
             .map_err(|e| Error::os_error(format!("Unable to read file: {filename}. Error: {e}")))?;
-        let idx = if let Some(idx) = self.filenames.iter().position(|x| x == filename) {
-            idx
-        } else {
-            self.filenames.push(filename.to_owned());
-            self.filenames.len() - 1
-        };
+        let idx = self.intern_filename(filename);
 
         let string: &str = &contents;
         parse(

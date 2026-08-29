@@ -432,6 +432,57 @@ fn test_rust_registration_overrides_prelude_defun() -> Result<(), Error> {
 }
 
 #[test]
+fn test_eval_prelude_defuns_visible_to_later_evals() -> Result<(), Error> {
+    // A definition evaluated through `eval_prelude` lands in the same
+    // global scope as the built-in prelude, so later `eval_string`
+    // calls on the same context see it like any built-in.
+    let mut ctx = TulispContext::new();
+    ctx.eval_prelude("user-prelude.lisp", "(defun double (x) (* 2 x))")?;
+    tulisp_assert! {
+        ctx: ctx,
+        program: "(double 21)",
+        result: "42",
+    }
+    Ok(())
+}
+
+#[test]
+fn test_eval_prelude_error_trace_cites_given_filename() -> Result<(), Error> {
+    // An error raised inside a defun that came from `eval_prelude`
+    // must cite the caller-supplied filename in its trace frames, not
+    // the shared `<eval_string>` bucket.
+    let mut ctx = TulispContext::new();
+    ctx.eval_prelude("user-prelude.lisp", "(defun add1 (x) (+ x 1))")?;
+    tulisp_assert! {
+        ctx: ctx,
+        program: r#"(add1 "oops")"#,
+        error: r#"ERR TypeMismatch: Expected number, got: "oops"
+user-prelude.lisp:1.17-1.23:  at (+ x 1)
+<eval_string>:1.1-1.13:  at (add1 "oops")
+"#,
+    }
+    Ok(())
+}
+
+#[test]
+fn test_eval_prelude_error_propagates_with_filename() -> Result<(), Error> {
+    // A prelude program that fails must return the error to the
+    // caller, with the trace citing the supplied filename.
+    let mut ctx = TulispContext::new();
+    let err = match ctx.eval_prelude("user-prelude.lisp", r#"(+ 1 "one")"#) {
+        Err(err) => err,
+        Ok(val) => panic!("expected an error, got: {val}"),
+    };
+    assert_eq!(
+        err.format(&ctx),
+        r#"ERR TypeMismatch: Expected number, got: "one"
+user-prelude.lisp:1.1-1.11:  at (+ 1 "one")
+"#
+    );
+    Ok(())
+}
+
+#[test]
 fn test_tco() -> Result<(), Error> {
     tulisp_assert! {
         program: r##"
@@ -2967,7 +3018,7 @@ fn test_sort() -> Result<(), Error> {
     // happens to be first under the current Lisp implementation.
     //
     // The trace frames inside the prelude carry the crate-absolute
-    // path to `prelude.lisp` (see `vm_eval_prelude` in `context.rs`),
+    // path to `prelude.lisp` (see `eval_prelude` in `context.rs`),
     // so we inject that at compile time via `CARGO_MANIFEST_DIR`.
     let prelude = concat!(env!("CARGO_MANIFEST_DIR"), "/src/builtin/prelude.lisp");
     tulisp_assert! {
