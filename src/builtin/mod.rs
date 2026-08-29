@@ -77,8 +77,9 @@ Tail-call optimisation is applied to recursive functions automatically.
 
 # Hash tables
 
-`make-hash-table` (no arguments; uses `eql` as the test function),
-`puthash`, `gethash` (optional 3rd `default` argument).
+`make-hash-table` (`:test` selects `eq` / `eql` / `equal` key
+comparison, default `eql`; `:size` is accepted as a hint and
+ignored), `puthash`, `gethash` (optional 3rd `default` argument).
 
 # Time
 

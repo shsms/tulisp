@@ -3,38 +3,96 @@ use crate::{
     object::wrappers::generic::{Shared, SharedMut},
 };
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 
+/// Key-comparison mode of a table, per Emacs `make-hash-table`'s
+/// `:test` argument.
+#[derive(Clone, Copy, PartialEq)]
+enum HashTest {
+    Eq,
+    Eql,
+    Equal,
+}
+
+/// A key together with its table's comparison mode, so `Hash` and
+/// `Eq` agree with the test the table was created with.
 #[derive(Clone)]
-struct TulispObjectEql(TulispObject);
+struct HashKey {
+    obj: TulispObject,
+    test: HashTest,
+}
 
-impl std::hash::Hash for TulispObjectEql {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        if self.0.integerp() {
-            self.0.as_int().unwrap().hash(state);
-        } else if self.0.floatp() {
-            self.0.as_float().unwrap().to_bits().hash(state);
-        } else {
-            state.write_usize(self.0.addr_as_usize());
+/// Hashes `obj` consistently with `equal`: contents for strings,
+/// values for numbers (type-tagged, since `(equal 1 1.0)` is nil),
+/// recursion for conses, a fixed tag for nil (which has no single
+/// canonical address), and identity for everything else.
+fn equal_hash<H: Hasher>(obj: &TulispObject, state: &mut H) {
+    if let Ok(s) = obj.as_string() {
+        state.write_u8(1);
+        s.hash(state);
+    } else if let Ok(i) = obj.as_int() {
+        state.write_u8(2);
+        i.hash(state);
+    } else if let Ok(f) = obj.as_float() {
+        state.write_u8(3);
+        f.to_bits().hash(state);
+    } else if obj.consp() {
+        state.write_u8(4);
+        if let (Ok(car), Ok(cdr)) = (obj.car(), obj.cdr()) {
+            equal_hash(&car, state);
+            equal_hash(&cdr, state);
+        }
+    } else if obj.null() {
+        state.write_u8(5);
+    } else {
+        state.write_u8(6);
+        state.write_usize(obj.addr_as_usize());
+    }
+}
+
+impl Hash for HashKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self.test {
+            HashTest::Eq => state.write_usize(self.obj.addr_as_usize()),
+            HashTest::Eql => {
+                if let Ok(i) = self.obj.as_int() {
+                    i.hash(state);
+                } else if let Ok(f) = self.obj.as_float() {
+                    f.to_bits().hash(state);
+                } else {
+                    state.write_usize(self.obj.addr_as_usize());
+                }
+            }
+            HashTest::Equal => equal_hash(&self.obj, state),
         }
     }
 }
 
-impl PartialEq for TulispObjectEql {
+impl PartialEq for HashKey {
     fn eq(&self, other: &Self) -> bool {
-        self.0.eql(&other.0)
+        match self.test {
+            // Identity comparison, matching the identity hash above.
+            HashTest::Eq => self.obj.addr_as_usize() == other.obj.addr_as_usize(),
+            HashTest::Eql => self.obj.eql(&other.obj),
+            HashTest::Equal => self.obj.equal(&other.obj),
+        }
     }
 }
-impl Eq for TulispObjectEql {}
-
-impl From<TulispObject> for TulispObjectEql {
-    fn from(obj: TulispObject) -> Self {
-        Self(obj)
-    }
-}
+impl Eq for HashKey {}
 
 #[derive(Clone)]
 pub(crate) struct HashTable {
-    inner: SharedMut<HashMap<TulispObjectEql, TulispObject>>,
+    inner: SharedMut<HashMap<HashKey, TulispObject>>,
+    test: HashTest,
+}
+
+impl HashTable {
+    fn key(&self, obj: TulispObject) -> HashKey {
+        HashKey {
+            obj,
+            test: self.test,
+        }
+    }
 }
 
 impl std::fmt::Display for HashTable {
@@ -59,22 +117,63 @@ impl TulispConvertible for HashTable {
     }
 }
 
-pub(crate) fn add(ctx: &mut TulispContext) {
-    ctx.defun("make-hash-table", || -> HashTable {
-        HashTable {
-            inner: SharedMut::new(HashMap::new()),
+/// Parses `make-hash-table`'s keyword arguments. `:test` selects the
+/// comparison mode; `:size` is accepted as a hint and ignored.
+fn parse_keyword_args(args: crate::Rest<TulispObject>) -> Result<HashTest, Error> {
+    let mut test = HashTest::Eql;
+    let mut iter = args.into_iter();
+    while let Some(kw) = iter.next() {
+        let name = kw.as_symbol().unwrap_or_else(|_| kw.to_string());
+        let value = iter.next().ok_or_else(|| {
+            Error::invalid_argument(format!("Missing keyword value: {name}")).with_trace(kw.clone())
+        })?;
+        match name.as_str() {
+            ":test" => {
+                test = match value.as_symbol().as_deref() {
+                    Ok("eq") => HashTest::Eq,
+                    Ok("eql") => HashTest::Eql,
+                    Ok("equal") => HashTest::Equal,
+                    _ => {
+                        return Err(Error::invalid_argument(format!(
+                            "Invalid hash table test: {value}"
+                        ))
+                        .with_trace(value));
+                    }
+                }
+            }
+            ":size" => {}
+            _ => {
+                return Err(
+                    Error::invalid_argument(format!("Invalid argument list: {name}"))
+                        .with_trace(kw),
+                );
+            }
         }
-    });
+    }
+    Ok(test)
+}
+
+pub(crate) fn add(ctx: &mut TulispContext) {
+    ctx.defun(
+        "make-hash-table",
+        |args: crate::Rest<TulispObject>| -> Result<HashTable, Error> {
+            Ok(HashTable {
+                inner: SharedMut::new(HashMap::new()),
+                test: parse_keyword_args(args)?,
+            })
+        },
+    );
 
     ctx.defun(
         "gethash",
         |key: TulispObject, table: HashTable, default: Option<TulispObject>| -> TulispObject {
             // Match Emacs `(gethash KEY TABLE &optional DEFAULT)` —
             // returns DEFAULT (nil if omitted) when KEY isn't present.
+            let key = table.key(key);
             table
                 .inner
                 .borrow()
-                .get(&key.into())
+                .get(&key)
                 .cloned()
                 .unwrap_or_else(|| default.unwrap_or_else(TulispObject::nil))
         },
@@ -83,7 +182,88 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defun(
         "puthash",
         |key: TulispObject, value: TulispObject, table: HashTable| {
-            table.inner.borrow_mut().insert(key.into(), value);
+            let key = table.key(key);
+            table.inner.borrow_mut().insert(key, value);
         },
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::TulispContext;
+    use crate::test_utils::{eval_assert_equal, eval_assert_error};
+
+    #[test]
+    fn test_hash_table_tests() {
+        let mut ctx = TulispContext::new();
+        // `:test 'equal` compares keys structurally, so distinct
+        // string and list objects with equal contents hit the same
+        // entry.
+        eval_assert_equal(
+            &mut ctx,
+            r#"(let ((h (make-hash-table :test 'equal))) (puthash "k" 1 h) (gethash "k" h))"#,
+            "1",
+        );
+        eval_assert_equal(
+            &mut ctx,
+            "(let ((h (make-hash-table :test 'equal))) (puthash '(1 2) 5 h) (gethash '(1 2) h))",
+            "5",
+        );
+        eval_assert_equal(
+            &mut ctx,
+            "(let ((h (make-hash-table :test 'eq))) (puthash 'a 1 h) (gethash 'a h))",
+            "1",
+        );
+        // Under `eq`, a re-read string is a different object and
+        // misses — this is what separates `eq` from `equal`.
+        eval_assert_equal(
+            &mut ctx,
+            r#"(let ((h (make-hash-table :test 'eq))) (puthash "k" 1 h) (gethash "k" h 'missing))"#,
+            "'missing",
+        );
+        eval_assert_equal(
+            &mut ctx,
+            "(let ((h (make-hash-table :test 'eql))) (puthash 1.5 1 h) (gethash 1.5 h))",
+            "1",
+        );
+        // The default test remains `eql`: numbers match by value, but
+        // a re-read string is a different object and misses.
+        eval_assert_equal(
+            &mut ctx,
+            "(let ((h (make-hash-table))) (puthash 10 'x h) (gethash 10 h))",
+            "'x",
+        );
+        eval_assert_equal(
+            &mut ctx,
+            r#"(let ((h (make-hash-table))) (puthash "k" 1 h) (gethash "k" h 'missing))"#,
+            "'missing",
+        );
+        // `:size` is accepted as a hint and ignored.
+        eval_assert_equal(
+            &mut ctx,
+            r#"(let ((h (make-hash-table :size 10 :test 'equal))) (puthash "a" 2 h) (gethash "a" h))"#,
+            "2",
+        );
+        eval_assert_error(
+            &mut ctx,
+            "(make-hash-table :best 'equal)",
+            r#"ERR InvalidArgument: Invalid argument list: :best
+<eval_string>:1.1-1.30:  at (make-hash-table :best 'equal)
+"#,
+        );
+        eval_assert_error(
+            &mut ctx,
+            "(make-hash-table :test 'foo)",
+            r#"ERR InvalidArgument: Invalid hash table test: foo
+<eval_string>:1.1-1.28:  at (make-hash-table :test 'foo)
+"#,
+        );
+        eval_assert_error(
+            &mut ctx,
+            "(make-hash-table :test)",
+            r#"ERR InvalidArgument: Missing keyword value: :test
+<eval_string>:1.1-1.23:  at (make-hash-table :test)
+"#,
+        );
+    }
 }
