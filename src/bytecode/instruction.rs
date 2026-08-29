@@ -121,8 +121,7 @@ pub(crate) enum Instruction {
     /// already been pushed on the stack (compiled with
     /// `keep_result=true`); the handler pops `args_count` of them in
     /// source order, hands them to `call(ctx, &args)`, and pushes the
-    /// result if `keep_result`. Avoids the `RustCall` re-entry path
-    /// because the closure never calls `ctx.eval`.
+    /// result if `keep_result`.
     RustCallTyped {
         name: TulispObject,
         /// See `RustCall::form`.

@@ -110,6 +110,11 @@ pub struct TulispContext {
     pub(crate) lex_allocator: Shared<LexAllocator>,
     /// Current Lisp-call nesting depth, bounded by `max_eval_depth`.
     pub(crate) eval_depth: u32,
+    /// How many public evaluation entry points are currently live on
+    /// this context, so a re-entrant entry (a Rust callable
+    /// evaluating a program mid-run) can be told apart from a fresh
+    /// top-level one. See [`Self::eval_entry`].
+    eval_nesting: u32,
     /// Nesting cap before evaluation raises a catchable error instead
     /// of overflowing the host's native stack.
     pub(crate) max_eval_depth: u32,
@@ -137,6 +142,7 @@ impl TulispContext {
             load_path: None,
             lex_allocator: Shared::new_sized(LexAllocator::new()),
             eval_depth: 0,
+            eval_nesting: 0,
             max_eval_depth: DEFAULT_MAX_EVAL_DEPTH,
             #[cfg(feature = "etags")]
             tags_table: HashMap::new(),
@@ -636,25 +642,48 @@ impl TulispContext {
         Ok(ret)
     }
 
+    /// Runs `f` as an evaluation entry point. At true top level the
+    /// nesting counter is reset: this heals a count leaked by an
+    /// earlier evaluation that unwound through a panic the host
+    /// caught and then reused this context; without it, that leak
+    /// would permanently shrink the effective depth limit. A
+    /// re-entrant entry — a Rust callable evaluating a program
+    /// mid-run — leaves the live counter intact so the recursion cap
+    /// keeps counting the outer frames. (`run_impl` / `eval_lambda`
+    /// keep the counter balanced on the normal and error paths.)
+    fn eval_entry<T>(&mut self, f: impl FnOnce(&mut Self) -> Result<T, Error>) -> Result<T, Error> {
+        if self.eval_nesting == 0 {
+            self.eval_depth = 0;
+        }
+        self.eval_nesting += 1;
+        // Decrement through a drop guard so a panic unwinding out of
+        // `f` (a panicking host callable) still restores the counter;
+        // otherwise the top-level heal above would stay disabled
+        // forever after one caught panic.
+        struct EntryGuard<'a>(&'a mut TulispContext);
+        impl Drop for EntryGuard<'_> {
+            fn drop(&mut self) {
+                self.0.eval_nesting -= 1;
+            }
+        }
+        let guard = EntryGuard(self);
+        f(&mut *guard.0)
+    }
+
     /// Parses and evaluates the given string, and returns the result.
     /// Routed through the bytecode VM.
     pub fn eval_string(&mut self, string: &str) -> Result<TulispObject, Error> {
-        // Top-level entry — the nesting counter belongs at 0 here.
-        // Resetting heals a count leaked by an earlier evaluation that
-        // unwound through a panic the host caught and then reused this
-        // context; without it, that leak would permanently shrink the
-        // effective depth limit. (`run_impl` / `eval_lambda` keep it
-        // balanced on the normal and error paths.)
-        self.eval_depth = 0;
-        let vv = parse(
-            self,
-            0,
-            string,
-            #[cfg(feature = "etags")]
-            false,
-        )?;
-        let bytecode = compile(self, &vv)?;
-        bytecode::run(self, bytecode)
+        self.eval_entry(|ctx| {
+            let vv = parse(
+                ctx,
+                0,
+                string,
+                #[cfg(feature = "etags")]
+                false,
+            )?;
+            let bytecode = compile(ctx, &vv)?;
+            bytecode::run(ctx, bytecode)
+        })
     }
 
     /// Tree-walker variant of [`eval_string`]. Kept (`#[doc(hidden)]`)
@@ -663,16 +692,16 @@ impl TulispContext {
     /// stable public API — may be removed without notice.
     #[doc(hidden)]
     pub fn tw_eval_string(&mut self, string: &str) -> Result<TulispObject, Error> {
-        // Reset the leaked-on-panic nesting counter; see `eval_string`.
-        self.eval_depth = 0;
-        let vv = parse(
-            self,
-            0,
-            string,
-            #[cfg(feature = "etags")]
-            false,
-        )?;
-        self.eval_progn(&vv)
+        self.eval_entry(|ctx| {
+            let vv = parse(
+                ctx,
+                0,
+                string,
+                #[cfg(feature = "etags")]
+                false,
+            )?;
+            ctx.eval_progn(&vv)
+        })
     }
 
     /// Evaluates each item in the given sequence, and returns the value of the
@@ -708,9 +737,11 @@ impl TulispContext {
     /// Parses and evaluates the contents of the given file and returns the
     /// value. Routed through the bytecode VM.
     pub fn eval_file(&mut self, filename: &str) -> Result<TulispObject, Error> {
-        let vv = self.parse_file(filename)?;
-        let bytecode = compile(self, &vv)?;
-        bytecode::run(self, bytecode)
+        self.eval_entry(|ctx| {
+            let vv = ctx.parse_file(filename)?;
+            let bytecode = compile(ctx, &vv)?;
+            bytecode::run(ctx, bytecode)
+        })
     }
 
     /// Evaluates an embedded program string as a prelude: the program
@@ -732,22 +763,22 @@ impl TulispContext {
     /// under the same `filename` reuses its file-table entry rather
     /// than adding a duplicate. `"<eval_string>"` is the reserved
     /// name of the shared string-evaluation bucket, so don't pass it
-    /// here. Call this outside any active evaluation — it resets the
-    /// nesting counter, like the other top-level entry points.
+    /// here. Like the other entry points, this resets the nesting
+    /// counter only at true top level; a re-entrant call during an
+    /// active evaluation is handled like `eval_string`'s.
     pub fn eval_prelude(&mut self, filename: &str, program: &str) -> Result<TulispObject, Error> {
-        // Top-level entry — reset the leaked-on-panic nesting
-        // counter; see `eval_string`.
-        self.eval_depth = 0;
-        let file_id = self.intern_filename(filename);
-        let vv = parse(
-            self,
-            file_id,
-            program,
-            #[cfg(feature = "etags")]
-            false,
-        )?;
-        let bytecode = compile(self, &vv)?;
-        bytecode::run(self, bytecode)
+        self.eval_entry(|ctx| {
+            let file_id = ctx.intern_filename(filename);
+            let vv = parse(
+                ctx,
+                file_id,
+                program,
+                #[cfg(feature = "etags")]
+                false,
+            )?;
+            let bytecode = compile(ctx, &vv)?;
+            bytecode::run(ctx, bytecode)
+        })
     }
 
     /// Interns `filename` in the context's filename table and returns
@@ -900,5 +931,52 @@ mod tests {
             .unwrap()
             .join()
             .unwrap();
+    }
+
+    // Re-entering `eval_string` from a Rust callable mid-run must
+    // leave the live nesting counter alone: unbounded mutual
+    // recursion through the host raises the catchable
+    // max-eval-depth error instead of overflowing the native stack.
+    // The cap is small because each re-entrant cycle burns many
+    // native frames and test threads run on a 2 MiB stack.
+    #[test]
+    fn reentrant_eval_string_respects_depth_cap() {
+        let mut ctx = TulispContext::new();
+        ctx.set_max_eval_depth(20);
+        ctx.defspecial("re-eval", |ctx, args| {
+            let program = args.car()?.as_string()?;
+            ctx.eval_string(&program)
+        });
+        let err = match ctx.eval_string(r#"(defun f () (re-eval "(f)")) (f)"#) {
+            Err(err) => err,
+            Ok(val) => panic!("expected max-eval-depth error, got: {val}"),
+        };
+        assert!(
+            err.format(&ctx).contains("max-eval-depth"),
+            "unexpected error: {}",
+            err.format(&ctx)
+        );
+    }
+
+    // A panicking host callable unwinds through `eval_string`; a
+    // host that catches the panic and reuses the context must get a
+    // healed nesting counter at the next top-level eval — otherwise
+    // the effective depth limit shrinks permanently.
+    #[test]
+    fn top_level_eval_heals_after_caught_panic() {
+        let mut ctx = TulispContext::new();
+        ctx.set_max_eval_depth(25);
+        ctx.defun("panicky", || -> i64 { panic!("host panic") });
+        ctx.eval_string(
+            "(defun rec (n) (if (> n 0) (+ 1 (rec (- n 1))) 0))
+             (defun deep-panic (n) (if (> n 0) (+ 1 (deep-panic (- n 1))) (panicky)))",
+        )
+        .unwrap();
+        let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = ctx.eval_string("(deep-panic 12)");
+        }));
+        assert!(caught.is_err());
+        let result: i64 = ctx.eval_string("(rec 12)").unwrap().try_into().unwrap();
+        assert_eq!(result, 12);
     }
 }

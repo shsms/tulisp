@@ -190,15 +190,33 @@ pub fn run(ctx: &mut TulispContext, bytecode: Bytecode) -> Result<TulispObject, 
     let labels = locate_labels(&bytecode);
     ctx.vm.labels.extend(labels);
     ctx.vm.bytecode.import_functions(&bytecode);
-    ctx.vm.bytecode.global = bytecode.global;
-    ctx.vm.bytecode.global_trace_ranges = bytecode.global_trace_ranges;
+    // A re-entrant run (a Rust callable evaluating a program
+    // mid-run) shares the machine with its caller: restore the
+    // caller's global program afterwards, and touch only stack
+    // values this run pushed.
+    let saved_global = std::mem::replace(&mut ctx.vm.bytecode.global, bytecode.global);
+    let saved_ranges = std::mem::replace(
+        &mut ctx.vm.bytecode.global_trace_ranges,
+        bytecode.global_trace_ranges,
+    );
+    let stack_base = ctx.vm.stack.len();
     let global_program = ctx.vm.bytecode.global.clone();
     let global_ranges = ctx.vm.bytecode.global_trace_ranges.clone();
-    run_impl(ctx, &global_program, global_ranges.as_slice(), 0)?;
-    // When the top-level form has no value (e.g., a program of
-    // only `defun`s), the compiler emits no trailing Push — the
-    // stack is empty, not underflowed. Return nil in that case.
-    Ok(ctx.vm.stack.pop().unwrap_or_else(TulispObject::nil))
+    let result = run_impl(ctx, &global_program, global_ranges.as_slice(), 0);
+    ctx.vm.bytecode.global = saved_global;
+    ctx.vm.bytecode.global_trace_ranges = saved_ranges;
+    // When the top-level form has no value (e.g., a program of only
+    // `defun`s), the compiler emits no trailing Push — the stack
+    // holds nothing above the base, not an underflow; the result is
+    // nil then. Truncation drops any partial values an erroring run
+    // pushed, so the caller's stack is unaffected.
+    let value = if ctx.vm.stack.len() > stack_base {
+        ctx.vm.stack.pop()
+    } else {
+        None
+    };
+    ctx.vm.stack.truncate(stack_base);
+    result.map(|_| value.unwrap_or_else(TulispObject::nil))
 }
 
 /// Invoke a VM-compiled lambda with already-evaluated args. Used by
@@ -774,8 +792,18 @@ fn run_impl_inner(
                 ..
             } => {
                 let args = ctx.vm.stack.pop().unwrap();
-                let result = func(ctx, &args).map_err(|e| e.with_trace(form.clone()))?;
-                if *keep_result {
+                // Clone what the call needs and release the program
+                // borrow: the host callable may re-enter the
+                // interpreter (e.g. a defspecial that calls
+                // `ctx.eval_string`), which re-borrows this
+                // function's instruction list.
+                let form = form.clone();
+                let func = func.clone();
+                let keep_result = *keep_result;
+                drop(instr_ref);
+                let result = func(ctx, &args).map_err(|e| e.with_trace(form))?;
+                instr_ref = program.borrow_mut();
+                if keep_result {
                     ctx.vm.stack.push(result);
                 }
             }
@@ -789,8 +817,15 @@ fn run_impl_inner(
                 let args_count = *args_count;
                 let split_at = ctx.vm.stack.len() - args_count;
                 let args: Vec<TulispObject> = ctx.vm.stack.drain(split_at..).collect();
-                let result = call(ctx, &args).map_err(|e| e.with_trace(form.clone()))?;
-                if *keep_result {
+                // Same re-entry discipline as `RustCall` above: the
+                // typed closure also receives `ctx` and may evaluate.
+                let form = form.clone();
+                let call = call.clone();
+                let keep_result = *keep_result;
+                drop(instr_ref);
+                let result = call(ctx, &args).map_err(|e| e.with_trace(form))?;
+                instr_ref = program.borrow_mut();
+                if keep_result {
                     ctx.vm.stack.push(result);
                 }
             }
@@ -1388,5 +1423,45 @@ fn rewrite_template(
         param_placeholders: template.param_placeholders.clone(),
         params: template.params.clone(),
         free_vars: new_free_vars,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::TulispContext;
+    use crate::test_utils::eval_assert_equal;
+
+    // A Rust callable may re-enter `eval_string` mid-run. An inner
+    // program that yields no value must not pop the outer run's
+    // pending stack value in its place.
+    #[test]
+    fn reentrant_eval_string_preserves_vm_stack() {
+        let mut ctx = TulispContext::new();
+        ctx.defspecial("inner-eval", |ctx, args| {
+            let program = args.car()?.as_string()?;
+            ctx.eval_string(&program)
+        });
+        eval_assert_equal(&mut ctx, r#"(list 1 2 (inner-eval ""))"#, "'(1 2 nil)");
+    }
+
+    // An inner `eval_string` that errors after pushing partial
+    // values must not leave them on the outer run's stack when the
+    // host swallows the error.
+    #[test]
+    fn reentrant_eval_error_leaves_outer_stack_clean() {
+        let mut ctx = TulispContext::new();
+        ctx.defspecial("inner-eval-swallow", |ctx, args| {
+            let program = args.car()?.as_string()?;
+            let result = match ctx.eval_string(&program) {
+                Ok(_) => ctx.intern("ok"),
+                Err(_) => ctx.intern("caught"),
+            };
+            Ok(result)
+        });
+        eval_assert_equal(
+            &mut ctx,
+            r#"(list 1 2 (inner-eval-swallow "(list 7 8 (car 5))"))"#,
+            "'(1 2 caught)",
+        );
     }
 }
