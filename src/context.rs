@@ -148,9 +148,8 @@ impl TulispContext {
         // The Lisp prelude is VM-compiled so higher-order forms
         // (`seq-filter`, `mapcar`, `sort`, …) dispatch their
         // predicate through `Instruction::Funcall` on the current
-        // `Machine`. A Rust implementation calling `eval::funcall`
-        // would deadlock on `ctx.vm.borrow_mut()` when invoked from
-        // inside an outer VM run with a `CompiledDefun` predicate.
+        // `Machine`, keeping per-element dispatch inside the VM loop
+        // instead of bouncing each call through `eval::funcall`.
         //
         // Use the build-time absolute path of `prelude.lisp` as the
         // synthetic filename so error traces inside these defuns

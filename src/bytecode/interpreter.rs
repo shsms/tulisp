@@ -971,10 +971,10 @@ fn run_function(
 }
 
 /// In-VM `funcall` dispatch used by `Instruction::Funcall`. Args are
-/// already fully evaluated — `ctx.vm` is actively borrowed by the
-/// caller, so we can't go through `eval::funcall` (it would
-/// re-borrow for the VM path). Instead we dispatch each callable
-/// variant using the machine we already have.
+/// already fully evaluated, so going through `eval::funcall` would
+/// only bounce out of the dispatch loop and re-enter the interpreter
+/// for a form we can dispatch right here. Instead we dispatch each
+/// callable variant on the machine we already have.
 fn funcall_inline(
     ctx: &mut TulispContext,
     func: &TulispObject,
@@ -985,10 +985,9 @@ fn funcall_inline(
     // `funcall`. If we didn't, the symbol would eval to the
     // `funcall` defspecial `Func` and we'd fall through to the
     // Lambda/Func arm below, which hands control back to
-    // `eval::funcall`. That in turn would dispatch the *real*
-    // `fn` via `ctx.vm.borrow_mut()`, deadlocking on the lock
-    // we're currently inside. Peel one layer: the first arg is
-    // the new func, the rest are its args.
+    // `eval::funcall` — a needless bounce out of the VM for a
+    // call we can dispatch right here. Peel one layer: the first
+    // arg is the new func, the rest are its args.
     if func.eq(&ctx.keywords.funcall) && !args.is_empty() {
         let mut args = args;
         let inner_func = args.remove(0);
@@ -1013,8 +1012,8 @@ fn funcall_inline(
         TulispValue::Defun { call, arity } => {
             // Args are already evaluated values from the VM stack
             // — hand them straight to the typed-args closure.
-            // No ctx.vm.borrow_mut() re-entry: we're using the
-            // closure's `&[TulispObject]` shape directly.
+            // No interpreter re-entry: we're using the closure's
+            // `&[TulispObject]` shape directly.
             //
             // Arity check mirrors `eval::funcall`'s `Defun` arm —
             // the typed closure's `@bind` macro indexes
@@ -1106,8 +1105,9 @@ fn run_lambda_with(
 /// In-VM version of `ctx.eval_file` — parses & compiles the given
 /// file, merges its labels + `bytecode.functions` into the running
 /// machine, and evaluates its top-level forms on the current stack.
-/// Unlike the external `eval_file`, this doesn't call
-/// `vm.borrow_mut().run(…)` — we're already holding `&mut self`.
+/// Unlike the external `eval_file`, this doesn't start a fresh
+/// top-level `run` — it merges into the machine we're already
+/// executing on.
 fn vm_eval_file_inline(ctx: &mut TulispContext, path: &str) -> Result<TulispObject, Error> {
     let ast = ctx.parse_file(path)?;
     let bytecode = crate::bytecode::compile(ctx, &ast)?;

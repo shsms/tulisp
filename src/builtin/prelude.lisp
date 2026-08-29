@@ -5,15 +5,13 @@
 ;;; `context::TulispContext::new`. Every form below is therefore
 ;;; VM-compiled: `defun`s become `CompiledDefun`s and any internal
 ;;; `(funcall pred …)` compiles to `Instruction::Funcall` and
-;;; dispatches on the *current* `Machine` (no re-borrow of `ctx.vm`).
+;;; dispatches on the *current* `Machine`.
 ;;;
 ;;; That is why these particular functions live here rather than in
-;;; Rust. Implementing them as `ctx.defun` wrappers that call
-;;; `ctx.map` / `ctx.filter` / `eval::funcall` would deadlock when
-;;; invoked from inside an outer VM run with a `CompiledDefun`
-;;; predicate, because `funcall`'s `CompiledDefun` arm acquires
-;;; `ctx.vm.borrow_mut()` again. Compiling the bodies as VM bytecode
-;;; sidesteps that path entirely.
+;;; Rust: with the bodies compiled as bytecode, per-element predicate
+;;; dispatch stays inside the VM's dispatch loop, instead of each
+;;; element bouncing out through `eval::funcall` and re-entering the
+;;; interpreter via `bytecode::run_lambda`.
 
 (defun seq-map (func seq)
   (let ((out nil))
