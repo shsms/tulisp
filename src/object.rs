@@ -126,8 +126,8 @@ impl TulispObject {
             || self.inner_ref().0.lex_symbol_eq(other)
     }
 
-    /// Returns true if `self` and `other` are the same object, or are
-    /// indistinguishable numbers.
+    /// Returns true if `self` and `other` are the same object, or
+    /// numbers of the same kind and value (see [`Number::eql`]).
     ///
     /// Read more about Emacs `eql`
     /// [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Comparison-of-Numbers.html#index-eql)

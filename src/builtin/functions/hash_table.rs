@@ -190,8 +190,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
 #[cfg(test)]
 mod tests {
-    use crate::TulispContext;
+    use super::{HashKey, HashTest};
     use crate::test_utils::{eval_assert_equal, eval_assert_error};
+    use crate::{Error, TulispContext, TulispObject};
 
     #[test]
     fn test_hash_table_tests() {
@@ -264,6 +265,74 @@ mod tests {
             r#"ERR InvalidArgument: Missing keyword value: :test
 <eval_string>:1.1-1.23:  at (make-hash-table :test)
 "#,
+        );
+    }
+
+    #[test]
+    fn hash_key_eq_follows_table_test() -> Result<(), Error> {
+        // Pin `HashKey`'s `Eq` directly; the hasher alone can hide a
+        // wrong `Eq` by keeping keys in different buckets.
+        let key = |obj: &TulispObject, test| HashKey {
+            obj: obj.clone(),
+            test,
+        };
+        let int: TulispObject = 5.into();
+        let float: TulispObject = 5.0.into();
+        let neg_zero: TulispObject = (-0.0).into();
+        let zero: TulispObject = 0.0.into();
+        for test in [HashTest::Eql, HashTest::Equal] {
+            assert!(key(&int, test) == key(&int, test));
+            assert!(key(&int, test) != key(&float, test));
+            assert!(key(&zero, test) != key(&neg_zero, test));
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn eql_table_distinguishes_int_and_float_keys() {
+        // `(eql 5 5.0)` is nil, so 5 and 5.0 are different keys.
+        let mut ctx = TulispContext::new();
+        eval_assert_equal(
+            &mut ctx,
+            "(let ((h (make-hash-table))) (puthash 5 'a h) (gethash 5.0 h 'missing))",
+            "'missing",
+        );
+        eval_assert_equal(
+            &mut ctx,
+            "(let ((h (make-hash-table))) (puthash 5.0 'a h) (gethash 5 h 'missing))",
+            "'missing",
+        );
+        eval_assert_equal(
+            &mut ctx,
+            "(let ((h (make-hash-table))) (puthash 5 'a h) (puthash 5.0 'b h) (list (gethash 5 h) (gethash 5.0 h)))",
+            "'(a b)",
+        );
+    }
+
+    #[test]
+    fn eql_table_float_keys_are_bit_exact() {
+        // 0.0 and -0.0 are two keys; a NaN key finds itself.
+        let mut ctx = TulispContext::new();
+        eval_assert_equal(
+            &mut ctx,
+            "(let ((h (make-hash-table))) (puthash 0.0 'a h) (puthash -0.0 'b h) (list (gethash 0.0 h) (gethash -0.0 h)))",
+            "'(a b)",
+        );
+        eval_assert_equal(
+            &mut ctx,
+            "(let ((h (make-hash-table)) (n (/ 0.0 0.0))) (puthash n 'a h) (gethash n h 'missing))",
+            "'a",
+        );
+    }
+
+    #[test]
+    fn equal_table_is_type_strict_on_numbers() {
+        // `(equal 1 1.0)` is nil, so 1 and 1.0 are different keys.
+        let mut ctx = TulispContext::new();
+        eval_assert_equal(
+            &mut ctx,
+            "(let ((h (make-hash-table :test 'equal))) (puthash 1 'i h) (gethash 1.0 h 'missing))",
+            "'missing",
         );
     }
 }

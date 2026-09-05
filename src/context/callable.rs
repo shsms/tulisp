@@ -692,7 +692,7 @@ mod plist_args {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_utils::{eval_assert_equal, eval_assert_error};
+    use crate::test_utils::{eval_assert, eval_assert_equal, eval_assert_error};
     use crate::{Error, Rest, TulispContext, TulispObject};
 
     #[test]
@@ -700,7 +700,8 @@ mod tests {
         let ctx = &mut TulispContext::new();
         ctx.defun("sum", |items: Rest<f64>| -> f64 { items.into_iter().sum() });
 
-        eval_assert_equal(ctx, "(sum)", "0.0");
+        // The empty sum is a float zero of either sign; compare with `=`.
+        eval_assert(ctx, "(and (floatp (sum)) (= (sum) 0))");
         eval_assert_equal(ctx, "(sum (- 4 0.5) (+ 3 4) 5 10)", "25.5");
         eval_assert_error(
             ctx,

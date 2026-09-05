@@ -670,7 +670,7 @@ impl PartialEq for TulispValue {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Symbol { value: l0, .. }, Self::Symbol { value: r0, .. }) => l0.name == r0.name,
-            (Self::Number { value: l0, .. }, Self::Number { value: r0, .. }) => l0 == r0,
+            (Self::Number { value: l0, .. }, Self::Number { value: r0, .. }) => l0.eql(r0),
             (Self::String { value: l0, .. }, Self::String { value: r0, .. }) => l0 == r0,
             (Self::List { cons: l_cons, .. }, Self::List { cons: r_cons, .. }) => l_cons == r_cons,
             (Self::Quote { value: l0, .. }, Self::Quote { value: r0, .. }) => l0.equal(r0),

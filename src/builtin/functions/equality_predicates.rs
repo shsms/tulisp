@@ -32,10 +32,37 @@ mod tests {
 
     #[test]
     fn test_equal_numbers() {
+        // `equal` is strict about kind; `=` compares across kinds.
         let mut ctx = TulispContext::new();
         eval_assert(&mut ctx, "(equal 8 8)");
         eval_assert_not(&mut ctx, "(equal 8 4)");
-        eval_assert(&mut ctx, "(equal 8.0 8)");
+        eval_assert(&mut ctx, "(equal 8.0 8.0)");
+        eval_assert_not(&mut ctx, "(equal 8.0 8)");
         eval_assert_not(&mut ctx, "(equal 8.0 4)");
+        eval_assert(&mut ctx, "(= 8.0 8)");
+        eval_assert_not(&mut ctx, "(equal '(1) '(1.0))");
+    }
+
+    #[test]
+    fn eql_is_type_strict_on_numbers() {
+        // Same rule as `equal`.
+        let mut ctx = TulispContext::new();
+        eval_assert(&mut ctx, "(eql 5 5)");
+        eval_assert(&mut ctx, "(eql 5.0 5.0)");
+        eval_assert_not(&mut ctx, "(eql 5 5.0)");
+        eval_assert_not(&mut ctx, "(eql 5.0 5)");
+        eval_assert(&mut ctx, "(= 5 5.0)");
+    }
+
+    #[test]
+    fn float_equality_is_bit_exact() {
+        // Floats compare by bit pattern, as in Emacs.
+        let mut ctx = TulispContext::new();
+        eval_assert_not(&mut ctx, "(eql 0.0 -0.0)");
+        eval_assert_not(&mut ctx, "(equal 0.0 -0.0)");
+        eval_assert(&mut ctx, "(= 0.0 -0.0)");
+        eval_assert(&mut ctx, "(eql (/ 0.0 0.0) (/ 0.0 0.0))");
+        eval_assert(&mut ctx, "(equal (/ 0.0 0.0) (/ 0.0 0.0))");
+        eval_assert(&mut ctx, "(let ((n (/ 0.0 0.0))) (eql n n))");
     }
 }

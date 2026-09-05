@@ -390,6 +390,19 @@ impl std::ops::Rem<f64> for Number {
     }
 }
 
+impl Number {
+    /// Same kind and same value, as Emacs `eql` compares numbers.
+    /// Floats compare by bit pattern: `0.0` and `-0.0` differ, and a
+    /// NaN equals itself. `PartialEq` is the cross-kind `=`.
+    pub(crate) fn eql(&self, other: &Number) -> bool {
+        match (self, other) {
+            (Number::Int(l), Number::Int(r)) => l == r,
+            (Number::Float(l), Number::Float(r)) => l.to_bits() == r.to_bits(),
+            _ => false,
+        }
+    }
+}
+
 impl PartialEq for Number {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {

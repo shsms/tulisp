@@ -239,6 +239,10 @@ mod tests {
         let ctx = &mut TulispContext::new();
         eval_assert_equal(ctx, r#"(member "b" '("a" "b" "c"))"#, r#"'("b" "c")"#);
         eval_assert_equal(ctx, r#"(member "z" '("a" "b"))"#, "nil");
+        // `member` uses `equal`, which is strict about number kind.
+        eval_assert_equal(ctx, "(member 2 '(1 2 3))", "'(2 3)");
+        eval_assert_equal(ctx, "(member 2.0 '(1 2 3))", "nil");
+        eval_assert_equal(ctx, "(member 2 '(1 2.0 3))", "nil");
     }
 
     #[test]
