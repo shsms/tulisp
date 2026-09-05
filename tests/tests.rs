@@ -1360,10 +1360,6 @@ fn test_math() -> Result<(), Error> {
     tulisp_assert! { program: "(>= 32 32)",    result: "t"   }
     tulisp_assert! { program: "(>= 8 32)",     result: "nil" }
     tulisp_assert! { program: "(>= 80 32)",    result: "t"   }
-    tulisp_assert! { program: "(equal 8 8)",   result: "t"   }
-    tulisp_assert! { program: "(equal 8 4)",   result: "nil" }
-    tulisp_assert! { program: "(equal 8.0 8)", result: "t"   }
-    tulisp_assert! { program: "(equal 8.0 4)", result: "nil" }
 
     tulisp_assert! { program: "1_000",            result: "1000"      }
     tulisp_assert! { program: "1_000_000",        result: "1000000"   }

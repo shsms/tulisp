@@ -29,4 +29,13 @@ mod tests {
         eval_assert(&mut ctx, "(let ((x '(1))) (eql x x))");
         eval_assert_not(&mut ctx, "(eql '(1) '(1))");
     }
+
+    #[test]
+    fn test_equal_numbers() {
+        let mut ctx = TulispContext::new();
+        eval_assert(&mut ctx, "(equal 8 8)");
+        eval_assert_not(&mut ctx, "(equal 8 4)");
+        eval_assert(&mut ctx, "(equal 8.0 8)");
+        eval_assert_not(&mut ctx, "(equal 8.0 4)");
+    }
 }
