@@ -935,4 +935,14 @@ mod tests {
              <eval_string>:1.1-1.10:  at (apply '+)\n",
         );
     }
+
+    #[test]
+    fn while_runs_until_the_condition_is_nil() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(let ((vv 0)) (while (< vv 42) (setq vv (+ 1 vv))) vv)",
+            "42",
+        );
+    }
 }

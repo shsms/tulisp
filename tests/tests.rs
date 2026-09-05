@@ -2846,15 +2846,6 @@ fn test_defvar() -> Result<(), Error> {
 }
 
 #[test]
-fn test_while() -> Result<(), Error> {
-    tulisp_assert! {
-        program: "(let ((vv 0)) (while (< vv 42) (setq vv (+ 1 vv))) vv)",
-        result: "42",
-    }
-    Ok(())
-}
-
-#[test]
 fn test_sequences() -> Result<(), Error> {
     tulisp_assert! {
         program: "(seq-map #'1+ '(2 4 6))",
