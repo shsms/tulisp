@@ -71,6 +71,11 @@ fn equal_hash<H: Hasher>(obj: &TulispObject, state: &mut H) {
                 state.write_u8(13);
                 state.write_usize(value.addr_as_usize());
             }
+            // A lexical binding is `eq` to its symbol.
+            TulispValue::LexicalBinding { binding } => {
+                state.write_u8(12);
+                state.write_usize(binding.symbol().addr_as_usize());
+            }
             _ => {
                 state.write_u8(12);
                 state.write_usize(obj.addr_as_usize());
@@ -91,11 +96,12 @@ enum EqKey {
 
 /// The `eq` key of `obj`. A `nil` key must stay `nil` while it is in
 /// a table: pushing onto it from Rust turns it into a list, which
-/// changes its key.
+/// changes its key. A lexical binding shares its symbol's key.
 fn identity_key(obj: &TulispObject) -> EqKey {
     match &obj.inner_ref().0 {
         TulispValue::Nil => EqKey::Nil,
         TulispValue::T => EqKey::T,
+        TulispValue::LexicalBinding { binding } => EqKey::Addr(binding.symbol().addr_as_usize()),
         _ => EqKey::Addr(obj.addr_as_usize()),
     }
 }
@@ -246,6 +252,35 @@ mod tests {
     use super::{HashKey, HashTest};
     use crate::test_utils::{eval_assert_equal, eval_assert_error};
     use crate::{Error, Shared, TulispContext, TulispObject};
+
+    // A lexical binding is `eq` to its symbol, so it must be `eql` to
+    // it and hash like it under every table test.
+    #[test]
+    fn a_lexical_binding_keys_like_its_symbol() {
+        use std::hash::{Hash, Hasher};
+        fn hash_of(key: &HashKey) -> u64 {
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            key.hash(&mut hasher);
+            hasher.finish()
+        }
+        let ctx = &mut TulispContext::new();
+        let symbol = ctx.intern("x");
+        let binding = TulispObject::lexical_binding(ctx.lex_allocator.clone(), symbol.clone());
+        assert!(symbol.eq(&binding) && binding.eq(&symbol));
+        assert!(symbol.eql(&binding) && binding.eql(&symbol));
+        for test in [HashTest::Eq, HashTest::Eql, HashTest::Equal] {
+            let symbol_key = HashKey {
+                obj: symbol.clone(),
+                test,
+            };
+            let binding_key = HashKey {
+                obj: binding.clone(),
+                test,
+            };
+            assert!(symbol_key == binding_key);
+            assert_eq!(hash_of(&symbol_key), hash_of(&binding_key));
+        }
+    }
 
     #[test]
     fn test_hash_table_tests() {

@@ -142,9 +142,8 @@ impl TulispObject {
         other.inner_ref().0.lex_symbol_eq(self)
     }
 
-    /// Returns true if `self` and `other` are the same object, both
-    /// `nil`, both `t`, or numbers of the same kind and value (see
-    /// [`Number::eql`]).
+    /// Returns true if `self` and `other` are [`eq`](Self::eq), or
+    /// numbers of the same kind and value (see [`Number::eql`]).
     ///
     /// Read more about Emacs `eql`
     /// [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Comparison-of-Numbers.html#index-eql)
@@ -152,13 +151,14 @@ impl TulispObject {
         if self.eq_ptr(other) {
             return true;
         }
-        let value = self.inner_ref();
-        match &value.0 {
-            TulispValue::Number { .. } | TulispValue::Nil | TulispValue::T => {
-                value.0 == other.inner_ref().0
+        {
+            let value = self.inner_ref();
+            if let TulispValue::Number { .. } = &value.0 {
+                return value.0 == other.inner_ref().0;
             }
-            _ => false,
         }
+        // `eq` reads `self` again, so the borrow above must be gone.
+        self.eq(other)
     }
 
     /// Returns an iterator over the values inside `self`.
