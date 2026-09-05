@@ -118,9 +118,18 @@ pub fn compile_progn(
     compiler.keep_result = false;
     #[allow(dropping_references)]
     drop(compiler);
+    // Restore `keep_result` even when a form fails to compile, so
+    // the context stays usable after the error.
+    let mut compiled = Ok(());
     for expr in value.base_iter() {
-        if let Some(prev) = prev {
-            result.append(&mut compile_expr(ctx, &prev)?);
+        if let Some(prev) = &prev {
+            match compile_expr(ctx, prev) {
+                Ok(mut code) => result.append(&mut code),
+                Err(e) => {
+                    compiled = Err(e);
+                    break;
+                }
+            }
         }
         prev = Some(expr);
     }
@@ -128,6 +137,7 @@ pub fn compile_progn(
     compiler.keep_result = keep_result;
     #[allow(dropping_references)]
     drop(compiler);
+    compiled?;
     if let Some(prev) = prev {
         result.append(&mut compile_expr(ctx, &prev)?);
     } else if keep_result {
@@ -516,5 +526,21 @@ pub(crate) fn compile_expr(
             crate::ErrorKind::SyntaxError,
             "Splice without backquote".to_string(),
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::TulispContext;
+
+    // A form that fails to compile must not leave `keep_result`
+    // false, or every later program would evaluate to nil. The
+    // expected value is a Rust literal on purpose: a Lisp one would
+    // compile to nil as well.
+    #[test]
+    fn a_compile_error_leaves_the_context_usable() {
+        let ctx = &mut TulispContext::new();
+        assert!(ctx.eval_string("(dolist 5) 1").is_err());
+        assert_eq!(ctx.eval_string("(+ 1 2)").unwrap().to_string(), "3");
     }
 }
