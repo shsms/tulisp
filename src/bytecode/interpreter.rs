@@ -113,6 +113,24 @@ pub struct Machine {
     labels: HashMap<usize, usize>, // TulispObject.addr -> instruction index
 }
 
+/// Pops two operands and jumps when `$cmp` holds for them. `$a` is
+/// the top of the stack and `$b` the one below it. The operands are
+/// dropped before an error from `$cmp` propagates.
+macro_rules! jump_if_binary {
+    ($ctx:ident, $pc:ident, $pos:ident, |$a:ident, $b:ident| $cmp:expr) => {{
+        let minus2 = $ctx.vm.stack.len() - 2;
+        let [ref $b, ref $a] = $ctx.vm.stack[minus2..] else {
+            unreachable!()
+        };
+        let cmp: Result<bool, Error> = $cmp;
+        $ctx.vm.stack.truncate(minus2);
+        if cmp? {
+            jump_to_pos!($ctx, $pc, $pos);
+            continue;
+        }
+    }};
+}
+
 macro_rules! jump_to_pos {
     ($ctx: ident, $pc:ident, $pos:ident) => {
         $pc = {
@@ -459,65 +477,18 @@ fn run_impl_inner(
                     ctx.vm.stack.truncate(ctx.vm.stack.len() - 1);
                 }
             }
-            Instruction::JumpIfNeq(pos) => {
-                let minus2 = ctx.vm.stack.len() - 2;
-                let [ref b, ref a] = ctx.vm.stack[minus2..] else {
-                    unreachable!()
-                };
-                let cmp = !a.eq(b);
-                ctx.vm.stack.truncate(minus2);
-                if cmp {
-                    jump_to_pos!(ctx, pc, pos);
-                    continue;
-                }
-            }
+            Instruction::JumpIfNeq(pos) => jump_if_binary!(ctx, pc, pos, |a, b| Ok(!a.eq(b))),
             Instruction::JumpIfLt(pos) => {
-                let minus2 = ctx.vm.stack.len() - 2;
-                let [ref b, ref a] = ctx.vm.stack[minus2..] else {
-                    unreachable!()
-                };
-                let cmp = compare_op(a, b, |a, b| a < b)?;
-                ctx.vm.stack.truncate(minus2);
-                if cmp {
-                    jump_to_pos!(ctx, pc, pos);
-                    continue;
-                }
+                jump_if_binary!(ctx, pc, pos, |a, b| compare_op(a, b, |a, b| a < b))
             }
             Instruction::JumpIfLtEq(pos) => {
-                let minus2 = ctx.vm.stack.len() - 2;
-                let [ref b, ref a] = ctx.vm.stack[minus2..] else {
-                    unreachable!()
-                };
-                let cmp = compare_op(a, b, |a, b| a <= b)?;
-                ctx.vm.stack.truncate(minus2);
-                if cmp {
-                    jump_to_pos!(ctx, pc, pos);
-                    continue;
-                }
+                jump_if_binary!(ctx, pc, pos, |a, b| compare_op(a, b, |a, b| a <= b))
             }
             Instruction::JumpIfGt(pos) => {
-                let minus2 = ctx.vm.stack.len() - 2;
-                let [ref b, ref a] = ctx.vm.stack[minus2..] else {
-                    unreachable!()
-                };
-                let cmp = compare_op(a, b, |a, b| a > b)?;
-                ctx.vm.stack.truncate(minus2);
-                if cmp {
-                    jump_to_pos!(ctx, pc, pos);
-                    continue;
-                }
+                jump_if_binary!(ctx, pc, pos, |a, b| compare_op(a, b, |a, b| a > b))
             }
             Instruction::JumpIfGtEq(pos) => {
-                let minus2 = ctx.vm.stack.len() - 2;
-                let [ref b, ref a] = ctx.vm.stack[minus2..] else {
-                    unreachable!()
-                };
-                let cmp = compare_op(a, b, |a, b| a >= b)?;
-                ctx.vm.stack.truncate(minus2);
-                if cmp {
-                    jump_to_pos!(ctx, pc, pos);
-                    continue;
-                }
+                jump_if_binary!(ctx, pc, pos, |a, b| compare_op(a, b, |a, b| a >= b))
             }
             Instruction::Jump(pos) => {
                 jump_to_pos!(ctx, pc, pos);
