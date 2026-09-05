@@ -51,7 +51,8 @@ pub(super) fn compile_fn_let_star(
         let mut result = vec![];
         let mut params: Vec<TulispObject> = Vec::new();
         let mut mappings: Vec<(TulispObject, TulispObject)> = Vec::new();
-        for varitem in varlist.base_iter() {
+        let mut varitems = varlist.base_iter();
+        for varitem in varitems.by_ref() {
             let (name, value_expr): (TulispObject, Option<TulispObject>) = if varitem.symbolp() {
                 (varitem.clone(), None)
             } else if varitem.consp() {
@@ -117,6 +118,7 @@ pub(super) fn compile_fn_let_star(
                 mappings.push((name, binding));
             }
         }
+        varitems.take_error()?;
         // Track the bindings on the compiler so anything inside the
         // body that emits a function-escaping instruction (`TailCall`,
         // self-recursion's `Jump(Pos::Abs(0))`) can prepend

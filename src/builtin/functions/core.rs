@@ -303,7 +303,8 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         // this way).
         let mut mappings: Vec<(TulispObject, TulispObject)> = Vec::new();
         let mut dynamic_guard = DynamicScopeGuard { names: Vec::new() };
-        for varitem in varlist.base_iter() {
+        let mut varitems = varlist.base_iter();
+        for varitem in varitems.by_ref() {
             let (name, initial) = if varitem.symbolp() {
                 (varitem, TulispObject::nil())
             } else if varitem.consp() {
@@ -343,6 +344,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 mappings.push((name, lex));
             }
         }
+        varitems.take_error()?;
 
         let rewritten = substitute_lexical(body, &mappings)?;
         ctx.eval_progn(&rewritten)
@@ -988,6 +990,18 @@ mod tests {
         let ctx = &mut TulispContext::new();
         eval_assert(ctx, "(eq (defun q () 1) 'q)");
         eval_assert(ctx, "(eq (defmacro m () 1) 'm)");
+    }
+
+    #[test]
+    fn let_rejects_a_circular_varlist() {
+        let ctx = &mut TulispContext::new();
+        // Only a macro can hand `let` a list that loops.
+        eval_assert_error(
+            ctx,
+            "(defmacro m () (let ((vl (list '(a 1)))) (setcdr vl vl) (list 'let vl 1)))
+             (m)",
+            "ERR OutOfRange: Circular list\n",
+        );
     }
 
     #[test]

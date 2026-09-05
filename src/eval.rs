@@ -570,7 +570,7 @@ fn macroexpand_depth(
         Ok(val) => val,
         Err(_) => exp_car,
     };
-    let mut x = match &value.inner_ref().0 {
+    let x = match &value.inner_ref().0 {
         TulispValue::Macro(func) => {
             let expansion = func(ctx, &expr.cdr()?).map_err(|e| e.with_trace(inp))?;
             macroexpand_depth(ctx, expansion, depth + 1)?
@@ -586,19 +586,13 @@ fn macroexpand_depth(
     if x.consp() {
         let span = x.span();
         let mut builder = crate::cons::ListBuilder::new();
-        loop {
-            let car = macroexpand_depth(ctx, x.car()?, depth + 1)?;
-            builder.push(car);
-
-            let cdr = x.cdr()?;
-            if cdr.null() {
-                break;
-            }
-            if !cdr.consp() {
-                builder.append(cdr)?;
-                break;
-            }
-            x = cdr;
+        let mut items = x.base_iter();
+        for item in items.by_ref() {
+            builder.push(macroexpand_depth(ctx, item, depth + 1)?);
+        }
+        let tail = items.tail()?;
+        if !tail.null() {
+            builder.append(tail)?;
         }
         Ok(builder.build().with_span(span))
     } else {
@@ -696,9 +690,8 @@ fn substitute_binding_form(
                 let varlist_span = varlist.span();
                 let varlist_ctxobj = varlist.ctxobj();
                 let mut vl_builder = crate::cons::ListBuilder::new();
-                let mut cur = varlist;
-                while cur.consp() {
-                    let varitem = cur.car()?;
+                let mut varitems = varlist.base_iter();
+                for varitem in varitems.by_ref() {
                     let new_varitem = if varitem.consp() {
                         // (var init...) — preserve var, substitute init.
                         walk_tail_substitute(varitem, 1, mappings, quote_depth)?
@@ -707,8 +700,8 @@ fn substitute_binding_form(
                         varitem
                     };
                     vl_builder.push(new_varitem);
-                    cur = cur.cdr()?;
                 }
+                varitems.take_error()?;
                 vl_builder
                     .build()
                     .with_span(varlist_span)
@@ -723,14 +716,13 @@ fn substitute_binding_form(
             builder.push(head);
             builder.push(new_varlist);
             // Substitute the body forms.
-            let mut cur = body_forms;
-            while cur.consp() {
-                let car = cur.car()?;
-                builder.push(substitute_lexical_inner(car, mappings, quote_depth)?);
-                cur = cur.cdr()?;
+            let mut forms = body_forms.base_iter();
+            for form in forms.by_ref() {
+                builder.push(substitute_lexical_inner(form, mappings, quote_depth)?);
             }
-            if !cur.null() {
-                builder.append(substitute_lexical_inner(cur, mappings, quote_depth)?)?;
+            let tail = forms.tail()?;
+            if !tail.null() {
+                builder.append(substitute_lexical_inner(tail, mappings, quote_depth)?)?;
             }
             Ok(Some(
                 builder
@@ -757,14 +749,13 @@ fn substitute_binding_form(
             let mut builder = crate::cons::ListBuilder::new();
             builder.push(head);
             builder.push(new_spec);
-            let mut cur = body_forms;
-            while cur.consp() {
-                let car = cur.car()?;
-                builder.push(substitute_lexical_inner(car, mappings, quote_depth)?);
-                cur = cur.cdr()?;
+            let mut forms = body_forms.base_iter();
+            for form in forms.by_ref() {
+                builder.push(substitute_lexical_inner(form, mappings, quote_depth)?);
             }
-            if !cur.null() {
-                builder.append(substitute_lexical_inner(cur, mappings, quote_depth)?)?;
+            let tail = forms.tail()?;
+            if !tail.null() {
+                builder.append(substitute_lexical_inner(tail, mappings, quote_depth)?)?;
             }
             Ok(Some(
                 builder

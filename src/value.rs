@@ -697,33 +697,26 @@ impl PartialEq for TulispValue {
     }
 }
 
-/// Formats tulisp lists non-recursively. Returns
-/// `std::fmt::Result` so formatter errors propagate up to the
-/// `Display::fmt` caller; the only other failure source is
-/// `car`/`cdr` on a `TulispValue::List`, which can't actually fail
-/// (we wouldn't be in `fmt_list` otherwise) — convert any
-/// theoretical break of that invariant into a generic
-/// `std::fmt::Error` rather than swallowing it.
-fn fmt_list(mut vv: TulispObject, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+/// Formats a list without recursing down its cdr. An improper tail
+/// prints as ` . tail`. A circular list ends with ` ...` after a few
+/// rounds of the cycle, where the iterator notices it, instead of
+/// never ending.
+fn fmt_list(vv: TulispObject, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     f.write_char('(')?;
+    let mut iter = vv.base_iter();
     let mut add_space = false;
-    loop {
-        let car = vv.car().map_err(|_| std::fmt::Error)?;
-        let rest = vv.cdr().map_err(|_| std::fmt::Error)?;
+    for car in iter.by_ref() {
         if add_space {
             f.write_char(' ')?;
         } else {
             add_space = true;
         }
         write!(f, "{}", car)?;
-        if rest.null() {
-            break;
-        }
-        if !rest.consp() {
-            write!(f, " . {}", rest)?;
-            break;
-        }
-        vv = rest;
+    }
+    match iter.tail() {
+        Ok(tail) if !tail.null() => write!(f, " . {}", tail)?,
+        Ok(_) => {}
+        Err(_) => f.write_str(" ...")?,
     }
     f.write_char(')')?;
     Ok(())
@@ -1438,4 +1431,25 @@ impl TulispValue {
     make_cxr_and_then!(cddadr_and_then, cdr().cddar_and_then);
     make_cxr_and_then!(cdddar_and_then, car().cdddr_and_then);
     make_cxr_and_then!(cddddr_and_then, cdr().cdddr_and_then);
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::TulispContext;
+    use crate::test_utils::eval_assert_equal;
+
+    #[test]
+    fn improper_and_circular_lists_print() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(prin1-to-string '(1 2 . 3))", "\"(1 2 . 3)\"");
+        let printed = ctx
+            .eval_string("(let ((l (list 1 2 3))) (setcdr (cdr (cdr l)) l) (prin1-to-string l))")
+            .unwrap()
+            .as_string()
+            .unwrap();
+        assert!(
+            printed.starts_with("(1 2 3 1 2 3") && printed.ends_with(" ...)"),
+            "{printed}"
+        );
+    }
 }
