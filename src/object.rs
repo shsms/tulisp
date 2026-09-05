@@ -90,6 +90,8 @@ impl TulispObject {
     /// way to explicitly specify `True`.
     #[inline(always)]
     pub fn t() -> TulispObject {
+        // A fresh cell, not the shared one: the parser stamps a source
+        // span on each `t` it reads.
         TulispValue::T.into_ref(None)
     }
 
@@ -516,6 +518,9 @@ impl TulispObject {
     }
 
     pub(crate) fn with_span(&self, in_span: Option<Span>) -> Self {
+        if self.eq_ptr(&shared_t()) {
+            return self.clone();
+        }
         self.rc.borrow_mut().1 = in_span;
         self.clone()
     }
@@ -732,10 +737,40 @@ impl From<i64> for TulispObject {
     }
 }
 
+/// The one `t` cell that `true.into()` hands out. `with_span` leaves
+/// it alone, since a span stamped on it would show up on every later
+/// `t`. One cell per thread with `Rc`; one per process with `Arc`, so
+/// that a `t` moved to another thread is still recognized there.
+#[cfg(not(feature = "sync"))]
+fn shared_t() -> TulispObject {
+    thread_local! {
+        static SHARED_T: TulispObject = TulispValue::T.into_ref(None);
+    }
+    SHARED_T.with(|t| t.clone())
+}
+
+#[cfg(feature = "sync")]
+fn shared_t() -> TulispObject {
+    static SHARED_T: std::sync::OnceLock<TulispObject> = std::sync::OnceLock::new();
+    SHARED_T
+        .get_or_init(|| TulispValue::T.into_ref(None))
+        .clone()
+}
+
+impl From<bool> for TulispObject {
+    /// `true` is the shared cell from [`shared_t`], so a true result
+    /// does not allocate. The same rule as the small int cache above
+    /// applies: never call `assign` / `take` on it. `false` is a fresh
+    /// cell every time, because pushing onto a `nil` object turns it
+    /// into a list in place.
+    fn from(vv: bool) -> Self {
+        if vv { shared_t() } else { TulispObject::nil() }
+    }
+}
+
 tulisp_object_from!(f64);
 tulisp_object_from!(&str);
 tulisp_object_from!(String);
-tulisp_object_from!(bool);
 tulisp_object_from!(Shared<dyn TulispAny>);
 
 impl FromIterator<TulispObject> for TulispObject {
@@ -906,4 +941,58 @@ impl TulispObject {
     extractor_cxr_and_then_fn!(cddadr_and_then);
     extractor_cxr_and_then_fn!(cdddar_and_then);
     extractor_cxr_and_then_fn!(cddddr_and_then);
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{Error, TulispContext, TulispConvertible, TulispObject};
+
+    #[test]
+    fn rust_bools_share_one_t_and_nil_stays_fresh() -> Result<(), Error> {
+        let t: TulispObject = true.into();
+        assert!(t.eq_ptr(&true.into()));
+        assert!(t.eq_ptr(&true.into_tulisp()));
+        // Results of the VM's comparisons and of `-> bool` builtins
+        // come through the same conversion.
+        let mut ctx = TulispContext::new();
+        assert!(t.eq_ptr(&ctx.eval_string("(> 2 1)")?));
+        assert!(t.eq_ptr(&ctx.eval_string("(numberp 1)")?));
+        // A `nil` can be pushed onto in place, so every `nil` must be
+        // its own object.
+        let nil_a: TulispObject = false.into();
+        let nil_b: TulispObject = false.into();
+        assert!(!nil_a.eq_ptr(&nil_b));
+        nil_a.push(1.into())?;
+        assert!(TulispObject::from(false).null());
+        Ok(())
+    }
+
+    #[test]
+    fn shared_t_never_takes_a_span() -> Result<(), Error> {
+        // The tree-walker's backquote stamps the unquote form's span
+        // onto its evaluated value. That must not reach the shared
+        // `t`, or every later `t` in the thread reports that location.
+        let mut ctx = TulispContext::new();
+        ctx.tw_eval_string("(funcall #'(lambda (x) `(,x)) (> 2 1))")?;
+        assert!(TulispObject::from(true).span().is_none());
+        Ok(())
+    }
+
+    /// Same as above, but the `t` crosses a thread before it is
+    /// evaluated. The guard must recognize it there too.
+    #[cfg(feature = "sync")]
+    #[test]
+    fn shared_t_never_takes_a_span_across_threads() -> Result<(), Error> {
+        let moved: TulispObject = true.into();
+        std::thread::spawn(move || -> Result<(), Error> {
+            let mut ctx = TulispContext::new();
+            ctx.intern("x").set_global(moved)?;
+            ctx.tw_eval_string("`(,x)")?;
+            Ok(())
+        })
+        .join()
+        .expect("thread panicked")?;
+        assert!(TulispObject::from(true).span().is_none());
+        Ok(())
+    }
 }

@@ -112,7 +112,7 @@ impl TulispConvertible for bool {
         Ok(value.is_truthy())
     }
     fn into_tulisp(self) -> TulispObject {
-        TulispValue::from(self).into_ref(None)
+        self.into()
     }
 }
 
