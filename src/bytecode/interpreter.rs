@@ -478,6 +478,11 @@ fn run_impl_inner(
                 }
             }
             Instruction::JumpIfNeq(pos) => jump_if_binary!(ctx, pc, pos, |a, b| Ok(!a.eq(b))),
+            Instruction::JumpIfEq(pos) => jump_if_binary!(ctx, pc, pos, |a, b| Ok(a.eq(b))),
+            Instruction::JumpIfEqual(pos) => jump_if_binary!(ctx, pc, pos, |a, b| Ok(a.equal(b))),
+            Instruction::JumpIfNotEqual(pos) => {
+                jump_if_binary!(ctx, pc, pos, |a, b| Ok(!a.equal(b)))
+            }
             Instruction::JumpIfLt(pos) => {
                 jump_if_binary!(ctx, pc, pos, |a, b| compare_op(a, b, |a, b| a < b))
             }

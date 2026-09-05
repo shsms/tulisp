@@ -114,6 +114,53 @@ pub(super) fn compile_fn_equal(
 #[cfg(test)]
 mod tests {
     use crate::TulispObject;
+    use crate::test_utils::{eval_assert_equal, eval_assert_error, listing};
+
+    #[test]
+    fn test_equal_and_eq_fuse_into_the_jump() {
+        let ctx = &mut crate::TulispContext::new();
+        let l = listing(ctx, "(if (equal x 1) 1 2)");
+        assert!(l.contains("jnequal") && !l.contains("    equal"), "{l}");
+        let l = listing(ctx, "(if (not (equal x 1)) 1 2)");
+        assert!(l.contains("jequal") && !l.contains("    equal"), "{l}");
+        let l = listing(ctx, "(if (not (eq x 1)) 1 2)");
+        assert!(l.contains("    jeq ") && !l.contains("ceq"), "{l}");
+        let l = listing(ctx, "(if (eq x 1) 1 2)");
+        assert!(l.contains("    jne ") && !l.contains("ceq"), "{l}");
+        // As a value, `equal` still builds one.
+        let l = listing(ctx, "(equal x 1)");
+        assert!(l.contains("    equal"), "{l}");
+    }
+
+    #[test]
+    fn test_equal_and_eq_keep_their_meaning() {
+        let mut ctx = crate::TulispContext::new();
+        eval_assert_equal(&mut ctx, r#"(if (equal "a" "a") 1 2)"#, "1");
+        eval_assert_equal(&mut ctx, r#"(if (equal "a" "b") 1 2)"#, "2");
+        eval_assert_equal(&mut ctx, "(if (equal '(1 2) '(1 2)) 1 2)", "1");
+        eval_assert_equal(&mut ctx, "(if (not (equal 1 1.0)) 1 2)", "1");
+        eval_assert_equal(&mut ctx, "(if (not (eq 'a 'a)) 1 2)", "2");
+        eval_assert_equal(&mut ctx, "(if (not (eq 'a 'b)) 1 2)", "1");
+        // `eq` and `equal` must not swap: distinct equal lists.
+        eval_assert_equal(&mut ctx, "(if (eq (list 1) (list 1)) 1 2)", "2");
+        eval_assert_equal(&mut ctx, "(if (equal (list 1) (list 1)) 1 2)", "1");
+        eval_assert_equal(&mut ctx, r#"(if (not (eq "a" "a")) 1 2)"#, "1");
+        eval_assert_equal(&mut ctx, r#"(if (not (equal "a" "a")) 1 2)"#, "2");
+        eval_assert_equal(
+            &mut ctx,
+            "(let ((i 0)) (while (not (equal i 3)) (setq i (+ i 1))) i)",
+            "3",
+        );
+        eval_assert_error(
+            &mut ctx,
+            "(if (equal 1 (car 5)) 1 2)",
+            r#"ERR TypeMismatch: cxr: Not a Cons: 5
+<eval_string>:1.14-1.20:  at (car 5)
+<eval_string>:1.5-1.21:  at (equal 1 (car 5))
+<eval_string>:1.1-1.26:  at (if (equal 1 (car 5)) 1 2)
+"#,
+        );
+    }
 
     #[test]
     fn test_compare_two_variables() {

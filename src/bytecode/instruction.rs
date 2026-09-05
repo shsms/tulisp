@@ -100,6 +100,9 @@ pub(crate) enum Instruction {
     JumpIfNilElsePop(Pos),
     JumpIfNotNilElsePop(Pos),
     JumpIfNeq(Pos),
+    JumpIfEq(Pos),
+    JumpIfEqual(Pos),
+    JumpIfNotEqual(Pos),
     JumpIfLt(Pos),
     JumpIfLtEq(Pos),
     JumpIfGt(Pos),
@@ -218,6 +221,9 @@ macro_rules! jump_pos {
             | Instruction::JumpIfNilElsePop(p)
             | Instruction::JumpIfNotNilElsePop(p)
             | Instruction::JumpIfNeq(p)
+            | Instruction::JumpIfEq(p)
+            | Instruction::JumpIfEqual(p)
+            | Instruction::JumpIfNotEqual(p)
             | Instruction::JumpIfLt(p)
             | Instruction::JumpIfLtEq(p)
             | Instruction::JumpIfGt(p)
@@ -269,6 +275,9 @@ impl Instruction {
             (Instruction::LtEq, true) => Instruction::JumpIfNotLtEq,
             (Instruction::LtEq, false) => Instruction::JumpIfLtEq,
             (Instruction::Eq, true) => Instruction::JumpIfNeq,
+            (Instruction::Eq, false) => Instruction::JumpIfEq,
+            (Instruction::Equal, true) => Instruction::JumpIfNotEqual,
+            (Instruction::Equal, false) => Instruction::JumpIfEqual,
             _ => return None,
         };
         Some(jump)
@@ -302,6 +311,9 @@ impl std::fmt::Display for Instruction {
             Instruction::JumpIfNilElsePop(pos) => write!(f, "    jnil_else_pop {}", pos),
             Instruction::JumpIfNotNilElsePop(pos) => write!(f, "    jnnil_else_pop {}", pos),
             Instruction::JumpIfNeq(pos) => write!(f, "    jne {}", pos),
+            Instruction::JumpIfEq(pos) => write!(f, "    jeq {}", pos),
+            Instruction::JumpIfEqual(pos) => write!(f, "    jequal {}", pos),
+            Instruction::JumpIfNotEqual(pos) => write!(f, "    jnequal {}", pos),
             Instruction::JumpIfLt(pos) => write!(f, "    jlt {}", pos),
             Instruction::JumpIfLtEq(pos) => write!(f, "    jle {}", pos),
             Instruction::JumpIfGt(pos) => write!(f, "    jgt {}", pos),
