@@ -67,6 +67,7 @@ ErrorKind!(
     (NotImplemented,  pub not_implemented),
     (OutOfRange,      pub out_of_range),
     (OSError,         pub os_error),
+    (BrokenPipe,      pub(crate) broken_pipe),
     (TypeMismatch,    pub type_mismatch),
     (PlistError,      pub plist_error),
     (AlistError,      pub alist_error),

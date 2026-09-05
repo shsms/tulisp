@@ -117,7 +117,7 @@ fn error_kind_symbol(kind: &ErrorKind) -> Option<&'static str> {
         ErrorKind::Uninitialized => "void-variable",
         ErrorKind::ParsingError | ErrorKind::SyntaxError => "invalid-read-syntax",
         ErrorKind::NotImplemented => "not-implemented",
-        ErrorKind::OSError => "file-error",
+        ErrorKind::OSError | ErrorKind::BrokenPipe => "file-error",
         ErrorKind::PlistError | ErrorKind::AlistError => "wrong-type-argument",
         ErrorKind::Throw(_) => return None,
     })

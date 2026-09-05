@@ -435,11 +435,11 @@ fn run_impl_inner(
             }
             Instruction::PrintPop => {
                 let a = ctx.vm.stack.pop().unwrap();
-                println!("{}", a.fmt_string());
+                crate::builtin::functions::print_to_stdout(&a.fmt_string(), true)?;
             }
             Instruction::Print => {
                 let a = ctx.vm.stack.last().unwrap();
-                println!("{}", a.fmt_string());
+                crate::builtin::functions::print_to_stdout(&a.fmt_string(), true)?;
             }
             Instruction::JumpIfNil(pos) => {
                 let a = ctx.vm.stack.last().unwrap();

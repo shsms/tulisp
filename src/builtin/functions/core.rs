@@ -1,3 +1,4 @@
+use super::print_to_stdout;
 use crate::TulispObject;
 use crate::TulispValue;
 use crate::context::TulispContext;
@@ -206,28 +207,29 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         },
     );
 
-    ctx.defun("print", |val: TulispObject| -> TulispObject {
-        // Deliberately NOT Emacs's `print` (newline before and
-        // after): a plain value-plus-newline, like print functions
-        // in modern languages.
-        println!("{}", val.fmt_string());
-        val
-    });
+    ctx.defun(
+        "print",
+        |val: TulispObject| -> Result<TulispObject, Error> {
+            // Deliberately NOT Emacs's `print` (newline before and
+            // after): a plain value-plus-newline, like print functions
+            // in modern languages.
+            print_to_stdout(&val.fmt_string(), true)?;
+            Ok(val)
+        },
+    );
 
     ctx.defun("prin1-to-string", |arg: TulispObject| -> String {
         arg.fmt_string()
     });
 
-    ctx.defun("princ", |val: TulispObject| -> TulispObject {
-        // Emacs `princ`: no newline; scripts emit their own via "\n".
-        print!("{}", val.fmt_string());
-        // Nothing triggers the line-buffered flush without a
-        // newline, so flush here to keep prompt-style partial lines
-        // visible immediately. Newline-terminated output flushes on
-        // its own, making this near-free then.
-        let _ = std::io::Write::flush(&mut std::io::stdout());
-        val
-    });
+    ctx.defun(
+        "princ",
+        |val: TulispObject| -> Result<TulispObject, Error> {
+            // Emacs `princ`: no newline; scripts emit their own via "\n".
+            print_to_stdout(&val.fmt_string(), false)?;
+            Ok(val)
+        },
+    );
 
     ctx.defspecial("while", |ctx, args| {
         destruct_bind!((condition &rest rest) = args);
