@@ -47,13 +47,13 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     // Type-preserving `abs` (Emacs: `(abs -3) => 3`, `(abs -3.0) => 3.0`).
     // `i64::abs` panics on `i64::MIN`; `checked_abs` surfaces that as
-    // a Lisp `OutOfRange` error rather than a process crash.
+    // a Lisp `ArithError` instead of a process crash.
     ctx.defun("abs", |n: Number| -> Result<Number, Error> {
         match n {
             Number::Int(v) => v
                 .checked_abs()
                 .map(Number::Int)
-                .ok_or_else(|| Error::out_of_range(format!("integer overflow: abs {}", v))),
+                .ok_or_else(|| Error::arith_error(format!("integer overflow: abs {}", v))),
             Number::Float(v) => Ok(Number::Float(v.abs())),
         }
     });

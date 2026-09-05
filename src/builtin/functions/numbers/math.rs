@@ -32,7 +32,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 && let Ok(e_u32) = u32::try_from(e)
             {
                 return b.checked_pow(e_u32).map(Number::Int).ok_or_else(|| {
-                    Error::out_of_range(format!("integer overflow: expt {} {}", b, e))
+                    Error::arith_error(format!("integer overflow: expt {} {}", b, e))
                 });
             }
             let b_f = match base {
@@ -102,10 +102,10 @@ mod tests {
         eval_assert_equal(ctx, "(floatp (expt 2 -2))", "t");
         // 0 ^ negative produces +inf, not an error (Emacs matches).
         eval_assert_equal(ctx, "(numberp (expt 0 -2))", "t");
-        // Integer overflow surfaces as OutOfRange.
+        // Integer overflow is an arithmetic error.
         assert_eq!(
             ctx.eval_string("(expt 2 64)").unwrap_err().format(ctx),
-            r#"ERR OutOfRange: integer overflow: expt 2 64
+            r#"ERR ArithError: integer overflow: expt 2 64
 <eval_string>:1.1-1.11:  at (expt 2 64)
 "#
         );

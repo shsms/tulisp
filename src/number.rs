@@ -83,7 +83,7 @@ impl Display for Number {
     }
 }
 
-/// Convert `value` to `i64`, raising `OutOfRange` for NaN, ±inf,
+/// Convert `value` to `i64`, raising `ArithError` for NaN, ±inf,
 /// or values outside `i64`'s range. `f64 as i64` saturates these
 /// silently — for `truncate` / `floor` / `ceiling` / `round` and
 /// the `try_int` extractor, the saturated sentinel is misleading.
@@ -91,7 +91,7 @@ impl Display for Number {
 #[inline]
 pub(crate) fn f64_to_i64_checked(value: f64, op: &str) -> Result<i64, Error> {
     if !value.is_finite() {
-        return Err(Error::out_of_range(format!(
+        return Err(Error::arith_error(format!(
             "{op}: cannot convert {value} to integer"
         )));
     }
@@ -101,7 +101,7 @@ pub(crate) fn f64_to_i64_checked(value: f64, op: &str) -> Result<i64, Error> {
     const I64_MAX_F64: f64 = 9.223372036854776e18;
     const I64_MIN_F64: f64 = -9.223372036854776e18;
     if !(I64_MIN_F64..I64_MAX_F64).contains(&value) {
-        return Err(Error::out_of_range(format!(
+        return Err(Error::arith_error(format!(
             "{op}: float {value} out of range for integer"
         )));
     }
@@ -123,7 +123,7 @@ fn floor_mod_f64(a: f64, b: f64) -> f64 {
 }
 
 impl Number {
-    /// Like `Add` but raises `OutOfRange` on `Int + Int` overflow
+    /// Like `Add` but raises `ArithError` on `Int + Int` overflow
     /// instead of wrapping. Float operands fall through to `f64::add`,
     /// which produces `inf` rather than overflowing — matches Emacs
     /// (which would promote to bignum on integer overflow).
@@ -132,7 +132,7 @@ impl Number {
             (Number::Int(l), Number::Int(r)) => l
                 .checked_add(r)
                 .map(Number::Int)
-                .ok_or_else(|| Error::out_of_range(format!("integer overflow: {} + {}", l, r))),
+                .ok_or_else(|| Error::arith_error(format!("integer overflow: {} + {}", l, r))),
             (Number::Int(l), Number::Float(r)) => Ok(Number::Float(l as f64 + r)),
             (Number::Float(l), Number::Int(r)) => Ok(Number::Float(l + r as f64)),
             (Number::Float(l), Number::Float(r)) => Ok(Number::Float(l + r)),
@@ -145,7 +145,7 @@ impl Number {
             (Number::Int(l), Number::Int(r)) => l
                 .checked_sub(r)
                 .map(Number::Int)
-                .ok_or_else(|| Error::out_of_range(format!("integer overflow: {} - {}", l, r))),
+                .ok_or_else(|| Error::arith_error(format!("integer overflow: {} - {}", l, r))),
             (Number::Int(l), Number::Float(r)) => Ok(Number::Float(l as f64 - r)),
             (Number::Float(l), Number::Int(r)) => Ok(Number::Float(l - r as f64)),
             (Number::Float(l), Number::Float(r)) => Ok(Number::Float(l - r)),
@@ -158,7 +158,7 @@ impl Number {
             (Number::Int(l), Number::Int(r)) => l
                 .checked_mul(r)
                 .map(Number::Int)
-                .ok_or_else(|| Error::out_of_range(format!("integer overflow: {} * {}", l, r))),
+                .ok_or_else(|| Error::arith_error(format!("integer overflow: {} * {}", l, r))),
             (Number::Int(l), Number::Float(r)) => Ok(Number::Float(l as f64 * r)),
             (Number::Float(l), Number::Int(r)) => Ok(Number::Float(l * r as f64)),
             (Number::Float(l), Number::Float(r)) => Ok(Number::Float(l * r)),
@@ -167,7 +167,7 @@ impl Number {
 
     /// Integer/float division matching Emacs `/` (integers truncate
     /// toward zero). Raises `ArithError` on an integer zero divisor
-    /// and `OutOfRange` on `i64::MIN / -1` overflow; float operands divide
+    /// and on `i64::MIN / -1` overflow; float operands divide
     /// normally, yielding ±inf for a zero divisor as Emacs does.
     pub(crate) fn checked_div(self, rhs: Number) -> Result<Number, Error> {
         match (self, rhs) {
@@ -177,7 +177,7 @@ impl Number {
             (Number::Int(l), Number::Int(r)) => l
                 .checked_div(r)
                 .map(Number::Int)
-                .ok_or_else(|| Error::out_of_range(format!("integer overflow: {} / {}", l, r))),
+                .ok_or_else(|| Error::arith_error(format!("integer overflow: {} / {}", l, r))),
             (Number::Int(l), Number::Float(r)) => Ok(Number::Float(l as f64 / r)),
             (Number::Float(l), Number::Int(r)) => Ok(Number::Float(l / r as f64)),
             (Number::Float(l), Number::Float(r)) => Ok(Number::Float(l / r)),

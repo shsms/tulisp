@@ -257,6 +257,12 @@ mod tests {
             "(condition-case e (/ 1 0) (args-out-of-range 'old) (error 'other))",
             "'other",
         );
+        // Integer overflow is an arithmetic error too.
+        eval_assert_equal(
+            ctx,
+            "(condition-case e (* 9223372036854775807 2) (arith-error 'caught))",
+            "'caught",
+        );
         eval_assert_error(
             ctx,
             "(floor 1 0)",

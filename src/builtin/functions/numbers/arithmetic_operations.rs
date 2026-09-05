@@ -203,19 +203,19 @@ mod tests {
         eval_assert_error(
             ctx,
             "(+ 9223372036854775807 1)",
-            "ERR OutOfRange: integer overflow: 9223372036854775807 + 1\n\
+            "ERR ArithError: integer overflow: 9223372036854775807 + 1\n\
              <eval_string>:1.1-1.25:  at (+ 9223372036854775807 1)\n",
         );
         eval_assert_error(
             ctx,
             "(* 9223372036854775807 2)",
-            "ERR OutOfRange: integer overflow: 9223372036854775807 * 2\n\
+            "ERR ArithError: integer overflow: 9223372036854775807 * 2\n\
              <eval_string>:1.1-1.25:  at (* 9223372036854775807 2)\n",
         );
         eval_assert_error(
             ctx,
             "(1+ 9223372036854775807)",
-            "ERR OutOfRange: integer overflow: 9223372036854775807 + 1\n\
+            "ERR ArithError: integer overflow: 9223372036854775807 + 1\n\
              <eval_string>:1.1-1.24:  at (1+ 9223372036854775807)\n",
         );
         // A float operand gives inf instead.

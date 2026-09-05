@@ -14,6 +14,7 @@ macro_rules! ErrorKind {
     ),* $(,)?) => {
         /// The kind of error that occurred.
         #[derive(Debug, Clone)]
+        #[non_exhaustive]
         pub enum ErrorKind {
             $(
                 $kind$(( $param ))?,
