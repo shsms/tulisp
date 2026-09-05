@@ -18,6 +18,15 @@ mod tests {
     use crate::{Shared, TulispContext, TulispObject};
 
     #[test]
+    fn test_eq() {
+        // String literals are not interned: every read is a fresh
+        // object, so `eq` tells them apart and `equal` does not.
+        let mut ctx = TulispContext::new();
+        eval_assert_not(&mut ctx, r#"(let ((a "hello") (b "hello")) (eq a b))"#);
+        eval_assert(&mut ctx, r#"(let ((a "hello") (b "hello")) (equal a b))"#);
+    }
+
+    #[test]
     fn test_eql() {
         // `eql`: same object, or indistinguishable numbers.
         let mut ctx = TulispContext::new();

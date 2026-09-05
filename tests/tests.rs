@@ -1246,18 +1246,6 @@ fn test_math() -> Result<(), Error> {
     // produces inf rather than overflowing.
     tulisp_assert! { program: "(numberp (+ 9223372036854775807 1.0))", result: "t" }
 
-    // String literals aren't interned — every read produces a fresh
-    // `TulispObject` so `eq` distinguishes them (Emacs matches).
-    tulisp_assert! {
-        program: r#"(let ((a "hello") (b "hello")) (eq a b))"#,
-        result: "nil",
-    }
-    // Same string still compares structurally equal.
-    tulisp_assert! {
-        program: r#"(let ((a "hello") (b "hello")) (equal a b))"#,
-        result: "t",
-    }
-
     // setcar / setcdr mutate cons cells in place.
     tulisp_assert! {
         program: "(let ((x (list 1 2 3))) (setcar x 99) x)",
