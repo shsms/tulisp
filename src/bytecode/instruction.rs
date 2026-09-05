@@ -104,6 +104,10 @@ pub(crate) enum Instruction {
     JumpIfLtEq(Pos),
     JumpIfGt(Pos),
     JumpIfGtEq(Pos),
+    JumpIfNotLt(Pos),
+    JumpIfNotLtEq(Pos),
+    JumpIfNotGt(Pos),
+    JumpIfNotGtEq(Pos),
     Jump(Pos),
     // functions
     Label(TulispObject),
@@ -205,6 +209,72 @@ pub(crate) enum Instruction {
     WrapSplice,
 }
 
+/// The `Pos` inside a jump instruction, shared by `pos` and `pos_mut`.
+macro_rules! jump_pos {
+    ($instr:expr) => {
+        match $instr {
+            Instruction::JumpIfNil(p)
+            | Instruction::JumpIfNotNil(p)
+            | Instruction::JumpIfNilElsePop(p)
+            | Instruction::JumpIfNotNilElsePop(p)
+            | Instruction::JumpIfNeq(p)
+            | Instruction::JumpIfLt(p)
+            | Instruction::JumpIfLtEq(p)
+            | Instruction::JumpIfGt(p)
+            | Instruction::JumpIfGtEq(p)
+            | Instruction::JumpIfNotLt(p)
+            | Instruction::JumpIfNotLtEq(p)
+            | Instruction::JumpIfNotGt(p)
+            | Instruction::JumpIfNotGtEq(p)
+            | Instruction::Jump(p) => Some(p),
+            _ => None,
+        }
+    };
+}
+
+impl Instruction {
+    /// The target of a jump; `None` for anything else.
+    pub(crate) fn pos(&self) -> Option<&Pos> {
+        jump_pos!(self)
+    }
+
+    /// The target of a jump, to change it; `None` for anything else.
+    pub(crate) fn pos_mut(&mut self) -> Option<&mut Pos> {
+        jump_pos!(self)
+    }
+
+    /// Where a relative jump sitting at index `at` lands, as an index
+    /// into the same instruction vector. `None` for a target before
+    /// the start.
+    pub(crate) fn rel_target(&self, at: usize) -> Option<usize> {
+        match self.pos() {
+            Some(Pos::Rel(rel)) => usize::try_from(at as isize + rel + 1).ok(),
+            _ => None,
+        }
+    }
+
+    /// For a comparison, the jump taken when its result is nil
+    /// (`when_nil`) or not nil. The jump tests the operands itself,
+    /// so no boolean object is built. A failed comparison is not the
+    /// reversed comparison: with a NaN, `a < b` and `a >= b` are both
+    /// false. So the nil side uses the "not" jumps.
+    pub(crate) fn fused_jump(&self, when_nil: bool) -> Option<fn(Pos) -> Instruction> {
+        let jump: fn(Pos) -> Instruction = match (self, when_nil) {
+            (Instruction::Gt, true) => Instruction::JumpIfNotGt,
+            (Instruction::Gt, false) => Instruction::JumpIfGt,
+            (Instruction::Lt, true) => Instruction::JumpIfNotLt,
+            (Instruction::Lt, false) => Instruction::JumpIfLt,
+            (Instruction::GtEq, true) => Instruction::JumpIfNotGtEq,
+            (Instruction::GtEq, false) => Instruction::JumpIfGtEq,
+            (Instruction::LtEq, true) => Instruction::JumpIfNotLtEq,
+            (Instruction::LtEq, false) => Instruction::JumpIfLtEq,
+            (Instruction::Eq, true) => Instruction::JumpIfNeq,
+            _ => return None,
+        };
+        Some(jump)
+    }
+}
+
 impl std::fmt::Display for Instruction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -236,6 +306,10 @@ impl std::fmt::Display for Instruction {
             Instruction::JumpIfLtEq(pos) => write!(f, "    jle {}", pos),
             Instruction::JumpIfGt(pos) => write!(f, "    jgt {}", pos),
             Instruction::JumpIfGtEq(pos) => write!(f, "    jge {}", pos),
+            Instruction::JumpIfNotLt(pos) => write!(f, "    jnlt {}", pos),
+            Instruction::JumpIfNotLtEq(pos) => write!(f, "    jnle {}", pos),
+            Instruction::JumpIfNotGt(pos) => write!(f, "    jngt {}", pos),
+            Instruction::JumpIfNotGtEq(pos) => write!(f, "    jnge {}", pos),
             Instruction::Equal => write!(f, "    equal"),
             Instruction::Eq => write!(f, "    ceq"),
             Instruction::Lt => write!(f, "    clt"),

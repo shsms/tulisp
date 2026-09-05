@@ -9,29 +9,74 @@ use crate::{
     eval::substitute_lexical,
 };
 
-fn optimize_jump_if_nil(result: &mut Vec<Instruction>, tgt_pos: Pos) -> Instruction {
-    match result.last() {
-        Some(Instruction::Gt) => {
-            result.pop();
-            Instruction::JumpIfLtEq(tgt_pos)
+/// Pushes the jump taken when the value `result` leaves on the stack
+/// is nil. When a comparison produced that value, the comparison is
+/// dropped and the jump tests the operands itself, so no boolean
+/// object is built.
+///
+/// The value's form is wrapped in trace markers, so the comparison
+/// sits right before one or more `PopTrace`s. Those are moved after
+/// the jump, which keeps the jump inside the form's trace range: an
+/// error in the comparison still reports the form. A `Pos::Rel`
+/// target must point forward; it is widened by the markers moved
+/// past it, and the marker strip pass narrows it back.
+///
+/// Nothing is replaced when a jump in `result` lands after the
+/// replaced instruction. The value may arrive by such a jump (the
+/// then branch of an `if` whose else branch ends in a comparison),
+/// and a fused jump in that slot would be skipped. The plain jump
+/// then goes after everything, as before.
+pub(super) fn push_jump_if_nil(result: &mut Vec<Instruction>, tgt_pos: Pos) {
+    // Walk back over markers to the instruction a fused jump would
+    // replace. `cut` is where the jump would go.
+    let when_nil = true;
+    let mut cut = result.len();
+    let mut fused = None;
+    let mut i = result.len();
+    while i > 0 {
+        match &result[i - 1] {
+            Instruction::PopTrace => {}
+            last => {
+                fused = last.fused_jump(when_nil);
+                if fused.is_some() {
+                    cut = i - 1;
+                }
+                break;
+            }
         }
-        Some(Instruction::Lt) => {
-            result.pop();
-            Instruction::JumpIfGtEq(tgt_pos)
+        i -= 1;
+    }
+    let farthest_target = result
+        .iter()
+        .enumerate()
+        .filter_map(|(at, instr)| instr.rel_target(at))
+        .max()
+        .unwrap_or(0);
+    if cut == result.len() || farthest_target > cut {
+        result.push(Instruction::JumpIfNil(tgt_pos));
+        return;
+    }
+    // Only the markers being cut off move after the jump.
+    let pop_traces = result[cut..]
+        .iter()
+        .filter(|instr| matches!(instr, Instruction::PopTrace))
+        .count() as isize;
+    result.truncate(cut);
+    let jump = fused.unwrap_or(if when_nil {
+        Instruction::JumpIfNil
+    } else {
+        Instruction::JumpIfNotNil
+    });
+    let tgt_pos = match tgt_pos {
+        Pos::Rel(n) => {
+            debug_assert!(n >= 0, "push_jump_if_nil widens forward targets only");
+            Pos::Rel(n + pop_traces)
         }
-        Some(Instruction::GtEq) => {
-            result.pop();
-            Instruction::JumpIfLt(tgt_pos)
-        }
-        Some(Instruction::LtEq) => {
-            result.pop();
-            Instruction::JumpIfGt(tgt_pos)
-        }
-        Some(Instruction::Eq) => {
-            result.pop();
-            Instruction::JumpIfNeq(tgt_pos)
-        }
-        _ => Instruction::JumpIfNil(tgt_pos),
+        other => other,
+    };
+    result.push(jump(tgt_pos));
+    for _ in 0..pop_traces {
+        result.push(Instruction::PopTrace);
     }
 }
 
@@ -45,8 +90,7 @@ pub(super) fn compile_fn_if(
         let mut then = compile_expr(ctx, then)?;
         let mut else_ = compile_progn(ctx, else_)?;
 
-        let res = optimize_jump_if_nil(&mut result, Pos::Rel(then.len() as isize + 1));
-        result.push(res);
+        push_jump_if_nil(&mut result, Pos::Rel(then.len() as isize + 1));
         result.append(&mut then);
         if else_.is_empty() && ctx.compiler.as_ref().unwrap().keep_result {
             else_.push(Instruction::Push(TulispObject::nil()));
@@ -72,8 +116,7 @@ pub(super) fn compile_fn_cond(
                     let mut result = compile_expr_keep_result(ctx, cond)?;
                     let mut body = compile_progn(ctx, body)?;
 
-                    let res = optimize_jump_if_nil(&mut result, Pos::Rel(body.len() as isize + 1));
-                    result.push(res);
+                    push_jump_if_nil(&mut result, Pos::Rel(body.len() as isize + 1));
                     result.append(&mut body);
                     Ok(result)
                 })
@@ -98,8 +141,7 @@ pub(super) fn compile_fn_while(
         let mut result = compile_expr_keep_result(ctx, cond)?;
         let mut body = compile_progn(ctx, body)?;
 
-        let res = optimize_jump_if_nil(&mut result, Pos::Rel(body.len() as isize + 1));
-        result.push(res);
+        push_jump_if_nil(&mut result, Pos::Rel(body.len() as isize + 1));
         result.append(&mut body);
         result.push(Instruction::Jump(Pos::Rel(-(result.len() as isize + 1))));
         Ok(result)
@@ -237,7 +279,7 @@ pub(super) fn compile_fn_dotimes(
         result.push(Instruction::Load(limit_bind.clone()));
         result.push(Instruction::Load(counter_bind.clone()));
         result.push(Instruction::Lt);
-        result.push(Instruction::JumpIfNil(Pos::Label(loop_end.clone())));
+        push_jump_if_nil(&mut result, Pos::Label(loop_end.clone()));
 
         // Fresh `var` binding per iteration — closures captured in
         // the body see their own iteration's value.
@@ -353,4 +395,118 @@ pub(super) fn compile_fn_or(
         result.push(Instruction::Label(label));
     }
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::TulispContext;
+    use crate::test_utils::{eval_assert_equal, eval_assert_error, listing};
+
+    #[test]
+    fn comparison_in_a_condition_fuses_into_the_jump() {
+        let ctx = &mut TulispContext::new();
+        let l = listing(ctx, "(if (< x 1) 1 2)");
+        assert!(l.contains("jnlt") && !l.contains("clt"), "{l}");
+        let l = listing(ctx, "(while (< x 1) (setq x 2))");
+        assert!(l.contains("jnlt") && !l.contains("clt"), "{l}");
+        let l = listing(ctx, "(cond ((> x 1) 1) (t 2))");
+        assert!(l.contains("jngt") && !l.contains("cgt"), "{l}");
+        let l = listing(ctx, "(defun f (n) (if (<= n 2) 1 (f (- n 1))))");
+        assert!(l.contains("jnle") && !l.contains("cle"), "{l}");
+        // As a value, a comparison still builds one.
+        let l = listing(ctx, "(< x 1)");
+        assert!(l.contains("clt"), "{l}");
+    }
+
+    #[test]
+    fn a_condition_reached_by_a_jump_is_not_fused() {
+        // The then branch of the inner `if` jumps to just after the
+        // comparison. Replacing the comparison with a fused jump would
+        // let that branch skip the test.
+        let ctx = &mut TulispContext::new();
+        let l = listing(ctx, "(if (if t nil (> 2 3)) 10 20)");
+        assert!(l.contains("cgt") && l.contains("jnil"), "{l}");
+        let mut ctx = TulispContext::new();
+        eval_assert_equal(&mut ctx, "(if (if t nil (> 2 3)) 10 20)", "20");
+        eval_assert_equal(&mut ctx, "(if (if nil nil (> 2 3)) 10 20)", "20");
+        eval_assert_equal(&mut ctx, "(if (if nil nil (> 3 2)) 10 20)", "10");
+        eval_assert_equal(&mut ctx, "(if (unless t (> 2 3)) 10 20)", "20");
+        eval_assert_equal(
+            &mut ctx,
+            "(let ((i 0) (n 0)) (while (if t (< i 5) (> 1 2)) (setq i (+ i 1)) (setq n (+ n 1))) n)",
+            "5",
+        );
+    }
+
+    #[test]
+    fn a_failed_comparison_with_nan_is_nil() {
+        // `!(a < b)` is not `a >= b` when a NaN is involved, so the
+        // fused jump tests the comparison itself, as Emacs does.
+        let mut ctx = TulispContext::new();
+        eval_assert_equal(&mut ctx, "(if (< (/ 0.0 0.0) 1) 'y 'n)", "'n");
+        eval_assert_equal(&mut ctx, "(if (> 1 (/ 0.0 0.0)) 'y 'n)", "'n");
+        eval_assert_equal(&mut ctx, "(if (<= (/ 0.0 0.0) 1) 'y 'n)", "'n");
+        eval_assert_equal(&mut ctx, "(if (>= (/ 0.0 0.0) 1) 'y 'n)", "'n");
+        eval_assert_equal(
+            &mut ctx,
+            "(let ((i 0)) (while (< (/ 0.0 0.0) 1) (setq i 1)) i)",
+            "0",
+        );
+    }
+
+    #[test]
+    fn dotimes_fuses_its_counter_test() {
+        let ctx = &mut TulispContext::new();
+        let l = listing(ctx, "(dotimes (i 3) (setq y i))");
+        assert!(l.contains("jnlt") && !l.contains("clt"), "{l}");
+        let mut ctx = TulispContext::new();
+        eval_assert_equal(
+            &mut ctx,
+            "(let ((n 0)) (dotimes (i 4) (setq n (+ n i))) n)",
+            "6",
+        );
+        eval_assert_equal(&mut ctx, "(let ((n 0)) (dotimes (i 0) (setq n 1)) n)", "0");
+    }
+
+    #[test]
+    fn fused_comparisons_keep_their_error_trace() {
+        let mut ctx = TulispContext::new();
+        eval_assert_error(
+            &mut ctx,
+            r#"(if (< 1 "a") 1 2)"#,
+            r#"ERR TypeMismatch: Expected number, got: "a"
+<eval_string>:1.5-1.13:  at (< 1 "a")
+<eval_string>:1.1-1.18:  at (if (< 1 "a") 1 2)
+"#,
+        );
+        eval_assert_error(
+            &mut ctx,
+            r#"(let ((i 0)) (while (< i "a") (setq i 1)))"#,
+            r#"ERR TypeMismatch: Expected number, got: "a"
+<eval_string>:1.21-1.29:  at (< i "a")
+<eval_string>:1.14-1.41:  at (while (< i "a") (setq i 1))
+<eval_string>:1.1-1.42:  at (let ((i 0)) (while (< i "a") (setq i 1)))
+"#,
+        );
+    }
+
+    #[test]
+    fn fused_comparisons_keep_their_meaning() {
+        let mut ctx = TulispContext::new();
+        eval_assert_equal(&mut ctx, "(if (< 1 2) 1 2)", "1");
+        eval_assert_equal(&mut ctx, "(if (< 2 1) 1 2)", "2");
+        eval_assert_equal(&mut ctx, "(if (>= 2 2) 1 2)", "1");
+        eval_assert_equal(&mut ctx, "(if (eq 'a 'a) 1 2)", "1");
+        eval_assert_equal(&mut ctx, "(cond ((> 1 2) 1) ((> 2 1) 2) (t 3))", "2");
+        eval_assert_equal(
+            &mut ctx,
+            "(let ((i 0)) (while (< i 3) (setq i (+ i 1))) i)",
+            "3",
+        );
+        eval_assert_equal(
+            &mut ctx,
+            "(progn (defun f (n) (if (<= n 2) 1 (+ (f (- n 1)) (f (- n 2))))) (f 10))",
+            "55",
+        );
+    }
 }

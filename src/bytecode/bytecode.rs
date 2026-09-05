@@ -136,20 +136,7 @@ pub(crate) fn strip_trace_markers(input: Vec<Instruction>) -> (Vec<Instruction>,
         // the labels HashMap (rebuilt post-strip) so it's fine.
         // `Pos::Abs` is only used for self-recursion's jump-to-PC-0,
         // which remains correct.
-        let pos_field: Option<&mut Pos> = match &mut instr {
-            Instruction::JumpIfNil(p)
-            | Instruction::JumpIfNotNil(p)
-            | Instruction::JumpIfNilElsePop(p)
-            | Instruction::JumpIfNotNilElsePop(p)
-            | Instruction::JumpIfNeq(p)
-            | Instruction::JumpIfLt(p)
-            | Instruction::JumpIfLtEq(p)
-            | Instruction::JumpIfGt(p)
-            | Instruction::JumpIfGtEq(p)
-            | Instruction::Jump(p) => Some(p),
-            _ => None,
-        };
-        if let Some(Pos::Rel(rel)) = pos_field {
+        if let Some(Pos::Rel(rel)) = instr.pos_mut() {
             let orig_target = (orig_pc as isize + *rel + 1) as usize;
             let new_pc = orig_pc - shift[orig_pc];
             // shift.len() == input.len() + 1, so target == input.len() is OK.

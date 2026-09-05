@@ -88,6 +88,16 @@ mod test_utils {
         }
     }
 
+    /// The disassembly of `program`, for asserting on the shape of
+    /// compiled code.
+    #[track_caller]
+    pub(crate) fn listing(ctx: &mut crate::TulispContext, program: &str) -> String {
+        match ctx.compile_string(program, true) {
+            Ok(bytecode) => bytecode.to_string(),
+            Err(e) => panic!("{}", e.format(ctx)),
+        }
+    }
+
     #[track_caller]
     pub(crate) fn eval_assert_equal(ctx: &mut crate::TulispContext, a: &str, b: &str) {
         for kind in [EvalKind::Tw, EvalKind::Vm] {

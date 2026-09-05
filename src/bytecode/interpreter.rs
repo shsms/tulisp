@@ -490,6 +490,22 @@ fn run_impl_inner(
             Instruction::JumpIfGtEq(pos) => {
                 jump_if_binary!(ctx, pc, pos, |a, b| compare_op(a, b, |a, b| a >= b))
             }
+            Instruction::JumpIfNotLt(pos) => {
+                jump_if_binary!(ctx, pc, pos, |a, b| compare_op(a, b, |a, b| a < b)
+                    .map(|holds| !holds))
+            }
+            Instruction::JumpIfNotLtEq(pos) => {
+                jump_if_binary!(ctx, pc, pos, |a, b| compare_op(a, b, |a, b| a <= b)
+                    .map(|holds| !holds))
+            }
+            Instruction::JumpIfNotGt(pos) => {
+                jump_if_binary!(ctx, pc, pos, |a, b| compare_op(a, b, |a, b| a > b)
+                    .map(|holds| !holds))
+            }
+            Instruction::JumpIfNotGtEq(pos) => {
+                jump_if_binary!(ctx, pc, pos, |a, b| compare_op(a, b, |a, b| a >= b)
+                    .map(|holds| !holds))
+            }
             Instruction::Jump(pos) => {
                 jump_to_pos!(ctx, pc, pos);
                 continue;
