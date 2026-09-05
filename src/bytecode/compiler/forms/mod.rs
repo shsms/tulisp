@@ -110,6 +110,7 @@ impl VMCompilers {
             ("and", conditionals::compile_fn_and),
             ("or", conditionals::compile_fn_or),
             ("not", conditionals::compile_fn_not),
+            ("null", conditionals::compile_fn_not),
             // noop
             ("defmacro", other_functions::compile_fn_noop),
         }

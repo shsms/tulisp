@@ -12,14 +12,18 @@ use crate::{
 /// Pushes the jump taken when the value `result` leaves on the stack
 /// is nil. When a comparison produced that value, the comparison is
 /// dropped and the jump tests the operands itself, so no boolean
-/// object is built.
+/// object is built. A `Null` before that flips which way the jump
+/// goes instead of building a boolean of its own.
 ///
 /// The value's form is wrapped in trace markers, so the comparison
 /// sits right before one or more `PopTrace`s. Those are moved after
 /// the jump, which keeps the jump inside the form's trace range: an
-/// error in the comparison still reports the form. A `Pos::Rel`
-/// target must point forward; it is widened by the markers moved
-/// past it, and the marker strip pass narrows it back.
+/// error in the comparison still reports the form. When the `Null`s
+/// sit over a value that is not a fusable comparison, the `Null`s
+/// are dropped and the jump carries their polarity; only the markers
+/// from the innermost `Null` on move, the ones before it stay. A
+/// `Pos::Rel` target must point forward; it is widened by the
+/// markers moved past it, and the marker strip pass narrows it back.
 ///
 /// Nothing is replaced when a jump in `result` lands after the
 /// replaced instruction. The value may arrive by such a jump (the
@@ -27,15 +31,19 @@ use crate::{
 /// and a fused jump in that slot would be skipped. The plain jump
 /// then goes after everything, as before.
 pub(super) fn push_jump_if_nil(result: &mut Vec<Instruction>, tgt_pos: Pos) {
-    // Walk back over markers to the instruction a fused jump would
-    // replace. `cut` is where the jump would go.
-    let when_nil = true;
+    // Walk back over markers and `Null`s to the instruction a fused
+    // jump would replace. `cut` is where the jump would go.
+    let mut when_nil = true;
     let mut cut = result.len();
     let mut fused = None;
     let mut i = result.len();
     while i > 0 {
         match &result[i - 1] {
             Instruction::PopTrace => {}
+            Instruction::Null => {
+                when_nil = !when_nil;
+                cut = i - 1;
+            }
             last => {
                 fused = last.fused_jump(when_nil);
                 if fused.is_some() {
@@ -466,6 +474,76 @@ mod tests {
             "6",
         );
         eval_assert_equal(&mut ctx, "(let ((n 0)) (dotimes (i 0) (setq n 1)) n)", "0");
+    }
+
+    #[test]
+    fn not_in_a_condition_fuses_into_the_jump() {
+        let ctx = &mut TulispContext::new();
+        // `(not x)` in a condition is a jump on the value itself.
+        let l = listing(ctx, "(if (not x) 1 2)");
+        assert!(l.contains("jnnil") && !l.contains("null"), "{l}");
+        let l = listing(ctx, "(while (not x) (setq x t))");
+        assert!(l.contains("jnnil") && !l.contains("null"), "{l}");
+        // `null` is the same form.
+        let l = listing(ctx, "(if (null x) 1 2)");
+        assert!(l.contains("jnnil") && !l.contains("null"), "{l}");
+        // A comparison under `not` fuses into the opposite jump, and
+        // a double `not` folds back.
+        let l = listing(ctx, "(if (not (< x 1)) 1 2)");
+        assert!(
+            l.contains("jlt") && !l.contains("null") && !l.contains("clt"),
+            "{l}"
+        );
+        let l = listing(ctx, "(if (not (not x)) 1 2)");
+        assert!(l.contains("jnil") && !l.contains("null"), "{l}");
+        // As a value, `not` still builds one.
+        let l = listing(ctx, "(not x)");
+        assert!(l.contains("null"), "{l}");
+    }
+
+    #[test]
+    fn not_and_null_in_conditions_keep_their_meaning() {
+        let mut ctx = TulispContext::new();
+        eval_assert_equal(&mut ctx, "(let ((x nil)) (if (not x) 1 2))", "1");
+        eval_assert_equal(&mut ctx, "(let ((x 5)) (if (not x) 1 2))", "2");
+        eval_assert_equal(&mut ctx, "(let ((x nil)) (if (null x) 1 2))", "1");
+        eval_assert_equal(&mut ctx, "(if (null '(1)) 1 2)", "2");
+        eval_assert_equal(&mut ctx, "(if (not (< 1 2)) 1 2)", "2");
+        eval_assert_equal(&mut ctx, "(if (not (> 1 2)) 1 2)", "1");
+        eval_assert_equal(&mut ctx, "(if (not (not nil)) 1 2)", "2");
+        eval_assert_equal(&mut ctx, "(if (not (< (/ 0.0 0.0) 1)) 'y 'n)", "'y");
+        eval_assert_equal(
+            &mut ctx,
+            "(let ((i 0)) (while (not (>= i 3)) (setq i (+ i 1))) i)",
+            "3",
+        );
+        eval_assert_equal(&mut ctx, "(null 5)", "nil");
+        eval_assert_equal(&mut ctx, "(not nil)", "t");
+        // A `not` over a call, an `and`, or a chain: the value is not
+        // a fusable comparison, and its markers must stay balanced.
+        eval_assert_equal(&mut ctx, "(if (not (list 1)) 10 20)", "20");
+        eval_assert_equal(&mut ctx, "(if (not (+ 1 2)) 10 20)", "20");
+        eval_assert_equal(&mut ctx, "(if (not (and t (> 1 2))) 10 20)", "10");
+        eval_assert_equal(&mut ctx, "(if (not (< 1 2 3)) 10 20)", "20");
+        eval_assert_equal(&mut ctx, "(if (null (null (list 1))) 10 20)", "10");
+        // A `not` the value jumps past is left alone too.
+        let l = listing(&mut ctx, "(if (if t nil (not x)) 10 20)");
+        assert!(l.contains("null") && l.contains("jnil"), "{l}");
+        eval_assert_equal(
+            &mut ctx,
+            "(let ((x 1)) (if (unless t (not x)) 10 20))",
+            "20",
+        );
+        eval_assert_equal(&mut ctx, "(if (not (if t nil (> 2 3))) 10 20)", "10");
+        eval_assert_error(
+            &mut ctx,
+            r#"(if (not (< 1 "a")) 1 2)"#,
+            r#"ERR TypeMismatch: Expected number, got: "a"
+<eval_string>:1.10-1.18:  at (< 1 "a")
+<eval_string>:1.5-1.19:  at (not (< 1 "a"))
+<eval_string>:1.1-1.24:  at (if (not (< 1 "a")) 1 2)
+"#,
+        );
     }
 
     #[test]
