@@ -269,14 +269,31 @@ pub struct BaseIter {
     /// `None` when it hits a non-cons, non-nil tail (so `for` loops
     /// terminate cleanly), but the tail value is recorded here so
     /// callers that care about Emacs-compatible behavior can surface
-    /// it via `take_error` and propagate to the user.
+    /// it via `take_error` and propagate to the user. A circular
+    /// list ends the iteration the same way, with a "Circular list"
+    /// error.
     error: Option<Error>,
+    /// A cell seen earlier, for Brent's cycle check: `next` is
+    /// compared with it at every step, and it moves up to the
+    /// current cell after 8, 16, 32, ... steps. Short lists never
+    /// pay for the clone.
+    saved: Option<TulispObject>,
+    /// Steps taken since `saved` last moved.
+    steps: u32,
+    /// Steps after which `saved` moves again.
+    limit: u32,
 }
 
 impl BaseIter {
     /// Construct a `BaseIter` starting at the given list head.
     pub(crate) fn starting_at(next: TulispObject) -> Self {
-        BaseIter { next, error: None }
+        BaseIter {
+            next,
+            error: None,
+            saved: None,
+            steps: 0,
+            limit: 8,
+        }
     }
 
     /// Returns an error if iteration ended on an improper-list tail.
@@ -287,6 +304,18 @@ impl BaseIter {
             None => Ok(()),
             Some(e) => Err(e),
         }
+    }
+
+    /// After the iteration: the tail of an improper list, nil for a
+    /// proper list, or the "Circular list" error. For a walker that
+    /// keeps an improper tail instead of rejecting it.
+    pub(crate) fn tail(&mut self) -> Result<TulispObject, Error> {
+        if self.next.null() {
+            self.take_error()?;
+        } else {
+            self.error = None;
+        }
+        Ok(self.next.clone())
     }
 }
 
@@ -312,6 +341,19 @@ impl Iterator for BaseIter {
             }
         };
         self.next = cdr;
+        self.steps += 1;
+        if self
+            .saved
+            .as_ref()
+            .is_some_and(|saved| self.next.eq_ptr(saved))
+        {
+            self.error = Some(Error::out_of_range("Circular list".to_string()));
+            self.next = TulispObject::nil();
+        } else if self.steps == self.limit {
+            self.saved = Some(self.next.clone());
+            self.steps = 0;
+            self.limit = self.limit.saturating_mul(2);
+        }
         Some(car)
     }
 }
@@ -340,5 +382,34 @@ impl<T: 'static + std::convert::TryFrom<TulispObject>> Iterator for Iter<T> {
                 Error::type_mismatch(format!("Iter<{}> can't handle {}", tid, vv))
             })
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::TulispContext;
+
+    #[test]
+    fn a_circular_list_ends_the_iteration_with_an_error() {
+        let ctx = &mut TulispContext::new();
+        let list = ctx
+            .eval_string("(let ((l (list 1 2 3))) (setcdr (cdr (cdr l)) l) l)")
+            .unwrap();
+        let mut iter = list.base_iter();
+        let seen = iter.by_ref().take(100).count();
+        assert!(seen < 100, "iteration did not stop");
+        assert_eq!(
+            iter.take_error().unwrap_err().to_string(),
+            "ERR OutOfRange: Circular list"
+        );
+    }
+
+    #[test]
+    fn a_proper_list_iterates_without_an_error() {
+        let ctx = &mut TulispContext::new();
+        let list = ctx.eval_string("(list 1 2 3 4 5 6 7 8 9)").unwrap();
+        let mut iter = list.base_iter();
+        assert_eq!(iter.by_ref().count(), 9);
+        assert!(iter.take_error().is_ok());
     }
 }
