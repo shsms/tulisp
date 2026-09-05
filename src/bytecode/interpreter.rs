@@ -821,16 +821,17 @@ fn run_impl_inner(
                     ctx.vm.stack.push(result);
                 }
             }
-            // `PushTrace` / `PopTrace` should never reach the
-            // interpreter: `strip_trace_markers` removes them
-            // at compile time and lifts the form spans into a
-            // `TraceRange` side-table consulted by `run_impl`
-            // on the error path.
+            // `PushTrace` / `PopTrace` never reach the interpreter:
+            // `strip_trace_markers` removes them at compile time and
+            // lifts the form spans into a `TraceRange` side-table
+            // consulted by `run_impl` on the error path. One that
+            // gets here is a compiler bug; report it instead of
+            // silently dropping the trace.
             Instruction::PushTrace(_) | Instruction::PopTrace => {
-                debug_assert!(
-                    false,
-                    "trace marker reached interpreter; strip_trace_markers should have lifted it",
-                );
+                return Err(Error::lisp_error(
+                    "internal: trace marker reached the interpreter; \
+                     strip_trace_markers should have removed it",
+                ));
             }
             Instruction::Label(_) => {}
             Instruction::Cons => {
@@ -1412,8 +1413,28 @@ fn rewrite_template(
 
 #[cfg(test)]
 mod tests {
+    use super::run;
     use crate::TulispContext;
+    use crate::TulispObject;
+    use crate::bytecode::{Bytecode, Instruction};
     use crate::test_utils::eval_assert_equal;
+
+    // `strip_trace_markers` removes every trace marker before a
+    // program runs. One that slips through is a compiler bug and
+    // must surface as an error, not as a silent no-op.
+    #[test]
+    fn a_trace_marker_reaching_the_interpreter_is_an_error() {
+        let mut ctx = TulispContext::new();
+        for marker in [
+            Instruction::PushTrace(TulispObject::nil()),
+            Instruction::PopTrace,
+        ] {
+            let bytecode = Bytecode::new();
+            bytecode.global.borrow_mut().push(marker);
+            let err = run(&mut ctx, bytecode).unwrap_err();
+            assert!(err.to_string().contains("trace marker"), "{err}");
+        }
+    }
 
     // A Rust callable may re-enter `eval_string` mid-run. An inner
     // program that yields no value must not pop the outer run's
