@@ -223,19 +223,6 @@ fn test_conditionals() -> Result<(), Error> {
     tulisp_assert! { program: "(not (< 10 20))", result: "nil" }
     tulisp_assert! { program: "(not (> 10 20))", result: "t" }
 
-    tulisp_assert! { program: "(and t t t)", result: "t" }
-    tulisp_assert! { program: "(and t t nil)", result: "nil" }
-    tulisp_assert! { program: "(and (> 10 5) (< 10 20))", result: "t" }
-    tulisp_assert! { program: "(and (> 10 5) (> 10 20))", result: "nil" }
-    tulisp_assert! { program: "(and (< 10 5) (> 10 20))", result: "nil" }
-
-    tulisp_assert! { program: "(or t t t)", result: "t" }
-    tulisp_assert! { program: "(or t t nil)", result: "t" }
-    tulisp_assert! { program: "(or nil nil nil)", result: "nil" }
-    tulisp_assert! { program: "(or (> 10 5) (< 10 20))", result: "t" }
-    tulisp_assert! { program: "(or (> 10 5) (> 10 20))", result: "t" }
-    tulisp_assert! { program: "(or (< 10 5) (> 10 20))", result: "nil" }
-
     tulisp_assert! { program: "(xor t t)", result: "nil" }
     tulisp_assert! { program: "(xor t nil)", result: "t" }
     tulisp_assert! { program: "(xor nil t)", result: "t" }

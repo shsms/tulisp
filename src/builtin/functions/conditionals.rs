@@ -179,3 +179,30 @@ fn build_bindings(ctx: &mut TulispContext, bindings: &TulispObject) -> Result<Tu
     }
     Ok(builder.build())
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::TulispContext;
+    use crate::test_utils::eval_assert_equal;
+
+    #[test]
+    fn and_returns_nil_at_the_first_nil_argument() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(and t t t)", "t");
+        eval_assert_equal(ctx, "(and t t nil)", "nil");
+        eval_assert_equal(ctx, "(and (> 10 5) (< 10 20))", "t");
+        eval_assert_equal(ctx, "(and (> 10 5) (> 10 20))", "nil");
+        eval_assert_equal(ctx, "(and (< 10 5) (> 10 20))", "nil");
+    }
+
+    #[test]
+    fn or_returns_the_first_non_nil_argument() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(or t t t)", "t");
+        eval_assert_equal(ctx, "(or t t nil)", "t");
+        eval_assert_equal(ctx, "(or nil nil nil)", "nil");
+        eval_assert_equal(ctx, "(or (> 10 5) (< 10 20))", "t");
+        eval_assert_equal(ctx, "(or (> 10 5) (> 10 20))", "t");
+        eval_assert_equal(ctx, "(or (< 10 5) (> 10 20))", "nil");
+    }
+}
