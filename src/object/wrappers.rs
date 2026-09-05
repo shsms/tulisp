@@ -251,12 +251,19 @@ pub mod generic {
             std::sync::Arc::ptr_eq(&self.0, &other.0)
         }
 
+        // A panic while a write guard was held poisons the lock.
+        // The value is still usable, so take it as is: the Rc/RefCell
+        // build has no poisoning either.
         pub fn borrow(&self) -> std::sync::RwLockReadGuard<'_, T> {
-            self.0.read().unwrap()
+            self.0
+                .read()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
         }
 
         pub fn borrow_mut(&self) -> std::sync::RwLockWriteGuard<'_, T> {
-            self.0.write().unwrap()
+            self.0
+                .write()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
         }
 
         pub fn addr_as_usize(&self) -> usize {
@@ -271,6 +278,26 @@ pub mod generic {
     impl<T: Default> Default for SharedMut<T> {
         fn default() -> Self {
             SharedMut::new(T::default())
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::SharedMut;
+
+        // A panic while a write guard is held poisons the lock. The
+        // next borrow must still work instead of panicking again.
+        #[test]
+        fn a_poisoned_lock_can_still_be_borrowed() {
+            let cell = SharedMut::new(1);
+            let poison = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _guard = cell.borrow_mut();
+                panic!("poison the lock");
+            }));
+            assert!(poison.is_err());
+            assert_eq!(*cell.borrow(), 1);
+            *cell.borrow_mut() = 2;
+            assert_eq!(*cell.borrow(), 2);
         }
     }
 }
