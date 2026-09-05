@@ -1,5 +1,5 @@
 use crate::{
-    Error, TulispContext, TulispConvertible, TulispObject,
+    Error, TulispContext, TulispConvertible, TulispObject, TulispValue,
     object::wrappers::generic::{Shared, SharedMut},
 };
 use std::collections::HashMap;
@@ -22,10 +22,11 @@ struct HashKey {
     test: HashTest,
 }
 
-/// Hashes `obj` consistently with `equal`: contents for strings,
-/// values for numbers (type-tagged, since `(equal 1 1.0)` is nil),
-/// recursion for conses, a fixed tag for nil (which has no single
-/// canonical address), and identity for everything else.
+/// Hashes `obj` the same way `equal` compares it: strings by
+/// contents, numbers by kind and value, cons cells and quote forms
+/// by their contents, `nil` and `t` by fixed tags (each is a fresh
+/// object on every read, so it has no fixed address), everything
+/// else by object identity.
 fn equal_hash<H: Hasher>(obj: &TulispObject, state: &mut H) {
     if let Ok(s) = obj.as_string() {
         state.write_u8(1);
@@ -42,11 +43,35 @@ fn equal_hash<H: Hasher>(obj: &TulispObject, state: &mut H) {
             equal_hash(&car, state);
             equal_hash(&cdr, state);
         }
-    } else if obj.null() {
-        state.write_u8(5);
     } else {
-        state.write_u8(6);
-        state.write_usize(obj.addr_as_usize());
+        match &obj.inner_ref().0 {
+            TulispValue::Nil => state.write_u8(5),
+            TulispValue::T => state.write_u8(6),
+            TulispValue::Quote { value } => {
+                state.write_u8(7);
+                equal_hash(value, state);
+            }
+            TulispValue::Sharpquote { value } => {
+                state.write_u8(8);
+                equal_hash(value, state);
+            }
+            TulispValue::Backquote { value } => {
+                state.write_u8(9);
+                equal_hash(value, state);
+            }
+            TulispValue::Unquote { value } => {
+                state.write_u8(10);
+                equal_hash(value, state);
+            }
+            TulispValue::Splice { value } => {
+                state.write_u8(11);
+                equal_hash(value, state);
+            }
+            _ => {
+                state.write_u8(12);
+                state.write_usize(obj.addr_as_usize());
+            }
+        }
     }
 }
 
@@ -333,6 +358,33 @@ mod tests {
             &mut ctx,
             "(let ((h (make-hash-table :test 'equal))) (puthash 1 'i h) (gethash 1.0 h 'missing))",
             "'missing",
+        );
+    }
+
+    #[test]
+    fn equal_table_finds_structural_keys() {
+        // nil, t and quoted forms are fresh objects on each read, so
+        // they must hash by structure.
+        let mut ctx = TulispContext::new();
+        eval_assert_equal(
+            &mut ctx,
+            "(let ((h (make-hash-table :test 'equal))) (puthash nil 1 h) (gethash nil h 'missing))",
+            "1",
+        );
+        eval_assert_equal(
+            &mut ctx,
+            "(let ((h (make-hash-table :test 'equal))) (puthash t 1 h) (gethash t h 'missing))",
+            "1",
+        );
+        eval_assert_equal(
+            &mut ctx,
+            "(let ((h (make-hash-table :test 'equal))) (puthash ''a 1 h) (gethash ''a h 'missing))",
+            "1",
+        );
+        eval_assert_equal(
+            &mut ctx,
+            "(let ((h (make-hash-table :test 'equal))) (puthash '(1 (2 \"s\")) 1 h) (gethash '(1 (2 \"s\")) h 'missing))",
+            "1",
         );
     }
 }
