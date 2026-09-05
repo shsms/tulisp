@@ -845,3 +845,94 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(name)
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::TulispContext;
+    use crate::test_utils::{eval_assert_equal, eval_assert_error};
+
+    #[test]
+    fn funcall_accepts_symbols_and_lambdas() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(setq f 'list)(funcall f 'x 'y 'z)", "'(x y z)");
+        eval_assert_equal(ctx, "(funcall '1+ 4)", "5");
+        eval_assert_equal(ctx, "(funcall '+ 4 5)", "9");
+        eval_assert_equal(ctx, "(let ((x 10)) (funcall '+ x 2))", "12");
+        eval_assert_equal(
+            ctx,
+            "(let ((x 10)) (funcall (lambda (x y) (+ x y)) x 2))",
+            "12",
+        );
+        eval_assert_equal(
+            ctx,
+            "(let ((x 10)) (funcall '(lambda (x y) (+ x y)) x 2))",
+            "12",
+        );
+        eval_assert_error(
+            ctx,
+            "(let ((y j) (j 10)) (funcall j))",
+            "ERR Uninitialized: Variable definition is void: j\n\
+             <eval_string>:1.1-1.32:  at (let ((y j) (j 10)) (funcall j))\n",
+        );
+    }
+
+    #[test]
+    fn apply_splices_the_last_argument() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(apply '+ '(1 2 3))", "6");
+        // `+` needs at least one argument in tulisp; `list` does not.
+        eval_assert_equal(ctx, "(apply 'list '())", "nil");
+        eval_assert_equal(ctx, "(apply '+ 1 2 '(3 4))", "10");
+        eval_assert_equal(ctx, "(apply 'list 1 2 '(3 4))", "'(1 2 3 4)");
+        eval_assert_equal(ctx, "(apply 'concat \"a\" '(\"b\" \"c\"))", "\"abc\"");
+        eval_assert_equal(
+            ctx,
+            "(setq f (lambda (a b c) (+ a (* b c))))(apply f 1 '(2 3))",
+            "7",
+        );
+        eval_assert_equal(ctx, "(apply (lambda (a b) (* a b)) 3 '(4))", "12");
+        // The arguments before the list are evaluated too.
+        eval_assert_equal(ctx, "(let ((x 10)) (apply '+ x '(2 3)))", "15");
+    }
+
+    #[test]
+    fn apply_rejects_a_bad_last_argument() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_error(
+            ctx,
+            "(apply '+ 1 2)",
+            "ERR TypeMismatch: apply: last argument must be a list, got: 2\n\
+             <eval_string>:1.1-1.14:  at (apply '+ 1 2)\n",
+        );
+        // A dotted tail is an error, as in Emacs, not silently dropped.
+        eval_assert_error(
+            ctx,
+            "(apply '+ 1 '(2 3 . 4))",
+            "ERR TypeMismatch: apply: last argument must be a proper list, got non-nil tail: 4\n\
+             <eval_string>:1.1-1.23:  at (apply '+ 1 '(2 3 . 4))\n",
+        );
+        // A circular list is an error instead of an endless splice.
+        eval_assert_error(
+            ctx,
+            r#"
+            (setq xs (list 1 2 3))
+            (setcdr (cdr (cdr xs)) xs)
+            (apply '+ xs)
+        "#,
+            "ERR OutOfRange: apply: last argument is a circular list\n\
+             <eval_string>:4.13-4.25:  at (apply '+ xs)\n",
+        );
+        eval_assert_error(
+            ctx,
+            "(apply)",
+            "ERR MissingArgument: apply requires at least 2 arguments\n\
+             <eval_string>:1.1-1.7:  at (apply)\n",
+        );
+        eval_assert_error(
+            ctx,
+            "(apply '+)",
+            "ERR MissingArgument: apply requires at least 2 arguments\n\
+             <eval_string>:1.1-1.10:  at (apply '+)\n",
+        );
+    }
+}
