@@ -225,6 +225,8 @@ mod tests {
         eval_assert_equal(ctx, "(memql 9 '(1 2 3))", "nil");
         eval_assert_equal(ctx, "(memql 1 '())", "nil");
         eval_assert_equal(ctx, "(memql 'a '(a b c))", "'(a b c)");
+        eval_assert_equal(ctx, "(memql nil '(a nil b))", "'(nil b)");
+        eval_assert_equal(ctx, "(memql t '(a t b))", "'(t b)");
     }
 
     #[test]
@@ -232,6 +234,8 @@ mod tests {
         let ctx = &mut TulispContext::new();
         eval_assert_equal(ctx, "(memq 'b '(a b c))", "'(b c)");
         eval_assert_equal(ctx, "(memq 'z '(a b c))", "nil");
+        eval_assert_equal(ctx, "(memq nil '(a nil b))", "'(nil b)");
+        eval_assert_equal(ctx, "(memq t '(a t b))", "'(t b)");
     }
 
     #[test]

@@ -27,6 +27,18 @@ mod tests {
     }
 
     #[test]
+    fn eq_treats_nil_and_t_as_one_value() {
+        // Every read of `nil` or `t` is a fresh object, but they are
+        // single values in Emacs.
+        let mut ctx = TulispContext::new();
+        eval_assert(&mut ctx, "(eq nil nil)");
+        eval_assert(&mut ctx, "(eq t t)");
+        eval_assert(&mut ctx, "(let ((x nil)) (eq x nil))");
+        eval_assert_not(&mut ctx, "(eq t nil)");
+        eval_assert_not(&mut ctx, "(eq nil 'nil-sym)");
+    }
+
+    #[test]
     fn test_eql() {
         // `eql`: same object, or indistinguishable numbers.
         let mut ctx = TulispContext::new();
@@ -37,6 +49,10 @@ mod tests {
         eval_assert_not(&mut ctx, r#"(eql "a" "a")"#);
         eval_assert(&mut ctx, "(let ((x '(1))) (eql x x))");
         eval_assert_not(&mut ctx, "(eql '(1) '(1))");
+        eval_assert(&mut ctx, "(eql nil nil)");
+        eval_assert(&mut ctx, "(eql t t)");
+        eval_assert_not(&mut ctx, "(eql t nil)");
+        eval_assert_not(&mut ctx, "(eql nil 'a)");
     }
 
     #[test]

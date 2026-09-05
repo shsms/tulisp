@@ -1,5 +1,5 @@
 use crate::{
-    Error, TulispContext, TulispConvertible, TulispObject, TulispValue,
+    Error, Number, TulispContext, TulispConvertible, TulispObject, TulispValue,
     object::wrappers::generic::{Shared, SharedMut},
 };
 use std::collections::HashMap;
@@ -79,17 +79,42 @@ fn equal_hash<H: Hasher>(obj: &TulispObject, state: &mut H) {
     }
 }
 
+/// What makes an object one `eq` key: `nil` and `t` are one key each
+/// (every read of them is a fresh object), everything else is its
+/// address.
+#[derive(PartialEq, Eq, Hash)]
+enum EqKey {
+    Nil,
+    T,
+    Addr(usize),
+}
+
+/// The `eq` key of `obj`. A `nil` key must stay `nil` while it is in
+/// a table: pushing onto it from Rust turns it into a list, which
+/// changes its key.
+fn identity_key(obj: &TulispObject) -> EqKey {
+    match &obj.inner_ref().0 {
+        TulispValue::Nil => EqKey::Nil,
+        TulispValue::T => EqKey::T,
+        _ => EqKey::Addr(obj.addr_as_usize()),
+    }
+}
+
 impl Hash for HashKey {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match self.test {
-            HashTest::Eq => state.write_usize(self.obj.addr_as_usize()),
+            HashTest::Eq => identity_key(&self.obj).hash(state),
             HashTest::Eql => {
-                if let Ok(i) = self.obj.as_int() {
-                    i.hash(state);
-                } else if let Ok(f) = self.obj.as_float() {
-                    f.to_bits().hash(state);
-                } else {
-                    state.write_usize(self.obj.addr_as_usize());
+                // Copy the number out first: `identity_key` reads the
+                // object again, so this borrow must be gone by then.
+                let number = match &self.obj.inner_ref().0 {
+                    TulispValue::Number { value, .. } => Some(*value),
+                    _ => None,
+                };
+                match number {
+                    Some(Number::Int(i)) => i.hash(state),
+                    Some(Number::Float(f)) => f.to_bits().hash(state),
+                    None => identity_key(&self.obj).hash(state),
                 }
             }
             HashTest::Equal => equal_hash(&self.obj, state),
@@ -100,8 +125,7 @@ impl Hash for HashKey {
 impl PartialEq for HashKey {
     fn eq(&self, other: &Self) -> bool {
         match self.test {
-            // Identity comparison, matching the identity hash above.
-            HashTest::Eq => self.obj.addr_as_usize() == other.obj.addr_as_usize(),
+            HashTest::Eq => identity_key(&self.obj) == identity_key(&other.obj),
             HashTest::Eql => self.obj.eql(&other.obj),
             HashTest::Equal => self.obj.equal(&other.obj),
         }
@@ -312,6 +336,15 @@ mod tests {
         let zero: TulispObject = 0.0.into();
         let f1 = ctx.eval_string("(lambda (x) x)")?;
         let f2 = ctx.eval_string("(lambda (x) x)")?;
+        let nil_a = TulispObject::nil();
+        let nil_b = TulispObject::nil();
+        let t_a = TulispObject::t();
+        let t_b = TulispObject::t();
+        for test in [HashTest::Eq, HashTest::Eql] {
+            assert!(key(&nil_a, test) == key(&nil_b, test));
+            assert!(key(&t_a, test) == key(&t_b, test));
+            assert!(key(&nil_a, test) != key(&t_a, test));
+        }
         for test in [HashTest::Eql, HashTest::Equal] {
             assert!(key(&int, test) == key(&int, test));
             assert!(key(&int, test) != key(&float, test));
@@ -435,5 +468,21 @@ mod tests {
             std::hash::Hasher::finish(&hasher_a),
             std::hash::Hasher::finish(&hasher_b)
         );
+    }
+
+    #[test]
+    fn every_table_test_finds_nil_and_t_keys() {
+        // `nil` and `t` are fresh objects on each read but one value
+        // each, so they must be found under `eq`, `eql` and `equal`.
+        let mut ctx = TulispContext::new();
+        for test in ["'eq", "'eql", "'equal"] {
+            eval_assert_equal(
+                &mut ctx,
+                &format!(
+                    "(let ((h (make-hash-table :test {test}))) (puthash nil 1 h) (puthash t 2 h) (list (gethash nil h 'missing) (gethash t h 'missing)))"
+                ),
+                "'(1 2)",
+            );
+        }
     }
 }

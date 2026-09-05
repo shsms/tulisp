@@ -670,8 +670,10 @@ impl std::fmt::Debug for TulispValue {
 /// strings and lists by contents, host values by shared payload.
 /// Other opaque values compare false here; `TulispObject::equal`
 /// checks object identity first, so a value still equals itself.
-/// Symbols never reach this: `equal` sends them through `eq`, and
-/// `eql` through identity. Anything compared by structure here must
+/// Symbols never reach this: `equal` sends them through `eq`. `eq`
+/// and `eql` also compare through this impl, but only after narrowing
+/// `self` to `Nil` / `T` (and `Number` for `eql`), so no other arm is
+/// reachable from them. Anything compared by structure here must
 /// hash the same way in `equal_hash`.
 impl PartialEq for TulispValue {
     fn eq(&self, other: &Self) -> bool {

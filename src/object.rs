@@ -118,27 +118,44 @@ impl TulispObject {
         }
     }
 
-    /// Returns true if `self` and `other` are the same object.
+    /// Returns true if `self` and `other` are the same object. `nil`
+    /// and `t` count as one value each.
     ///
     /// Read more about Emacs equality predicates
     /// [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Equality-Predicates.html).
     #[allow(clippy::should_implement_trait)]
     pub fn eq(&self, other: &TulispObject) -> bool {
-        self.eq_ptr(other)
-            || other.inner_ref().0.lex_symbol_eq(self)
-            || self.inner_ref().0.lex_symbol_eq(other)
+        if self.eq_ptr(other) {
+            return true;
+        }
+        {
+            let value = self.inner_ref();
+            match &value.0 {
+                TulispValue::Nil | TulispValue::T => return value.0 == other.inner_ref().0,
+                TulispValue::LexicalBinding { .. } => return value.0.lex_symbol_eq(other),
+                _ => {}
+            }
+        }
+        // Reads `self` again, so `self`'s borrow above must be gone.
+        other.inner_ref().0.lex_symbol_eq(self)
     }
 
-    /// Returns true if `self` and `other` are the same object, or
-    /// numbers of the same kind and value (see [`Number::eql`]).
+    /// Returns true if `self` and `other` are the same object, both
+    /// `nil`, both `t`, or numbers of the same kind and value (see
+    /// [`Number::eql`]).
     ///
     /// Read more about Emacs `eql`
     /// [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Comparison-of-Numbers.html#index-eql)
     pub fn eql(&self, other: &TulispObject) -> bool {
-        if self.numberp() {
-            self.eq_val(other)
-        } else {
-            self.eq_ptr(other)
+        if self.eq_ptr(other) {
+            return true;
+        }
+        let value = self.inner_ref();
+        match &value.0 {
+            TulispValue::Number { .. } | TulispValue::Nil | TulispValue::T => {
+                value.0 == other.inner_ref().0
+            }
+            _ => false,
         }
     }
 

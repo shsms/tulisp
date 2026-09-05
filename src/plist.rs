@@ -392,6 +392,13 @@ mod tests {
     }
 
     #[test]
+    fn plist_get_matches_a_nil_key() {
+        let mut ctx = TulispContext::new();
+        eval_assert_equal(&mut ctx, "(plist-get '(nil 1 a 2) nil)", "1");
+        eval_assert_equal(&mut ctx, "(plist-get '(a 2) nil)", "nil");
+    }
+
+    #[test]
     fn test_plist_get_detects_cycle() {
         // Build a circular plist: cdr of the tail cell points back to
         // the head, so iteration via `cddr` never reaches a non-cons.
