@@ -1,5 +1,5 @@
 use crate::{
-    TulispObject,
+    Number, TulispObject,
     object::wrappers::{DefunFn, TulispFn, generic::Shared},
 };
 
@@ -65,6 +65,35 @@ pub(crate) enum BinaryOp {
     Div,
 }
 
+/// The comparison of a [`CompareChain`](Instruction::CompareChain).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Comparison {
+    Lt,
+    LtEq,
+    Gt,
+    GtEq,
+}
+
+impl Comparison {
+    pub(crate) fn holds(self, a: Number, b: Number) -> bool {
+        match self {
+            Comparison::Lt => a < b,
+            Comparison::LtEq => a <= b,
+            Comparison::Gt => a > b,
+            Comparison::GtEq => a >= b,
+        }
+    }
+
+    fn mnemonic(self) -> &'static str {
+        match self {
+            Comparison::Lt => "clt",
+            Comparison::LtEq => "cle",
+            Comparison::Gt => "cgt",
+            Comparison::GtEq => "cge",
+        }
+    }
+}
+
 /// A single instruction in the VM.
 #[derive(Clone)]
 pub(crate) enum Instruction {
@@ -112,6 +141,14 @@ pub(crate) enum Instruction {
     JumpIfNotGt(Pos),
     JumpIfNotGtEq(Pos),
     Jump(Pos),
+    /// Pops `count` values and pushes t when each of them compares
+    /// to the next one as `comparison` says, in order from the
+    /// bottom; nil at the first pair that does not. The arguments
+    /// of `(< a b c)` and its friends, evaluated left to right.
+    CompareChain {
+        comparison: Comparison,
+        count: usize,
+    },
     // functions
     Label(TulispObject),
     RustCall {
@@ -322,6 +359,9 @@ impl std::fmt::Display for Instruction {
             Instruction::JumpIfNotLtEq(pos) => write!(f, "    jnle {}", pos),
             Instruction::JumpIfNotGt(pos) => write!(f, "    jngt {}", pos),
             Instruction::JumpIfNotGtEq(pos) => write!(f, "    jnge {}", pos),
+            Instruction::CompareChain { comparison, count } => {
+                write!(f, "    {}_chain {}", comparison.mnemonic(), count)
+            }
             Instruction::Equal => write!(f, "    equal"),
             Instruction::Eq => write!(f, "    ceq"),
             Instruction::Lt => write!(f, "    clt"),

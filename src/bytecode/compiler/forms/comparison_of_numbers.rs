@@ -1,6 +1,6 @@
 use crate::{
     Error, TulispContext, TulispObject,
-    bytecode::{Instruction, Pos, compiler::compiler::compile_expr},
+    bytecode::{Instruction, compiler::compiler::compile_expr, instruction::Comparison},
 };
 
 fn compile_fn_compare(
@@ -8,6 +8,7 @@ fn compile_fn_compare(
     _name: &TulispObject,
     args: &TulispObject,
     instruction: Instruction,
+    comparison: Comparison,
 ) -> Result<Vec<Instruction>, Error> {
     let keep_result = ctx.compiler.as_ref().unwrap().keep_result;
     let mut result = vec![];
@@ -17,48 +18,37 @@ fn compile_fn_compare(
             "Comparison requires at least 1 argument".to_string(),
         ));
     }
-    if args.len() == 1 {
-        // A single-arg comparison is vacuously true (Emacs: `(> 5)`
-        // => t). Compile the arg for its side effects, then drop its
-        // value and push t in keep_result mode.
-        result.append(&mut compile_expr(ctx, &args[0])?);
-        if keep_result {
-            result.push(Instruction::Pop);
-            result.push(Instruction::Push(TulispObject::t()));
+    if !keep_result {
+        // Only the side effects are wanted.
+        for arg in &args {
+            result.append(&mut compile_expr(ctx, arg)?);
         }
         return Ok(result);
     }
-    // Every link but the last is a fused jump to the false label, so
-    // only the last link builds a boolean. A link's operands are
-    // compiled again for the next link (see todo b21).
-    let false_label =
-        (keep_result && args.len() > 2).then(|| ctx.compiler.as_mut().unwrap().new_label());
-    let Some(jump_unless) = instruction.fused_jump(true) else {
-        return Err(Error::lisp_error(format!(
-            "internal: no fused jump for comparison {instruction}"
-        )));
-    };
-    let last = args.len() - 2;
-    for (i, items) in args.windows(2).enumerate() {
-        result.append(&mut compile_expr(ctx, &items[1])?);
-        result.append(&mut compile_expr(ctx, &items[0])?);
-        if !keep_result {
-            continue;
-        }
-        match &false_label {
-            Some(label) if i < last => result.push(jump_unless(Pos::Label(label.clone()))),
-            _ => result.push(instruction.clone()),
-        }
+    if args.len() == 1 {
+        // A single-arg comparison is vacuously true (Emacs: `(> 5)`
+        // => t). Compile the arg for its side effects, then drop its
+        // value and push t.
+        result.append(&mut compile_expr(ctx, &args[0])?);
+        result.push(Instruction::Pop);
+        result.push(Instruction::Push(TulispObject::t()));
+        return Ok(result);
     }
-    if let Some(label) = false_label {
-        // `Label` keeps its slot at runtime, so the jump clears both.
-        let false_arm = [
-            Instruction::Label(label),
-            Instruction::Push(TulispObject::nil()),
-        ];
-        result.push(Instruction::Jump(Pos::Rel(false_arm.len() as isize)));
-        result.extend(false_arm);
+    if args.len() == 2 {
+        result.append(&mut compile_expr(ctx, &args[1])?);
+        result.append(&mut compile_expr(ctx, &args[0])?);
+        result.push(instruction);
+        return Ok(result);
     }
+    // A chain: every argument is evaluated, left to right, then one
+    // instruction compares each with the next.
+    for arg in &args {
+        result.append(&mut compile_expr(ctx, arg)?);
+    }
+    result.push(Instruction::CompareChain {
+        comparison,
+        count: args.len(),
+    });
     Ok(result)
 }
 
@@ -67,7 +57,7 @@ pub(super) fn compile_fn_lt(
     name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    compile_fn_compare(ctx, name, args, Instruction::Lt)
+    compile_fn_compare(ctx, name, args, Instruction::Lt, Comparison::Lt)
 }
 
 pub(super) fn compile_fn_le(
@@ -75,7 +65,7 @@ pub(super) fn compile_fn_le(
     name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    compile_fn_compare(ctx, name, args, Instruction::LtEq)
+    compile_fn_compare(ctx, name, args, Instruction::LtEq, Comparison::LtEq)
 }
 
 pub(super) fn compile_fn_gt(
@@ -83,7 +73,7 @@ pub(super) fn compile_fn_gt(
     name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    compile_fn_compare(ctx, name, args, Instruction::Gt)
+    compile_fn_compare(ctx, name, args, Instruction::Gt, Comparison::Gt)
 }
 
 pub(super) fn compile_fn_ge(
@@ -91,7 +81,7 @@ pub(super) fn compile_fn_ge(
     name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    compile_fn_compare(ctx, name, args, Instruction::GtEq)
+    compile_fn_compare(ctx, name, args, Instruction::GtEq, Comparison::GtEq)
 }
 
 pub(super) fn compile_fn_eq(
@@ -162,12 +152,82 @@ mod tests {
         // Emacs.
         eval_assert_equal(&mut ctx, r#"(< 3 2 "a")"#, "nil");
         eval_assert_equal(&mut ctx, r#"(= 1 2 "a")"#, "nil");
+        // A bad argument in the middle is an error, and a caught one
+        // leaves the values below the chain in place.
+        eval_assert_error(
+            &mut ctx,
+            r#"(< 1 "a" 3)"#,
+            r#"ERR TypeMismatch: Expected number, got: "a"
+<eval_string>:1.1-1.11:  at (< 1 "a" 3)
+"#,
+        );
+        eval_assert_equal(
+            &mut ctx,
+            r#"(list 1 2 (condition-case nil (list 5 (< 1 "a" 3)) (error 'c)) 4)"#,
+            "'(1 2 c 4)",
+        );
         eval_assert_error(
             &mut ctx,
             r#"(< 1 2 "a")"#,
             r#"ERR TypeMismatch: Expected number, got: "a"
 <eval_string>:1.1-1.11:  at (< 1 2 "a")
 "#,
+        );
+    }
+
+    #[test]
+    fn a_chain_evaluates_each_argument_once() {
+        let ctx = &mut crate::TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(let ((n 0)) (defun f () (setq n (+ n 1)) n) (list (< 0 (f) 5 (f)) n))",
+            "'(nil 2)",
+        );
+        // Every argument runs, even after a link that does not hold.
+        eval_assert_equal(
+            ctx,
+            "(let ((m 0)) (defun f2 () (setq m (+ m 1)) m) (list (< 3 2 (f2) (f2)) m))",
+            "'(nil 2)",
+        );
+        // With the value dropped, the arguments still run once each,
+        // left to right, for two arguments too.
+        eval_assert_equal(
+            ctx,
+            "(let ((n 0)) (defun g () (setq n (+ n 1)) n) (< 0 (g) 5) n)",
+            "1",
+        );
+        eval_assert_equal(
+            ctx,
+            "(let ((s nil))
+               (defun p () (setq s (cons 'p s)) 1)
+               (defun q () (setq s (cons 'q s)) 2)
+               (< (p) (q))
+               s)",
+            "'(q p)",
+        );
+        let l = listing(ctx, "(< a b c)");
+        assert_eq!(l.matches("load b").count(), 1, "{l}");
+    }
+
+    #[test]
+    fn longer_chains_keep_their_meaning() {
+        let ctx = &mut crate::TulispContext::new();
+        eval_assert_equal(ctx, "(< 1 2 3 4)", "t");
+        eval_assert_equal(ctx, "(< 1 2 4 3)", "nil");
+        eval_assert_equal(ctx, "(< 1 3 2 4)", "nil");
+        eval_assert_equal(ctx, "(< 2 1 3 4)", "nil");
+        eval_assert_equal(ctx, "(<= 1 1 2 2)", "t");
+        eval_assert_equal(ctx, "(> 4 3 2 1)", "t");
+        eval_assert_equal(ctx, "(>= 3 3 2 2)", "t");
+        eval_assert_equal(
+            ctx,
+            "(let ((i 0)) (while (<= 0 i 4) (setq i (+ i 1))) i)",
+            "5",
+        );
+        eval_assert_equal(
+            ctx,
+            "(defun in-range (x) (if (<= 0 x 9) 'yes 'no)) (list (in-range 5) (in-range 10) (in-range -1))",
+            "'(yes no no)",
         );
     }
 
@@ -242,21 +302,15 @@ mod tests {
 
         let bytecode = ctx.compile_string(program, true).unwrap();
 
+        // Each argument is loaded once, in order.
         assert_eq!(
             bytecode.to_string(),
             r#"
-    load b                                 # 0
-    load a                                 # 1
-    jnlt :1                                # 2
-    load c                                 # 3
-    load b                                 # 4
-    jnlt :1                                # 5
-    push 10                                # 6
-    load c                                 # 7
-    clt                                    # 8
-    jmp . 2                                # 9
-:1                                         # 10
-    push nil                               # 11"#
+    load a                                 # 0
+    load b                                 # 1
+    load c                                 # 2
+    push 10                                # 3
+    clt_chain 4                            # 4"#
         );
     }
 
@@ -277,16 +331,11 @@ mod tests {
         assert_eq!(
             bytecode.to_string(),
             r#"
-    push 8                                 # 0
-    push 5                                 # 1
-    store a                                # 2
-    jnle :1                                # 3
-    push 10                                # 4
-    push 8                                 # 5
-    cle                                    # 6
-    jmp . 2                                # 7
-:1                                         # 8
-    push nil                               # 9"#
+    push 5                                 # 0
+    store a                                # 1
+    push 8                                 # 2
+    push 10                                # 3
+    cle_chain 3                            # 4"#
         );
 
         let output = ctx.run_bytecode(bytecode).unwrap();

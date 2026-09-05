@@ -511,6 +511,21 @@ fn run_impl_inner(
                 jump_if_binary!(ctx, pc, pos, |a, b| compare_op(a, b, |a, b| a >= b)
                     .map(|holds| !holds))
             }
+            Instruction::CompareChain { comparison, count } => {
+                let comparison = *comparison;
+                let base = ctx.vm.stack.len() - *count;
+                let mut holds = Ok(true);
+                for pair in ctx.vm.stack[base..].windows(2) {
+                    holds = compare_op(&pair[0], &pair[1], |a, b| comparison.holds(a, b));
+                    if !matches!(holds, Ok(true)) {
+                        break;
+                    }
+                }
+                // Pop the arguments before `?` so an error leaves the
+                // stack balanced.
+                ctx.vm.stack.truncate(base);
+                ctx.vm.stack.push(holds?.into());
+            }
             Instruction::Jump(pos) => {
                 jump_to_pos!(ctx, pc, pos);
                 continue;
