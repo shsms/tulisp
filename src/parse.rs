@@ -772,18 +772,7 @@ impl Parser<'_, '_> {
                 }
                 .into_ref(Some(span)),
             )),
-            Token::Ident { span, value } => Ok(Some(match self.ctx.intern_soft(&value) {
-                Some(vv) => vv.with_span(Some(span)),
-                None => {
-                    if value == "t" {
-                        TulispValue::T.into_ref(Some(span))
-                    } else if value == "nil" {
-                        TulispValue::Nil.into_ref(Some(span))
-                    } else {
-                        self.ctx.intern(&value).with_span(Some(span))
-                    }
-                }
-            })),
+            Token::Ident { span, value } => Ok(Some(self.ctx.intern(&value).with_span(Some(span)))),
             Token::ParserError(err) => {
                 Err(Error::parsing_error(format!("{:?} {}", err.kind, err.desc))
                     .with_trace(TulispValue::Nil.into_ref(Some(err.span))))

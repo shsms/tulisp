@@ -199,12 +199,18 @@ impl TulispContext {
         self.max_eval_depth.saturating_mul(4)
     }
 
-    /// Returns an interned symbol with the given name.
+    /// Returns an interned symbol with the given name. `"nil"` and
+    /// `"t"` return the values `nil` and `t`, as in Emacs, so neither
+    /// name can be defined as a function or variable.
     ///
     /// Read more about creating and interning symbols
     /// [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Creating-Symbols.html).
     pub fn intern(&mut self, name: &str) -> TulispObject {
-        if let Some(sym) = self.obarray.get(name) {
+        if name == "nil" {
+            TulispObject::nil()
+        } else if name == "t" {
+            TulispObject::t()
+        } else if let Some(sym) = self.obarray.get(name) {
             sym.clone()
         } else {
             let name = name.to_string();
@@ -213,10 +219,6 @@ impl TulispContext {
             self.obarray.insert(name, sym.clone());
             sym
         }
-    }
-
-    pub(crate) fn intern_soft(&mut self, name: &str) -> Option<TulispObject> {
-        self.obarray.get(name).cloned()
     }
 
     /// Debug-only: sum of `SymbolBindings::items.len()` across every
@@ -853,7 +855,21 @@ impl TulispContext {
 #[cfg(test)]
 mod tests {
     use crate::TulispContext;
-    use crate::test_utils::eval_assert_equal;
+    use crate::test_utils::{eval_assert, eval_assert_equal, eval_assert_not};
+
+    #[test]
+    fn intern_returns_nil_and_t_for_their_names() {
+        // `nil` and `t` are values, not obarray symbols; `intern` must
+        // hand them back rather than mint a symbol with that name.
+        let mut ctx = TulispContext::new();
+        eval_assert(&mut ctx, r#"(eq (intern "nil") nil)"#);
+        eval_assert(&mut ctx, r#"(eq (intern "t") t)"#);
+        // An uninterned symbol named nil is still its own thing.
+        eval_assert_not(&mut ctx, r#"(eq (make-symbol "nil") nil)"#);
+        // Interning the name must not leave a `nil` symbol in the
+        // obarray for the parser to find on the next read.
+        eval_assert_equal(&mut ctx, r#"(progn (intern "nil") (if nil 1 2))"#, "2");
+    }
 
     // The non-test default (`PROFILE_MAX_EVAL_DEPTH`: 64 in debug,
     // 1000 in release) must raise a catchable error *before*
