@@ -194,4 +194,31 @@ mod tests {
             "ERR ArithError: Division by zero\n<eval_string>:1.1-1.9:  at (mod 5 0)\n",
         );
     }
+
+    // Tulisp has no bignums, so integer arithmetic stops at the i64
+    // limits with an error instead of wrapping.
+    #[test]
+    fn integer_overflow_errors() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_error(
+            ctx,
+            "(+ 9223372036854775807 1)",
+            "ERR OutOfRange: integer overflow: 9223372036854775807 + 1\n\
+             <eval_string>:1.1-1.25:  at (+ 9223372036854775807 1)\n",
+        );
+        eval_assert_error(
+            ctx,
+            "(* 9223372036854775807 2)",
+            "ERR OutOfRange: integer overflow: 9223372036854775807 * 2\n\
+             <eval_string>:1.1-1.25:  at (* 9223372036854775807 2)\n",
+        );
+        eval_assert_error(
+            ctx,
+            "(1+ 9223372036854775807)",
+            "ERR OutOfRange: integer overflow: 9223372036854775807 + 1\n\
+             <eval_string>:1.1-1.24:  at (1+ 9223372036854775807)\n",
+        );
+        // A float operand gives inf instead.
+        eval_assert_equal(ctx, "(numberp (+ 9223372036854775807 1.0))", "t");
+    }
 }

@@ -1096,30 +1096,6 @@ fn test_math() -> Result<(), Error> {
     tulisp_assert! { program: "(progn (setq 1.0e-INF 5) 1.0e-INF)",  result: "5" }
     tulisp_assert! { program: "(progn (setq inf 5) inf)",            result: "5" }
 
-    // Integer overflow raises `OutOfRange` instead of wrapping.
-    // Tulisp doesn't have bignums, so this stops at i64 limits.
-    tulisp_assert! {
-        program: "(+ 9223372036854775807 1)",
-        error: r#"ERR OutOfRange: integer overflow: 9223372036854775807 + 1
-<eval_string>:1.1-1.25:  at (+ 9223372036854775807 1)
-"#,
-    }
-    tulisp_assert! {
-        program: "(* 9223372036854775807 2)",
-        error: r#"ERR OutOfRange: integer overflow: 9223372036854775807 * 2
-<eval_string>:1.1-1.25:  at (* 9223372036854775807 2)
-"#,
-    }
-    tulisp_assert! {
-        program: "(1+ 9223372036854775807)",
-        error: r#"ERR OutOfRange: integer overflow: 9223372036854775807 + 1
-<eval_string>:1.1-1.24:  at (1+ 9223372036854775807)
-"#,
-    }
-    // A float operand sidesteps the overflow check — `f64::add`
-    // produces inf rather than overflowing.
-    tulisp_assert! { program: "(numberp (+ 9223372036854775807 1.0))", result: "t" }
-
     // setcar / setcdr mutate cons cells in place.
     tulisp_assert! {
         program: "(let ((x (list 1 2 3))) (setcar x 99) x)",
