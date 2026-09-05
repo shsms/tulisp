@@ -352,6 +352,13 @@ pub(super) fn compile_fn_and(
     let keep_result = compiler.keep_result;
     #[allow(dropping_references)]
     drop(compiler);
+    if args.null() {
+        // `(and)` is t.
+        if keep_result {
+            result.push(Instruction::Push(true.into()));
+        }
+        return Ok(result);
+    }
     let mut need_label = false;
     for item in args.base_iter() {
         let expr_result = &mut compile_expr(ctx, &item)?;
@@ -383,6 +390,13 @@ pub(super) fn compile_fn_or(
     let compiler = ctx.compiler.as_mut().unwrap();
     let label = compiler.new_label();
     let keep_result = compiler.keep_result;
+    if args.null() {
+        // `(or)` is nil.
+        if keep_result {
+            result.push(Instruction::Push(false.into()));
+        }
+        return Ok(result);
+    }
     let mut need_label = false;
     for item in args.base_iter() {
         let expr_result = &mut compile_expr(ctx, &item)?;

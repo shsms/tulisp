@@ -45,7 +45,8 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defun("not", |x: TulispObject| -> bool { x.null() });
 
     ctx.defspecial("and", |ctx, args| {
-        let mut ret = TulispObject::nil();
+        // `(and)` is t, as in Emacs.
+        let mut ret = true.into();
         for item in args.base_iter() {
             let result = eval_basic(ctx, &item)?;
             if result.null() {
@@ -193,6 +194,17 @@ mod tests {
         eval_assert_equal(ctx, "(and (> 10 5) (< 10 20))", "t");
         eval_assert_equal(ctx, "(and (> 10 5) (> 10 20))", "nil");
         eval_assert_equal(ctx, "(and (< 10 5) (> 10 20))", "nil");
+    }
+
+    #[test]
+    fn and_and_or_without_arguments() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(and)", "t");
+        eval_assert_equal(ctx, "(or)", "nil");
+        // As a condition, and as a statement whose value is dropped.
+        eval_assert_equal(ctx, "(if (and) 1 2)", "1");
+        eval_assert_equal(ctx, "(if (or) 1 2)", "2");
+        eval_assert_equal(ctx, "(progn (and) (or) 3)", "3");
     }
 
     #[test]
