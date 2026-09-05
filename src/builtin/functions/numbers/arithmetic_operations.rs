@@ -64,7 +64,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     // where `i64::rem` would overflow-panic.
     ctx.defun("%", |a: i64, b: i64| -> Result<i64, Error> {
         if b == 0 {
-            return Err(Error::out_of_range("Division by zero".to_string()));
+            return Err(Error::arith_error("Division by zero".to_string()));
         }
         Ok(a.wrapping_rem(b))
     });
@@ -92,7 +92,7 @@ mod tests {
         eval_assert_error(
             &mut ctx,
             "(% 5 0)",
-            "ERR OutOfRange: Division by zero\n<eval_string>:1.1-1.7:  at (% 5 0)\n",
+            "ERR ArithError: Division by zero\n<eval_string>:1.1-1.7:  at (% 5 0)\n",
         );
     }
 
@@ -142,18 +142,18 @@ mod tests {
         eval_assert_error(
             &mut ctx,
             "(/ 10 0)",
-            "ERR OutOfRange: Division by zero\n<eval_string>:1.1-1.8:  at (/ 10 0)\n",
+            "ERR ArithError: Division by zero\n<eval_string>:1.1-1.8:  at (/ 10 0)\n",
         );
         eval_assert_error(
             &mut ctx,
             "(let ((a 10) (b 0)) (/ a b))",
-            "ERR OutOfRange: Division by zero\n<eval_string>:1.21-1.27:  at (/ a b)\n\
+            "ERR ArithError: Division by zero\n<eval_string>:1.21-1.27:  at (/ a b)\n\
              <eval_string>:1.1-1.28:  at (let ((a 10) (b 0)) (/ a b))\n",
         );
         eval_assert_error(
             &mut ctx,
             "(funcall '/ 1 0)",
-            "ERR OutOfRange: Division by zero\n<eval_string>:1.1-1.16:  at (funcall '/ 1 0)\n",
+            "ERR ArithError: Division by zero\n<eval_string>:1.1-1.16:  at (funcall '/ 1 0)\n",
         );
     }
 
@@ -191,7 +191,7 @@ mod tests {
         eval_assert_error(
             &mut ctx,
             "(mod 5 0)",
-            "ERR OutOfRange: Division by zero\n<eval_string>:1.1-1.9:  at (mod 5 0)\n",
+            "ERR ArithError: Division by zero\n<eval_string>:1.1-1.9:  at (mod 5 0)\n",
         );
     }
 }

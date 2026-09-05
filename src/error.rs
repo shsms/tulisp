@@ -60,6 +60,7 @@ macro_rules! ErrorKind {
 }
 
 ErrorKind!(
+    (ArithError,      pub arith_error),
     (InvalidArgument, pub invalid_argument),
     (LispError,       pub lisp_error),
     (NotImplemented,  pub not_implemented),

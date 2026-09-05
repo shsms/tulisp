@@ -166,13 +166,13 @@ impl Number {
     }
 
     /// Integer/float division matching Emacs `/` (integers truncate
-    /// toward zero). Raises `OutOfRange` on an integer zero divisor
-    /// and on `i64::MIN / -1` overflow; float operands divide
+    /// toward zero). Raises `ArithError` on an integer zero divisor
+    /// and `OutOfRange` on `i64::MIN / -1` overflow; float operands divide
     /// normally, yielding ±inf for a zero divisor as Emacs does.
     pub(crate) fn checked_div(self, rhs: Number) -> Result<Number, Error> {
         match (self, rhs) {
             (Number::Int(_), Number::Int(0)) => {
-                Err(Error::out_of_range("Division by zero".to_string()))
+                Err(Error::arith_error("Division by zero".to_string()))
             }
             (Number::Int(l), Number::Int(r)) => l
                 .checked_div(r)
@@ -186,13 +186,13 @@ impl Number {
 
     /// Floored modulo matching Emacs `mod`: the result takes the
     /// divisor's sign (`(mod -7 3)` => 2, `(mod 7 -3)` => -2). Raises
-    /// `OutOfRange` on an integer zero divisor; a float divisor
+    /// `ArithError` on an integer zero divisor; a float divisor
     /// yields NaN. A `-1` divisor always yields 0, so the
     /// `i64::MIN % -1` overflow can't arise.
     pub(crate) fn checked_mod(self, rhs: Number) -> Result<Number, Error> {
         match (self, rhs) {
             (Number::Int(_), Number::Int(0)) => {
-                Err(Error::out_of_range("Division by zero".to_string()))
+                Err(Error::arith_error("Division by zero".to_string()))
             }
             (Number::Int(_), Number::Int(-1)) => Ok(Number::Int(0)),
             (Number::Int(l), Number::Int(r)) => {

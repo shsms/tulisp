@@ -110,6 +110,7 @@ fn error_kind_symbol(kind: &ErrorKind) -> Option<&'static str> {
     Some(match kind {
         ErrorKind::TypeMismatch | ErrorKind::InvalidArgument => "wrong-type-argument",
         ErrorKind::OutOfRange => "args-out-of-range",
+        ErrorKind::ArithError => "arith-error",
         ErrorKind::LispError => "error",
         ErrorKind::MissingArgument | ErrorKind::ArityMismatch => "wrong-number-of-arguments",
         ErrorKind::Undefined => "void-function",
@@ -229,6 +230,37 @@ mod tests {
 <eval_string>:1.19-1.32:  at (throw 'tag 5)
 <eval_string>:1.1-1.49:  at (condition-case e (throw 'tag 5) (error 'caught))
 "#,
+        );
+    }
+
+    #[test]
+    fn division_by_zero_is_an_arith_error() {
+        let ctx = &mut TulispContext::new();
+        for form in [
+            "(/ 1 0)",
+            "(mod 1 0)",
+            "(% 1 0)",
+            "(floor 1 0)",
+            "(ceiling 1 0)",
+            "(truncate 1 0)",
+            "(round 1 0)",
+        ] {
+            eval_assert_equal(
+                ctx,
+                &format!("(condition-case e {form} (arith-error 'caught))"),
+                "'caught",
+            );
+        }
+        // It is no longer an args-out-of-range error.
+        eval_assert_equal(
+            ctx,
+            "(condition-case e (/ 1 0) (args-out-of-range 'old) (error 'other))",
+            "'other",
+        );
+        eval_assert_error(
+            ctx,
+            "(floor 1 0)",
+            "ERR ArithError: Division by zero\n<eval_string>:1.1-1.11:  at (floor 1 0)\n",
         );
     }
 

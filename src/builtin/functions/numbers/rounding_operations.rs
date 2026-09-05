@@ -6,9 +6,7 @@ use crate::{Error, TulispContext, number::f64_to_i64_checked};
 fn combined(n: f64, divisor: Option<f64>) -> Result<f64, Error> {
     match divisor {
         None => Ok(n),
-        Some(0.0) => Err(Error::out_of_range(
-            "arithmetic error: divide by zero".to_string(),
-        )),
+        Some(0.0) => Err(Error::arith_error("Division by zero".to_string())),
         Some(d) => Ok(n / d),
     }
 }
