@@ -95,6 +95,18 @@ pub mod generic {
         }
     }
 
+    impl<T: ?Sized> Shared<T> {
+        /// True if both point at the same allocation.
+        pub(crate) fn ptr_eq(&self, other: &Self) -> bool {
+            std::rc::Rc::ptr_eq(&self.0, &other.0)
+        }
+
+        /// Address of the allocation, for identity hashing.
+        pub(crate) fn addr_as_usize(&self) -> usize {
+            std::rc::Rc::as_ptr(&self.0) as *const () as usize
+        }
+    }
+
     #[repr(transparent)]
     #[derive(Debug)]
     pub struct SharedMut<T>(std::rc::Rc<std::cell::RefCell<T>>);
@@ -206,6 +218,18 @@ pub mod generic {
     impl<T> Shared<T> {
         pub(crate) fn new_sized(val: T) -> Self {
             Shared(std::sync::Arc::new(val))
+        }
+    }
+
+    impl<T: ?Sized> Shared<T> {
+        /// True if both point at the same allocation.
+        pub(crate) fn ptr_eq(&self, other: &Self) -> bool {
+            std::sync::Arc::ptr_eq(&self.0, &other.0)
+        }
+
+        /// Address of the allocation, for identity hashing.
+        pub(crate) fn addr_as_usize(&self) -> usize {
+            std::sync::Arc::as_ptr(&self.0) as *const () as usize
         }
     }
 

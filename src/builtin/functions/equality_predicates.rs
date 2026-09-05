@@ -14,8 +14,8 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
 #[cfg(test)]
 mod tests {
-    use crate::TulispContext;
     use crate::test_utils::{eval_assert, eval_assert_not};
+    use crate::{Shared, TulispContext, TulispObject};
 
     #[test]
     fn test_eql() {
@@ -64,5 +64,50 @@ mod tests {
         eval_assert(&mut ctx, "(eql (/ 0.0 0.0) (/ 0.0 0.0))");
         eval_assert(&mut ctx, "(equal (/ 0.0 0.0) (/ 0.0 0.0))");
         eval_assert(&mut ctx, "(let ((n (/ 0.0 0.0))) (eql n n))");
+    }
+
+    #[test]
+    fn equal_compares_exotic_values_by_identity() {
+        // Opaque values are `equal` only to themselves. Emacs compares
+        // two identical lambdas by structure; tulisp does not, on
+        // purpose.
+        let mut ctx = TulispContext::new();
+        eval_assert_not(&mut ctx, "(equal (lambda (x) x) (lambda (y) y))");
+        eval_assert_not(&mut ctx, "(equal (lambda (x) x) (lambda (x) x))");
+        eval_assert(&mut ctx, "(let ((f (lambda (x) x))) (equal f f))");
+        eval_assert_not(&mut ctx, "(equal (make-hash-table) (make-hash-table))");
+        eval_assert(&mut ctx, "(let ((h (make-hash-table))) (equal h h))");
+        // Identity applies inside lists too.
+        eval_assert_not(
+            &mut ctx,
+            "(equal (list (lambda (x) x)) (list (lambda (x) x)))",
+        );
+        eval_assert(
+            &mut ctx,
+            "(let ((f (lambda (x) x))) (equal (list f) (list f)))",
+        );
+        // nil and t still equal themselves.
+        eval_assert(&mut ctx, "(equal nil nil)");
+        eval_assert(&mut ctx, "(equal t t)");
+        eval_assert(&mut ctx, "(equal '() nil)");
+        eval_assert_not(&mut ctx, "(equal t nil)");
+    }
+
+    #[test]
+    fn equal_compares_host_values_by_identity() {
+        // The same host value through two wrappers is equal. Two
+        // different host values are not.
+        struct Host;
+        impl std::fmt::Display for Host {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("host")
+            }
+        }
+        let shared = Shared::new(Host);
+        let a: TulispObject = shared.clone().into();
+        let b: TulispObject = shared.into();
+        let c: TulispObject = Shared::new(Host).into();
+        assert!(a.equal(&b));
+        assert!(!a.equal(&c));
     }
 }

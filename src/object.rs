@@ -103,7 +103,10 @@ impl TulispObject {
         .into_ref(None)
     }
 
-    /// Returns true if `self` and `other` have equal values.
+    /// Returns true if `self` and `other` have the same structure:
+    /// numbers by kind and value, strings and lists by contents.
+    /// Lambdas, hash tables and other opaque values are `equal` only
+    /// to themselves.
     ///
     /// Read more about Emacs equality predicates
     /// [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Equality-Predicates.html).
@@ -111,7 +114,7 @@ impl TulispObject {
         if self.symbolp() {
             self.eq(other)
         } else {
-            self.eq_val(other)
+            self.eq_ptr(other) || self.eq_val(other)
         }
     }
 

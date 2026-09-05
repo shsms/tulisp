@@ -666,6 +666,13 @@ impl std::fmt::Debug for TulispValue {
     }
 }
 
+/// Structural equality for `equal`. Numbers match by kind and value,
+/// strings and lists by contents, host values by shared payload.
+/// Other opaque values compare false here; `TulispObject::equal`
+/// checks object identity first, so a value still equals itself.
+/// Symbols never reach this: `equal` sends them through `eq`, and
+/// `eql` through identity. Anything compared by structure here must
+/// hash the same way in `equal_hash`.
 impl PartialEq for TulispValue {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
@@ -681,7 +688,9 @@ impl PartialEq for TulispValue {
             (Self::Unquote { value: l0, .. }, Self::Unquote { value: r0, .. }) => l0.equal(r0),
             (Self::Splice { value: l0, .. }, Self::Splice { value: r0, .. }) => l0.equal(r0),
 
-            _ => core::mem::discriminant(self) == core::mem::discriminant(other),
+            (Self::Nil, Self::Nil) | (Self::T, Self::T) => true,
+            (Self::Any(l0), Self::Any(r0)) => l0.ptr_eq(r0),
+            _ => false,
         }
     }
 }

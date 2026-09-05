@@ -25,8 +25,8 @@ struct HashKey {
 /// Hashes `obj` the same way `equal` compares it: strings by
 /// contents, numbers by kind and value, cons cells and quote forms
 /// by their contents, `nil` and `t` by fixed tags (each is a fresh
-/// object on every read, so it has no fixed address), everything
-/// else by object identity.
+/// object on every read, so it has no fixed address), host values by
+/// shared payload, everything else by object identity.
 fn equal_hash<H: Hasher>(obj: &TulispObject, state: &mut H) {
     if let Ok(s) = obj.as_string() {
         state.write_u8(1);
@@ -66,6 +66,10 @@ fn equal_hash<H: Hasher>(obj: &TulispObject, state: &mut H) {
             TulispValue::Splice { value } => {
                 state.write_u8(11);
                 equal_hash(value, state);
+            }
+            TulispValue::Any(value) => {
+                state.write_u8(13);
+                state.write_usize(value.addr_as_usize());
             }
             _ => {
                 state.write_u8(12);
@@ -217,7 +221,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 mod tests {
     use super::{HashKey, HashTest};
     use crate::test_utils::{eval_assert_equal, eval_assert_error};
-    use crate::{Error, TulispContext, TulispObject};
+    use crate::{Error, Shared, TulispContext, TulispObject};
 
     #[test]
     fn test_hash_table_tests() {
@@ -297,6 +301,7 @@ mod tests {
     fn hash_key_eq_follows_table_test() -> Result<(), Error> {
         // Pin `HashKey`'s `Eq` directly; the hasher alone can hide a
         // wrong `Eq` by keeping keys in different buckets.
+        let mut ctx = TulispContext::new();
         let key = |obj: &TulispObject, test| HashKey {
             obj: obj.clone(),
             test,
@@ -305,10 +310,14 @@ mod tests {
         let float: TulispObject = 5.0.into();
         let neg_zero: TulispObject = (-0.0).into();
         let zero: TulispObject = 0.0.into();
+        let f1 = ctx.eval_string("(lambda (x) x)")?;
+        let f2 = ctx.eval_string("(lambda (x) x)")?;
         for test in [HashTest::Eql, HashTest::Equal] {
             assert!(key(&int, test) == key(&int, test));
             assert!(key(&int, test) != key(&float, test));
             assert!(key(&zero, test) != key(&neg_zero, test));
+            assert!(key(&f1, test) == key(&f1, test));
+            assert!(key(&f1, test) != key(&f2, test));
         }
         Ok(())
     }
@@ -385,6 +394,46 @@ mod tests {
             &mut ctx,
             "(let ((h (make-hash-table :test 'equal))) (puthash '(1 (2 \"s\")) 1 h) (gethash '(1 (2 \"s\")) h 'missing))",
             "1",
+        );
+    }
+
+    #[test]
+    fn equal_table_compares_exotic_keys_by_identity() {
+        // Only the same lambda object finds the entry.
+        let mut ctx = TulispContext::new();
+        eval_assert_equal(
+            &mut ctx,
+            "(let ((h (make-hash-table :test 'equal)) (f (lambda (x) x))) (puthash f 1 h) (list (gethash f h) (gethash (lambda (x) x) h 'missing)))",
+            "'(1 missing)",
+        );
+    }
+
+    #[test]
+    fn equal_table_finds_host_value_through_another_wrapper() {
+        // One host value handed to Lisp twice is one `equal` key.
+        struct Host;
+        impl std::fmt::Display for Host {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("host")
+            }
+        }
+        let shared = Shared::new(Host);
+        let a: TulispObject = shared.clone().into();
+        let b: TulispObject = shared.into();
+        let c: TulispObject = Shared::new(Host).into();
+        let key = |obj: &TulispObject| HashKey {
+            obj: obj.clone(),
+            test: HashTest::Equal,
+        };
+        assert!(key(&a) == key(&b));
+        assert!(key(&a) != key(&c));
+        let mut hasher_a = std::hash::DefaultHasher::new();
+        let mut hasher_b = std::hash::DefaultHasher::new();
+        std::hash::Hash::hash(&key(&a), &mut hasher_a);
+        std::hash::Hash::hash(&key(&b), &mut hasher_b);
+        assert_eq!(
+            std::hash::Hasher::finish(&hasher_a),
+            std::hash::Hasher::finish(&hasher_b)
         );
     }
 }
