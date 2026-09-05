@@ -34,6 +34,10 @@ harness = false
 name = "list_build"
 harness = false
 
+[[bench]]
+name = "bool_results"
+harness = false
+
 [features]
 sync = []
 big_functions = []
