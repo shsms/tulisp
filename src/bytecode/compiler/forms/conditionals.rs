@@ -340,39 +340,7 @@ pub(super) fn compile_fn_and(
     _name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    let mut result = vec![];
-    let compiler = ctx.compiler.as_mut().unwrap();
-    let label = compiler.new_label();
-    let keep_result = compiler.keep_result;
-    #[allow(dropping_references)]
-    drop(compiler);
-    if args.null() {
-        // `(and)` is t.
-        if keep_result {
-            result.push(Instruction::Push(true.into()));
-        }
-        return Ok(result);
-    }
-    let mut need_label = false;
-    for item in args.base_iter() {
-        let expr_result = &mut compile_expr(ctx, &item)?;
-        if !expr_result.is_empty() {
-            result.append(expr_result);
-            if keep_result {
-                result.push(Instruction::JumpIfNilElsePop(Pos::Label(label.clone())));
-            } else {
-                result.push(Instruction::JumpIfNil(Pos::Label(label.clone())));
-            }
-            need_label = true;
-        }
-    }
-    if need_label {
-        if keep_result {
-            result.pop();
-        }
-        result.push(Instruction::Label(label));
-    }
-    Ok(result)
+    compile_and_or(ctx, args, true)
 }
 
 pub(super) fn compile_fn_or(
@@ -380,34 +348,52 @@ pub(super) fn compile_fn_or(
     _name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    let mut result = vec![];
+    compile_and_or(ctx, args, false)
+}
+
+/// `and` and `or` share one shape. Every operand but the last is
+/// compiled as a value and followed by a jump to the end: `and`
+/// jumps on nil, `or` on non-nil. When the result is kept, the jump
+/// leaves the operand on the stack as the result; when it is
+/// dropped, the jump pops it. The last operand is compiled like any
+/// other expression, so its value is kept or dropped as the caller
+/// asked.
+fn compile_and_or(
+    ctx: &mut TulispContext,
+    args: &TulispObject,
+    is_and: bool,
+) -> Result<Vec<Instruction>, Error> {
     let compiler = ctx.compiler.as_mut().unwrap();
     let label = compiler.new_label();
     let keep_result = compiler.keep_result;
+    #[allow(dropping_references)]
+    drop(compiler);
+    let mut result = vec![];
     if args.null() {
-        // `(or)` is nil.
+        // `(and)` is t, `(or)` is nil.
         if keep_result {
-            result.push(Instruction::Push(false.into()));
+            result.push(Instruction::Push(is_and.into()));
         }
         return Ok(result);
     }
     let mut need_label = false;
-    for item in args.base_iter() {
-        let expr_result = &mut compile_expr(ctx, &item)?;
-        if !expr_result.is_empty() {
-            result.append(expr_result);
-            if keep_result {
-                result.push(Instruction::JumpIfNotNilElsePop(Pos::Label(label.clone())));
-            } else {
-                result.push(Instruction::JumpIfNotNil(Pos::Label(label.clone())));
-            }
-            need_label = true;
+    let mut items = args.base_iter().peekable();
+    while let Some(item) = items.next() {
+        if items.peek().is_none() {
+            result.append(&mut compile_expr(ctx, &item)?);
+            break;
         }
+        result.append(&mut compile_expr_keep_result(ctx, &item)?);
+        let target = Pos::Label(label.clone());
+        result.push(match (is_and, keep_result) {
+            (true, true) => Instruction::JumpIfNilElsePop(target),
+            (true, false) => Instruction::JumpIfNil(target),
+            (false, true) => Instruction::JumpIfNotNilElsePop(target),
+            (false, false) => Instruction::JumpIfNotNil(target),
+        });
+        need_label = true;
     }
     if need_label {
-        if keep_result {
-            result.push(Instruction::Push(false.into()))
-        }
         result.push(Instruction::Label(label));
     }
     Ok(result)

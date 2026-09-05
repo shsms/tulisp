@@ -207,6 +207,43 @@ mod tests {
         eval_assert_equal(ctx, "(progn (and) (or) 3)", "3");
     }
 
+    // The value is dropped, so only the short-circuit matters.
+    #[test]
+    fn and_and_or_as_statements() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(setq x 1)(progn (and nil (setq x 2)) nil) x", "1");
+        eval_assert_equal(ctx, "(setq x 1)(progn (and t (setq x 2)) nil) x", "2");
+        eval_assert_equal(ctx, "(setq x 1)(progn (or t (setq x 2)) nil) x", "1");
+        eval_assert_equal(ctx, "(setq x 1)(progn (or nil (setq x 2)) nil) x", "2");
+        eval_assert_equal(ctx, "(setq x 1)(progn (and (or) (setq x 2)) nil) x", "1");
+        eval_assert_equal(
+            ctx,
+            "(setq x 1)(defun f () (and (> 2 1) (setq x 2) (setq x 3)) nil)(f) x",
+            "3",
+        );
+    }
+
+    // Operands whose value the compiler makes up rather than
+    // computes: `defun` pushes its name, `while` pushes nil.
+    #[test]
+    fn and_and_or_with_a_defun_or_while_operand() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(list (and 1 (defun q () 1)))", "'(q)");
+        eval_assert_equal(ctx, "(list (or nil (defun q () 1)))", "'(q)");
+        eval_assert_equal(
+            ctx,
+            "(setq x 1)(progn (and (defun q () 1) (setq x 2)) nil) x",
+            "2",
+        );
+        eval_assert_equal(
+            ctx,
+            "(setq x 1)(progn (or (defun q () 1) (setq x 2)) nil) x",
+            "1",
+        );
+        eval_assert_equal(ctx, "(list (and (while nil) 1))", "'(nil)");
+        eval_assert_equal(ctx, "(list (or (while nil) 1))", "'(1)");
+    }
+
     #[test]
     fn or_returns_the_first_non_nil_argument() {
         let ctx = &mut TulispContext::new();
