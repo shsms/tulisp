@@ -76,6 +76,7 @@ fn eval_function_args<E: Evaluator>(
     if args_iter.next().is_some() {
         return Err(Error::invalid_argument("Too many arguments".to_string()));
     }
+    args_iter.take_error()?;
     Ok(out)
 }
 
@@ -269,12 +270,14 @@ pub(crate) fn funcall<E: Evaluator>(
                 return Err(Error::invalid_argument("Too many arguments".to_string()));
             }
             let mut evaluated = Vec::with_capacity(args_count);
-            for arg in args.base_iter() {
+            let mut args_iter = args.base_iter();
+            for arg in args_iter.by_ref() {
                 evaluated.push(match E::eval(ctx, &arg)? {
                     Cow::Borrowed(_) => arg,
                     Cow::Owned(o) => o,
                 });
             }
+            args_iter.take_error()?;
             call(ctx, &evaluated)
         }
         TulispValue::Lambda { params, body } => eval_lambda::<E>(ctx, params, body, args),
@@ -336,6 +339,7 @@ fn eval_args_for_vm<E: Evaluator>(
     } else if args_iter.next().is_some() {
         return Err(Error::invalid_argument("Too many arguments".to_string()));
     }
+    args_iter.take_error()?;
     Ok(out)
 }
 
@@ -886,6 +890,29 @@ fn substitute_lexical_inner(
 mod tests {
     use crate::TulispContext;
 
+    // A form with a dotted tail can only come from a macro. Emacs
+    // rejects it; nothing may silently drop the tail.
+    #[test]
+    fn improper_forms_are_rejected() {
+        let ctx = &mut TulispContext::new();
+        for (name, form) in [
+            ("call", "'(list 1 . 2)"),
+            ("defun-call", "'(+ 1 . 2)"),
+            ("progn", "'(progn 1 . 2)"),
+            ("lambda", "'(funcall (lambda (a . b) a) 1)"),
+            // The tail sits right where the last parameter ends.
+            ("exact-arity call", "'(f 1 . 2)"),
+            ("exact-arity lambda call", "'((lambda (a) a) 1 . 2)"),
+            ("no-argument call", "'(g . 2)"),
+        ] {
+            let program = format!("(defun f (a) a) (defun g () 42) (defmacro m () {form}) (m)");
+            assert!(
+                ctx.tw_eval_string(&program).is_err(),
+                "[TW] {name}: {program}"
+            );
+            assert!(ctx.eval_string(&program).is_err(), "[VM] {name}: {program}");
+        }
+    }
     // `macroexpand` on a deeply nested structure raises a catchable
     // error instead of overflowing the stack. The structure is built
     // at runtime (a chain of `(when t …)`) to get past the parser's own

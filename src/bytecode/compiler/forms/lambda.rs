@@ -52,7 +52,8 @@ pub(super) fn compile_fn_lambda(
         // raw param names. The actual is_optional / is_rest tracking
         // for placeholder placement happens in the second pass below.
         let mut seen_rest = false;
-        for p in params.base_iter() {
+        let mut params_iter = params.base_iter();
+        for p in params_iter.by_ref() {
             if p.eq(&ctx.keywords.amp_optional) {
                 if seen_rest {
                     return Err(Error::new(
@@ -88,6 +89,7 @@ pub(super) fn compile_fn_lambda(
             let lex = TulispObject::lexical_binding(ctx.lex_allocator.clone(), name.clone());
             param_placeholders.push(lex);
         }
+        params_iter.take_error()?;
         // Populate VMDefunParams from the placeholders, honoring
         // &optional / &rest positions from the original declaration.
         {

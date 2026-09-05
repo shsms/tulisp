@@ -123,6 +123,9 @@ pub(super) fn compile_form(
 ) -> Result<Vec<Instruction>, Error> {
     let name = form.car()?;
     let args = form.cdr()?;
+    // Every form walks its own arguments; check once here that the
+    // list is proper and not circular, so no walker drops a tail.
+    crate::lists::length(&args)?;
     if let Some(compiler) = ctx
         .compiler
         .as_ref()

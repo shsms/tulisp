@@ -110,6 +110,7 @@ impl TryFrom<TulispObject> for DefunParams {
                 break;
             }
         }
+        params_iter.take_error()?;
         Ok(def_params)
     }
 }

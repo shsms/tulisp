@@ -712,7 +712,8 @@ impl TulispContext {
     pub fn eval_progn(&mut self, seq: &TulispObject) -> Result<TulispObject, Error> {
         let mut ret = None;
 
-        for val in seq.base_iter() {
+        let mut forms = seq.base_iter();
+        for val in forms.by_ref() {
             match eval_basic(self, &val)? {
                 std::borrow::Cow::Borrowed(_) => {
                     ret = Some(val);
@@ -722,6 +723,7 @@ impl TulispContext {
                 }
             };
         }
+        forms.take_error()?;
         Ok(ret.unwrap_or_else(TulispObject::nil))
     }
 
