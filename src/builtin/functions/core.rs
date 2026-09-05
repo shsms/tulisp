@@ -904,6 +904,24 @@ mod tests {
         );
     }
 
+    // Emacs rejects a macro as `(invalid-function m)`.
+    #[test]
+    fn funcall_rejects_a_macro() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_error(
+            ctx,
+            "(defmacro m (x) (list '+ x 1)) (funcall 'm 2)",
+            "ERR InvalidArgument: invalid function: m\n\
+             <eval_string>:1.32-1.45:  at (funcall 'm 2)\n",
+        );
+        eval_assert_error(
+            ctx,
+            "(apply 'when '(t 1))",
+            "ERR InvalidArgument: invalid function: when\n\
+             <eval_string>:1.1-1.20:  at (apply 'when '(t 1))\n",
+        );
+    }
+
     #[test]
     fn apply_splices_the_last_argument() {
         let ctx = &mut TulispContext::new();

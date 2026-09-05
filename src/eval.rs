@@ -219,19 +219,28 @@ pub(crate) fn eval_defmacro(
 /// Turn the evaluated first argument of `funcall` / `apply` into
 /// the function to call. A symbol resolves to the function bound to
 /// it, one lookup as in Emacs. A `(lambda ...)` list is built into a
-/// Lambda value. Anything else is returned as is, and `funcall`
-/// rejects it if it is not callable.
+/// Lambda value. A macro is rejected here, as in Emacs. Anything
+/// else is returned as is, and `funcall` rejects it if it is not
+/// callable.
 pub(crate) fn resolve_function(
     ctx: &mut TulispContext,
     func: &TulispObject,
 ) -> Result<TulispObject, Error> {
     let is_lambda_list =
         func.consp() && func.car_and_then(|car| Ok(car.eq(&ctx.keywords.lambda)))?;
-    if func.symbolp() || is_lambda_list {
-        ctx.eval(func)
+    let resolved = if func.symbolp() || is_lambda_list {
+        ctx.eval(func)?
     } else {
-        Ok(func.clone())
+        func.clone()
+    };
+    // A macro is not a function, as in Emacs.
+    if matches!(
+        &resolved.inner_ref().0,
+        TulispValue::Macro(_) | TulispValue::Defmacro { .. }
+    ) {
+        return Err(Error::invalid_argument(format!("invalid function: {func}")));
     }
+    Ok(resolved)
 }
 
 pub(crate) fn funcall<E: Evaluator>(
