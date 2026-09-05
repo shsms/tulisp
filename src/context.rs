@@ -14,7 +14,7 @@ use crate::{
     bytecode::{self, Bytecode, Compiler, VMCompilers, compile},
     context::callable::TulispCallable,
     error::Error,
-    eval::{DummyEval, eval_basic, funcall},
+    eval::{DummyEval, eval_basic, funcall, resolve_function},
     list,
     object::wrappers::{DefunFn, TulispFn, generic::Shared},
     parse::parse,
@@ -597,13 +597,13 @@ impl TulispContext {
         func: &TulispObject,
         args: &TulispObject,
     ) -> Result<TulispObject, Error> {
-        let func = self.eval(func)?;
+        let func = resolve_function(self, func)?;
         funcall::<DummyEval>(self, &func, args)
     }
 
     /// Maps the given function over the given sequence, and returns the result.
     pub fn map(&mut self, func: &TulispObject, seq: &TulispObject) -> Result<TulispObject, Error> {
-        let func = self.eval(func)?;
+        let func = resolve_function(self, func)?;
         let mut builder = crate::cons::ListBuilder::new();
         for item in seq.base_iter() {
             builder.push(funcall::<DummyEval>(self, &func, &list!(item)?)?);
@@ -618,7 +618,7 @@ impl TulispContext {
         func: &TulispObject,
         seq: &TulispObject,
     ) -> Result<TulispObject, Error> {
-        let func = self.eval(func)?;
+        let func = resolve_function(self, func)?;
         let mut builder = crate::cons::ListBuilder::new();
         for item in seq.base_iter() {
             if funcall::<DummyEval>(self, &func, &list!(item.clone())?)?.is_truthy() {
@@ -636,7 +636,7 @@ impl TulispContext {
         seq: &TulispObject,
         initial_value: &TulispObject,
     ) -> Result<TulispObject, Error> {
-        let func = self.eval(func)?;
+        let func = resolve_function(self, func)?;
         let mut ret = initial_value.clone();
         for item in seq.base_iter() {
             ret = funcall::<DummyEval>(self, &func, &list!(ret, item)?)?;
@@ -856,6 +856,22 @@ impl TulispContext {
 mod tests {
     use crate::TulispContext;
     use crate::test_utils::{eval_assert, eval_assert_equal, eval_assert_not};
+
+    // The Rust API resolves a function the way `funcall` does: a
+    // symbol or a lambda list is looked up, any other list is not
+    // run as code.
+    #[test]
+    fn funcall_from_rust_does_not_evaluate_a_quoted_list() {
+        let mut ctx = TulispContext::new();
+        let symbol = ctx.intern("list");
+        let args = ctx.eval_string("'(1 2)").unwrap();
+        assert_eq!(ctx.funcall(&symbol, &args).unwrap().to_string(), "(1 2)");
+        let lambda_list = ctx.eval_string("'(lambda (a b) (+ a b))").unwrap();
+        assert_eq!(ctx.funcall(&lambda_list, &args).unwrap().to_string(), "3");
+        let progn = ctx.eval_string("'(progn (setq zz 1) 'list)").unwrap();
+        assert!(ctx.funcall(&progn, &args).is_err());
+        eval_assert_not(&mut ctx, "(boundp 'zz)");
+    }
 
     #[test]
     fn intern_returns_nil_and_t_for_their_names() {

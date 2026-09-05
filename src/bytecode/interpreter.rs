@@ -1020,15 +1020,7 @@ fn funcall_inline(
         let inner_func = args.remove(0);
         return funcall_inline(ctx, &inner_func, args, recursion_depth);
     }
-    // Mirror the `funcall` defspecial's double-eval: a bare symbol
-    // resolves to its bound function; a list such as `(lambda …)`
-    // passed as-is (from `(funcall '(lambda …) …)`) needs the
-    // inner form executed to become a Lambda value.
-    let resolved = if (func.symbolp() && !func.keywordp()) || func.consp() {
-        ctx.eval(func)?
-    } else {
-        func.clone()
-    };
+    let resolved = crate::eval::resolve_function(ctx, func)?;
     let inner = resolved.inner_ref();
     match &inner.0 {
         TulispValue::CompiledDefun { value } => {

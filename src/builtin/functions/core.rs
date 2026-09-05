@@ -6,6 +6,7 @@ use crate::error::Error;
 use crate::eval::DummyEval;
 use crate::eval::Eval;
 use crate::eval::EvalInto;
+use crate::eval::resolve_function;
 use crate::eval::substitute_lexical;
 use crate::object::wrappers::generic::{Shared, SharedMut};
 use crate::value::{DefunParams, LexAllocator};
@@ -602,7 +603,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         }
         destruct_bind!((name &rest rest) = args);
         let name = ctx.eval(&name)?;
-        let name = ctx.eval(&name)?;
+        let name = resolve_function(ctx, &name)?;
 
         let mut evaluated: Vec<TulispObject> = Vec::new();
         let mut cur = rest;
@@ -672,7 +673,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defspecial("funcall", |ctx, args| {
         destruct_bind!((name &rest rest) = args);
         let name = ctx.eval(&name)?;
-        let name = ctx.eval(&name)?;
+        let name = resolve_function(ctx, &name)?;
         // Lambda / Defun / CompiledDefun all expect their args to be
         // already-evaluated values. Pass through `Eval` so the rest
         // list is evaluated before dispatch. Func-style defspecials
@@ -876,6 +877,32 @@ mod tests {
     }
 
     #[test]
+    fn funcall_does_not_evaluate_a_quoted_list() {
+        let ctx = &mut TulispContext::new();
+        // Only a `(lambda ...)` list is a function. Any other list is
+        // rejected as-is, without running it.
+        eval_assert_equal(
+            ctx,
+            "(setq zz 0)
+             (condition-case nil (funcall '(progn (setq zz 1) 'car) '(1)) (error nil))
+             zz",
+            "0",
+        );
+        eval_assert_error(
+            ctx,
+            "(funcall '(progn 1))",
+            "ERR Undefined: function is void: (progn 1)\n\
+             <eval_string>:1.1-1.20:  at (funcall '(progn 1))\n",
+        );
+        eval_assert_error(
+            ctx,
+            "(apply ''car '((9)))",
+            "ERR Undefined: function is void: 'car\n\
+             <eval_string>:1.1-1.20:  at (apply ''car '((9)))\n",
+        );
+    }
+
+    #[test]
     fn apply_splices_the_last_argument() {
         let ctx = &mut TulispContext::new();
         eval_assert_equal(ctx, "(apply '+ '(1 2 3))", "6");
@@ -890,6 +917,7 @@ mod tests {
             "7",
         );
         eval_assert_equal(ctx, "(apply (lambda (a b) (* a b)) 3 '(4))", "12");
+        eval_assert_equal(ctx, "(apply '(lambda (a b) (* a b)) '(3 4))", "12");
         // The arguments before the list are evaluated too.
         eval_assert_equal(ctx, "(let ((x 10)) (apply '+ x '(2 3)))", "15");
     }

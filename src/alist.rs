@@ -7,7 +7,7 @@
 
 use crate::{
     Error, TulispContext, TulispObject,
-    eval::{DummyEval, funcall},
+    eval::{DummyEval, funcall, resolve_function},
     list,
 };
 
@@ -35,7 +35,7 @@ pub fn assoc(
         )));
     }
     if let Some(testfn) = testfn {
-        let pred = ctx.eval(&testfn)?;
+        let pred = resolve_function(ctx, &testfn)?;
 
         let testfn = |_1: &TulispObject, _2: &TulispObject| -> Result<bool, Error> {
             funcall::<DummyEval>(ctx, &pred, &list!(,_1.clone() ,_2.clone()).unwrap())
@@ -319,7 +319,25 @@ macro_rules! AsAlist {
 #[cfg(test)]
 mod tests {
     use super::{alist_from, alist_get};
+    use crate::test_utils::eval_assert_equal;
     use crate::{Alistable, Error, TulispContext};
+
+    #[test]
+    fn assoc_does_not_evaluate_a_quoted_testfn_list() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(assoc 1 '((1 . a)) '(lambda (a b) (= a b)))",
+            "'(1 . a)",
+        );
+        eval_assert_equal(
+            ctx,
+            "(setq zz 0)
+             (condition-case nil (assoc 1 '((1 . a)) '(progn (setq zz 1) 'equal)) (error nil))
+             zz",
+            "0",
+        );
+    }
 
     #[test]
     fn test_alist() -> Result<(), Error> {
