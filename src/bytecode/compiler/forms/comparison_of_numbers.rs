@@ -9,11 +9,7 @@ fn compile_fn_compare(
     args: &TulispObject,
     instruction: Instruction,
 ) -> Result<Vec<Instruction>, Error> {
-    let compiler = ctx.compiler.as_mut().unwrap();
-    let label = compiler.new_label();
-    let keep_result = compiler.keep_result;
-    #[allow(dropping_references)]
-    drop(compiler);
+    let keep_result = ctx.compiler.as_ref().unwrap().keep_result;
     let mut result = vec![];
     let args = args.base_iter().collect::<Vec<_>>();
     if args.is_empty() {
@@ -32,19 +28,36 @@ fn compile_fn_compare(
         }
         return Ok(result);
     }
-    for items in args.windows(2) {
+    // Every link but the last is a fused jump to the false label, so
+    // only the last link builds a boolean. A link's operands are
+    // compiled again for the next link (see todo b21).
+    let false_label =
+        (keep_result && args.len() > 2).then(|| ctx.compiler.as_mut().unwrap().new_label());
+    let Some(jump_unless) = instruction.fused_jump(true) else {
+        return Err(Error::lisp_error(format!(
+            "internal: no fused jump for comparison {instruction}"
+        )));
+    };
+    let last = args.len() - 2;
+    for (i, items) in args.windows(2).enumerate() {
         result.append(&mut compile_expr(ctx, &items[1])?);
         result.append(&mut compile_expr(ctx, &items[0])?);
-        if keep_result {
-            result.push(instruction.clone());
-            result.push(Instruction::JumpIfNilElsePop(Pos::Label(label.clone())));
+        if !keep_result {
+            continue;
+        }
+        match &false_label {
+            Some(label) if i < last => result.push(jump_unless(Pos::Label(label.clone()))),
+            _ => result.push(instruction.clone()),
         }
     }
-    if keep_result {
-        result.pop();
-        if args.len() > 2 {
-            result.push(Instruction::Label(label));
-        }
+    if let Some(label) = false_label {
+        // `Label` keeps its slot at runtime, so the jump clears both.
+        let false_arm = [
+            Instruction::Label(label),
+            Instruction::Push(TulispObject::nil()),
+        ];
+        result.push(Instruction::Jump(Pos::Rel(false_arm.len() as isize)));
+        result.extend(false_arm);
     }
     Ok(result)
 }
@@ -133,6 +146,32 @@ mod tests {
     }
 
     #[test]
+    fn test_comparison_chains_keep_their_meaning() {
+        let mut ctx = crate::TulispContext::new();
+        eval_assert_equal(&mut ctx, "(< 1 2 3)", "t");
+        eval_assert_equal(&mut ctx, "(< 1 3 2)", "nil");
+        eval_assert_equal(&mut ctx, "(< 2 1 3)", "nil");
+        eval_assert_equal(&mut ctx, "(<= 1 1 2)", "t");
+        eval_assert_equal(&mut ctx, "(> 3 2 1)", "t");
+        eval_assert_equal(&mut ctx, "(>= 3 3 4)", "nil");
+        eval_assert_equal(&mut ctx, "(if (< 1 2 3) 1 2)", "1");
+        eval_assert_equal(&mut ctx, "(if (< 1 3 2) 1 2)", "2");
+        eval_assert_equal(&mut ctx, "(< (/ 0.0 0.0) 1 2)", "nil");
+        eval_assert_equal(&mut ctx, "(< 0 1 (/ 0.0 0.0))", "nil");
+        // A failed link stops the chain before a bad argument, as in
+        // Emacs. The tree-walker checks every argument first (see
+        // todo b22), so this is the VM only.
+        assert!(ctx.eval_string(r#"(< 3 2 "a")"#).unwrap().null());
+        eval_assert_error(
+            &mut ctx,
+            r#"(< 1 2 "a")"#,
+            r#"ERR TypeMismatch: Expected number, got: "a"
+<eval_string>:1.1-1.11:  at (< 1 2 "a")
+"#,
+        );
+    }
+
+    #[test]
     fn test_equal_and_eq_keep_their_meaning() {
         let mut ctx = crate::TulispContext::new();
         eval_assert_equal(&mut ctx, r#"(if (equal "a" "a") 1 2)"#, "1");
@@ -208,16 +247,16 @@ mod tests {
             r#"
     load b                                 # 0
     load a                                 # 1
-    clt                                    # 2
-    jnil_else_pop :2                       # 3
-    load c                                 # 4
-    load b                                 # 5
-    clt                                    # 6
-    jnil_else_pop :2                       # 7
-    push 10                                # 8
-    load c                                 # 9
-    clt                                    # 10
-:2                                         # 11"#
+    jnlt :1                                # 2
+    load c                                 # 3
+    load b                                 # 4
+    jnlt :1                                # 5
+    push 10                                # 6
+    load c                                 # 7
+    clt                                    # 8
+    jmp . 2                                # 9
+:1                                         # 10
+    push nil                               # 11"#
         );
     }
 
@@ -241,12 +280,13 @@ mod tests {
     push 8                                 # 0
     push 5                                 # 1
     store a                                # 2
-    cle                                    # 3
-    jnil_else_pop :2                       # 4
-    push 10                                # 5
-    push 8                                 # 6
-    cle                                    # 7
-:2                                         # 8"#
+    jnle :1                                # 3
+    push 10                                # 4
+    push 8                                 # 5
+    cle                                    # 6
+    jmp . 2                                # 7
+:1                                         # 8
+    push nil                               # 9"#
         );
 
         let output = ctx.run_bytecode(bytecode).unwrap();
