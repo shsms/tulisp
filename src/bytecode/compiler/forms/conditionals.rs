@@ -2,7 +2,9 @@ use crate::{
     Error, ErrorKind, TulispContext, TulispObject,
     bytecode::{
         Instruction, Pos,
-        compiler::compiler::{compile_expr, compile_expr_keep_result, compile_progn},
+        compiler::compiler::{
+            compile_expr, compile_expr_keep_result, compile_progn, compile_progn_drop_result,
+        },
         instruction::Cxr,
     },
     destruct_bind,
@@ -147,11 +149,16 @@ pub(super) fn compile_fn_while(
 ) -> Result<Vec<Instruction>, Error> {
     ctx.compile_1_arg_call(name, args, true, |ctx, cond, body| {
         let mut result = compile_expr_keep_result(ctx, cond)?;
-        let mut body = compile_progn(ctx, body)?;
+        let mut body = compile_progn_drop_result(ctx, body)?;
+        let keep_result = ctx.compiler.as_ref().unwrap().keep_result;
 
         push_jump_if_nil(&mut result, Pos::Rel(body.len() as isize + 1));
         result.append(&mut body);
         result.push(Instruction::Jump(Pos::Rel(-(result.len() as isize + 1))));
+        // The value of the loop is nil.
+        if keep_result {
+            result.push(Instruction::Push(false.into()));
+        }
         Ok(result)
     })
 }
@@ -211,16 +218,8 @@ pub(super) fn compile_fn_dolist(
         result.push(Instruction::BeginScope(var_bind.clone()));
 
         let body = substitute_lexical(body.clone(), &[(var.clone(), var_bind.clone())])?;
-        // Body expressions' values are discarded — force
-        // `keep_result=false` around the walk so `compile_progn`
-        // doesn't leave the last expression's value on the stack
-        // each iteration (which would accumulate without bound and
-        // corrupt subsequent stack operations).
-        let saved_keep = ctx.compiler.as_ref().unwrap().keep_result;
-        ctx.compiler.as_mut().unwrap().keep_result = false;
-        let mut body_bc = compile_progn(ctx, &body)?;
-        ctx.compiler.as_mut().unwrap().keep_result = saved_keep;
-        result.append(&mut body_bc);
+        // The body's values are dropped every iteration.
+        result.append(&mut compile_progn_drop_result(ctx, &body)?);
 
         result.push(Instruction::EndScope(var_bind.clone()));
 
@@ -295,12 +294,7 @@ pub(super) fn compile_fn_dotimes(
         result.push(Instruction::BeginScope(var_bind.clone()));
 
         let body = substitute_lexical(body.clone(), &[(var.clone(), var_bind.clone())])?;
-        // See `compile_fn_dolist`: body values are discarded.
-        let saved_keep = ctx.compiler.as_ref().unwrap().keep_result;
-        ctx.compiler.as_mut().unwrap().keep_result = false;
-        let mut body_bc = compile_progn(ctx, &body)?;
-        ctx.compiler.as_mut().unwrap().keep_result = saved_keep;
-        result.append(&mut body_bc);
+        result.append(&mut compile_progn_drop_result(ctx, &body)?);
 
         result.push(Instruction::EndScope(var_bind.clone()));
 
@@ -423,6 +417,17 @@ pub(super) fn compile_fn_or(
 mod tests {
     use crate::TulispContext;
     use crate::test_utils::{eval_assert_equal, eval_assert_error, listing};
+
+    #[test]
+    fn while_has_the_value_nil() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(list (while nil))", "'(nil)");
+        eval_assert_equal(
+            ctx,
+            "(setq i 0)(list (while (< i 3) (setq i (1+ i))) i)",
+            "'(nil 3)",
+        );
+    }
 
     #[test]
     fn comparison_in_a_condition_fuses_into_the_jump() {

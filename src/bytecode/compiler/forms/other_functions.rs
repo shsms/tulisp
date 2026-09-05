@@ -389,7 +389,12 @@ pub(super) fn compile_fn_defun(
         .bytecode
         .functions
         .insert(fn_name.addr_as_usize(), function);
-    Ok(vec![])
+    // The value of `defun` is the function's name.
+    Ok(if compiler.keep_result {
+        vec![Instruction::Push(fn_name)]
+    } else {
+        vec![]
+    })
 }
 
 pub(super) fn compile_fn_progn(
@@ -412,10 +417,36 @@ pub(super) fn compile_fn_load_file(
     })
 }
 
-pub(super) fn compile_fn_noop(
-    _ctx: &mut TulispContext,
+/// `defmacro` is handled while parsing, before anything is compiled.
+/// Its value is the macro's name.
+pub(super) fn compile_fn_defmacro(
+    ctx: &mut TulispContext,
     _name: &TulispObject,
-    _args: &TulispObject,
+    args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    Ok(vec![])
+    Ok(if ctx.compiler.as_ref().unwrap().keep_result {
+        vec![Instruction::Push(args.car()?)]
+    } else {
+        vec![]
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::TulispContext;
+    use crate::test_utils::eval_assert_equal;
+
+    #[test]
+    fn defun_and_defmacro_evaluate_to_their_name() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(list (defun q () 1))", "'(q)");
+        eval_assert_equal(ctx, "(list (defmacro m () 1))", "'(m)");
+    }
+
+    #[test]
+    fn a_function_value_in_the_source_evaluates_to_itself() {
+        let ctx = &mut TulispContext::new();
+        // The macro expands to a function value, not to a form.
+        eval_assert_equal(ctx, "(defmacro m () (lambda () 5)) (funcall (m))", "5");
+    }
 }

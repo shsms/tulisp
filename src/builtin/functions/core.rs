@@ -230,11 +230,10 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     ctx.defspecial("while", |ctx, args| {
         destruct_bind!((condition &rest rest) = args);
-        let mut result = TulispObject::nil();
         while condition.eval_into(ctx)? {
-            result = ctx.eval_progn(&rest)?;
+            ctx.eval_progn(&rest)?;
         }
-        Ok(result)
+        Ok(TulispObject::nil())
     });
 
     ctx.defspecial("setq", |ctx, args| {
@@ -368,7 +367,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             let (params, mappings) = raw_params.bind_as_lexical(&ctx.lex_allocator);
             let body = substitute_lexical(body, &mappings)?;
             name.set_global(TulispValue::Lambda { params, body }.into_ref(None))?;
-            Ok(TulispObject::nil())
+            Ok(name)
         }
     });
 
@@ -579,7 +578,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         let (params, mappings) = raw_params.bind_as_lexical(&ctx.lex_allocator);
         let body = substitute_lexical(body, &mappings)?;
         name.set_scope(TulispValue::Defmacro { params, body }.into_ref(None))?;
-        Ok(TulispObject::nil())
+        Ok(name)
     });
 
     ctx.defun("null", |arg: TulispObject| -> bool { arg.null() });
@@ -849,7 +848,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 #[cfg(test)]
 mod tests {
     use crate::TulispContext;
-    use crate::test_utils::{eval_assert_equal, eval_assert_error};
+    use crate::test_utils::{eval_assert, eval_assert_equal, eval_assert_error};
 
     #[test]
     fn funcall_accepts_symbols_and_lambdas() {
@@ -934,6 +933,13 @@ mod tests {
             "ERR MissingArgument: apply requires at least 2 arguments\n\
              <eval_string>:1.1-1.10:  at (apply '+)\n",
         );
+    }
+
+    #[test]
+    fn defun_and_defmacro_return_the_interned_name() {
+        let ctx = &mut TulispContext::new();
+        eval_assert(ctx, "(eq (defun q () 1) 'q)");
+        eval_assert(ctx, "(eq (defmacro m () 1) 'm)");
     }
 
     #[test]

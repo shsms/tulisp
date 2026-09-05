@@ -222,6 +222,22 @@ pub(crate) fn compile_expr_keep_result(
     ret
 }
 
+/// Compile a progn whose value is dropped, such as a loop body.
+/// The caller's `keep_result` is restored even when compiling fails.
+pub(crate) fn compile_progn_drop_result(
+    ctx: &mut TulispContext,
+    expr: &TulispObject,
+) -> Result<Vec<Instruction>, Error> {
+    let compiler = ctx.compiler.as_mut().unwrap();
+    let keep_result = compiler.keep_result;
+    compiler.keep_result = false;
+    #[allow(dropping_references)]
+    drop(compiler);
+    let ret = compile_progn(ctx, expr);
+    ctx.compiler.as_mut().unwrap().keep_result = keep_result;
+    ret
+}
+
 pub(crate) fn compile_progn_keep_result(
     ctx: &mut TulispContext,
     expr: &TulispObject,
@@ -438,13 +454,20 @@ pub(crate) fn compile_expr(
                 Ok(vec![])
             }
         }
+        // A function value evaluates to itself.
         (TulispValue::Lambda { .. }, _)
         | (TulispValue::Func(_), _)
         | (TulispValue::Defun { .. }, _)
         | (TulispValue::CompiledDefun { .. }, _)
         | (TulispValue::Macro(_), _)
-        | (TulispValue::Defmacro { .. }, _)
-        | (TulispValue::Bounce, _) => Ok(vec![]),
+        | (TulispValue::Defmacro { .. }, _) => {
+            if compiler.keep_result {
+                Ok(vec![Instruction::Push(expr.clone())])
+            } else {
+                Ok(vec![])
+            }
+        }
+        (TulispValue::Bounce, _) => Ok(vec![]),
 
         (TulispValue::Backquote { value }, _) => {
             compile_back_quote(ctx, value, 1).map_err(|e| e.with_trace(expr.clone()))
