@@ -1,4 +1,4 @@
-use crate::{TulispConvertible, TulispObject, cons};
+use crate::{TulispConvertible, TulispObject};
 
 /// A variadic tail argument in a [`defun`](crate::TulispContext::defun) function.
 ///
@@ -16,24 +16,12 @@ use crate::{TulispConvertible, TulispObject, cons};
 /// assert_eq!(ctx.eval_string("(sum 1.0 2.0 3.0)").unwrap().to_string(), "6.0");
 /// ```
 pub struct Rest<T> {
-    values: RestEnum<T>,
-}
-
-enum RestEnum<T> {
-    Typed(Vec<T>),
-    Boxed(TulispObject, std::marker::PhantomData<T>),
+    values: Vec<T>,
 }
 
 impl From<Rest<TulispObject>> for TulispObject {
     fn from(val: Rest<TulispObject>) -> Self {
-        match val.values {
-            // `FromIterator` dispatches `T = TulispObject` to `Boxed`,
-            // so `Typed` is only reachable if a future caller builds
-            // `RestEnum::Typed` directly. Collect to keep the
-            // conversion total — same shape `Boxed` returns.
-            RestEnum::Typed(values) => values.into_iter().collect(),
-            RestEnum::Boxed(obj, _) => obj,
-        }
+        val.values.into_iter().collect()
     }
 }
 
@@ -41,39 +29,12 @@ impl<T> FromIterator<T> for Rest<T>
 where
     T: TulispConvertible + 'static,
 {
+    // Every `T` collects into a `Vec`, `TulispObject` too: building
+    // a list here would cost one cons cell per argument on every
+    // call, and most callers only iterate.
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
-        if std::any::TypeId::of::<T>() == std::any::TypeId::of::<TulispObject>() {
-            let obj: TulispObject = iter.into_iter().map(|t| t.into_tulisp()).collect();
-            Rest {
-                values: RestEnum::Boxed(obj, std::marker::PhantomData),
-            }
-        } else {
-            let values: Vec<T> = iter.into_iter().collect();
-            Rest {
-                values: RestEnum::Typed(values),
-            }
-        }
-    }
-}
-
-/// Iterator returned by [`Rest::into_iter`].
-pub enum RestEnumIter<T> {
-    Typed(std::vec::IntoIter<T>),
-    Boxed(cons::BaseIter, std::marker::PhantomData<T>),
-}
-
-impl<T> Iterator for RestEnumIter<T>
-where
-    T: TulispConvertible,
-{
-    type Item = T;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self {
-            RestEnumIter::Typed(iter) => iter.next(),
-            RestEnumIter::Boxed(base_iter, _) => base_iter
-                .next()
-                .and_then(|obj| TulispConvertible::from_tulisp(&obj).ok()),
+        Rest {
+            values: iter.into_iter().collect(),
         }
     }
 }
@@ -83,15 +44,9 @@ where
     T: TulispConvertible,
 {
     type Item = T;
-    type IntoIter = RestEnumIter<T>;
+    type IntoIter = std::vec::IntoIter<T>;
 
     fn into_iter(self) -> Self::IntoIter {
-        match self.values {
-            RestEnum::Typed(vec) => RestEnumIter::Typed(vec.into_iter()),
-            RestEnum::Boxed(obj, _) => {
-                let base_iter = obj.base_iter();
-                RestEnumIter::Boxed(base_iter, std::marker::PhantomData)
-            }
-        }
+        self.values.into_iter()
     }
 }

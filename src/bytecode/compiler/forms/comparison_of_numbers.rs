@@ -159,9 +159,9 @@ mod tests {
         eval_assert_equal(&mut ctx, "(< (/ 0.0 0.0) 1 2)", "nil");
         eval_assert_equal(&mut ctx, "(< 0 1 (/ 0.0 0.0))", "nil");
         // A failed link stops the chain before a bad argument, as in
-        // Emacs. The tree-walker checks every argument first (see
-        // todo b22), so this is the VM only.
-        assert!(ctx.eval_string(r#"(< 3 2 "a")"#).unwrap().null());
+        // Emacs.
+        eval_assert_equal(&mut ctx, r#"(< 3 2 "a")"#, "nil");
+        eval_assert_equal(&mut ctx, r#"(= 1 2 "a")"#, "nil");
         eval_assert_error(
             &mut ctx,
             r#"(< 1 2 "a")"#,

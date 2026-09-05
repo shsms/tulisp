@@ -1,38 +1,52 @@
-use crate::{Error, Number, Rest, TulispContext};
+use crate::{Error, Number, Rest, TulispContext, TulispObject};
 
-fn compare_pairwise<F>(args: Rest<Number>, cmp: F) -> Result<bool, Error>
+/// Compare each argument with the next. The chain stops at the first
+/// pair that fails, before the arguments after it are checked for
+/// being numbers, as in Emacs: `(< 3 2 "a")` is nil, not an error.
+fn compare_pairwise<F>(args: Rest<TulispObject>, cmp: F) -> Result<bool, Error>
 where
     F: Fn(&Number, &Number) -> bool,
 {
-    let args: Vec<Number> = args.into_iter().collect();
-    if args.is_empty() {
+    let mut args = args.into_iter();
+    let Some(first) = args.next() else {
         return Err(Error::missing_argument(
             "Comparison requires at least 1 argument".to_string(),
         ));
-    }
-    // A single-arg comparison is vacuously true (Emacs: `(> 5)` => t).
-    for w in args.windows(2) {
-        if !cmp(&w[0], &w[1]) {
+    };
+    // A single argument is not compared with anything, so it is not
+    // checked either (Emacs: `(> 5)` => t, `(> "a")` => t).
+    let Some(second) = args.next() else {
+        return Ok(true);
+    };
+    let mut prev = Number::try_from(first)?;
+    let mut arg = second;
+    loop {
+        let next = Number::try_from(arg)?;
+        if !cmp(&prev, &next) {
             return Ok(false);
         }
+        prev = next;
+        match args.next() {
+            Some(a) => arg = a,
+            None => return Ok(true),
+        }
     }
-    Ok(true)
 }
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    ctx.defun("=", |args: Rest<Number>| {
+    ctx.defun("=", |args: Rest<TulispObject>| {
         compare_pairwise(args, PartialEq::eq)
     });
-    ctx.defun(">", |args: Rest<Number>| {
+    ctx.defun(">", |args: Rest<TulispObject>| {
         compare_pairwise(args, PartialOrd::gt)
     });
-    ctx.defun(">=", |args: Rest<Number>| {
+    ctx.defun(">=", |args: Rest<TulispObject>| {
         compare_pairwise(args, PartialOrd::ge)
     });
-    ctx.defun("<", |args: Rest<Number>| {
+    ctx.defun("<", |args: Rest<TulispObject>| {
         compare_pairwise(args, PartialOrd::lt)
     });
-    ctx.defun("<=", |args: Rest<Number>| {
+    ctx.defun("<=", |args: Rest<TulispObject>| {
         compare_pairwise(args, PartialOrd::le)
     });
 
@@ -73,6 +87,14 @@ mod tests {
         eval_assert_equal(ctx, "(= 1 1 1)", "t");
         eval_assert_equal(ctx, "(= 1 1 2)", "nil");
         eval_assert_equal(ctx, "(= -3 -3.0)", "t");
+    }
+
+    #[test]
+    fn a_single_argument_is_not_checked() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(> 5)", "t");
+        eval_assert_equal(ctx, "(< \"a\")", "t");
+        eval_assert_equal(ctx, "(= 'x)", "t");
     }
 
     #[test]
