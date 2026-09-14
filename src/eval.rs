@@ -171,7 +171,7 @@ fn eval_lambda<E: Evaluator>(
                 let evaluated = eval_args_for_vm::<DummyEval>(ctx, &value.params, &bounce_args)?;
                 let value = value.clone();
                 drop(inner);
-                crate::bytecode::run_lambda(ctx, &value, &evaluated)?
+                crate::bytecode::run_lambda(ctx, value, evaluated)?
             }
             TulispValue::Func(f) => f(ctx, &bounce_args)?,
             TulispValue::Defun { call, .. } => {
@@ -271,7 +271,7 @@ pub(crate) fn funcall<E: Evaluator>(
             // frame to the same machine — no take/restore dance.
             let value = value.clone();
             let evaluated = eval_args_for_vm::<E>(ctx, &value.params, args)?;
-            crate::bytecode::run_lambda(ctx, &value, &evaluated)
+            crate::bytecode::run_lambda(ctx, value, evaluated)
         }
         TulispValue::Macro(_) | TulispValue::Defmacro { .. } => {
             let expanded = macroexpand(ctx, list!(func.clone() ,@args.clone())?)?;

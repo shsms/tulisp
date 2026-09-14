@@ -213,11 +213,13 @@ pub fn run(ctx: &mut TulispContext, bytecode: Bytecode) -> Result<TulispObject, 
 }
 
 /// Invoke a VM-compiled lambda with already-evaluated args. Used by
-/// `eval::funcall` when it encounters a `TulispValue::CompiledDefun`.
+/// `eval::funcall` when it encounters a `TulispValue::CompiledDefun`,
+/// by the bounce trampoline in `eval::eval_lambda`, and by the VM's
+/// own `funcall` dispatch.
 pub(crate) fn run_lambda(
     ctx: &mut TulispContext,
-    compiled: &CompiledDefun,
-    args: &[TulispObject],
+    compiled: CompiledDefun,
+    args: Vec<TulispObject>,
 ) -> Result<TulispObject, Error> {
     // Make sure the closure's `Instruction::Label` positions are
     // present in *this* ctx's `vm.labels`. The parent ctx that
@@ -228,7 +230,7 @@ pub(crate) fn run_lambda(
     // this, any `Pos::Label` jump emitted by `cond` / `and` / `or`
     // would panic in `jump_to_pos!`. Idempotent for the same-ctx
     // case (same key, same value).
-    register_compiled_labels(ctx, compiled);
+    register_compiled_labels(ctx, &compiled);
     let required = compiled.params.required.len();
     let optional = compiled.params.optional.len();
     let has_rest = compiled.params.rest.is_some();
@@ -250,12 +252,12 @@ pub(crate) fn run_lambda(
     // Push args in order; `init_defun_args` pops them in reverse
     // to match `params.required` + `params.optional` + `rest` layout.
     for a in args {
-        ctx.vm.stack.push(a.clone());
+        ctx.vm.stack.push(a);
     }
 
     // Use the same trampoline the `Call` handler uses so tail calls
     // from the lambda body unwind without Rust-stack growth.
-    let mut current = compiled.clone();
+    let mut current = compiled;
     let mut current_optional = optional_count;
     let mut current_rest = rest_count;
     loop {
@@ -989,7 +991,7 @@ fn funcall_inline(
         TulispValue::CompiledDefun { value } => {
             let cd = value.clone();
             drop(inner);
-            run_lambda_with(ctx, &cd, args)
+            run_lambda(ctx, cd, args)
         }
         TulispValue::Defun { call, arity } => {
             // Args are already evaluated values from the VM stack
@@ -1025,57 +1027,6 @@ fn funcall_inline(
         }
         _ => Err(Error::undefined(format!("function is void: {}", resolved))),
     }
-}
-
-/// Internal variant of `run_lambda` used when we're already inside
-/// a VM run and have `&mut self` on the current machine.
-fn run_lambda_with(
-    ctx: &mut TulispContext,
-    compiled: &CompiledDefun,
-    args: Vec<TulispObject>,
-) -> Result<TulispObject, Error> {
-    // See `run_lambda` for why — closures invoked from a fresh ctx
-    // need their labels registered before any `Pos::Label` jump runs.
-    register_compiled_labels(ctx, compiled);
-    let required = compiled.params.required.len();
-    let optional = compiled.params.optional.len();
-    let has_rest = compiled.params.rest.is_some();
-
-    if args.len() < required {
-        return Err(Error::missing_argument("Too few arguments".to_string()));
-    }
-    if !has_rest && args.len() > required + optional {
-        return Err(Error::invalid_argument("Too many arguments".to_string()));
-    }
-
-    let left_args = args.len() - required;
-    let (optional_count, rest_count) = if left_args > optional {
-        (optional, left_args - optional)
-    } else {
-        (left_args, 0)
-    };
-
-    for a in args {
-        ctx.vm.stack.push(a);
-    }
-
-    let mut current = compiled.clone();
-    let mut current_optional = optional_count;
-    let mut current_rest = rest_count;
-    loop {
-        let params = init_defun_args(ctx, &current.params, &current_optional, &current_rest)?;
-        let tail = run_impl(ctx, &current.instructions, current.trace_ranges.as_slice())?;
-        drop(params);
-        match tail {
-            Some(info) => {
-                current = info.function;
-                current_optional = info.optional_count;
-                current_rest = info.rest_count;
-            }
-            None => break,
-        }
-    }
-    Ok(ctx.vm.stack.pop().unwrap())
 }
 
 /// In-VM version of `ctx.eval_file` — parses & compiles the given
@@ -1121,10 +1072,10 @@ fn register_lambda_labels(ctx: &mut TulispContext, closure: &TulispObject) {
 }
 
 /// Like `register_lambda_labels`, but takes a `CompiledDefun`
-/// directly (no enclosing TulispObject). Called by `run_lambda` /
-/// `run_lambda_with` so a closure invoked through a ctx that didn't
-/// see its `MakeLambda` (e.g. tulisp-async's per-firing timer ctx)
-/// still has its `Pos::Label` jumps resolvable.
+/// directly (no enclosing TulispObject). Called by `run_lambda` so a
+/// closure invoked through a ctx that didn't see its `MakeLambda`
+/// (e.g. tulisp-async's per-firing timer ctx) still has its
+/// `Pos::Label` jumps resolvable.
 fn register_compiled_labels(ctx: &mut TulispContext, compiled: &CompiledDefun) {
     let borrow = compiled.instructions.borrow();
     for (i, instr) in borrow.iter().enumerate() {
