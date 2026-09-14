@@ -670,15 +670,14 @@ impl Parser<'_, '_> {
         // input raises a catchable error instead of overflowing the
         // stack. Downstream walks (compile, `recursive_update_ctxobj`,
         // …) see only structure this deep, so they're bounded too.
-        self.depth += 1;
         let limit = self.ctx.max_nesting_depth();
-        if self.depth > limit {
-            self.depth -= 1;
+        if self.depth >= limit {
             return Err(Error::parsing_error(format!(
                 "Lisp nesting exceeds max-nesting-depth ({})",
                 limit
             )));
         }
+        self.depth += 1;
         let r = self.parse_value_inner();
         self.depth -= 1;
         r
@@ -959,5 +958,22 @@ mod tests {
 <eval_string>:1.12-1.12:  at nil
 "#,
         );
+    }
+
+    // The cap admits exactly `max_nesting_depth` reader levels and
+    // rejects the next one. `deeply_nested_input_errors_without_
+    // overflowing` (100_000 levels against a cap in the hundreds)
+    // cannot see an off-by-one.
+    #[test]
+    fn nesting_cap_boundary_is_exact() {
+        // `max_nesting_depth` is 4x `max_eval_depth`, so 40 here;
+        // the leading quote is itself one reader level.
+        let parse_nested = |n: usize| {
+            let mut ctx = TulispContext::new();
+            ctx.set_max_eval_depth(10);
+            ctx.eval_string(&format!("'{}{}", "(".repeat(n), ")".repeat(n)))
+        };
+        assert!(parse_nested(39).is_ok(), "40 levels must be accepted");
+        assert!(parse_nested(40).is_err(), "41 levels must be rejected");
     }
 }
