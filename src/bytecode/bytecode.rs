@@ -32,7 +32,8 @@ pub struct CompiledDefun {
     /// a refcount instead of copying the vec element-wise. Empty
     /// for functions whose bytecode contains no list-form markers.
     pub(crate) trace_ranges: Shared<Vec<TraceRange>>,
-    pub(crate) params: VMDefunParams,
+    /// Behind a `Shared` for the same reason as `trace_ranges`.
+    pub(crate) params: Shared<VMDefunParams>,
 }
 
 #[derive(Clone)]

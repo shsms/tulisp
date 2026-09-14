@@ -380,7 +380,7 @@ pub(super) fn compile_fn_defun(
         name: fn_name.clone(),
         instructions: SharedMut::new(res),
         trace_ranges: crate::object::wrappers::generic::Shared::new_sized(trace_ranges),
-        params: defun_params,
+        params: crate::object::wrappers::generic::Shared::new_sized(defun_params),
     };
     let compiler = ctx.compiler.as_mut().unwrap();
     compiler

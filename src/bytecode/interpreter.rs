@@ -1111,7 +1111,7 @@ fn make_lambda_from_template(
         trace_ranges: crate::object::wrappers::generic::Shared::new_sized(
             template.trace_ranges.clone(),
         ),
-        params,
+        params: crate::object::wrappers::generic::Shared::new_sized(params),
     };
     Ok(TulispValue::CompiledDefun { value: cd }.into_ref(None))
 }
