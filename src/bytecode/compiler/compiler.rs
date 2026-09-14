@@ -40,7 +40,7 @@ impl Compiler {
         Compiler {
             vm_compilers,
             defun_args: HashMap::new(),
-            bytecode: Bytecode::new(),
+            bytecode: Bytecode::default(),
             keep_result: true,
             current_defun: None,
             active_let_scopes: Vec::new(),
@@ -63,8 +63,8 @@ pub fn compile(ctx: &mut TulispContext, value: &TulispObject) -> Result<Bytecode
     // returned `Bytecode` carries only the defuns produced by *this*
     // compile. The compiler itself keeps accumulating so subsequent
     // compiles (e.g., REPL-style) can resolve names that were defined
-    // earlier, and the machine's own `bytecode.functions` grows via
-    // `import_functions` on each run.
+    // earlier, and the machine's own function table grows on each
+    // run.
     let before: std::collections::HashSet<usize> = ctx
         .compiler
         .as_ref()

@@ -1793,7 +1793,7 @@ fn test_vm_reentry_during_run() -> Result<(), Error> {
     assert_eq!(result, 42);
 
     // Defun case: top-level `(defun g …)` registers a
-    // `CompiledDefun` in `ctx.vm.bytecode.functions` and stores a
+    // `CompiledDefun` in `ctx.vm.functions` and stores a
     // `TulispValue::Lambda` on the symbol's function slot. TW
     // funcall on the symbol resolves to the `Lambda` (not the
     // `CompiledDefun`), dispatches via `eval::funcall`'s `Lambda`

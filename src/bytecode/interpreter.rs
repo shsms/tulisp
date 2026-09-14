@@ -109,8 +109,8 @@ impl Drop for ActiveScopes {
 
 pub struct Machine {
     stack: Vec<TulispObject>,
-    bytecode: Bytecode,
-    labels: HashMap<usize, usize>, // TulispObject.addr -> instruction index
+    functions: HashMap<usize, CompiledDefun>, // key: fn_name.addr_as_usize()
+    labels: HashMap<usize, usize>,            // TulispObject.addr -> instruction index
 }
 
 /// Pops two operands and jumps when `$cmp` holds for them. `$a` is
@@ -155,7 +155,7 @@ impl Machine {
     pub(crate) fn new() -> Self {
         Machine {
             stack: Vec::new(),
-            bytecode: Bytecode::new(),
+            functions: HashMap::new(),
             labels: HashMap::new(),
         }
     }
@@ -212,7 +212,7 @@ impl Drop for RunGuard<'_> {
 pub fn run(ctx: &mut TulispContext, bytecode: Bytecode) -> Result<TulispObject, Error> {
     let labels = locate_labels(&bytecode);
     ctx.vm.labels.extend(labels);
-    ctx.vm.bytecode.import_functions(&bytecode);
+    ctx.vm.functions.extend(bytecode.functions);
     // A re-entrant run (a Rust callable evaluating a program
     // mid-run) shares the machine with its caller. Labels and the
     // function table are namespaces an inner run extends for good;
@@ -409,7 +409,7 @@ fn run_impl_inner(
                 })?;
                 // `(load …)` from VM-compiled code compiles the
                 // loaded file through the VM as well — so defuns
-                // in the loaded file register in `bytecode.functions`
+                // in the loaded file register in `ctx.vm.functions`
                 // and subsequent calls dispatch directly via the
                 // `Call` instruction (same as if they had been
                 // written in the outer file).
@@ -595,7 +595,7 @@ fn run_impl_inner(
             } => {
                 if function.is_none() {
                     let addr = name.addr_as_usize();
-                    if let Some(func) = ctx.vm.bytecode.functions.get(&addr) {
+                    if let Some(func) = ctx.vm.functions.get(&addr) {
                         let func = func.clone();
 
                         if *args_count < func.params.required.len() {
@@ -680,7 +680,7 @@ fn run_impl_inner(
             } => {
                 if function.is_none() {
                     let addr = name.addr_as_usize();
-                    let Some(func) = ctx.vm.bytecode.functions.get(&addr) else {
+                    let Some(func) = ctx.vm.functions.get(&addr) else {
                         return Err(Error::new(
                             crate::ErrorKind::Undefined,
                             format!("undefined function: {}", name),
@@ -1340,7 +1340,7 @@ mod tests {
             Instruction::PushTrace(TulispObject::nil()),
             Instruction::PopTrace,
         ] {
-            let bytecode = Bytecode::new();
+            let bytecode = Bytecode::default();
             bytecode.global.borrow_mut().push(marker);
             let err = run(&mut ctx, bytecode).unwrap_err();
             assert!(err.to_string().contains("trace marker"), "{err}");

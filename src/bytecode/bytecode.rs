@@ -71,16 +71,6 @@ impl fmt::Display for Bytecode {
     }
 }
 
-impl Bytecode {
-    pub(crate) fn new() -> Self {
-        Self::default()
-    }
-
-    pub(crate) fn import_functions(&mut self, other: &Bytecode) {
-        self.functions.extend(other.functions.clone());
-    }
-}
-
 /// Convert `PushTrace` / `PopTrace` markers in `input` into a
 /// side-table of `TraceRange`s and return the bytecode with the
 /// markers removed. Patches every `Pos::Rel` jump whose origin or
