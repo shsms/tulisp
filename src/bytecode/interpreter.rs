@@ -179,37 +179,59 @@ fn locate_labels(bytecode: &Bytecode) -> HashMap<usize, usize> {
     labels
 }
 
+/// Restores the caller's VM stack height on drop, on any path
+/// including a panic, so only this run's values ever sit above it.
+struct RunGuard<'a> {
+    ctx: &'a mut TulispContext,
+    stack_base: usize,
+}
+
+impl<'a> RunGuard<'a> {
+    fn new(ctx: &'a mut TulispContext) -> Self {
+        let stack_base = ctx.vm.stack.len();
+        RunGuard { ctx, stack_base }
+    }
+
+    /// This run's value, or nil when it left none above the caller's
+    /// stack.
+    fn take_value(&mut self) -> TulispObject {
+        if self.ctx.vm.stack.len() > self.stack_base {
+            self.ctx.vm.stack.pop().unwrap_or_else(TulispObject::nil)
+        } else {
+            TulispObject::nil()
+        }
+    }
+}
+
+impl Drop for RunGuard<'_> {
+    fn drop(&mut self) {
+        self.ctx.vm.stack.truncate(self.stack_base);
+    }
+}
+
 pub fn run(ctx: &mut TulispContext, bytecode: Bytecode) -> Result<TulispObject, Error> {
     let labels = locate_labels(&bytecode);
     ctx.vm.labels.extend(labels);
     ctx.vm.bytecode.import_functions(&bytecode);
     // A re-entrant run (a Rust callable evaluating a program
-    // mid-run) shares the machine with its caller: restore the
-    // caller's global program afterwards, and touch only stack
-    // values this run pushed.
-    let saved_global = std::mem::replace(&mut ctx.vm.bytecode.global, bytecode.global);
-    let saved_ranges = std::mem::replace(
-        &mut ctx.vm.bytecode.global_trace_ranges,
-        bytecode.global_trace_ranges,
-    );
-    let stack_base = ctx.vm.stack.len();
-    let global_program = ctx.vm.bytecode.global.clone();
-    let global_ranges = ctx.vm.bytecode.global_trace_ranges.clone();
-    let result = run_impl(ctx, &global_program, global_ranges.as_slice());
-    ctx.vm.bytecode.global = saved_global;
-    ctx.vm.bytecode.global_trace_ranges = saved_ranges;
+    // mid-run) shares the machine with its caller. Labels and the
+    // function table are namespaces an inner run extends for good;
+    // the guard gives back only the stack.
+    let mut guard = RunGuard::new(ctx);
+    let tail = run_impl(
+        guard.ctx,
+        &bytecode.global,
+        bytecode.global_trace_ranges.as_slice(),
+    )?;
+    if tail.is_some() {
+        return Err(Error::lisp_error(
+            "internal: tail call outside a function body",
+        ));
+    }
     // When the top-level form has no value (e.g., a program of only
-    // `defun`s), the compiler emits no trailing Push — the stack
-    // holds nothing above the base, not an underflow; the result is
-    // nil then. Truncation drops any partial values an erroring run
-    // pushed, so the caller's stack is unaffected.
-    let value = if ctx.vm.stack.len() > stack_base {
-        ctx.vm.stack.pop()
-    } else {
-        None
-    };
-    ctx.vm.stack.truncate(stack_base);
-    result.map(|_| value.unwrap_or_else(TulispObject::nil))
+    // `defun`s), the compiler emits no trailing Push; the result is
+    // nil then.
+    Ok(guard.take_value())
 }
 
 /// Invoke a VM-compiled lambda with already-evaluated args. Used by
@@ -251,9 +273,8 @@ pub(crate) fn run_lambda(
 
     // Push args in order; `init_defun_args` pops them in reverse
     // to match `params.required` + `params.optional` + `rest` layout.
-    for a in args {
-        ctx.vm.stack.push(a);
-    }
+    let mut guard = RunGuard::new(ctx);
+    guard.ctx.vm.stack.extend(args);
 
     // Use the same trampoline the `Call` handler uses so tail calls
     // from the lambda body unwind without Rust-stack growth.
@@ -261,8 +282,12 @@ pub(crate) fn run_lambda(
     let mut current_optional = optional_count;
     let mut current_rest = rest_count;
     loop {
-        let params = init_defun_args(ctx, &current.params, &current_optional, &current_rest)?;
-        let tail = run_impl(ctx, &current.instructions, current.trace_ranges.as_slice())?;
+        let params = init_defun_args(guard.ctx, &current.params, &current_optional, &current_rest)?;
+        let tail = run_impl(
+            guard.ctx,
+            &current.instructions,
+            current.trace_ranges.as_slice(),
+        )?;
         drop(params);
         match tail {
             Some(info) => {
@@ -274,7 +299,7 @@ pub(crate) fn run_lambda(
         }
     }
 
-    Ok(ctx.vm.stack.pop().unwrap())
+    Ok(guard.take_value())
 }
 
 /// Wrapper around `run_impl_inner` that applies form-trace
@@ -1374,6 +1399,53 @@ mod tests {
             &mut ctx,
             r#"(list 1 2 (inner-eval-swallow "(list 7 8 (car 5))"))"#,
             "'(1 2 caught)",
+        );
+    }
+
+    // A host callable that catches a panic from an inner program run
+    // and carries on must find the outer run's stack as it left it.
+    // The second program routes the panic through the VM's own
+    // `funcall` of a compiled lambda.
+    #[test]
+    fn caught_panic_in_reentrant_run_leaves_outer_stack_intact() {
+        let mut ctx = TulispContext::new();
+        ctx.defun("panicky", || -> i64 { panic!("host panic") });
+        ctx.defspecial("inner-catch", |ctx, args| {
+            let program = args.car()?.as_string()?;
+            let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                ctx.eval_string(&program)
+            }));
+            Ok(ctx.intern(if caught.is_err() { "caught" } else { "ok" }))
+        });
+        eval_assert_equal(
+            &mut ctx,
+            r#"(list 1 2 (inner-catch "(list 7 8 (panicky))") 3)"#,
+            "'(1 2 caught 3)",
+        );
+        eval_assert_equal(
+            &mut ctx,
+            r#"(list 1 2 (inner-catch "(let ((f (lambda () (list 7 8 (panicky))))) (funcall f))") 3)"#,
+            "'(1 2 caught 3)",
+        );
+    }
+
+    // The same through the host's `funcall` of a compiled lambda,
+    // which runs on the shared stack without a program run.
+    #[test]
+    fn caught_panic_in_reentrant_funcall_leaves_outer_stack_intact() {
+        let mut ctx = TulispContext::new();
+        ctx.defun("panicky", || -> i64 { panic!("host panic") });
+        ctx.defspecial("inner-catch-call", |ctx, _args| {
+            let lambda = ctx.eval_string("(lambda () (list 7 8 (panicky)))")?;
+            let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                ctx.funcall(&lambda, &TulispObject::nil())
+            }));
+            Ok(ctx.intern(if caught.is_err() { "caught" } else { "ok" }))
+        });
+        eval_assert_equal(
+            &mut ctx,
+            "(list 1 2 (inner-catch-call) 3)",
+            "'(1 2 caught 3)",
         );
     }
 }

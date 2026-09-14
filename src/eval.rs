@@ -266,9 +266,7 @@ pub(crate) fn funcall<E: Evaluator>(
         TulispValue::CompiledDefun { value } => {
             // Anonymous lambdas compiled by the VM land here. Evaluate
             // args honoring &optional / &rest layout, then dispatch to
-            // `bytecode::run_lambda` (a free function taking `&mut
-            // TulispContext`); the recursion just adds a stack
-            // frame to the same machine — no take/restore dance.
+            // `bytecode::run_lambda`.
             let value = value.clone();
             let evaluated = eval_args_for_vm::<E>(ctx, &value.params, args)?;
             crate::bytecode::run_lambda(ctx, value, evaluated)
