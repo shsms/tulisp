@@ -3176,6 +3176,20 @@ fn test_load() -> Result<(), Error> {
         result: "'(1 2 3)",
     }
 
+    // The loaded file's definitions survive the load: a later call
+    // reaches them, and so does a load inside a function body.
+    tulisp_assert! {
+        ctx: ctx,
+        program: "(list loaded-var (loaded-fn loaded-var))",
+        result: "'(3 7)",
+    }
+    tulisp_assert! {
+        ctx: ctx,
+        program: r#"(defun load-it () (load "tests/good-load.lisp"))
+                    (list (load-it) (loaded-fn 1))"#,
+        result: "'((1 2 3) 5)",
+    }
+
     tulisp_assert! {
         ctx: ctx,
         program: r#"(load "tests/bad-load.lisp")"#,

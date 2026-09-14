@@ -414,7 +414,7 @@ fn run_impl_inner(
                 // `Call` instruction (same as if they had been
                 // written in the outer file).
                 drop(instr_ref);
-                let result = vm_eval_file_inline(ctx, full_path)?;
+                let result = ctx.eval_file(full_path)?;
                 instr_ref = program.borrow_mut();
                 ctx.vm.stack.push(result);
             }
@@ -1052,27 +1052,6 @@ fn funcall_inline(
         }
         _ => Err(Error::undefined(format!("function is void: {}", resolved))),
     }
-}
-
-/// In-VM version of `ctx.eval_file` — parses & compiles the given
-/// file, merges its labels + `bytecode.functions` into the running
-/// machine, and evaluates its top-level forms on the current stack.
-/// Unlike the external `eval_file`, this doesn't start a fresh
-/// top-level `run` — it merges into the machine we're already
-/// executing on.
-fn vm_eval_file_inline(ctx: &mut TulispContext, path: &str) -> Result<TulispObject, Error> {
-    let ast = ctx.parse_file(path)?;
-    let bytecode = crate::bytecode::compile(ctx, &ast)?;
-    let labels = locate_labels(&bytecode);
-    ctx.vm.labels.extend(labels);
-    ctx.vm.bytecode.import_functions(&bytecode);
-    let sub_global = bytecode.global.clone();
-    let sub_ranges = bytecode.global_trace_ranges.clone();
-    run_impl(ctx, &sub_global, sub_ranges.as_slice())?;
-    // `compile_progn` only keeps the result of the last form on the
-    // stack; for forms that produced no value (e.g., a `defun`) we
-    // return nil.
-    Ok(ctx.vm.stack.pop().unwrap_or_else(TulispObject::nil))
 }
 
 /// After phase-2 materialization, the closure's `Instruction::Label`
