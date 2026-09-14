@@ -224,23 +224,7 @@ pub(crate) fn run_lambda(
     compiled: CompiledDefun,
     args: Vec<TulispObject>,
 ) -> Result<TulispObject, Error> {
-    let required = compiled.params.required.len();
-    let optional = compiled.params.optional.len();
-    let has_rest = compiled.params.rest.is_some();
-
-    if args.len() < required {
-        return Err(Error::missing_argument("Too few arguments".to_string()));
-    }
-    if !has_rest && args.len() > required + optional {
-        return Err(Error::invalid_argument("Too many arguments".to_string()));
-    }
-
-    let left_args = args.len() - required;
-    let (optional_count, rest_count) = if left_args > optional {
-        (optional, left_args - optional)
-    } else {
-        (left_args, 0)
-    };
+    let (optional_count, rest_count) = split_arg_counts(&compiled.params, args.len())?;
 
     // Push args in order; `init_defun_args` pops them in reverse
     // to match `params.required` + `params.optional` + `rest` layout.
@@ -554,24 +538,9 @@ fn run_impl_inner(
                     let addr = name.addr_as_usize();
                     if let Some(func) = ctx.vm.functions.get(&addr) {
                         let func = func.clone();
-
-                        if *args_count < func.params.required.len() {
-                            return Err(Error::missing_argument("Too few arguments".to_string())
-                                .with_trace(form.clone()));
-                        }
-                        if func.params.rest.is_none()
-                            && *args_count > func.params.required.len() + func.params.optional.len()
-                        {
-                            return Err(Error::invalid_argument("Too many arguments".to_string())
-                                .with_trace(form.clone()));
-                        }
-                        let left_args = *args_count - func.params.required.len();
-                        if left_args > func.params.optional.len() {
-                            *rest_count = left_args - func.params.optional.len();
-                            *optional_count = func.params.optional.len();
-                        } else if left_args > 0 {
-                            *optional_count = left_args
-                        }
+                        (*optional_count, *rest_count) =
+                            split_arg_counts(&func.params, *args_count)
+                                .map_err(|e| e.with_trace(form.clone()))?;
                         *function = Some(func);
                     } else {
                         // Target isn't a VM-compiled defun. It might
@@ -624,24 +593,8 @@ fn run_impl_inner(
                         .with_trace(form.clone()));
                     };
                     let func = func.clone();
-
-                    if *args_count < func.params.required.len() {
-                        return Err(Error::missing_argument("Too few arguments".to_string())
-                            .with_trace(form.clone()));
-                    }
-                    if func.params.rest.is_none()
-                        && *args_count > func.params.required.len() + func.params.optional.len()
-                    {
-                        return Err(Error::invalid_argument("Too many arguments".to_string())
-                            .with_trace(form.clone()));
-                    }
-                    let left_args = *args_count - func.params.required.len();
-                    if left_args > func.params.optional.len() {
-                        *rest_count = left_args - func.params.optional.len();
-                        *optional_count = func.params.optional.len();
-                    } else if left_args > 0 {
-                        *optional_count = left_args
-                    }
+                    (*optional_count, *rest_count) = split_arg_counts(&func.params, *args_count)
+                        .map_err(|e| e.with_trace(form.clone()))?;
                     *function = Some(func);
                 }
 
@@ -916,6 +869,26 @@ fn init_defun_args(ctx: &mut TulispContext, call: &TailCallInfo) -> Result<SetPa
         set_params.push(arg.clone());
     }
     Ok(set_params)
+}
+
+/// Splits `args_count` arguments over `params`: how many fill
+/// optional parameters and how many go to the rest parameter.
+/// Fails when the count does not fit the parameter list.
+fn split_arg_counts(params: &VMDefunParams, args_count: usize) -> Result<(usize, usize), Error> {
+    let required = params.required.len();
+    let optional = params.optional.len();
+    if args_count < required {
+        return Err(Error::missing_argument("Too few arguments".to_string()));
+    }
+    if params.rest.is_none() && args_count > required + optional {
+        return Err(Error::invalid_argument("Too many arguments".to_string()));
+    }
+    let left = args_count - required;
+    Ok(if left > optional {
+        (optional, left - optional)
+    } else {
+        (left, 0)
+    })
 }
 
 /// Runs `call`'s function on arguments already on the stack and
@@ -1351,6 +1324,30 @@ mod tests {
             &mut ctx,
             "(list 1 2 (inner-catch-call) 3)",
             "'(1 2 caught 3)",
+        );
+    }
+
+    // A compiled lambda called through `funcall` is the one call
+    // whose arity the compiler cannot check, so `run_lambda` checks
+    // it like a `Call` does.
+    #[test]
+    fn a_compiled_lambda_called_through_funcall_checks_its_arity() {
+        let mut ctx = TulispContext::new();
+        for (program, message) in [
+            ("(funcall (lambda (a b) (+ a b)) 1)", "Too few arguments"),
+            ("(funcall (lambda (a) a) 1 2)", "Too many arguments"),
+            (
+                "(funcall (lambda (a &optional b) b) 1 2 3)",
+                "Too many arguments",
+            ),
+        ] {
+            let err = ctx.eval_string(program).unwrap_err();
+            assert!(err.to_string().contains(message), "{program}: {err}");
+        }
+        eval_assert_equal(
+            &mut ctx,
+            "(funcall (lambda (a &optional b &rest r) (list a b r)) 1 2 3 4)",
+            "'(1 2 (3 4))",
         );
     }
 }
