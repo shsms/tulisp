@@ -2434,7 +2434,7 @@ fn test_tail_call_does_not_leak_lex_stack() -> Result<(), Error> {
     // `progn` / `if` / `cond` bodies and rewrites the body's
     // tail-position call into a `Bounce`, which compiles to
     // `Instruction::TailCall`. That instruction unwinds the
-    // surrounding `run_function` directly, bypassing trailing
+    // surrounding `run_impl` directly, bypassing trailing
     // `Instruction::EndScope`s that `compile_fn_let_star` appends —
     // leaving let bindings stuck on `LEX_STACKS` permanently. The
     // fix injects the cleanup before each `TailCall` in the body.

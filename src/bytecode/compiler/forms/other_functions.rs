@@ -151,7 +151,7 @@ fn compile_fn_defun_bounce_call(
                 .with_trace(args.clone()));
             }
         }
-        // Tail-call escape: `TailCall` returns from `run_function`
+        // Tail-call escape: `TailCall` returns from `run_impl`
         // directly, skipping the `EndScope`s the enclosing
         // `let` / `let*` would otherwise emit after this instruction.
         // Drain those scopes here so their bindings don't get stuck on

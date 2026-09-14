@@ -179,31 +179,6 @@ fn locate_labels(bytecode: &Bytecode) -> HashMap<usize, usize> {
     labels
 }
 
-#[allow(dead_code)]
-fn print_stack(ctx: &TulispContext, func: Option<usize>, pc: usize, recursion_depth: u32) {
-    println!("Stack:");
-    for obj in ctx.vm.stack.iter() {
-        println!("  {}", obj);
-    }
-    println!(
-        "\nDepth: {}: PC: {}; Executing: {}",
-        recursion_depth,
-        pc,
-        if let Some(func) = func {
-            ctx.vm
-                .bytecode
-                .functions
-                .get(&func)
-                .unwrap()
-                .instructions
-                .borrow()[pc]
-                .clone()
-        } else {
-            ctx.vm.bytecode.global.borrow()[pc].clone()
-        }
-    );
-}
-
 pub fn run(ctx: &mut TulispContext, bytecode: Bytecode) -> Result<TulispObject, Error> {
     let labels = locate_labels(&bytecode);
     ctx.vm.labels.extend(labels);
@@ -220,7 +195,7 @@ pub fn run(ctx: &mut TulispContext, bytecode: Bytecode) -> Result<TulispObject, 
     let stack_base = ctx.vm.stack.len();
     let global_program = ctx.vm.bytecode.global.clone();
     let global_ranges = ctx.vm.bytecode.global_trace_ranges.clone();
-    let result = run_impl(ctx, &global_program, global_ranges.as_slice(), 0);
+    let result = run_impl(ctx, &global_program, global_ranges.as_slice());
     ctx.vm.bytecode.global = saved_global;
     ctx.vm.bytecode.global_trace_ranges = saved_ranges;
     // When the top-level form has no value (e.g., a program of only
@@ -285,12 +260,7 @@ pub(crate) fn run_lambda(
     let mut current_rest = rest_count;
     loop {
         let params = init_defun_args(ctx, &current.params, &current_optional, &current_rest)?;
-        let tail = run_function(
-            ctx,
-            &current.instructions,
-            current.trace_ranges.as_slice(),
-            1,
-        )?;
+        let tail = run_impl(ctx, &current.instructions, current.trace_ranges.as_slice())?;
         drop(params);
         match tail {
             Some(info) => {
@@ -320,7 +290,6 @@ fn run_impl(
     ctx: &mut TulispContext,
     program: &SharedMut<Vec<Instruction>>,
     trace_ranges: &[TraceRange],
-    recursion_depth: u32,
 ) -> Result<Option<TailCallInfo>, Error> {
     let mut pc: usize = 0;
     // Each nested (non-tail) call re-enters `run_impl`, while the
@@ -328,7 +297,7 @@ fn run_impl(
     // real stack growth.
     let result = {
         let mut guard = ctx.enter_frame()?;
-        run_impl_inner(&mut guard, program, &mut pc, recursion_depth)
+        run_impl_inner(&mut guard, program, &mut pc)
     };
     match result {
         Ok(v) => Ok(v),
@@ -357,17 +326,12 @@ fn run_impl_inner(
     ctx: &mut TulispContext,
     program: &SharedMut<Vec<Instruction>>,
     pc_out: &mut usize,
-    recursion_depth: u32,
 ) -> Result<Option<TailCallInfo>, Error> {
     let mut pc: usize = 0;
     let program_size = program.borrow().len();
     let mut instr_ref = program.borrow_mut();
     let mut active = ActiveScopes::new();
     while pc < program_size {
-        // drop(instr_ref);
-        // self.print_stack(func, pc, recursion_depth);
-        // instr_ref = program.borrow_mut();
-
         // Mirror the loop's `pc` into the caller's pc_out so
         // that `run_impl` knows which instruction was active
         // when an error propagates out via `?`. One usize write
@@ -638,8 +602,8 @@ fn run_impl_inner(
                         let name = name.clone();
                         let form = form.clone();
                         drop(instr_ref);
-                        let result = funcall_inline(ctx, &name, args, recursion_depth)
-                            .map_err(|e| e.with_trace(form))?;
+                        let result =
+                            funcall_inline(ctx, &name, args).map_err(|e| e.with_trace(form))?;
                         ctx.vm.stack.push(result);
                         instr_ref = program.borrow_mut();
                         pc += 1;
@@ -660,11 +624,10 @@ fn run_impl_inner(
                         &current_optional,
                         &current_rest,
                     )?;
-                    let tail = run_function(
+                    let tail = run_impl(
                         ctx,
                         &current_function.instructions,
                         current_function.trace_ranges.as_slice(),
-                        recursion_depth + 1,
                     )
                     .map_err(|e| e.with_trace(form.clone()))?;
                     drop(params);
@@ -738,7 +701,7 @@ fn run_impl_inner(
                 let args: Vec<TulispObject> = ctx.vm.stack.drain(split_at..).collect();
                 let func = ctx.vm.stack.pop().unwrap();
                 drop(instr_ref);
-                let result = funcall_inline(ctx, &func, args, recursion_depth)?;
+                let result = funcall_inline(ctx, &func, args)?;
                 ctx.vm.stack.push(result);
                 instr_ref = program.borrow_mut();
             }
@@ -782,7 +745,7 @@ fn run_impl_inner(
                     }
                 }
                 drop(instr_ref);
-                let result = funcall_inline(ctx, &func, args, recursion_depth)?;
+                let result = funcall_inline(ctx, &func, args)?;
                 ctx.vm.stack.push(result);
                 instr_ref = program.borrow_mut();
             }
@@ -998,15 +961,6 @@ fn init_defun_args(
     Ok(set_params)
 }
 
-fn run_function(
-    ctx: &mut TulispContext,
-    instructions: &SharedMut<Vec<Instruction>>,
-    trace_ranges: &[TraceRange],
-    recursion_depth: u32,
-) -> Result<Option<TailCallInfo>, Error> {
-    run_impl(ctx, instructions, trace_ranges, recursion_depth)
-}
-
 /// In-VM `funcall` dispatch used by `Instruction::Funcall`. Args are
 /// already fully evaluated, so going through `eval::funcall` would
 /// only bounce out of the dispatch loop and re-enter the interpreter
@@ -1016,7 +970,6 @@ fn funcall_inline(
     ctx: &mut TulispContext,
     func: &TulispObject,
     args: Vec<TulispObject>,
-    recursion_depth: u32,
 ) -> Result<TulispObject, Error> {
     // `(funcall 'funcall fn …)` — unwrap the redundant outer
     // `funcall`. If we didn't, the symbol would eval to the
@@ -1028,7 +981,7 @@ fn funcall_inline(
     if func.eq(&ctx.keywords.funcall) && !args.is_empty() {
         let mut args = args;
         let inner_func = args.remove(0);
-        return funcall_inline(ctx, &inner_func, args, recursion_depth);
+        return funcall_inline(ctx, &inner_func, args);
     }
     let resolved = crate::eval::resolve_function(ctx, func)?;
     let inner = resolved.inner_ref();
@@ -1036,7 +989,7 @@ fn funcall_inline(
         TulispValue::CompiledDefun { value } => {
             let cd = value.clone();
             drop(inner);
-            run_lambda_with(ctx, &cd, args, recursion_depth)
+            run_lambda_with(ctx, &cd, args)
         }
         TulispValue::Defun { call, arity } => {
             // Args are already evaluated values from the VM stack
@@ -1080,7 +1033,6 @@ fn run_lambda_with(
     ctx: &mut TulispContext,
     compiled: &CompiledDefun,
     args: Vec<TulispObject>,
-    recursion_depth: u32,
 ) -> Result<TulispObject, Error> {
     // See `run_lambda` for why — closures invoked from a fresh ctx
     // need their labels registered before any `Pos::Label` jump runs.
@@ -1112,12 +1064,7 @@ fn run_lambda_with(
     let mut current_rest = rest_count;
     loop {
         let params = init_defun_args(ctx, &current.params, &current_optional, &current_rest)?;
-        let tail = run_function(
-            ctx,
-            &current.instructions,
-            current.trace_ranges.as_slice(),
-            recursion_depth + 1,
-        )?;
+        let tail = run_impl(ctx, &current.instructions, current.trace_ranges.as_slice())?;
         drop(params);
         match tail {
             Some(info) => {
@@ -1145,7 +1092,7 @@ fn vm_eval_file_inline(ctx: &mut TulispContext, path: &str) -> Result<TulispObje
     ctx.vm.bytecode.import_functions(&bytecode);
     let sub_global = bytecode.global.clone();
     let sub_ranges = bytecode.global_trace_ranges.clone();
-    run_impl(ctx, &sub_global, sub_ranges.as_slice(), 1)?;
+    run_impl(ctx, &sub_global, sub_ranges.as_slice())?;
     // `compile_progn` only keeps the result of the last form on the
     // stack; for forms that produced no value (e.g., a `defun`) we
     // return nil.

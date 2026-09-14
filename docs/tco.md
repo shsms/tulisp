@@ -64,13 +64,13 @@ and `args.is_bounced()` is true, it dispatches to
 3. Emits `Instruction::Jump(Pos::Abs(0))` — jump back to the start of the
    same compiled function.
 
-This reuses the current `run_function` Rust stack frame, so self-recursion is
+This reuses the current `run_impl` Rust stack frame, so self-recursion is
 O(1) stack regardless of depth.
 
-**Why mutual recursion overflows:** `Instruction::Call` in
-`src/bytecode/interpreter.rs` always does
-`self.run_function(ctx, &instructions, recursion_depth + 1)?` — a native
-Rust recursion per logical call. 30000-deep mutual recursion ≈ 30000 Rust
+**Why mutual recursion overflows:** a non-tail `Instruction::Call` in
+`src/bytecode/interpreter.rs` dispatches through `run_tail_calls`, which
+calls `run_impl` — a native Rust recursion per non-tail call, while a
+`TailCall` loops inside `run_tail_calls` instead. 30000-deep mutual recursion ≈ 30000 Rust
 stack frames ≈ stack overflow (cargo test threads default to ~2 MiB).
 
 Native binaries (the CLI, examples) have an 8 MiB main-thread stack and
@@ -79,7 +79,7 @@ handle 30000 fine; the overflow is specific to test threads.
 ## What general VM TCO would need
 
 The VM's `Call` would need a tail-call variant that, instead of calling
-`run_function` recursively, unwinds the current frame and dispatches to the
+`run_impl` recursively, unwinds the current frame and dispatches to the
 callee's bytecode within the same Rust stack frame. Options:
 
 - **Separate opcode** (`TailCall`): the compiler emits it when the call is
@@ -113,7 +113,7 @@ are unaffected.
   `compile_fn_list` tail-call detection, `compile_fn_defun_bounce_call`
   self-TCO codegen.
 - `src/bytecode/interpreter.rs` — `Instruction::Call` implementation,
-  `run_function` recursion.
+  `run_impl` recursion.
 - `src/value.rs` — `TulispValue::Bounce`, `is_bounce`, `is_bounced`.
 
 ## Test coverage
