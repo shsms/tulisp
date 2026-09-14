@@ -75,11 +75,10 @@ pub fn compile(ctx: &mut TulispContext, value: &TulispObject) -> Result<Bytecode
         .copied()
         .collect();
     let output = compile_progn(ctx, value)?;
-    // Lift the form-trace markers in the global instruction
-    // stream into a side table. Per-function bodies were already
-    // stripped at their `CompiledDefun` boundary inside
-    // `compile_fn_defun`.
-    let (output, global_trace_ranges) = crate::bytecode::bytecode::strip_trace_markers(output)?;
+    // Assemble the global instruction stream. Per-function bodies
+    // were already assembled at their `CompiledDefun` boundary
+    // inside `compile_fn_defun`.
+    let (output, global_trace_ranges) = crate::bytecode::bytecode::assemble(output)?;
     let global_trace_ranges =
         crate::object::wrappers::generic::Shared::new_sized(global_trace_ranges);
     let compiler = ctx.compiler.as_mut().unwrap();
@@ -492,12 +491,12 @@ pub(crate) fn compile_expr(
         (TulispValue::List { .. }, _) => {
             drop(expr_ref);
             // Wrap the form's compiled bytecode with `PushTrace` /
-            // `PopTrace` markers. `strip_trace_markers` lifts these
-            // into a side-table at compile time so the runtime
-            // pays nothing for them on the happy path; on the
-            // error path, `run_impl` looks up which ranges contain
-            // the failing PC and applies their forms via
-            // `with_trace`. Same shape TW's `eval_basic` produces.
+            // `PopTrace` markers. `assemble` lifts these into a
+            // side-table at compile time so the runtime pays
+            // nothing for them on the happy path; on the error
+            // path, `run_impl` looks up which ranges contain the
+            // failing PC and applies their forms via `with_trace`.
+            // Same shape TW's `eval_basic` produces.
             let mut inner = compile_form(ctx, expr).map_err(|e| e.with_trace(expr.clone()))?;
             if inner.is_empty() {
                 return Ok(inner);

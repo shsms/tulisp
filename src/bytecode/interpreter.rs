@@ -329,8 +329,8 @@ fn run_impl(
     match result {
         Ok(v) => Ok(v),
         Err(mut e) => {
-            // `strip_trace_markers` pushes ranges as it encounters
-            // each closing `PopTrace`, so the vector is sorted
+            // `assemble` pushes ranges as it encounters each
+            // closing `PopTrace`, so the vector is sorted
             // innermost-first. Walking forward applies the
             // innermost form first, matching TW's recursive
             // `eval_basic` shape (the innermost wrapper runs
@@ -820,19 +820,18 @@ fn run_impl_inner(
                     ctx.vm.stack.push(result);
                 }
             }
-            // `PushTrace` / `PopTrace` never reach the interpreter:
-            // `strip_trace_markers` removes them at compile time and
-            // lifts the form spans into a `TraceRange` side-table
-            // consulted by `run_impl` on the error path. One that
-            // gets here is a compiler bug; report it instead of
-            // silently dropping the trace.
-            Instruction::PushTrace(_) | Instruction::PopTrace => {
+            // Trace markers and labels never reach the interpreter:
+            // `assemble` removes them at compile time, lifting the
+            // form spans into a `TraceRange` side-table consulted by
+            // `run_impl` on the error path. One that gets here is a
+            // compiler bug; report it instead of silently skipping
+            // it.
+            Instruction::PushTrace(_) | Instruction::PopTrace | Instruction::Label(_) => {
                 return Err(Error::lisp_error(
-                    "internal: trace marker reached the interpreter; \
-                     strip_trace_markers should have removed it",
+                    "internal: compile-time marker reached the interpreter; \
+                     assemble should have removed it",
                 ));
             }
-            Instruction::Label(_) => {}
             Instruction::Cons => {
                 let b = ctx.vm.stack.pop().unwrap();
                 let a = ctx.vm.stack.pop().unwrap();
@@ -1330,20 +1329,21 @@ mod tests {
     use crate::bytecode::{Bytecode, Instruction};
     use crate::test_utils::eval_assert_equal;
 
-    // `strip_trace_markers` removes every trace marker before a
+    // `assemble` removes every trace marker and label before a
     // program runs. One that slips through is a compiler bug and
     // must surface as an error, not as a silent no-op.
     #[test]
-    fn a_trace_marker_reaching_the_interpreter_is_an_error() {
+    fn a_compile_time_marker_reaching_the_interpreter_is_an_error() {
         let mut ctx = TulispContext::new();
-        for marker in [
+        for leftover in [
             Instruction::PushTrace(TulispObject::nil()),
             Instruction::PopTrace,
+            Instruction::Label(TulispObject::nil()),
         ] {
             let bytecode = Bytecode::default();
-            bytecode.global.borrow_mut().push(marker);
+            bytecode.global.borrow_mut().push(leftover);
             let err = run(&mut ctx, bytecode).unwrap_err();
-            assert!(err.to_string().contains("trace marker"), "{err}");
+            assert!(err.to_string().contains("compile-time marker"), "{err}");
         }
     }
 

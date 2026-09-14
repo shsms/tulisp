@@ -2077,8 +2077,8 @@ fn test_trace_distinguishes_call_sites_of_same_function() -> Result<(), Error> {
     // backtrace must name the *specific* call site that ran, not
     // collapse them into a single representative entry. Pins both
     // the TW path (`eval_basic`'s recursive `with_trace`) and the
-    // VM path (`strip_trace_markers` lifting per-form ranges) into
-    // exact match — which only works if both attribute the call
+    // VM path (`assemble` lifting per-form ranges) into exact
+    // match — which only works if both attribute the call
     // form's distinct `TulispObject` (with its own span) for each
     // hit.
     //

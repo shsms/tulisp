@@ -373,11 +373,9 @@ pub(super) fn compile_fn_defun(
         compiler.active_let_scopes = prev_scopes;
         Ok(result)
     })?;
-    // Lift the body's `PushTrace` / `PopTrace` markers into a
-    // side table. Stripping happens at the `CompiledDefun`
-    // boundary so the runtime never executes these markers — see
-    // `strip_trace_markers`.
-    let (res, trace_ranges) = crate::bytecode::bytecode::strip_trace_markers(res)?;
+    // Assemble the body at the `CompiledDefun` boundary so the
+    // runtime never sees a trace marker or a label; see `assemble`.
+    let (res, trace_ranges) = crate::bytecode::bytecode::assemble(res)?;
     let function = CompiledDefun {
         name: fn_name.clone(),
         instructions: SharedMut::new(res),
