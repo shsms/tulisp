@@ -110,7 +110,6 @@ impl Drop for ActiveScopes {
 pub struct Machine {
     stack: Vec<TulispObject>,
     functions: HashMap<usize, CompiledDefun>, // key: fn_name.addr_as_usize()
-    labels: HashMap<usize, usize>,            // TulispObject.addr -> instruction index
 }
 
 /// Pops two operands and jumps when `$cmp` holds for them. `$a` is
@@ -141,10 +140,11 @@ macro_rules! jump_to_pos {
                     *$pos = Pos::Abs(abs_pos);
                     abs_pos
                 }
-                Pos::Label(p) => {
-                    let abs_pos = *$ctx.vm.labels.get(&p.addr_as_usize()).unwrap();
-                    *$pos = Pos::Abs(abs_pos); // TODO: uncomment
-                    abs_pos
+                Pos::Label(_) => {
+                    return Err(Error::lisp_error(
+                        "internal: label jump reached the interpreter; \
+                         assemble should have resolved it",
+                    ));
                 }
             }
         }
@@ -156,27 +156,8 @@ impl Machine {
         Machine {
             stack: Vec::new(),
             functions: HashMap::new(),
-            labels: HashMap::new(),
         }
     }
-}
-
-fn locate_labels(bytecode: &Bytecode) -> HashMap<usize, usize> {
-    // TODO: intern-soft and make sure that the labels are unique
-    let mut labels = HashMap::new();
-    for (i, instr) in bytecode.global.borrow().iter().enumerate() {
-        if let Instruction::Label(name) = instr {
-            labels.insert(name.addr_as_usize(), i + 1);
-        }
-    }
-    for func in bytecode.functions.values() {
-        for (i, instr) in func.instructions.borrow().iter().enumerate() {
-            if let Instruction::Label(name) = instr {
-                labels.insert(name.addr_as_usize(), i + 1);
-            }
-        }
-    }
-    labels
 }
 
 /// Restores the caller's VM stack height on drop, on any path
@@ -210,13 +191,11 @@ impl Drop for RunGuard<'_> {
 }
 
 pub fn run(ctx: &mut TulispContext, bytecode: Bytecode) -> Result<TulispObject, Error> {
-    let labels = locate_labels(&bytecode);
-    ctx.vm.labels.extend(labels);
     ctx.vm.functions.extend(bytecode.functions);
     // A re-entrant run (a Rust callable evaluating a program
-    // mid-run) shares the machine with its caller. Labels and the
-    // function table are namespaces an inner run extends for good;
-    // the guard gives back only the stack.
+    // mid-run) shares the machine with its caller. The function
+    // table is a namespace an inner run extends for good; the guard
+    // gives back only the stack.
     let mut guard = RunGuard::new(ctx);
     let tail = run_impl(
         guard.ctx,
@@ -243,16 +222,6 @@ pub(crate) fn run_lambda(
     compiled: CompiledDefun,
     args: Vec<TulispObject>,
 ) -> Result<TulispObject, Error> {
-    // Make sure the closure's `Instruction::Label` positions are
-    // present in *this* ctx's `vm.labels`. The parent ctx that
-    // compiled the closure registered them at `MakeLambda` time
-    // (`register_lambda_labels`), but a host that hands the closure
-    // off to a fresh ctx — `tulisp-async`'s per-firing timer ctx is
-    // the canonical case — never saw that registration. Without
-    // this, any `Pos::Label` jump emitted by `cond` / `and` / `or`
-    // would panic in `jump_to_pos!`. Idempotent for the same-ctx
-    // case (same key, same value).
-    register_compiled_labels(ctx, &compiled);
     let required = compiled.params.required.len();
     let optional = compiled.params.optional.len();
     let has_rest = compiled.params.rest.is_some();
@@ -719,7 +688,6 @@ fn run_impl_inner(
             Instruction::Ret => return Ok(None),
             Instruction::MakeLambda(template) => {
                 let closure = make_lambda_from_template(ctx, template)?;
-                register_lambda_labels(ctx, &closure);
                 ctx.vm.stack.push(closure);
             }
             Instruction::Funcall { args_count } => {
@@ -1053,41 +1021,6 @@ fn funcall_inline(
     }
 }
 
-/// After phase-2 materialization, the closure's `Instruction::Label`
-/// positions need to be known to the running machine so that
-/// `Pos::Label` jumps (emitted by `and`/`or`/`cond`/etc.) can resolve.
-/// `locate_labels` only walks the top-level bytecode, not the lambda
-/// templates nested inside `MakeLambda`, so register them here when a
-/// closure is built.
-fn register_lambda_labels(ctx: &mut TulispContext, closure: &TulispObject) {
-    let inner = closure.inner_ref();
-    let TulispValue::CompiledDefun { value } = &inner.0 else {
-        return;
-    };
-    let instructions = value.instructions.clone();
-    drop(inner);
-    let borrow = instructions.borrow();
-    for (i, instr) in borrow.iter().enumerate() {
-        if let Instruction::Label(name) = instr {
-            ctx.vm.labels.insert(name.addr_as_usize(), i + 1);
-        }
-    }
-}
-
-/// Like `register_lambda_labels`, but takes a `CompiledDefun`
-/// directly (no enclosing TulispObject). Called by `run_lambda` so a
-/// closure invoked through a ctx that didn't see its `MakeLambda`
-/// (e.g. tulisp-async's per-firing timer ctx) still has its
-/// `Pos::Label` jumps resolvable.
-fn register_compiled_labels(ctx: &mut TulispContext, compiled: &CompiledDefun) {
-    let borrow = compiled.instructions.borrow();
-    for (i, instr) in borrow.iter().enumerate() {
-        if let Instruction::Label(name) = instr {
-            ctx.vm.labels.insert(name.addr_as_usize(), i + 1);
-        }
-    }
-}
-
 /// Extracts the original symbol from a placeholder LexicalBinding; if
 /// `obj` isn't a LexicalBinding (shouldn't happen for our placeholders)
 /// it's returned as-is.
@@ -1326,24 +1259,35 @@ mod tests {
     use super::run;
     use crate::TulispContext;
     use crate::TulispObject;
-    use crate::bytecode::{Bytecode, Instruction};
+    use crate::bytecode::{Bytecode, Instruction, Pos};
     use crate::test_utils::eval_assert_equal;
 
-    // `assemble` removes every trace marker and label before a
-    // program runs. One that slips through is a compiler bug and
-    // must surface as an error, not as a silent no-op.
+    // `assemble` removes every trace marker and label, and resolves
+    // every label jump, before a program runs. One that slips
+    // through is a compiler bug and must surface as an error, not
+    // as a silent no-op.
     #[test]
-    fn a_compile_time_marker_reaching_the_interpreter_is_an_error() {
+    fn an_unassembled_instruction_reaching_the_interpreter_is_an_error() {
         let mut ctx = TulispContext::new();
-        for leftover in [
-            Instruction::PushTrace(TulispObject::nil()),
-            Instruction::PopTrace,
-            Instruction::Label(TulispObject::nil()),
+        for (leftover, message) in [
+            (
+                Instruction::PushTrace(TulispObject::nil()),
+                "compile-time marker",
+            ),
+            (Instruction::PopTrace, "compile-time marker"),
+            (
+                Instruction::Label(TulispObject::nil()),
+                "compile-time marker",
+            ),
+            (
+                Instruction::Jump(Pos::Label(TulispObject::nil())),
+                "label jump",
+            ),
         ] {
             let bytecode = Bytecode::default();
             bytecode.global.borrow_mut().push(leftover);
             let err = run(&mut ctx, bytecode).unwrap_err();
-            assert!(err.to_string().contains("compile-time marker"), "{err}");
+            assert!(err.to_string().contains(message), "{err}");
         }
     }
 

@@ -1769,7 +1769,7 @@ fn test_vm_reentry_during_run() -> Result<(), Error> {
     // arm reaches a callable defined on the same context and
     // dispatches it, ultimately landing back in the VM. The inner
     // and outer runs share the same machine — the inner sees the
-    // outer's bytecode/labels and pushes/pops on the shared stack.
+    // outer's function table and pushes/pops on the shared stack.
     //
     // Pre-rewrite (when `ctx.vm` was `Option<Machine>` taken at
     // the run boundary), the inner entry found `ctx.vm = None`
@@ -2347,11 +2347,9 @@ fn test_substitute_lexical_skips_binders() -> Result<(), Error> {
 
 #[test]
 fn test_closure_invoked_in_fresh_ctx() -> Result<(), Error> {
-    // Regression: a closure compiled in one ctx (whose `MakeLambda`
-    // registered its labels into that ctx's `vm.labels`) used to
-    // panic when invoked through a separate ctx that never saw the
-    // `MakeLambda`. `cond`, `and`, `or` emit `Pos::Label` jumps —
-    // those would `unwrap` `None` on `vm.labels.get(...)`.
+    // A closure compiled in one ctx must run through a separate ctx
+    // that never saw its `MakeLambda`: the jumps `cond`, `and` and
+    // `or` emit must not depend on per-machine state.
     //
     // The canonical scenario is `tulisp-async`'s `run-with-timer`,
     // which creates a per-firing ctx and invokes the timer's lambda
@@ -2359,13 +2357,13 @@ fn test_closure_invoked_in_fresh_ctx() -> Result<(), Error> {
     // here without the async runtime by building a closure in
     // `ctx_a`, then invoking it through a freshly-constructed
     // `ctx_b`.
-    for body in [
+    for (body, expected) in [
         // cond: multi-target jump table
-        "(cond ((= 1 2) 'a) (t 'b))",
+        ("(cond ((= 1 2) 'a) (t 'b))", "b"),
         // and: short-circuit
-        "(and 1 2 3)",
+        ("(and 1 2 3)", "3"),
         // or: short-circuit
-        "(or nil nil 'found)",
+        ("(or nil nil 'found)", "found"),
     ] {
         let mut ctx_a = TulispContext::new();
         let prog = format!("(lambda () {body})");
@@ -2381,9 +2379,11 @@ fn test_closure_invoked_in_fresh_ctx() -> Result<(), Error> {
                     e.format(&ctx_b)
                 )
             });
-        // Sanity-check: closure produced *something* — exact shape
-        // varies per body, but a panic would have aborted before here.
-        let _ = result;
+        assert_eq!(
+            result.to_string(),
+            expected,
+            "cross-ctx funcall of `{prog}`"
+        );
     }
     Ok(())
 }
