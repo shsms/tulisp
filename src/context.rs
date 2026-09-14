@@ -864,8 +864,8 @@ impl Drop for FrameGuard<'_> {
 
 #[cfg(test)]
 mod tests {
-    use crate::TulispContext;
     use crate::test_utils::{eval_assert, eval_assert_equal, eval_assert_not};
+    use crate::{Error, TulispContext, TulispObject};
 
     // The Rust API resolves a function the way `funcall` does: a
     // symbol or a lambda list is looked up, any other list is not
@@ -977,48 +977,99 @@ mod tests {
 
     // Unbounded mutual recursion through a Rust callable that
     // re-enters `eval_string` raises the catchable max-eval-depth
-    // error instead of overflowing the native stack.
-    // The cap is small because each re-entrant cycle burns many
-    // native frames and test threads run on a 2 MiB stack.
+    // error instead of overflowing the native stack, whichever
+    // public method the host enters through, and leaves the depth
+    // counter balanced. Entering through `funcall` with a symbol
+    // runs `f` in the tree-walker, with a lambda in the VM. The cap
+    // is small because each re-entrant cycle burns many native
+    // frames and test threads run on a 2 MiB stack.
     #[test]
-    fn reentrant_eval_string_respects_depth_cap() {
-        let mut ctx = TulispContext::new();
-        ctx.set_max_eval_depth(20);
-        ctx.defspecial("re-eval", |ctx, args| {
-            let program = args.car()?.as_string()?;
-            ctx.eval_string(&program)
-        });
-        let err = match ctx.eval_string(r#"(defun f () (re-eval "(f)")) (f)"#) {
-            Err(err) => err,
-            Ok(val) => panic!("expected max-eval-depth error, got: {val}"),
-        };
-        assert!(
-            err.format(&ctx).contains("max-eval-depth"),
-            "unexpected error: {}",
-            err.format(&ctx)
-        );
+    fn reentrant_eval_respects_depth_cap_from_every_entry_point() {
+        type Entry = fn(&mut TulispContext) -> Result<TulispObject, Error>;
+        let entries: [(&str, Entry); 4] = [
+            ("eval_string", |ctx| ctx.eval_string("(f)")),
+            ("tw_eval_string", |ctx| ctx.tw_eval_string("(f)")),
+            ("funcall symbol", |ctx| {
+                let f = ctx.intern("f");
+                ctx.funcall(&f, &TulispObject::nil())
+            }),
+            ("funcall lambda", |ctx| {
+                let lambda = ctx.eval_string(r#"(lambda () (re-eval "(f)"))"#)?;
+                ctx.funcall(&lambda, &TulispObject::nil())
+            }),
+        ];
+        for (label, entry) in entries {
+            let mut ctx = TulispContext::new();
+            ctx.set_max_eval_depth(20);
+            ctx.defspecial("re-eval", |ctx, args| {
+                let program = args.car()?.as_string()?;
+                ctx.eval_string(&program)
+            });
+            ctx.eval_string(r#"(defun f () (re-eval "(f)"))"#).unwrap();
+            let err = match entry(&mut ctx) {
+                Err(err) => err,
+                Ok(val) => panic!("{label}: expected max-eval-depth error, got: {val}"),
+            };
+            assert!(
+                err.format(&ctx).contains("max-eval-depth"),
+                "{label}: unexpected error: {}",
+                err.format(&ctx)
+            );
+            assert_eq!(ctx.eval_depth, 0, "{label}");
+        }
     }
 
     // A panicking host callable unwinds through the depth counter. A
     // host that catches the panic and reuses the context must not be
-    // left with a smaller effective depth limit.
+    // left with a smaller effective depth limit, whether the
+    // functions ran in the VM (`eval_string`) or in the tree-walker
+    // (`tw_eval_string`).
     #[test]
     fn depth_counter_unwinds_through_caught_panic() {
+        type Entry = fn(&mut TulispContext, &str) -> Result<TulispObject, Error>;
+        let entries: [(&str, Entry); 2] = [
+            ("eval_string", |ctx, program| ctx.eval_string(program)),
+            ("tw_eval_string", |ctx, program| ctx.tw_eval_string(program)),
+        ];
+        for (label, entry) in entries {
+            let mut ctx = TulispContext::new();
+            ctx.set_max_eval_depth(25);
+            ctx.defun("panicky", || -> i64 { panic!("host panic") });
+            entry(
+                &mut ctx,
+                "(defun rec (n) (if (> n 0) (+ 1 (rec (- n 1))) 0))
+                 (defun deep-panic (n) (if (> n 0) (+ 1 (deep-panic (- n 1))) (panicky)))",
+            )
+            .unwrap();
+            let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _ = entry(&mut ctx, "(deep-panic 12)");
+            }));
+            assert!(caught.is_err(), "{label}");
+            assert_eq!(ctx.eval_depth, 0, "{label}");
+            let result: i64 = entry(&mut ctx, "(rec 12)").unwrap().try_into().unwrap();
+            assert_eq!(result, 12, "{label}");
+        }
+    }
+
+    // Tree-walker calls count toward the cap on their own, with no
+    // VM run involved. The cap is small because a tree-walker call
+    // burns many native frames on the 2 MiB test-thread stack: at 25
+    // the recursion overflows before the cap fires.
+    #[test]
+    fn tree_walker_calls_count_toward_the_cap() {
         let mut ctx = TulispContext::new();
-        ctx.set_max_eval_depth(25);
-        ctx.defun("panicky", || -> i64 { panic!("host panic") });
-        ctx.eval_string(
-            "(defun rec (n) (if (> n 0) (+ 1 (rec (- n 1))) 0))
-             (defun deep-panic (n) (if (> n 0) (+ 1 (deep-panic (- n 1))) (panicky)))",
-        )
-        .unwrap();
-        let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let _ = ctx.eval_string("(deep-panic 12)");
-        }));
-        assert!(caught.is_err());
+        ctx.set_max_eval_depth(10);
+        ctx.tw_eval_string("(defun rec (n) (if (> n 0) (+ 1 (rec (- n 1))) 0))")
+            .unwrap();
+        let err = ctx.tw_eval_string("(rec 20)").unwrap_err();
+        assert!(
+            err.format(&ctx).contains("max-eval-depth"),
+            "{}",
+            err.format(&ctx)
+        );
         assert_eq!(ctx.eval_depth, 0);
-        let result: i64 = ctx.eval_string("(rec 12)").unwrap().try_into().unwrap();
-        assert_eq!(result, 12);
+        let result: i64 = ctx.tw_eval_string("(rec 5)").unwrap().try_into().unwrap();
+        assert_eq!(result, 5);
     }
 
     // `enter_frame` counts frames up to the cap and no further, and
