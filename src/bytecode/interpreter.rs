@@ -322,20 +322,14 @@ fn run_impl(
     trace_ranges: &[TraceRange],
     recursion_depth: u32,
 ) -> Result<Option<TailCallInfo>, Error> {
-    // Bound native recursion: each nested (non-tail) call re-enters
-    // `run_impl`, while the tail-call loops re-enter at a constant
-    // depth, so this counts real stack growth. Exceeding the cap
-    // raises a catchable error instead of overflowing the host stack.
-    if ctx.eval_depth >= ctx.max_eval_depth {
-        return Err(Error::lisp_error(format!(
-            "Lisp nesting exceeds max-eval-depth ({})",
-            ctx.max_eval_depth
-        )));
-    }
-    ctx.eval_depth += 1;
     let mut pc: usize = 0;
-    let result = run_impl_inner(ctx, program, &mut pc, recursion_depth);
-    ctx.eval_depth -= 1;
+    // Each nested (non-tail) call re-enters `run_impl`, while the
+    // tail-call loops re-enter at a constant depth, so this counts
+    // real stack growth.
+    let result = {
+        let mut guard = ctx.enter_frame()?;
+        run_impl_inner(&mut guard, program, &mut pc, recursion_depth)
+    };
     match result {
         Ok(v) => Ok(v),
         Err(mut e) => {

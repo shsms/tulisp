@@ -78,7 +78,7 @@ const PROFILE_MAX_EVAL_DEPTH: u32 = 64;
 #[cfg(not(debug_assertions))]
 const PROFILE_MAX_EVAL_DEPTH: u32 = 1000;
 
-/// Default cap on Lisp-call nesting depth, used when a context is
+/// Default cap on evaluation nesting depth, used when a context is
 /// created. Exceeding it raises a catchable error rather than aborting
 /// the process; tune it per-context with
 /// [`TulispContext::set_max_eval_depth`].
@@ -175,11 +175,22 @@ impl TulispContext {
         ctx
     }
 
-    /// Sets the maximum Lisp-call nesting depth for this context.
+    /// Sets the maximum evaluation nesting depth for this context.
     ///
-    /// When evaluation nests deeper than this, it raises a catchable
-    /// error instead of overflowing the host's native stack. The
-    /// default is build-dependent — debug builds use a smaller value
+    /// Every non-tail call of a Lisp function counts one level,
+    /// whether it runs in the tree-walker or in the VM; calls of Rust
+    /// functions do not. Every program run through the VM
+    /// counts one as well, the outermost included: a plain
+    /// [`eval_string`](Self::eval_string) spends a level before the
+    /// program's own calls, and a Rust callable that runs another
+    /// program mid-evaluation spends one more. When calls nest deeper
+    /// than this, evaluation raises a catchable error instead of
+    /// overflowing the host's native stack. The cap counts calls and
+    /// program runs, not how deeply a form nests. The parser bounds
+    /// that, so a form that did not come from the parser, one built
+    /// through the Rust API or built at run time and passed to
+    /// `eval`, can still overflow the native stack. The default is
+    /// build-dependent — debug builds use a smaller value
     /// because their stack frames are larger. Raise it for workloads
     /// with legitimately deep non-tail recursion, bearing in mind the
     /// available native stack; tail-recursive calls are trampolined
@@ -197,6 +208,23 @@ impl TulispContext {
     /// raising the eval cap lifts it too.
     pub(crate) fn max_nesting_depth(&self) -> u32 {
         self.max_eval_depth.saturating_mul(4)
+    }
+
+    /// Counts one nested evaluation frame, a Lisp call or a VM
+    /// program run, against `max_eval_depth`, failing with a
+    /// catchable error when the frame would exceed it. The frame
+    /// stays counted while the returned guard lives; dropping the
+    /// guard, on any path including a panic, uncounts it.
+    #[inline(always)]
+    pub(crate) fn enter_frame(&mut self) -> Result<FrameGuard<'_>, Error> {
+        if self.eval_depth >= self.max_eval_depth {
+            return Err(Error::lisp_error(format!(
+                "Lisp nesting exceeds max-eval-depth ({})",
+                self.max_eval_depth
+            )));
+        }
+        self.eval_depth += 1;
+        Ok(FrameGuard(self))
     }
 
     /// Returns an interned symbol with the given name. `"nil"` and
@@ -854,6 +882,30 @@ impl TulispContext {
     }
 }
 
+/// One counted evaluation frame; see [`TulispContext::enter_frame`].
+/// Derefs to the context for the frame's duration.
+pub(crate) struct FrameGuard<'a>(&'a mut TulispContext);
+
+impl std::ops::Deref for FrameGuard<'_> {
+    type Target = TulispContext;
+
+    fn deref(&self) -> &TulispContext {
+        self.0
+    }
+}
+
+impl std::ops::DerefMut for FrameGuard<'_> {
+    fn deref_mut(&mut self) -> &mut TulispContext {
+        self.0
+    }
+}
+
+impl Drop for FrameGuard<'_> {
+    fn drop(&mut self) {
+        self.0.eval_depth -= 1;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::TulispContext;
@@ -1012,5 +1064,19 @@ mod tests {
         assert!(caught.is_err());
         let result: i64 = ctx.eval_string("(rec 12)").unwrap().try_into().unwrap();
         assert_eq!(result, 12);
+    }
+
+    // `enter_frame` counts frames up to the cap and no further, and
+    // a dropped guard gives its frame back.
+    #[test]
+    fn enter_frame_counts_frames_up_to_the_cap() {
+        let mut ctx = TulispContext::new();
+        ctx.set_max_eval_depth(2);
+        {
+            let mut outer = ctx.enter_frame().unwrap();
+            let mut inner = outer.enter_frame().unwrap();
+            assert!(inner.enter_frame().is_err());
+        }
+        assert_eq!(ctx.eval_depth, 0);
     }
 }
