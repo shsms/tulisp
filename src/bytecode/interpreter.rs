@@ -8,6 +8,8 @@ use crate::{
 };
 use std::collections::HashMap;
 
+/// A compiled function to run on arguments already on the stack,
+/// with how many of them fill optional and rest parameters.
 struct TailCallInfo {
     function: CompiledDefun,
     optional_count: usize,
@@ -245,28 +247,14 @@ pub(crate) fn run_lambda(
     let mut guard = RunGuard::new(ctx);
     guard.ctx.vm.stack.extend(args);
 
-    // Use the same trampoline the `Call` handler uses so tail calls
-    // from the lambda body unwind without Rust-stack growth.
-    let mut current = compiled;
-    let mut current_optional = optional_count;
-    let mut current_rest = rest_count;
-    loop {
-        let params = init_defun_args(guard.ctx, &current.params, &current_optional, &current_rest)?;
-        let tail = run_impl(
-            guard.ctx,
-            &current.instructions,
-            current.trace_ranges.as_slice(),
-        )?;
-        drop(params);
-        match tail {
-            Some(info) => {
-                current = info.function;
-                current_optional = info.optional_count;
-                current_rest = info.rest_count;
-            }
-            None => break,
-        }
-    }
+    let call = TailCallInfo {
+        function: compiled,
+        optional_count,
+        rest_count,
+    };
+    run_tail_calls(guard.ctx, call)?;
+    // The body ended in `Ret` with exactly its value on the stack.
+    debug_assert_eq!(guard.ctx.vm.stack.len(), guard.stack_base + 1);
 
     Ok(guard.take_value())
 }
@@ -607,36 +595,15 @@ fn run_impl_inner(
                     }
                 }
 
-                let mut current_function = function.as_ref().unwrap().clone();
-                let mut current_optional = *optional_count;
-                let mut current_rest = *rest_count;
+                let call = TailCallInfo {
+                    function: function.as_ref().unwrap().clone(),
+                    optional_count: *optional_count,
+                    rest_count: *rest_count,
+                };
                 let form = form.clone();
 
                 drop(instr_ref);
-                loop {
-                    let params = init_defun_args(
-                        ctx,
-                        &current_function.params,
-                        &current_optional,
-                        &current_rest,
-                    )?;
-                    let tail = run_impl(
-                        ctx,
-                        &current_function.instructions,
-                        current_function.trace_ranges.as_slice(),
-                    )
-                    .map_err(|e| e.with_trace(form.clone()))?;
-                    drop(params);
-
-                    match tail {
-                        Some(info) => {
-                            current_function = info.function;
-                            current_optional = info.optional_count;
-                            current_rest = info.rest_count;
-                        }
-                        None => break,
-                    }
-                }
+                run_tail_calls(ctx, call).map_err(|e| e.with_trace(form))?;
                 instr_ref = program.borrow_mut();
             }
             Instruction::TailCall {
@@ -919,16 +886,12 @@ fn run_impl_inner(
     Ok(None)
 }
 
-fn init_defun_args(
-    ctx: &mut TulispContext,
-    params: &VMDefunParams,
-    optional_count: &usize,
-    rest_count: &usize,
-) -> Result<SetParams, Error> {
+fn init_defun_args(ctx: &mut TulispContext, call: &TailCallInfo) -> Result<SetParams, Error> {
+    let params = &call.function.params;
     let mut set_params = SetParams::new();
     if let Some(rest) = &params.rest {
         let mut rest_value = TulispObject::nil();
-        for _ in 0..*rest_count {
+        for _ in 0..call.rest_count {
             rest_value = TulispObject::cons(ctx.vm.stack.pop().unwrap(), rest_value);
         }
         rest.set_scope(rest_value)?;
@@ -940,7 +903,7 @@ fn init_defun_args(
         // missing-optional case, where the previous `continue` skipped
         // the push and leaked the nil binding onto `LEX_STACKS` once
         // per call.
-        let val = if ii >= *optional_count {
+        let val = if ii >= call.optional_count {
             TulispObject::nil()
         } else {
             ctx.vm.stack.pop().unwrap()
@@ -953,6 +916,25 @@ fn init_defun_args(
         set_params.push(arg.clone());
     }
     Ok(set_params)
+}
+
+/// Runs `call`'s function on arguments already on the stack and
+/// follows its tail calls until one returns a value, so a chain of
+/// tail calls costs no native stack.
+fn run_tail_calls(ctx: &mut TulispContext, mut call: TailCallInfo) -> Result<(), Error> {
+    loop {
+        let params = init_defun_args(ctx, &call)?;
+        let tail = run_impl(
+            ctx,
+            &call.function.instructions,
+            call.function.trace_ranges.as_slice(),
+        )?;
+        drop(params);
+        match tail {
+            Some(next) => call = next,
+            None => return Ok(()),
+        }
+    }
 }
 
 /// In-VM `funcall` dispatch used by `Instruction::Funcall`. Args are
