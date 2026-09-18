@@ -175,7 +175,7 @@ pub(super) fn compile_fn_lambda(
         // swaps placeholder objects, not positions), so the ranges
         // stay valid for the materialized closure.
         let (instructions, trace_ranges) =
-            crate::bytecode::bytecode::strip_trace_markers(instructions);
+            crate::bytecode::bytecode::strip_trace_markers(instructions)?;
 
         let template = LambdaTemplate {
             instructions,

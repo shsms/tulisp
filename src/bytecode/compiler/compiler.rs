@@ -79,7 +79,7 @@ pub fn compile(ctx: &mut TulispContext, value: &TulispObject) -> Result<Bytecode
     // stream into a side table. Per-function bodies were already
     // stripped at their `CompiledDefun` boundary inside
     // `compile_fn_defun`.
-    let (output, global_trace_ranges) = crate::bytecode::bytecode::strip_trace_markers(output);
+    let (output, global_trace_ranges) = crate::bytecode::bytecode::strip_trace_markers(output)?;
     let global_trace_ranges =
         crate::object::wrappers::generic::Shared::new_sized(global_trace_ranges);
     let compiler = ctx.compiler.as_mut().unwrap();

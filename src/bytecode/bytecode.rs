@@ -2,7 +2,7 @@ use std::{collections::HashMap, fmt};
 
 use super::Instruction;
 use crate::{
-    TulispObject,
+    Error, TulispObject,
     bytecode::compiler::VMDefunParams,
     object::wrappers::generic::{Shared, SharedMut},
 };
@@ -76,6 +76,8 @@ impl fmt::Display for Bytecode {
 /// markers removed. Patches every `Pos::Rel` jump whose origin or
 /// target falls on opposite sides of a removed slot so it still
 /// lands on the same logical instruction in the stripped output.
+/// A unit the compiler left with unbalanced markers is an internal
+/// error.
 ///
 /// `Pos::Label` jumps resolve through the machine's `labels`
 /// HashMap (rebuilt by `Machine::locate_labels` *after* this strip
@@ -83,7 +85,9 @@ impl fmt::Display for Bytecode {
 /// jump-to-function-start) also stays valid because the function's
 /// first non-marker instruction lives at PC 0 in the stripped
 /// vector regardless of whether it was preceded by a `PushTrace`.
-pub(crate) fn strip_trace_markers(input: Vec<Instruction>) -> (Vec<Instruction>, Vec<TraceRange>) {
+pub(crate) fn strip_trace_markers(
+    input: Vec<Instruction>,
+) -> Result<(Vec<Instruction>, Vec<TraceRange>), Error> {
     use crate::bytecode::instruction::Pos;
 
     // shift[i] = number of marker instructions strictly before
@@ -109,9 +113,11 @@ pub(crate) fn strip_trace_markers(input: Vec<Instruction>) -> (Vec<Instruction>,
                 continue;
             }
             Instruction::PopTrace => {
-                let (start, form) = stack
-                    .pop()
-                    .expect("PopTrace without matching PushTrace in compiled bytecode");
+                let Some((start, form)) = stack.pop() else {
+                    return Err(Error::lisp_error(
+                        "internal: PopTrace without a matching PushTrace",
+                    ));
+                };
                 ranges.push(TraceRange {
                     start_pc: start,
                     end_pc: output.len(),
@@ -136,9 +142,32 @@ pub(crate) fn strip_trace_markers(input: Vec<Instruction>) -> (Vec<Instruction>,
         output.push(instr);
     }
 
-    debug_assert!(
-        stack.is_empty(),
-        "PushTrace without matching PopTrace in compiled bytecode"
-    );
-    (output, ranges)
+    if !stack.is_empty() {
+        return Err(Error::lisp_error(
+            "internal: PushTrace without a matching PopTrace",
+        ));
+    }
+    Ok((output, ranges))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Instruction, strip_trace_markers};
+    use crate::TulispObject;
+
+    #[test]
+    fn unbalanced_trace_markers_are_an_error() {
+        for (unit, message) in [
+            (vec![Instruction::PopTrace], "without a matching PushTrace"),
+            (
+                vec![Instruction::PushTrace(TulispObject::nil())],
+                "without a matching PopTrace",
+            ),
+        ] {
+            let Err(err) = strip_trace_markers(unit) else {
+                panic!("unbalanced trace markers stripped");
+            };
+            assert!(err.to_string().contains(message), "{err}");
+        }
+    }
 }

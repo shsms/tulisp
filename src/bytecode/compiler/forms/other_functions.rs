@@ -377,7 +377,7 @@ pub(super) fn compile_fn_defun(
     // side table. Stripping happens at the `CompiledDefun`
     // boundary so the runtime never executes these markers — see
     // `strip_trace_markers`.
-    let (res, trace_ranges) = crate::bytecode::bytecode::strip_trace_markers(res);
+    let (res, trace_ranges) = crate::bytecode::bytecode::strip_trace_markers(res)?;
     let function = CompiledDefun {
         name: fn_name.clone(),
         instructions: SharedMut::new(res),
