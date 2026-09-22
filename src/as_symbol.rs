@@ -1,13 +1,22 @@
 //! [`AsSymbol!`](macro@crate::AsSymbol): a Rust enum whose unit
 //! variants are Lisp symbols.
 
-use crate::TulispObject;
+use crate::{Error, TulispObject};
 
 /// Calls `f` on the name `value` reads as a symbol: a symbol's or a
 /// lexical binding's name, `nil` or `t`; `None` for any other value.
 #[doc(hidden)]
 pub fn with_symbol_name<R>(value: &TulispObject, f: impl FnOnce(&str) -> R) -> Option<R> {
     value.inner_ref().0.symbol_name().map(f)
+}
+
+/// The error for a name that is none of `names`.
+#[doc(hidden)]
+pub fn unknown_name(type_name: &str, name: &str, names: &[&str]) -> Error {
+    Error::invalid_argument(format!(
+        "unknown {type_name} '{name}'; expected one of {}",
+        names.join(", ")
+    ))
 }
 
 /// Declares an enum whose variants convert to and from symbols.
@@ -39,6 +48,9 @@ pub fn with_symbol_name<R>(value: &TulispObject, f: impl FnOnce(&str) -> R) -> O
 /// `<"nil">` or `<"t">`; through an `Option`, though, `nil` is
 /// always `None`.
 ///
+/// `Display` writes a variant's spelling, and `FromStr` reads it back; its
+/// error names the accepted spellings.
+///
 /// # Example
 ///
 /// ```rust
@@ -54,6 +66,8 @@ pub fn with_symbol_name<R>(value: &TulispObject, f: impl FnOnce(&str) -> R) -> O
 /// assert_eq!(ctx.eval_string("(mode-name 'careful)").unwrap().to_string(), r#""CAREFUL""#);
 /// assert_eq!(Mode::from_symbol_name("fast"), Some(Mode::Fast));
 /// assert_eq!(Mode::SYMBOL_NAMES, ["fast", "careful"]);
+/// assert_eq!("careful".parse::<Mode>().unwrap(), Mode::Careful);
+/// assert_eq!(Mode::Fast.to_string(), "fast");
 /// ```
 #[macro_export]
 macro_rules! AsSymbol {
@@ -106,15 +120,9 @@ macro_rules! AsSymbol {
                 __ctx: &mut $crate::TulispContext,
                 __value: &$crate::TulispObject,
             ) -> Result<Self, $crate::Error> {
-                let Some(__result) = $crate::as_symbol::with_symbol_name(__value, |__symbol| {
-                    Self::from_symbol_name(__symbol).ok_or_else(|| {
-                        $crate::Error::invalid_argument(format!(
-                            "unknown {} '{__symbol}'; expected one of {}",
-                            stringify!($name),
-                            Self::SYMBOL_NAMES.join(", ")
-                        ))
-                        .with_trace(__value.clone())
-                    })
+                let Some(__result) = $crate::as_symbol::with_symbol_name(__value, |__name| {
+                    <Self as ::std::str::FromStr>::from_str(__name)
+                        .map_err(|__err| __err.with_trace(__value.clone()))
                 }) else {
                     return Err($crate::Error::type_mismatch(format!(
                         "Expected a symbol for {}, got: {__value}",
@@ -127,6 +135,22 @@ macro_rules! AsSymbol {
 
             fn into_tulisp(self, __ctx: &mut $crate::TulispContext) -> $crate::TulispObject {
                 __ctx.intern(self.symbol_name())
+            }
+        }
+
+        impl ::std::fmt::Display for $name {
+            fn fmt(&self, __f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+                __f.write_str(self.symbol_name())
+            }
+        }
+
+        impl ::std::str::FromStr for $name {
+            type Err = $crate::Error;
+
+            fn from_str(__name: &str) -> Result<Self, $crate::Error> {
+                Self::from_symbol_name(__name).ok_or_else(|| {
+                    $crate::as_symbol::unknown_name(stringify!($name), __name, Self::SYMBOL_NAMES)
+                })
             }
         }
     };
@@ -267,6 +291,18 @@ mod tests {
         assert!(
             err.to_string().contains("Expected a symbol for Tri"),
             "{err}"
+        );
+    }
+
+    #[test]
+    fn display_and_from_str_use_the_spelling() {
+        assert_eq!(Health::Ok.to_string(), "ok");
+        assert_eq!(Health::Standby.to_string(), "Standby");
+        assert_eq!("error".parse::<Health>().unwrap(), Health::Error);
+        let err = "broken".parse::<Health>().unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "ERR InvalidArgument: unknown Health 'broken'; expected one of ok, error, Standby"
         );
     }
 
