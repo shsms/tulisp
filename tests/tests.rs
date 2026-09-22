@@ -3693,3 +3693,23 @@ mod etags_tests {
         Ok(())
     }
 }
+
+// The exported macros name what they use through `$crate`, so a caller
+// that imports nothing but the macro can expand them.
+mod without_imports {
+    pub fn third(ctx: &mut tulisp::TulispContext) -> Result<tulisp::TulispObject, tulisp::Error> {
+        let args = tulisp::list!(,tulisp::TulispObject::from(1) ,tulisp::TulispObject::from(2))?;
+        let copy = args.clone();
+        tulisp::destruct_bind!((first &optional second) = copy);
+        let _ = (first, second);
+        tulisp::destruct_eval_bind!(ctx, (a &optional b c) = args);
+        let _ = (a, b);
+        Ok(c)
+    }
+}
+
+#[test]
+fn test_exported_macros_expand_without_imports() {
+    let mut ctx = tulisp::TulispContext::new();
+    assert!(without_imports::third(&mut ctx).unwrap().null());
+}

@@ -43,20 +43,20 @@ macro_rules! list {
         $item.deep_copy().and_then(|__ret| $ret.append(__ret))
     };
     (@push $ret:ident, $item:expr, $($items:tt)+) => {
-        list!(@push $ret, $item).and_then(|__ret|
-        list!(@push __ret, $($items)+))
+        $crate::list!(@push $ret, $item).and_then(|__ret|
+        $crate::list!(@push __ret, $($items)+))
     };
     (@push $ret:ident, @ $item:expr, $($items:tt)+) => {
-        list!(@push $ret, @ $item).and_then(|__ret|
-        list!(@push __ret, $($items)+))
+        $crate::list!(@push $ret, @ $item).and_then(|__ret|
+        $crate::list!(@push __ret, $($items)+))
     };
-    (, $($items:tt)+) => { list!($($items)+) };
+    (, $($items:tt)+) => { $crate::list!($($items)+) };
     ($($items:tt)+) => {{
-        let __ret = TulispObject::nil();
-        list!(@push __ret, $($items)+)
+        let __ret = $crate::TulispObject::nil();
+        $crate::list!(@push __ret, $($items)+)
             .and_then(|__ret| Ok(__ret.to_owned()))
     }};
-    () => { TulispObject::nil() }
+    () => { $crate::TulispObject::nil() }
 }
 
 /**
@@ -122,8 +122,8 @@ macro_rules! destruct_bind {
         let $vv = $vv.cdr()?;
     };
     (@reqr $vv:ident, $var:ident $($vars:tt)+) => {
-        destruct_bind!(@reqr $vv, $var);
-        destruct_bind!(@reqr $vv, $($vars)+);
+        $crate::destruct_bind!(@reqr $vv, $var);
+        $crate::destruct_bind!(@reqr $vv, $($vars)+);
     };
     (@reqr $vv:ident,) => {};
     (@no-rest $vv:ident) => {
@@ -138,33 +138,33 @@ macro_rules! destruct_bind {
         let ($var, $vv) = if !$vv.null() {
             ($vv.car()?, $vv.cdr()?)
         } else {
-            (TulispObject::nil(), TulispObject::nil())
+            ($crate::TulispObject::nil(), $crate::TulispObject::nil())
         };
     };
     (@optvar $vv:ident, $var:ident $($vars:ident)+) => {
-        destruct_bind!(@optvar $vv, $var);
-        destruct_bind!(@optvar $vv, $($vars)+)
+        $crate::destruct_bind!(@optvar $vv, $var);
+        $crate::destruct_bind!(@optvar $vv, $($vars)+)
     };
     (@impl ($($vars:ident)+) = $vv:ident) => {
-        destruct_bind!(@reqr $vv, $($vars)+);
-        destruct_bind!(@no-rest $vv);
+        $crate::destruct_bind!(@reqr $vv, $($vars)+);
+        $crate::destruct_bind!(@no-rest $vv);
     };
     (@impl ($($vars:ident)* &optional $($optvars:ident)+) = $vv:ident) => {
-	destruct_bind!(@reqr $vv, $($vars)*);
-        destruct_bind!(@optvar $vv, $($optvars)+);
-        destruct_bind!(@no-rest $vv);
+	$crate::destruct_bind!(@reqr $vv, $($vars)*);
+        $crate::destruct_bind!(@optvar $vv, $($optvars)+);
+        $crate::destruct_bind!(@no-rest $vv);
     };
     (@impl ($($vars:ident)* &rest $rest:ident) = $vv:ident) => {
-	destruct_bind!(@reqr $vv, $($vars)*);
-        destruct_bind!(@rest $rest $vv);
+	$crate::destruct_bind!(@reqr $vv, $($vars)*);
+        $crate::destruct_bind!(@rest $rest $vv);
     };
     (@impl ($($vars:ident)* &optional $($optvars:ident)+ &rest $rest:ident) = $vv:ident) => {
-	destruct_bind!(@reqr $vv, $($vars)*);
-        destruct_bind!(@optvar $vv, $($optvars)+);
-        destruct_bind!(@rest $rest $vv);
+	$crate::destruct_bind!(@reqr $vv, $($vars)*);
+        $crate::destruct_bind!(@optvar $vv, $($optvars)+);
+        $crate::destruct_bind!(@rest $rest $vv);
     };
     (($($rest:tt)*) = $vv:ident) => {
-        destruct_bind!(@impl ($($rest)*) = $vv);
+        $crate::destruct_bind!(@impl ($($rest)*) = $vv);
     };
 }
 
@@ -178,8 +178,8 @@ macro_rules! destruct_eval_bind {
         let $vv = $vv.cdr()?;
     };
     (@reqr $ctx:ident, $vv:ident, $var:ident $($vars:tt)+) => {
-        destruct_eval_bind!(@reqr $ctx, $vv, $var);
-        destruct_eval_bind!(@reqr $ctx, $vv, $($vars)+);
+        $crate::destruct_eval_bind!(@reqr $ctx, $vv, $var);
+        $crate::destruct_eval_bind!(@reqr $ctx, $vv, $($vars)+);
     };
     (@reqr $ctx:ident, $vv:ident,) => {};
     (@no-rest $ctx:ident, $vv:ident) => {
@@ -194,33 +194,33 @@ macro_rules! destruct_eval_bind {
         let ($var, $vv) = if !$vv.null() {
             ($vv.car_and_then(|__x| $ctx.eval(__x))?, $vv.cdr()?)
         } else {
-            (TulispObject::nil(), TulispObject::nil())
+            ($crate::TulispObject::nil(), $crate::TulispObject::nil())
         };
     };
     (@optvar $ctx:ident, $vv:ident, $var:ident $($vars:ident)+) => {
-        destruct_eval_bind!(@optvar $ctx, $vv, $var);
-        destruct_eval_bind!(@optvar $ctx, $vv, $($vars)+)
+        $crate::destruct_eval_bind!(@optvar $ctx, $vv, $var);
+        $crate::destruct_eval_bind!(@optvar $ctx, $vv, $($vars)+)
     };
     (@impl $ctx:ident, ($($vars:ident)+) = $vv:ident) => {
-        destruct_eval_bind!(@reqr $ctx, $vv, $($vars)+);
-        destruct_eval_bind!(@no-rest $ctx, $vv);
+        $crate::destruct_eval_bind!(@reqr $ctx, $vv, $($vars)+);
+        $crate::destruct_eval_bind!(@no-rest $ctx, $vv);
     };
     (@impl $ctx:ident, ($($vars:ident)* &optional $($optvars:ident)+) = $vv:ident) => {
-	destruct_eval_bind!(@reqr $ctx, $vv, $($vars)*);
-        destruct_eval_bind!(@optvar $ctx, $vv, $($optvars)+);
-        destruct_eval_bind!(@no-rest $ctx, $vv);
+	$crate::destruct_eval_bind!(@reqr $ctx, $vv, $($vars)*);
+        $crate::destruct_eval_bind!(@optvar $ctx, $vv, $($optvars)+);
+        $crate::destruct_eval_bind!(@no-rest $ctx, $vv);
     };
     (@impl $ctx:ident, ($($vars:ident)* &rest $rest:ident) = $vv:ident) => {
-	destruct_eval_bind!(@reqr $ctx, $vv, $($vars)*);
-        destruct_eval_bind!(@rest $ctx, $rest $vv);
+	$crate::destruct_eval_bind!(@reqr $ctx, $vv, $($vars)*);
+        $crate::destruct_eval_bind!(@rest $ctx, $rest $vv);
     };
     (@impl $ctx:ident, ($($vars:ident)* &optional $($optvars:ident)+ &rest $rest:ident) = $vv:ident) => {
-	destruct_eval_bind!(@reqr $ctx, $vv, $($vars)*);
-        destruct_eval_bind!(@optvar $ctx, $vv, $($optvars)+);
-        destruct_eval_bind!(@rest $ctx, $rest $vv);
+	$crate::destruct_eval_bind!(@reqr $ctx, $vv, $($vars)*);
+        $crate::destruct_eval_bind!(@optvar $ctx, $vv, $($optvars)+);
+        $crate::destruct_eval_bind!(@rest $ctx, $rest $vv);
     };
     ($ctx:ident, ($($rest:tt)*) = $vv:ident) => {
-        destruct_eval_bind!(@impl $ctx, ($($rest)*) = $vv);
+        $crate::destruct_eval_bind!(@impl $ctx, ($($rest)*) = $vv);
     };
 }
 
