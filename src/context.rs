@@ -18,7 +18,6 @@ use crate::{
     context::callable::TulispCallable,
     error::Error,
     eval::{DummyEval, eval_basic, funcall, resolve_function},
-    list,
     object::wrappers::{DefunFn, TulispFn, generic::Shared},
     parse::parse,
     value::LexAllocator,
@@ -629,9 +628,9 @@ impl TulispContext {
         func: &TulispObject,
         args: impl FuncallArgs,
     ) -> Result<TulispObject, Error> {
-        let func = resolve_function(self, func)?;
-        let args: TulispObject = args.into_args(self).into_iter().collect();
-        funcall::<DummyEval>(self, &func, &args)
+        let function = self.resolve_for_call(func)?;
+        let args = args.into_args(self);
+        self.call_with(&function, args)
     }
 
     /// Calls `func` as Emacs Lisp's `apply` does: the leading elements of
@@ -657,17 +656,40 @@ impl TulispContext {
         func: &TulispObject,
         args: impl ApplyArgs,
     ) -> Result<TulispObject, Error> {
-        let func = resolve_function(self, func)?;
-        let args: TulispObject = args.into_args(self)?.into_iter().collect();
-        funcall::<DummyEval>(self, &func, &args)
+        let function = self.resolve_for_call(func)?;
+        let args = args.into_args(self)?;
+        self.call_with(&function, args)
+    }
+
+    /// The function a call from Rust runs for `func`: the VM's compiled
+    /// copy when `func` names a `defun` compiled from the definition it
+    /// holds now, and the resolved function otherwise.
+    fn resolve_for_call(&mut self, func: &TulispObject) -> Result<TulispObject, Error> {
+        let function = resolve_function(self, func)?;
+        if func.symbolp()
+            && let Some(compiled) = self.vm.compiled_copy(func, &function)
+        {
+            return Ok(TulispValue::CompiledDefun { value: compiled }.into_ref(None));
+        }
+        Ok(function)
+    }
+
+    /// Calls `function` with `args`, which are passed as they are.
+    fn call_with(
+        &mut self,
+        function: &TulispObject,
+        args: Vec<TulispObject>,
+    ) -> Result<TulispObject, Error> {
+        let args: TulispObject = args.into_iter().collect();
+        funcall::<DummyEval>(self, function, &args)
     }
 
     /// Maps the given function over the given sequence, and returns the result.
     pub fn map(&mut self, func: &TulispObject, seq: &TulispObject) -> Result<TulispObject, Error> {
-        let func = resolve_function(self, func)?;
+        let function = self.resolve_for_call(func)?;
         let mut builder = crate::cons::ListBuilder::new();
         for item in seq.base_iter() {
-            builder.push(funcall::<DummyEval>(self, &func, &list!(item)?)?);
+            builder.push(self.call_with(&function, vec![item])?);
         }
         Ok(builder.build())
     }
@@ -679,10 +701,10 @@ impl TulispContext {
         func: &TulispObject,
         seq: &TulispObject,
     ) -> Result<TulispObject, Error> {
-        let func = resolve_function(self, func)?;
+        let function = self.resolve_for_call(func)?;
         let mut builder = crate::cons::ListBuilder::new();
         for item in seq.base_iter() {
-            if funcall::<DummyEval>(self, &func, &list!(item.clone())?)?.is_truthy() {
+            if self.call_with(&function, vec![item.clone()])?.is_truthy() {
                 builder.push(item);
             }
         }
@@ -697,10 +719,10 @@ impl TulispContext {
         seq: &TulispObject,
         initial_value: &TulispObject,
     ) -> Result<TulispObject, Error> {
-        let func = resolve_function(self, func)?;
+        let function = self.resolve_for_call(func)?;
         let mut ret = initial_value.clone();
         for item in seq.base_iter() {
-            ret = funcall::<DummyEval>(self, &func, &list!(ret, item)?)?;
+            ret = self.call_with(&function, vec![ret, item])?;
         }
         Ok(ret)
     }
@@ -1018,17 +1040,22 @@ mod tests {
     // re-enters `eval_string` raises the catchable max-eval-depth
     // error instead of overflowing the native stack, whichever
     // public method the host enters through, and leaves the depth
-    // counter balanced. Entering through `funcall` with a symbol
-    // runs `f` in the tree-walker, with a lambda in the VM. The cap
-    // is small because each re-entrant cycle burns many native
-    // frames and test threads run on a 2 MiB stack.
+    // counter balanced. Entering through `funcall` runs `f`'s compiled
+    // copy in the VM, or the tree-walker's `f` once it is redefined
+    // there. The cap is small because each re-entrant cycle burns many
+    // native frames and test threads run on a 2 MiB stack.
     #[test]
     fn reentrant_eval_respects_depth_cap_from_every_entry_point() {
         type Entry = fn(&mut TulispContext) -> Result<TulispObject, Error>;
-        let entries: [(&str, Entry); 4] = [
+        let entries: [(&str, Entry); 5] = [
             ("eval_string", |ctx| ctx.eval_string("(f)")),
             ("tw_eval_string", |ctx| ctx.tw_eval_string("(f)")),
             ("funcall symbol", |ctx| {
+                let f = ctx.intern("f");
+                ctx.funcall(&f, ())
+            }),
+            ("funcall tree-walker symbol", |ctx| {
+                ctx.tw_eval_string(r#"(defun f () (re-eval "(f)"))"#)?;
                 let f = ctx.intern("f");
                 ctx.funcall(&f, ())
             }),

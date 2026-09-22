@@ -1828,17 +1828,17 @@ fn test_funcall_compiled_defun_through_tw() -> Result<(), Error> {
     // go through `funcall_inline` (which handles values correctly),
     // and TW evaluation of `(lambda …)` produces a `Lambda` not a
     // `CompiledDefun`. The cross-path is unique to "VM-eval the
-    // setup, then TW-eval the call" — exactly what microsim does
-    // when its gRPC handlers `ctx.funcall(set-power-active, …)`.
+    // setup, then TW-eval the call", which is what happens when a host
+    // calls a tree-walker function through `ctx.funcall`.
     let mut ctx = TulispContext::new();
     ctx.defun("rust-needs-num", |v: f64| -> f64 { v });
     // VM-eval: `inner-fn` ends up holding a `CompiledDefun`
-    // (materialized by `Instruction::MakeLambda` at runtime), and
-    // `outer` is set up via the TW `defun` defspecial during parse
-    // so calling it through `ctx.funcall` runs the TW path.
-    ctx.eval_string(
+    // (materialized by `Instruction::MakeLambda` at runtime).
+    ctx.eval_string("(set 'inner-fn (lambda (x) (rust-needs-num x)))")?;
+    // TW-eval: `outer` has no compiled copy, so calling it through
+    // `ctx.funcall` runs the TW path.
+    ctx.tw_eval_string(
         r#"
-        (set 'inner-fn (lambda (x) (rust-needs-num x)))
         (defun outer (id v)
           (funcall (symbol-value 'inner-fn) v))
         "#,

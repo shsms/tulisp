@@ -160,6 +160,18 @@ impl Machine {
             functions: HashMap::new(),
         }
     }
+
+    /// The compiled copy of the `defun` that `name` holds as `function`,
+    /// if this machine has one compiled from that same definition.
+    pub(crate) fn compiled_copy(
+        &self,
+        name: &TulispObject,
+        function: &TulispObject,
+    ) -> Option<CompiledDefun> {
+        let compiled = self.functions.get(&name.addr_as_usize())?;
+        let source = compiled.source.as_ref()?;
+        source.eq_ptr(function).then(|| compiled.clone())
+    }
 }
 
 /// Restores the caller's VM stack height on drop, on any path
@@ -1196,6 +1208,81 @@ mod tests {
     use crate::TulispObject;
     use crate::bytecode::{Bytecode, Instruction, Pos};
     use crate::test_utils::eval_assert_equal;
+
+    #[test]
+    fn a_host_call_runs_the_compiled_copy_of_a_named_defun() {
+        let mut ctx = TulispContext::new();
+        ctx.eval_string("(defun f (&rest _) nil) (defun g (&rest _) t)")
+            .unwrap();
+        let f = ctx.intern("f");
+        let g = ctx.intern("g");
+        let f_value = f.get().unwrap();
+        assert!(ctx.vm.compiled_copy(&f, &f_value).is_some());
+        // File g's compiled body under f, as compiled from f's current
+        // definition: only a call that runs the compiled copy sees t.
+        let mut swapped = ctx.vm.functions[&g.addr_as_usize()].clone();
+        swapped.source = Some(f_value);
+        ctx.vm.functions.insert(f.addr_as_usize(), swapped);
+        let zero = ctx.eval_string("'(0)").unwrap();
+        assert_eq!(ctx.funcall(&f, (0i64,)).unwrap().to_string(), "t");
+        assert_eq!(ctx.apply(&f, vec![0i64]).unwrap().to_string(), "t");
+        assert_eq!(ctx.map(&f, &zero).unwrap().to_string(), "(t)");
+        assert_eq!(ctx.filter(&f, &zero).unwrap().to_string(), "(0)");
+        let nil = TulispObject::nil();
+        assert_eq!(ctx.reduce(&f, &zero, &nil).unwrap().to_string(), "t");
+    }
+
+    // Arguments from Rust reach a function unevaluated on every path: a
+    // tree-walker lambda, and a special form that reads its argument
+    // forms.
+    #[test]
+    fn a_host_call_passes_arguments_unevaluated() {
+        let mut ctx = TulispContext::new();
+        ctx.tw_eval_string("(defun same (x) x)").unwrap();
+        ctx.defspecial("raw", |_, args| Ok(args.clone()));
+        let same = ctx.intern("same");
+        let raw = ctx.intern("raw");
+        let sym = ctx.intern("unbound-sym");
+        let form = ctx.eval_string("'(+ 1 2)").unwrap();
+        assert_eq!(
+            ctx.funcall(&same, (sym.clone(),)).unwrap().to_string(),
+            "unbound-sym"
+        );
+        assert_eq!(
+            ctx.funcall(&raw, (sym, form.clone())).unwrap().to_string(),
+            "(unbound-sym (+ 1 2))"
+        );
+        assert_eq!(ctx.apply(&raw, &form).unwrap().to_string(), "(+ 1 2)");
+    }
+
+    #[test]
+    fn a_host_call_skips_a_compiled_copy_the_symbol_no_longer_holds() {
+        let mut ctx = TulispContext::new();
+        ctx.eval_string("(defun f (x) (* x 10))").unwrap();
+        let f = ctx.intern("f");
+        assert_eq!(ctx.funcall(&f, (2i64,)).unwrap().to_string(), "20");
+        ctx.tw_eval_string("(defun f (x) (+ x 1))").unwrap();
+        assert!(ctx.vm.compiled_copy(&f, &f.get().unwrap()).is_none());
+        assert_eq!(ctx.funcall(&f, (2i64,)).unwrap().to_string(), "3");
+        ctx.defun("f", |x: i64| x - 1);
+        assert_eq!(ctx.funcall(&f, (2i64,)).unwrap().to_string(), "1");
+        ctx.eval_string("(defun f (x) (* x 100))").unwrap();
+        assert!(ctx.vm.compiled_copy(&f, &f.get().unwrap()).is_some());
+        assert_eq!(ctx.apply(&f, vec![2i64]).unwrap().to_string(), "200");
+    }
+
+    // The parse evaluates a quoted `defun` too, so after this second
+    // program the symbol holds its lambda, which has no compiled copy:
+    // a host call runs it, as `(funcall 'f)` does.
+    #[test]
+    fn a_host_call_skips_a_compiled_copy_of_a_different_defun_form() {
+        let mut ctx = TulispContext::new();
+        ctx.eval_string("(defun f (x) 1)").unwrap();
+        ctx.eval_string("(setq data '(defun f (x) 2))").unwrap();
+        let f = ctx.intern("f");
+        assert_eq!(ctx.eval_string("(funcall 'f 0)").unwrap().to_string(), "2");
+        assert_eq!(ctx.funcall(&f, (0i64,)).unwrap().to_string(), "2");
+    }
 
     // `assemble` removes every trace marker and label, and resolves
     // every label jump, before a program runs. One that slips
