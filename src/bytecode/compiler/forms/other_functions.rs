@@ -379,8 +379,8 @@ pub(super) fn compile_fn_defun(
     let function = CompiledDefun {
         name: fn_name.clone(),
         instructions: SharedMut::new(res),
-        trace_ranges: crate::object::wrappers::generic::Shared::new_sized(trace_ranges),
-        params: crate::object::wrappers::generic::Shared::new_sized(defun_params),
+        trace_ranges: crate::object::wrappers::generic::Shared::new(trace_ranges),
+        params: crate::object::wrappers::generic::Shared::new(defun_params),
     };
     let compiler = ctx.compiler.as_mut().unwrap();
     compiler

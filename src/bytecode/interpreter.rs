@@ -1063,10 +1063,8 @@ fn make_lambda_from_template(
         // instructions), so the template's trace ranges remain
         // valid for the materialized closure. Wrap in a `Shared`
         // since `LambdaTemplate::trace_ranges` is owned.
-        trace_ranges: crate::object::wrappers::generic::Shared::new_sized(
-            template.trace_ranges.clone(),
-        ),
-        params: crate::object::wrappers::generic::Shared::new_sized(params),
+        trace_ranges: crate::object::wrappers::generic::Shared::new(template.trace_ranges.clone()),
+        params: crate::object::wrappers::generic::Shared::new(params),
     };
     Ok(TulispValue::CompiledDefun { value: cd }.into_ref(None))
 }
@@ -1100,7 +1098,7 @@ fn rewrite_instruction(
             }
         Instruction::MakeLambda(template) => {
             let rebuilt = rewrite_template(template, mapping);
-            *template = crate::object::wrappers::generic::Shared::new_sized(rebuilt);
+            *template = crate::object::wrappers::generic::Shared::new(rebuilt);
         }
         _ => {}
     }

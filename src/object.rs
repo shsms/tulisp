@@ -764,6 +764,12 @@ tulisp_object_from!(&str);
 tulisp_object_from!(String);
 tulisp_object_from!(Shared<dyn TulispAny>);
 
+impl<T: TulispAny> From<Shared<T>> for TulispObject {
+    fn from(value: Shared<T>) -> Self {
+        TulispValue::from(value).into_ref(None)
+    }
+}
+
 impl FromIterator<TulispObject> for TulispObject {
     fn from_iter<T: IntoIterator<Item = TulispObject>>(iter: T) -> Self {
         let mut builder = cons::ListBuilder::new();

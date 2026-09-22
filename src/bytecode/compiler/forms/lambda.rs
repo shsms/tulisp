@@ -186,7 +186,7 @@ pub(super) fn compile_fn_lambda(
 
         let mut result = Vec::with_capacity(1);
         if ctx.compiler.as_ref().unwrap().keep_result {
-            result.push(Instruction::MakeLambda(Shared::new_sized(template)));
+            result.push(Instruction::MakeLambda(Shared::new(template)));
         }
         Ok(result)
     })

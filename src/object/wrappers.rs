@@ -64,10 +64,6 @@ pub mod generic {
             Shared(std::rc::Rc::new(val))
         }
 
-        pub fn new(val: impl TulispAny) -> Shared<dyn TulispAny> {
-            Shared(std::rc::Rc::new(val))
-        }
-
         pub fn downcast_ref<U: TulispAny + 'static>(&self) -> Option<&U> {
             let a: &dyn std::any::Any = &*self.0;
             a.downcast_ref::<U>()
@@ -90,7 +86,8 @@ pub mod generic {
     }
 
     impl<T> Shared<T> {
-        pub(crate) fn new_sized(val: T) -> Self {
+        /// A typed shared handle; `.into()` erases it into a Lisp value.
+        pub fn new(val: T) -> Self {
             Shared(std::rc::Rc::new(val))
         }
     }
@@ -105,7 +102,7 @@ pub mod generic {
 
     impl<T: ?Sized> Shared<T> {
         /// True if both point at the same allocation.
-        pub(crate) fn ptr_eq(&self, other: &Self) -> bool {
+        pub fn ptr_eq(&self, other: &Self) -> bool {
             std::rc::Rc::ptr_eq(&self.0, &other.0)
         }
 
@@ -198,10 +195,6 @@ pub mod generic {
             Shared(std::sync::Arc::new(val))
         }
 
-        pub fn new(val: impl TulispAny) -> Shared<dyn TulispAny> {
-            Shared(std::sync::Arc::new(val))
-        }
-
         pub fn downcast_ref<U: TulispAny + 'static>(&self) -> Option<&U> {
             let a: &dyn std::any::Any = &*self.0;
             a.downcast_ref::<U>()
@@ -224,7 +217,8 @@ pub mod generic {
     }
 
     impl<T> Shared<T> {
-        pub(crate) fn new_sized(val: T) -> Self {
+        /// A typed shared handle; `.into()` erases it into a Lisp value.
+        pub fn new(val: T) -> Self {
             Shared(std::sync::Arc::new(val))
         }
     }
@@ -239,7 +233,7 @@ pub mod generic {
 
     impl<T: ?Sized> Shared<T> {
         /// True if both point at the same allocation.
-        pub(crate) fn ptr_eq(&self, other: &Self) -> bool {
+        pub fn ptr_eq(&self, other: &Self) -> bool {
             std::sync::Arc::ptr_eq(&self.0, &other.0)
         }
 

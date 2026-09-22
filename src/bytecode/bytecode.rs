@@ -48,7 +48,7 @@ impl Default for Bytecode {
     fn default() -> Self {
         Self {
             global: SharedMut::default(),
-            global_trace_ranges: Shared::new_sized(Vec::new()),
+            global_trace_ranges: Shared::new(Vec::new()),
             functions: HashMap::default(),
         }
     }

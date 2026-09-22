@@ -135,7 +135,7 @@ impl TulispContext {
             keywords,
             vm: bytecode::Machine::new(),
             load_path: None,
-            lex_allocator: Shared::new_sized(LexAllocator::new()),
+            lex_allocator: Shared::new(LexAllocator::new()),
             eval_depth: 0,
             max_eval_depth: DEFAULT_MAX_EVAL_DEPTH,
             #[cfg(feature = "etags")]

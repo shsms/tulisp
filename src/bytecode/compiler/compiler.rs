@@ -79,8 +79,7 @@ pub fn compile(ctx: &mut TulispContext, value: &TulispObject) -> Result<Bytecode
     // were already assembled at their `CompiledDefun` boundary
     // inside `compile_fn_defun`.
     let (output, global_trace_ranges) = crate::bytecode::bytecode::assemble(output)?;
-    let global_trace_ranges =
-        crate::object::wrappers::generic::Shared::new_sized(global_trace_ranges);
+    let global_trace_ranges = crate::object::wrappers::generic::Shared::new(global_trace_ranges);
     let compiler = ctx.compiler.as_mut().unwrap();
     compiler.bytecode.global = SharedMut::new(output);
     compiler.bytecode.global_trace_ranges = global_trace_ranges.clone();

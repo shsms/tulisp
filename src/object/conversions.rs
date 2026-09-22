@@ -175,7 +175,7 @@ impl<T: TulispAny> TulispConvertible for Shared<T> {
         any.downcast::<T>().map_err(|_| mismatch::<T>(value))
     }
     fn into_tulisp(self, _ctx: &mut TulispContext) -> TulispObject {
-        self.into_any().into()
+        self.into()
     }
 }
 
@@ -275,7 +275,7 @@ mod tests {
     #[test]
     fn a_typed_shared_handle_round_trips_by_reference() {
         let mut ctx = TulispContext::new();
-        let handle = crate::Shared::new_sized(Point { x: 9 });
+        let handle = crate::Shared::new(Point { x: 9 });
         let obj = handle.clone().into_tulisp(&mut ctx);
         let back = crate::Shared::<Point>::from_tulisp(&mut ctx, &obj).unwrap();
         assert!(back.ptr_eq(&handle));

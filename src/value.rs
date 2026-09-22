@@ -413,7 +413,7 @@ impl LexBinding {
         let id = allocator.alloc();
         let name = symbol.to_string();
         LexBinding {
-            inner: Shared::new_sized(LexBindingInner {
+            inner: Shared::new(LexBindingInner {
                 id,
                 name,
                 symbol,
@@ -433,7 +433,7 @@ impl LexBinding {
         let id = allocator.alloc();
         let name = symbol.to_string();
         LexBinding {
-            inner: Shared::new_sized(LexBindingInner {
+            inner: Shared::new(LexBindingInner {
                 id,
                 name,
                 symbol,
@@ -1321,6 +1321,12 @@ impl From<Number> for TulispValue {
 impl From<Shared<dyn TulispAny>> for TulispValue {
     fn from(value: Shared<dyn TulispAny>) -> Self {
         TulispValue::Any(value)
+    }
+}
+
+impl<T: TulispAny> From<Shared<T>> for TulispValue {
+    fn from(value: Shared<T>) -> Self {
+        TulispValue::Any(value.into_any())
     }
 }
 
