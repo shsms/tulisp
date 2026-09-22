@@ -534,6 +534,29 @@ fn macroexpand_depth(
     }
 }
 
+/// The tree-walker's lambda for `(defun NAME PARAMS . REST)`: the body
+/// without its docstring and with its tail calls marked, where each
+/// parameter reference points at a `LexicalBinding` allocated once here.
+/// Call-time evaluation then only pushes and pops values on the
+/// binding's stack, instead of cloning the body on every call.
+pub(crate) fn defun_lambda(
+    ctx: &mut TulispContext,
+    name: &TulispObject,
+    params: &TulispObject,
+    rest: TulispObject,
+) -> Result<TulispObject, Error> {
+    let body = if rest.car()?.as_string().is_ok() {
+        rest.cdr()?
+    } else {
+        rest
+    };
+    let body = crate::parse::mark_tail_calls(ctx, name.clone(), body)?;
+    let raw_params: DefunParams = params.clone().try_into()?;
+    let (params, mappings) = raw_params.bind_as_lexical(&ctx.lex_allocator);
+    let body = substitute_lexical(body, &mappings)?;
+    Ok(TulispValue::Lambda { params, body }.into_ref(None))
+}
+
 /// Walk `body` and replace each occurrence of a symbol listed in
 /// `mappings` with its mapped replacement (typically a freshly-created
 /// `LexicalBinding`). Only substitutes at code positions — literals

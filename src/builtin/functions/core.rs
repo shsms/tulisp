@@ -356,24 +356,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     ctx.defspecial("defun", |ctx, args| {
         destruct_bind!((name params &rest rest) = args);
-        {
-            let body = if rest.car()?.as_string().is_ok() {
-                rest.cdr()?
-            } else {
-                rest
-            };
-            let body = crate::parse::mark_tail_calls(ctx, name.clone(), body)?;
-            // Pre-rewrite the body so each param reference points at a
-            // shared `LexicalBinding` allocated once here. Call-time
-            // evaluation then only push/pops values onto the binding's
-            // thread-local stack, avoiding per-call AST clones (fib was
-            // 10.6× slower without this).
-            let raw_params: DefunParams = params.try_into()?;
-            let (params, mappings) = raw_params.bind_as_lexical(&ctx.lex_allocator);
-            let body = substitute_lexical(body, &mappings)?;
-            name.set_global(TulispValue::Lambda { params, body }.into_ref(None))?;
-            Ok(name)
-        }
+        let lambda = crate::eval::defun_lambda(ctx, &name, &params, rest)?;
+        name.set_global(lambda)?;
+        Ok(name)
     });
 
     fn lambda(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {

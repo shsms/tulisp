@@ -193,6 +193,13 @@ impl Drop for RunGuard<'_> {
 }
 
 pub fn run(ctx: &mut TulispContext, bytecode: Bytecode) -> Result<TulispObject, Error> {
+    // Each symbol holds the definition of the compiled copy the machine
+    // loads for it.
+    for function in bytecode.functions.values() {
+        if let Some(source) = &function.source {
+            function.name.set_global(source.clone())?;
+        }
+    }
     ctx.vm.functions.extend(bytecode.functions);
     // A re-entrant run (a Rust callable evaluating a program
     // mid-run) shares the machine with its caller. The function
@@ -1031,6 +1038,7 @@ fn make_lambda_from_template(
 
     let cd = CompiledDefun {
         name: TulispObject::nil(),
+        source: None,
         instructions: SharedMut::new(instructions),
         // PCs are unchanged by `rewrite_instruction` (it only
         // swaps placeholder objects, never adds or removes

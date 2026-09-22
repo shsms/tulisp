@@ -107,7 +107,7 @@ are unaffected.
 ## Related code
 
 - `src/eval.rs` — `eval_lambda` trampoline, `eval_function`.
-- `src/builtin/functions/core.rs` — tree-walker `mark_tail_calls`, defun site.
+- `src/eval.rs` — `defun_lambda`, the tree-walker's lambda for a defun.
 - `src/parse.rs` — VM `mark_tail_calls` (self-only).
 - `src/bytecode/compiler/forms/other_functions.rs` —
   `compile_fn_list` tail-call detection, `compile_fn_defun_bounce_call`

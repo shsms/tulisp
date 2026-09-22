@@ -268,8 +268,20 @@ pub(super) fn compile_fn_defun(
         rest: None,
     };
     let mut fn_name = TulispObject::nil();
+    let mut source = None;
     let res = ctx.compile_2_arg_call(defun_kw, args, true, |ctx, defun_name, args, body| {
         fn_name = defun_name.clone();
+        // The tree-walker's lambda for this same form, which `run`
+        // installs on the symbol when it loads this compiled copy. A
+        // constant name, which a macro can produce, gets none.
+        if defun_name.symbolp() && !defun_name.keywordp() {
+            source = Some(crate::eval::defun_lambda(
+                ctx,
+                defun_name,
+                args,
+                body.clone(),
+            )?);
+        }
         let compiler = ctx.compiler.as_mut().unwrap();
         compiler
             .vm_compilers
@@ -351,6 +363,7 @@ pub(super) fn compile_fn_defun(
     // runtime never sees a trace marker or a label; see `assemble`.
     let (res, trace_ranges) = crate::bytecode::bytecode::assemble(res)?;
     let function = CompiledDefun {
+        source,
         name: fn_name.clone(),
         instructions: SharedMut::new(res),
         trace_ranges: crate::object::wrappers::generic::Shared::new(trace_ranges),
@@ -407,6 +420,30 @@ pub(super) fn compile_fn_defmacro(
 mod tests {
     use crate::TulispContext;
     use crate::test_utils::eval_assert_equal;
+
+    // The symbol holds the definition the compile made from the same
+    // form: a quoted `defun` later in the program does not replace it,
+    // a `defun` a macro expands to does, and a program that fails to
+    // compile changes nothing.
+    #[test]
+    fn a_compiled_defun_is_what_its_symbol_holds() {
+        let mut ctx = TulispContext::new();
+        ctx.eval_string("(defun f (x) 1) (setq data '(defun f (x) 2))")
+            .unwrap();
+        eval_assert_equal(&mut ctx, "(list (f 0) (funcall 'f 0))", "'(1 1)");
+        let mut ctx = TulispContext::new();
+        ctx.eval_string(
+            "(defun g (x) 1)
+             (defmacro mydef (n v) (list 'defun n '(x) v))
+             (mydef g 7)",
+        )
+        .unwrap();
+        eval_assert_equal(&mut ctx, "(list (g 0) (funcall 'g 0))", "'(7 7)");
+        assert!(ctx.eval_string("(mydef g (car))").is_err());
+        eval_assert_equal(&mut ctx, "(list (g 0) (funcall 'g 0))", "'(7 7)");
+        let ran = ctx.eval_string("(setq ran t) (mydef :kw 2) ran").unwrap();
+        assert!(ran.is_truthy());
+    }
 
     #[test]
     fn defun_and_defmacro_evaluate_to_their_name() {

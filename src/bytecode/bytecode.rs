@@ -34,6 +34,11 @@ pub struct CompiledDefun {
     pub(crate) trace_ranges: Shared<Vec<TraceRange>>,
     /// Behind a `Shared` for the same reason as `trace_ranges`.
     pub(crate) params: Shared<VMDefunParams>,
+    /// The tree-walker's lambda for the same `defun` form, which `run`
+    /// installs on `name` when it loads this copy: the symbol holds it for
+    /// as long as this copy is its definition. `None` for an anonymous
+    /// lambda.
+    pub(crate) source: Option<TulispObject>,
 }
 
 #[derive(Clone)]
