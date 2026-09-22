@@ -11,6 +11,7 @@ mod cons;
 pub use cons::{BaseIter, Iter};
 
 mod context;
+pub use context::call_args::{ApplyArgs, SpreadArgs};
 #[doc(hidden)]
 pub use context::callable::TulispCallable;
 pub use context::callable::{Param, ParamKind, PositionalParam, Return};

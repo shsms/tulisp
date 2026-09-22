@@ -3,6 +3,9 @@ pub(crate) mod callable;
 mod rest;
 pub use rest::Rest;
 
+pub(crate) mod call_args;
+use call_args::ApplyArgs;
+
 use std::{
     collections::HashMap,
     fs,
@@ -615,6 +618,34 @@ impl TulispContext {
     ) -> Result<TulispObject, Error> {
         let func = resolve_function(self, func)?;
         funcall::<DummyEval>(self, &func, args)
+    }
+
+    /// Calls `func` as Emacs Lisp's `apply` does: the leading elements of
+    /// `args` are arguments, and the elements of its last element, a list,
+    /// are the rest. A list on its own is every argument. The arguments are
+    /// passed as they are, not evaluated.
+    ///
+    /// ```rust
+    /// use tulisp::TulispContext;
+    ///
+    /// let mut ctx = TulispContext::new();
+    /// let plus = ctx.intern("+");
+    /// let rest = ctx.eval_string("'(3 4)").unwrap();
+    /// assert_eq!(ctx.apply(&plus, (1, 2, &rest)).unwrap().to_string(), "10");
+    /// assert_eq!(ctx.apply(&plus, &rest).unwrap().to_string(), "7");
+    /// assert_eq!(ctx.apply(&plus, (1, vec![2, 3])).unwrap().to_string(), "6");
+    /// ```
+    ///
+    /// The last element must be a proper list; anything else is an error,
+    /// as in Emacs.
+    pub fn apply(
+        &mut self,
+        func: &TulispObject,
+        args: impl ApplyArgs,
+    ) -> Result<TulispObject, Error> {
+        let func = resolve_function(self, func)?;
+        let args: TulispObject = args.into_args(self)?.into_iter().collect();
+        funcall::<DummyEval>(self, &func, &args)
     }
 
     /// Maps the given function over the given sequence, and returns the result.
