@@ -701,25 +701,25 @@ fn test_cxr_non_cons_input() -> Result<(), Error> {
     // crashed the process on plain Lisp like `(car 5)`.
     tulisp_assert! {
         program: "(car 5)",
-        error: r#"ERR TypeMismatch: cxr: Not a Cons: 5
+        error: r#"ERR TypeMismatch: Expected list, got: 5
 <eval_string>:1.1-1.7:  at (car 5)
 "#
     };
     tulisp_assert! {
         program: "(cdr 5)",
-        error: r#"ERR TypeMismatch: cxr: Not a Cons: 5
+        error: r#"ERR TypeMismatch: Expected list, got: 5
 <eval_string>:1.1-1.7:  at (cdr 5)
 "#
     };
     tulisp_assert! {
         program: "(cadr 7)",
-        error: r#"ERR TypeMismatch: cxr: Not a Cons: 7
+        error: r#"ERR TypeMismatch: Expected list, got: 7
 <eval_string>:1.1-1.8:  at (cadr 7)
 "#
     };
     tulisp_assert! {
         program: "(cdddr \"abc\")",
-        error: r#"ERR TypeMismatch: cxr: Not a Cons: "abc"
+        error: r#"ERR TypeMismatch: Expected list, got: "abc"
 <eval_string>:1.1-1.13:  at (cdddr "abc")
 "#
     };
@@ -1149,7 +1149,7 @@ fn test_math() -> Result<(), Error> {
     }
     tulisp_assert! {
         program: "(reverse '(1 2 . 3))",
-        error: r#"ERR TypeMismatch: cxr: Not a Cons: 3
+        error: r#"ERR TypeMismatch: Expected list, got: 3
 <eval_string>:1.1-1.20:  at (reverse '(1 2 . 3))
 "#,
     }
@@ -3065,7 +3065,7 @@ fn test_typed_iter() -> Result<(), Error> {
     tulisp_assert! {
         ctx: ctx,
         program: "(add_ints 20)",
-        error: r#"ERR TypeMismatch: Expected a list, got 20
+        error: r#"ERR TypeMismatch: Expected list, got: 20
 <eval_string>:1.1-1.13:  at (add_ints 20)
 "#
     }

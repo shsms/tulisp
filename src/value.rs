@@ -1384,11 +1384,7 @@ macro_rules! make_cxr_and_then {
             match self {
                 TulispValue::List { cons, .. } => cons.$($step)+(func),
                 TulispValue::Nil => Ok(Out::default()),
-    _ => Err(Error::type_mismatch(
-
-                    format!("cxr: Not a Cons: {}", self),
-
-                )),
+    _ => Err(self.not_a_list()),
             }
         }
     };
@@ -1396,6 +1392,13 @@ macro_rules! make_cxr_and_then {
 
 // cxr implementations
 impl TulispValue {
+    /// The error for a list operation applied to a non-list; a
+    /// `TypeMismatch`, which `condition-case` sees as
+    /// `wrong-type-argument`.
+    pub(crate) fn not_a_list(&self) -> Error {
+        Error::type_mismatch(format!("Expected list, got: {self}"))
+    }
+
     #[inline(always)]
     fn cxr(
         &self,
@@ -1404,7 +1407,7 @@ impl TulispValue {
         match self {
             TulispValue::List { cons, .. } => step(cons),
             TulispValue::Nil => Ok(TulispObject::nil()),
-            _ => Err(Error::type_mismatch(format!("cxr: Not a Cons: {}", self))),
+            _ => Err(self.not_a_list()),
         }
     }
 
@@ -1450,7 +1453,7 @@ impl TulispValue {
         match self {
             TulispValue::List { cons, .. } => func(cons.car()),
             TulispValue::Nil => Ok(Out::default()),
-            _ => Err(Error::type_mismatch(format!("cxr: Not a Cons: {}", self))),
+            _ => Err(self.not_a_list()),
         }
     }
 
@@ -1462,7 +1465,7 @@ impl TulispValue {
         match self {
             TulispValue::List { cons, .. } => func(cons.cdr()),
             TulispValue::Nil => Ok(Out::default()),
-            _ => Err(Error::type_mismatch(format!("cxr: Not a Cons: {}", self))),
+            _ => Err(self.not_a_list()),
         }
     }
 

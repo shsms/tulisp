@@ -188,10 +188,7 @@ impl TulispObject {
     /// ```
     pub fn iter<T: std::convert::TryFrom<TulispObject>>(&self) -> Result<cons::Iter<T>, Error> {
         if !self.listp() {
-            return Err(Error::type_mismatch(format!(
-                "Expected a list, got {}",
-                self.fmt_string()
-            )));
+            return Err(self.inner_ref().0.not_a_list());
         }
         Ok(cons::Iter::new(self.base_iter()))
     }
@@ -995,7 +992,7 @@ mod tests {
             (
                 "'(1 2 . 3)",
                 concat!(
-                    "ERR TypeMismatch: cxr: Not a Cons: 3\n",
+                    "ERR TypeMismatch: Expected list, got: 3\n",
                     "<eval_string>:1.2-1.10:  at (1 2 . 3)\n"
                 ),
             ),

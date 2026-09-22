@@ -902,9 +902,9 @@ mod tests {
     fn a_dotted_or_circular_list_and_an_atom_are_errors() {
         let mut ctx = TulispContext::new();
         for (source, message) in [
-            (r#"'(:host "h" . 1)"#, "Not a Cons"),
-            (r#"'(:host "h" :port-number . 1)"#, "Not a Cons"),
-            (r#"'((host . "h") . 1)"#, "Not a Cons"),
+            (r#"'(:host "h" . 1)"#, "Expected list"),
+            (r#"'(:host "h" :port-number . 1)"#, "Expected list"),
+            (r#"'((host . "h") . 1)"#, "Expected list"),
             (
                 r#"(let ((l (list :host "h"))) (setcdr (cdr l) l) l)"#,
                 "Circular",

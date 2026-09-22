@@ -253,7 +253,7 @@ mod tests {
         eval_assert_error(
             &mut ctx,
             "(if (equal 1 (car 5)) 1 2)",
-            r#"ERR TypeMismatch: cxr: Not a Cons: 5
+            r#"ERR TypeMismatch: Expected list, got: 5
 <eval_string>:1.14-1.20:  at (car 5)
 <eval_string>:1.5-1.21:  at (equal 1 (car 5))
 <eval_string>:1.1-1.26:  at (if (equal 1 (car 5)) 1 2)
