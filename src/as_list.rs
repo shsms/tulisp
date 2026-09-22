@@ -237,7 +237,8 @@ pub fn first_cons_or_symbol(value: &TulispObject) -> Result<Option<TulispObject>
 ///   (`nil` and `t` are not symbols here), which is read in pairs from
 ///   its first element. nil has every field absent, and a list with
 ///   neither, or a non-list, is a type mismatch. `#[lisp(...)]` comes
-///   after the doc comment and before every other attribute.
+///   after the doc comment and before every other attribute; any shape
+///   but `plist` or `alist` is a compile error.
 /// - Each field's key is `:field` in a plist and `field` in an alist,
 ///   without the `r#` of a raw identifier; `field<"key">` sets both (a
 ///   leading `:` is added for the plist key and dropped for the alist
@@ -259,6 +260,10 @@ pub fn first_cons_or_symbol(value: &TulispObject) -> Result<Option<TulispObject>
 /// `AsListShape` in a private block around the impls, where they
 /// shadow anything of the same name, so neither the struct's name nor
 /// a field's type may be one of those.
+///
+/// ```compile_fail
+/// tulisp::AsList! { #[lisp(plst)] struct Typo { a: i64 } }
+/// ```
 ///
 /// ```compile_fail
 /// tulisp::AsList! { struct Dup { alpha: i64, beta<":alpha">: i64 } }
@@ -526,8 +531,18 @@ macro_rules! AsList {
     };
 
     // The declared shape, defaulting to a plist.
+    ($( #[doc = $doc:literal] )* #[lisp(plist)] $($rest:tt)*) => {
+        $crate::AsList!(@emit plist, $( #[doc = $doc] )* $($rest)*);
+    };
+    ($( #[doc = $doc:literal] )* #[lisp(alist)] $($rest:tt)*) => {
+        $crate::AsList!(@emit alist, $( #[doc = $doc] )* $($rest)*);
+    };
     ($( #[doc = $doc:literal] )* #[lisp($shape:ident)] $($rest:tt)*) => {
-        $crate::AsList!(@emit $shape, $( #[doc = $doc] )* $($rest)*);
+        compile_error!(concat!(
+            "unknown AsList! shape #[lisp(",
+            stringify!($shape),
+            ")]; the shapes are #[lisp(plist)] and #[lisp(alist)]"
+        ));
     };
     ($( #[$meta:meta] )* $vis:vis struct $($rest:tt)*) => {
         $crate::AsList!(@emit plist, $( #[$meta] )* $vis struct $($rest)*);
