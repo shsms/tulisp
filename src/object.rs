@@ -397,6 +397,34 @@ assert_eq!(ts.value, 25);
 "#
     );
 
+    /// The host value of type `T` this object holds, or `None` when it
+    /// holds anything else. For a predicate or a parameter that accepts
+    /// several types; the host-value conversions wrap it in
+    /// `from_tulisp`, which adds the type mismatch.
+    ///
+    /// ```rust
+    /// # use tulisp::{TulispContext, Error, Shared, TulispAny, TulispObject};
+    /// # fn main() -> Result<(), Error> {
+    /// struct Counter(i64);
+    /// impl std::fmt::Display for Counter {
+    ///     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    ///         write!(f, "#<counter {}>", self.0)
+    ///     }
+    /// }
+    /// impl TulispAny for Counter {}
+    ///
+    /// let mut ctx = TulispContext::new();
+    /// ctx.defun("make-counter", |n: i64| Shared::new(Counter(n)));
+    /// let out = ctx.eval_string("(make-counter 25)")?;
+    /// assert_eq!(out.downcast::<Counter>().unwrap().0, 25);
+    /// assert!(TulispObject::from(25).downcast::<Counter>().is_none());
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn downcast<T: TulispAny>(&self) -> Option<Shared<T>> {
+        self.as_any().ok().and_then(|any| any.downcast::<T>().ok())
+    }
+
     // extractors end
 
     // predicates begin
@@ -983,6 +1011,30 @@ mod tests {
             let err = Vec::<i64>::try_from(&value).unwrap_err();
             assert_eq!(err.format(&ctx), formatted, "{source}");
         }
+    }
+
+    #[test]
+    fn downcast_answers_only_for_the_held_type() {
+        struct Host(i64);
+        impl std::fmt::Display for Host {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "#<host {}>", self.0)
+            }
+        }
+        impl crate::TulispAny for Host {}
+        struct Other;
+        impl std::fmt::Display for Other {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("#<other>")
+            }
+        }
+        impl crate::TulispAny for Other {}
+
+        let held = crate::Shared::new(Host(7));
+        let obj = TulispObject::from(held.clone());
+        assert!(obj.downcast::<Host>().is_some_and(|h| h.ptr_eq(&held)));
+        assert!(obj.downcast::<Other>().is_none());
+        assert!(TulispObject::from(7).downcast::<Host>().is_none());
     }
 
     #[test]

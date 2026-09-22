@@ -192,9 +192,9 @@ impl<T: TulispConvertible> TulispConvertible for Option<T> {
 
 impl<T: TulispAny + Clone> TulispConvertible for T {
     fn from_tulisp(_ctx: &mut TulispContext, value: &TulispObject) -> Result<Self, Error> {
-        let any = value.as_any().map_err(|_| mismatch::<T>(value))?;
-        any.downcast_ref::<T>()
-            .cloned()
+        value
+            .downcast::<T>()
+            .map(|held| (*held).clone())
             .ok_or_else(|| mismatch::<T>(value))
     }
     fn into_tulisp(self, _ctx: &mut TulispContext) -> TulispObject {
@@ -211,8 +211,7 @@ fn mismatch<T: TulispAny>(value: &TulispObject) -> Error {
 
 impl<T: TulispAny> TulispConvertible for Shared<T> {
     fn from_tulisp(_ctx: &mut TulispContext, value: &TulispObject) -> Result<Self, Error> {
-        let any = value.as_any().map_err(|_| mismatch::<T>(value))?;
-        any.downcast::<T>().map_err(|_| mismatch::<T>(value))
+        value.downcast::<T>().ok_or_else(|| mismatch::<T>(value))
     }
     fn into_tulisp(self, _ctx: &mut TulispContext) -> TulispObject {
         self.into()
