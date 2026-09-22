@@ -224,7 +224,7 @@ pub(crate) fn run_lambda(
     compiled: CompiledDefun,
     args: Vec<TulispObject>,
 ) -> Result<TulispObject, Error> {
-    let (optional_count, rest_count) = split_arg_counts(&compiled.params, args.len())?;
+    let (optional_count, rest_count) = compiled.params.arity().split(args.len())?;
 
     // Push args in order; `init_defun_args` pops them in reverse
     // to match `params.required` + `params.optional` + `rest` layout.
@@ -538,9 +538,11 @@ fn run_impl_inner(
                     let addr = name.addr_as_usize();
                     if let Some(func) = ctx.vm.functions.get(&addr) {
                         let func = func.clone();
-                        (*optional_count, *rest_count) =
-                            split_arg_counts(&func.params, *args_count)
-                                .map_err(|e| e.with_trace(form.clone()))?;
+                        (*optional_count, *rest_count) = func
+                            .params
+                            .arity()
+                            .split(*args_count)
+                            .map_err(|e| e.with_trace(form.clone()))?;
                         *function = Some(func);
                     } else {
                         // Target isn't a VM-compiled defun. It might
@@ -593,7 +595,10 @@ fn run_impl_inner(
                         .with_trace(form.clone()));
                     };
                     let func = func.clone();
-                    (*optional_count, *rest_count) = split_arg_counts(&func.params, *args_count)
+                    (*optional_count, *rest_count) = func
+                        .params
+                        .arity()
+                        .split(*args_count)
                         .map_err(|e| e.with_trace(form.clone()))?;
                     *function = Some(func);
                 }
@@ -869,26 +874,6 @@ fn init_defun_args(ctx: &mut TulispContext, call: &TailCallInfo) -> Result<SetPa
         set_params.push(arg.clone());
     }
     Ok(set_params)
-}
-
-/// Splits `args_count` arguments over `params`: how many fill
-/// optional parameters and how many go to the rest parameter.
-/// Fails when the count does not fit the parameter list.
-fn split_arg_counts(params: &VMDefunParams, args_count: usize) -> Result<(usize, usize), Error> {
-    let required = params.required.len();
-    let optional = params.optional.len();
-    if args_count < required {
-        return Err(Error::too_few_arguments());
-    }
-    if params.rest.is_none() && args_count > required + optional {
-        return Err(Error::too_many_arguments());
-    }
-    let left = args_count - required;
-    Ok(if left > optional {
-        (optional, left - optional)
-    } else {
-        (left, 0)
-    })
 }
 
 /// Runs `call`'s function on arguments already on the stack and
@@ -1335,6 +1320,18 @@ mod tests {
             &mut ctx,
             "(funcall (lambda (a &optional b &rest r) (list a b r)) 1 2 3 4)",
             "'(1 2 (3 4))",
+        );
+    }
+
+    // A self tail call rebinds the rest parameter in place, to nil
+    // when nothing is left for it.
+    #[test]
+    fn a_self_tail_call_rebinds_an_empty_rest() {
+        let mut ctx = TulispContext::new();
+        eval_assert_equal(
+            &mut ctx,
+            "(defun cnt (n &rest r) (if (= n 0) r (cnt (- n 1)))) (cnt 2 1 2 3)",
+            "nil",
         );
     }
 }

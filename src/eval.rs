@@ -3,6 +3,7 @@ pub(crate) use eval_into::EvalInto;
 
 use std::borrow::Cow;
 
+use crate::value::DefunArity;
 use crate::{
     TulispObject, TulispValue,
     context::TulispContext,
@@ -38,45 +39,53 @@ impl Evaluator for DummyEval {
     }
 }
 
-fn eval_function_args<E: Evaluator>(
+/// The arguments of a call to a Lisp-defined function, one per element
+/// of the argument list, passed through `E::eval` and padded with nil
+/// up to the positional parameters. The count is checked before any
+/// argument is evaluated, so a wrong-arity call has no side effects.
+fn eval_args<E: Evaluator>(
+    ctx: &mut TulispContext,
+    arity: &DefunArity,
+    args: &TulispObject,
+) -> Result<Vec<TulispObject>, Error> {
+    let positional = arity.required + arity.optional;
+    let mut args = crate::cons::collect_list(args, Ok)?;
+    arity.check(args.len())?;
+    eval_each::<E>(ctx, &mut args)?;
+    args.resize_with(args.len().max(positional), TulispObject::nil);
+    Ok(args)
+}
+
+/// Replaces each element with its value under `E`.
+#[inline]
+fn eval_each<E: Evaluator>(
+    ctx: &mut TulispContext,
+    args: &mut [TulispObject],
+) -> Result<(), Error> {
+    for arg in args.iter_mut() {
+        if let Cow::Owned(value) = E::eval(ctx, arg)? {
+            *arg = value;
+        }
+    }
+    Ok(())
+}
+
+/// The arguments of a tree-walker function call, one value per
+/// parameter: the rest parameter's arguments become one list.
+fn eval_args_with_rest_list<E: Evaluator>(
     ctx: &mut TulispContext,
     params: &DefunParams,
     args: &TulispObject,
 ) -> Result<Vec<TulispObject>, Error> {
-    let mut out = Vec::new();
-    let mut args_iter = args.base_iter();
-    for param in params.iter() {
-        let val = if param.is_optional {
-            match args_iter.next() {
-                Some(vv) => match E::eval(ctx, &vv)? {
-                    Cow::Borrowed(_) => vv,
-                    Cow::Owned(o) => o,
-                },
-                None => TulispObject::nil(),
-            }
-        } else if param.is_rest {
-            let mut builder = crate::cons::ListBuilder::new();
-            for arg in args_iter.by_ref() {
-                builder.push(match E::eval(ctx, &arg)? {
-                    Cow::Borrowed(_) => arg,
-                    Cow::Owned(o) => o,
-                });
-            }
-            builder.build()
-        } else if let Some(vv) = args_iter.next() {
-            match E::eval(ctx, &vv)? {
-                Cow::Borrowed(_) => vv,
-                Cow::Owned(o) => o,
-            }
-        } else {
-            return Err(Error::too_few_arguments());
-        };
-        out.push(val);
+    let arity = params.arity();
+    let mut out = eval_args::<E>(ctx, arity, args)?;
+    if arity.has_rest {
+        let mut rest = crate::cons::ListBuilder::new();
+        for arg in out.drain(arity.required + arity.optional..) {
+            rest.push(arg);
+        }
+        out.push(rest.build());
     }
-    if args_iter.next().is_some() {
-        return Err(Error::too_many_arguments());
-    }
-    args_iter.take_error()?;
     Ok(out)
 }
 
@@ -131,7 +140,7 @@ fn eval_function<E: Evaluator>(
     body: &TulispObject,
     args: &TulispObject,
 ) -> Result<TulispObject, Error> {
-    let vals = eval_function_args::<E>(ctx, params, args)?;
+    let vals = eval_args_with_rest_list::<E>(ctx, params, args)?;
     // Params are pre-rewritten at defun/lambda/defmacro creation to
     // carry a shared `LexicalBinding`; here we just push the arg values
     // onto each binding's thread-local stack, run the body, and pop.
@@ -168,7 +177,7 @@ fn eval_lambda<E: Evaluator>(
                 eval_function::<DummyEval>(ctx, params, body, &bounce_args)?
             }
             TulispValue::CompiledDefun { value } => {
-                let evaluated = eval_args_for_vm::<DummyEval>(ctx, &value.params, &bounce_args)?;
+                let evaluated = eval_args::<DummyEval>(ctx, &value.params.arity(), &bounce_args)?;
                 let value = value.clone();
                 drop(inner);
                 crate::bytecode::run_lambda(ctx, value, evaluated)?
@@ -181,7 +190,7 @@ fn eval_lambda<E: Evaluator>(
                 let call = call.clone();
                 let arity = arity.clone();
                 drop(inner);
-                let evaluated: Vec<TulispObject> = bounce_args.base_iter().collect();
+                let evaluated = crate::cons::collect_list(&bounce_args, Ok)?;
                 arity.check(evaluated.len())?;
                 call(ctx, &evaluated)?
             }
@@ -236,25 +245,15 @@ pub(crate) fn funcall<E: Evaluator>(
     match &func.inner_ref().0 {
         TulispValue::Func(func) => func(ctx, args),
         TulispValue::Defun { call, arity } => {
-            // `ctx.defun`-registered closures take args already
-            // evaluated. Count the args list first (cheap — no eval)
-            // and reject arity mismatches before any arg expression
-            // runs, so a too-many-args call doesn't side-effect
-            // through the extras. The VM does the same check in
+            // A `ctx.defun` closure takes evaluated arguments. The count
+            // is checked before any argument is evaluated, so a
+            // wrong-arity call has no side effects; the VM checks it in
             // `compile_form`.
             let call = call.clone();
             let arity = arity.clone();
-            let args_count = args.base_iter().count();
-            arity.check(args_count)?;
-            let mut evaluated = Vec::with_capacity(args_count);
-            let mut args_iter = args.base_iter();
-            for arg in args_iter.by_ref() {
-                evaluated.push(match E::eval(ctx, &arg)? {
-                    Cow::Borrowed(_) => arg,
-                    Cow::Owned(o) => o,
-                });
-            }
-            args_iter.take_error()?;
+            let mut evaluated = crate::cons::collect_list(args, Ok)?;
+            arity.check(evaluated.len())?;
+            eval_each::<E>(ctx, &mut evaluated)?;
             call(ctx, &evaluated)
         }
         TulispValue::Lambda { params, body } => eval_lambda::<E>(ctx, params, body, args),
@@ -263,7 +262,7 @@ pub(crate) fn funcall<E: Evaluator>(
             // args honoring &optional / &rest layout, then dispatch to
             // `bytecode::run_lambda`.
             let value = value.clone();
-            let evaluated = eval_args_for_vm::<E>(ctx, &value.params, args)?;
+            let evaluated = eval_args::<E>(ctx, &value.params.arity(), args)?;
             crate::bytecode::run_lambda(ctx, value, evaluated)
         }
         TulispValue::Macro(_) | TulispValue::Defmacro { .. } => {
@@ -272,50 +271,6 @@ pub(crate) fn funcall<E: Evaluator>(
         }
         _ => Err(Error::undefined(format!("function is void: {}", func))),
     }
-}
-
-/// Evaluate call-site args against a `VMDefunParams`. Required params
-/// eat the first N args; each optional param eats the next arg or
-/// defaults to nil; `&rest` soaks up what's left. Expression
-/// evaluation goes through `E::eval`, same as the TW path.
-fn eval_args_for_vm<E: Evaluator>(
-    ctx: &mut TulispContext,
-    params: &crate::bytecode::VMDefunParams,
-    args: &TulispObject,
-) -> Result<Vec<TulispObject>, Error> {
-    let mut out = Vec::new();
-    let mut args_iter = args.base_iter();
-    for _ in &params.required {
-        let Some(arg) = args_iter.next() else {
-            return Err(Error::too_few_arguments());
-        };
-        out.push(match E::eval(ctx, &arg)? {
-            Cow::Borrowed(_) => arg,
-            Cow::Owned(o) => o,
-        });
-    }
-    for _ in &params.optional {
-        let val = match args_iter.next() {
-            Some(arg) => match E::eval(ctx, &arg)? {
-                Cow::Borrowed(_) => arg,
-                Cow::Owned(o) => o,
-            },
-            None => TulispObject::nil(),
-        };
-        out.push(val);
-    }
-    if params.rest.is_some() {
-        for arg in args_iter.by_ref() {
-            out.push(match E::eval(ctx, &arg)? {
-                Cow::Borrowed(_) => arg,
-                Cow::Owned(o) => o,
-            });
-        }
-    } else if args_iter.next().is_some() {
-        return Err(Error::too_many_arguments());
-    }
-    args_iter.take_error()?;
-    Ok(out)
 }
 
 #[inline(always)]
@@ -880,6 +835,41 @@ mod tests {
         ctx.defun("helper", |a: i64| a);
         let err = ctx.tw_eval_string("(caller2 7 8)").unwrap_err();
         assert!(err.to_string().contains("Too many arguments"), "{err}");
+    }
+
+    // The tree walker rejects a wrong count for a Lisp defun, a lambda
+    // and a macro before any argument runs, as it does for a Rust
+    // defun.
+    #[test]
+    fn a_wrong_count_evaluates_no_argument() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicI64, Ordering};
+        let bumps = Arc::new(AtomicI64::new(0));
+        let counter = bumps.clone();
+        let ctx = &mut TulispContext::new();
+        ctx.defun("bump", move |x: i64| {
+            counter.fetch_add(1, Ordering::Relaxed);
+            x
+        });
+        ctx.eval_string("(defun one (x) x) (defmacro mac (x) x)")
+            .unwrap();
+        for program in [
+            "(one (bump 1) (bump 2))",
+            "(one)",
+            "(funcall (lambda (x) x) (bump 1) (bump 2))",
+            "((lambda (x y) x) (bump 1))",
+            "(mac (bump 1) (bump 2))",
+        ] {
+            bumps.store(0, Ordering::Relaxed);
+            assert!(ctx.tw_eval_string(program).is_err(), "[TW] {program}");
+            assert_eq!(bumps.load(Ordering::Relaxed), 0, "[TW] {program}");
+            // The VM evaluates the arguments of a call it could not
+            // check at compile time before its runtime check.
+            assert!(ctx.eval_string(program).is_err(), "[VM] {program}");
+        }
+        bumps.store(0, Ordering::Relaxed);
+        assert_eq!(ctx.eval_string("(one (bump 5))").unwrap().to_string(), "5");
+        assert_eq!(bumps.load(Ordering::Relaxed), 1);
     }
 
     // A form with a dotted tail can only come from a macro. Emacs

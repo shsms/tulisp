@@ -361,9 +361,11 @@ fn test_defun() -> Result<(), Error> {
 
         (list (add 100)
               (add 10 20)
+              (add 1 2 3)
+              (add 1 2 3 4)
               (add 1 2 3 4 5))
     "##,
-    result: "'((100) (30) (6 4 5))",
+    result: "'((100) (30) (6) (6 4) (6 4 5))",
         }
     tulisp_assert! {
         program: "(defun add (x y) (+ x y)) (add 10)",
@@ -1958,7 +1960,7 @@ fn test_mutual_tail_call_arity_checked_at_compile_time() -> Result<(), Error> {
     );
     let msg = err.unwrap_err().format(&ctx);
     assert!(
-        msg.contains("too few arguments") || msg.contains("Too few arguments"),
+        msg.contains("Too few arguments: tail call to helper takes 2 arguments, got 1"),
         "expected too-few error from mutual tail-call, got: {}",
         msg
     );
@@ -1973,8 +1975,36 @@ fn test_mutual_tail_call_arity_checked_at_compile_time() -> Result<(), Error> {
     );
     let msg = err.unwrap_err().format(&ctx);
     assert!(
-        msg.contains("too many arguments") || msg.contains("Too many arguments"),
+        msg.contains("Too many arguments: tail call to helper takes 1 argument, got 3"),
         "expected too-many error from mutual tail-call, got: {}",
+        msg
+    );
+
+    // The message gives the accepted range for &optional and &rest.
+    let mut ctx = TulispContext::new();
+    let err = ctx.eval_string(
+        r#"
+        (defun helper (a &optional b c) a)
+        (defun caller () (helper 1 2 3 4))
+        "#,
+    );
+    let msg = err.unwrap_err().format(&ctx);
+    assert!(
+        msg.contains("Too many arguments: tail call to helper takes 1 to 3 arguments, got 4"),
+        "expected the &optional range, got: {}",
+        msg
+    );
+    let mut ctx = TulispContext::new();
+    let err = ctx.eval_string(
+        r#"
+        (defun helper (a &rest r) a)
+        (defun caller () (helper))
+        "#,
+    );
+    let msg = err.unwrap_err().format(&ctx);
+    assert!(
+        msg.contains("Too few arguments: tail call to helper takes at least 1 argument, got 0"),
+        "expected the &rest floor, got: {}",
         msg
     );
 
@@ -2018,7 +2048,7 @@ fn test_self_tail_recursion_arity_checked_at_compile_time() -> Result<(), Error>
     );
     let msg = err.unwrap_err().format(&ctx);
     assert!(
-        msg.contains("too many arguments") || msg.contains("Too many arguments"),
+        msg.contains("Too many arguments: f takes 2 arguments, got 3"),
         "expected too-many error from self tail-call, got: {}",
         msg
     );
@@ -2035,7 +2065,7 @@ fn test_self_tail_recursion_arity_checked_at_compile_time() -> Result<(), Error>
     );
     let msg = err.unwrap_err().format(&ctx);
     assert!(
-        msg.contains("too few arguments") || msg.contains("Too few arguments"),
+        msg.contains("Too few arguments: f takes 2 arguments, got 1"),
         "expected too-few error from self tail-call, got: {}",
         msg
     );

@@ -132,12 +132,15 @@ fn compile_fn_defun_bounce_call(
             .as_ref()
             .and_then(|c| c.defun_args.get(&name.addr_as_usize()).cloned());
         if let Some(params) = target_arity {
-            if args_count < params.required.len() {
-                return Err(Error::too_few_arguments().with_trace(args.clone()));
-            }
-            if params.rest.is_none() && args_count > params.required.len() + params.optional.len() {
-                return Err(Error::too_many_arguments().with_trace(args.clone()));
-            }
+            let arity = params.arity();
+            arity.check(args_count).map_err(|e| {
+                Error::arity_mismatch(format!(
+                    "{}: tail call to {name} takes {}, got {args_count}",
+                    e.desc(),
+                    arity.describe()
+                ))
+                .with_trace(args.clone())
+            })?;
         }
         // Tail-call escape: `TailCall` returns from `run_impl`
         // directly, skipping the `EndScope`s the enclosing
@@ -171,25 +174,18 @@ fn compile_fn_defun_bounce_call(
         result.append(&mut compile_expr_keep_result(ctx, &arg)?);
         args_count += 1;
     }
-    if args_count < params.required.len() {
-        return Err(Error::too_few_arguments().with_trace(args.clone()));
-    }
-    let mut optional_count = 0;
-    let left_args = args_count - params.required.len();
-    if left_args > params.optional.len() {
-        if params.rest.is_none() {
-            return Err(Error::too_many_arguments().with_trace(args.clone()));
-        }
-        result.push(Instruction::List(left_args - params.optional.len()));
-        optional_count = params.optional.len();
-    } else if params.rest.is_some() {
-        result.push(Instruction::Push(TulispObject::nil()));
-    }
+    let arity = params.arity();
+    let (optional_count, rest_count) = arity.split(args_count).map_err(|e| {
+        Error::arity_mismatch(format!(
+            "{}: {name} takes {}, got {args_count}",
+            e.desc(),
+            arity.describe()
+        ))
+        .with_trace(args.clone())
+    })?;
     if let Some(param) = &params.rest {
-        result.push(Instruction::StorePop(param.clone()))
-    }
-    if left_args <= params.optional.len() && left_args > 0 {
-        optional_count = left_args;
+        result.push(Instruction::List(rest_count));
+        result.push(Instruction::StorePop(param.clone()));
     }
 
     for (ii, param) in params.optional.iter().enumerate().rev() {

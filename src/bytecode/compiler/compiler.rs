@@ -15,6 +15,17 @@ pub(crate) struct VMDefunParams {
     pub rest: Option<TulispObject>,
 }
 
+impl VMDefunParams {
+    /// The arity this parameter list accepts.
+    pub(crate) fn arity(&self) -> crate::value::DefunArity {
+        crate::value::DefunArity {
+            required: self.required.len(),
+            optional: self.optional.len(),
+            has_rest: self.rest.is_some(),
+        }
+    }
+}
+
 #[allow(dead_code)]
 pub(crate) struct Compiler {
     pub vm_compilers: VMCompilers,

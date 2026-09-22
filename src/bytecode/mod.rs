@@ -13,4 +13,4 @@ mod interpreter;
 pub(crate) use interpreter::{Machine, run, run_lambda};
 
 mod compiler;
-pub(crate) use compiler::{Compiler, VMCompilers, VMDefunParams, compile};
+pub(crate) use compiler::{Compiler, VMCompilers, compile};

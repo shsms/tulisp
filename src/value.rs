@@ -68,12 +68,39 @@ impl DefunArity {
         }
         Ok(())
     }
+
+    /// Splits `args_count` arguments over the parameters: how many
+    /// fill optional parameters and how many go to the rest
+    /// parameter. Fails when the count does not fit.
+    #[inline]
+    pub(crate) fn split(&self, args_count: usize) -> Result<(usize, usize), Error> {
+        self.check(args_count)?;
+        let left = args_count - self.required;
+        let optional = left.min(self.optional);
+        Ok((optional, left - optional))
+    }
+
+    /// The counts a call must meet, for a message: `2 arguments`,
+    /// `1 to 3 arguments`, `at least 1 argument`.
+    pub(crate) fn describe(&self) -> String {
+        let plural = |n: usize| if n == 1 { "argument" } else { "arguments" };
+        match (self.has_rest, self.optional) {
+            (true, _) => format!("at least {} {}", self.required, plural(self.required)),
+            (false, 0) => format!("{} {}", self.required, plural(self.required)),
+            (false, optional) => {
+                let most = self.required + optional;
+                format!("{} to {most} {}", self.required, plural(most))
+            }
+        }
+    }
 }
 
 #[doc(hidden)]
 #[derive(Debug, Default, Clone)]
 pub struct DefunParams {
     params: Vec<DefunParam>,
+    /// The arity the parameters accept, fixed when they are read.
+    arity: DefunArity,
 }
 
 impl std::fmt::Display for DefunParams {
@@ -109,6 +136,13 @@ impl TryFrom<TulispObject> for DefunParams {
                 is_rest = true;
                 continue;
             }
+            if is_rest {
+                def_params.arity.has_rest = true;
+            } else if is_optional {
+                def_params.arity.optional += 1;
+            } else {
+                def_params.arity.required += 1;
+            }
             def_params.params.push(DefunParam {
                 param,
                 is_rest,
@@ -131,6 +165,11 @@ impl TryFrom<TulispObject> for DefunParams {
 impl DefunParams {
     pub(crate) fn iter(&self) -> std::slice::Iter<'_, DefunParam> {
         self.params.iter()
+    }
+
+    /// The arity this parameter list accepts.
+    pub(crate) fn arity(&self) -> &DefunArity {
+        &self.arity
     }
 
     /// Replaces each raw-symbol param with a fresh `LexicalBinding` and
@@ -161,7 +200,13 @@ impl DefunParams {
                 is_optional: dp.is_optional,
             });
         }
-        (DefunParams { params: new_params }, mappings)
+        (
+            DefunParams {
+                params: new_params,
+                arity: self.arity,
+            },
+            mappings,
+        )
     }
 }
 
