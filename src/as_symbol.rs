@@ -1,13 +1,30 @@
 //! [`AsSymbol!`](macro@crate::AsSymbol): a Rust enum whose unit
 //! variants are Lisp symbols.
 
-use crate::{Error, TulispObject};
+use crate::{Error, TulispObject, TulispValue};
 
-/// Calls `f` on the name `value` reads as a symbol: a symbol's or a
-/// lexical binding's name, `nil` or `t`; `None` for any other value.
+/// Calls `f` on the name `value` reads as: a symbol's or a lexical binding's
+/// name, `nil` or `t`, and with `strings` also a string's text; `None` for any
+/// other value.
 #[doc(hidden)]
-pub fn with_symbol_name<R>(value: &TulispObject, f: impl FnOnce(&str) -> R) -> Option<R> {
-    value.inner_ref().0.symbol_name().map(f)
+pub fn with_name<R>(value: &TulispObject, strings: bool, f: impl FnOnce(&str) -> R) -> Option<R> {
+    let inner = value.inner_ref();
+    match &inner.0 {
+        TulispValue::String { value } if strings => Some(f(value)),
+        other => other.symbol_name().map(f),
+    }
+}
+
+/// The error for a value that is not a name at all.
+#[doc(hidden)]
+pub fn not_a_name(type_name: &str, strings: bool, value: &TulispObject) -> Error {
+    let expected = if strings {
+        "a symbol or a string"
+    } else {
+        "a symbol"
+    };
+    Error::type_mismatch(format!("Expected {expected} for {type_name}, got: {value}"))
+        .with_trace(value.clone())
 }
 
 /// The error for a name that is none of `names`.
@@ -23,6 +40,8 @@ pub fn unknown_name(type_name: &str, name: &str, names: &[&str]) -> Error {
 ///
 /// ```text
 /// AsSymbol! {
+///     [doc comment]
+///     [#[lisp(strings)]]      // also read and write strings
 ///     [attributes]
 ///     [pub] enum Name {
 ///         Variant[<"symbol-name">],
@@ -41,12 +60,43 @@ pub fn unknown_name(type_name: &str, name: &str, names: &[&str]) -> Error {
 /// tulisp::AsSymbol! { enum Dup { Alpha<"same">, Beta<"same"> } }
 /// ```
 ///
-/// `from_tulisp` requires a symbol; a string is a type mismatch and an
-/// unknown symbol is an invalid argument naming the accepted
-/// symbols. `into_tulisp` interns the variant's symbol. `nil` and `t`
-/// are accepted as symbol names, so a variant may be spelled
-/// `<"nil">` or `<"t">`; through an `Option`, though, `nil` is
-/// always `None`.
+/// Without `#[lisp(strings)]`, `from_tulisp` requires a symbol; a
+/// string is a type mismatch and an unknown symbol is an invalid
+/// argument naming the accepted symbols. `into_tulisp` interns the
+/// variant's symbol. `nil` and `t` are accepted as symbol names, so a
+/// variant may be spelled `<"nil">` or `<"t">`; through an `Option`,
+/// though, `nil` is always `None`.
+///
+/// A `#[lisp(strings)]` marker, after the doc comment and before the
+/// other attributes, lets `from_tulisp` also read a string with a
+/// variant's spelling, and makes `into_tulisp` write the spelling as a
+/// string. Use it for names that callers write as strings, or that do
+/// not read as a symbol, such as `"90"`. Through an `Option`, the
+/// string `"nil"` then reads as a variant spelled `<"nil">`. A marker
+/// after another attribute is a compile error, and so is an unknown
+/// option:
+///
+/// ```compile_fail
+/// tulisp::AsSymbol! { #[derive(Debug)] #[lisp(strings)] enum Late { A } }
+/// ```
+///
+/// ```compile_fail
+/// tulisp::AsSymbol! { #[lisp(string)] enum Typo { A } }
+/// ```
+///
+/// ```rust
+/// use tulisp::{AsSymbol, TulispContext};
+///
+/// AsSymbol! {
+///     #[lisp(strings)]
+///     #[derive(Debug, Clone, Copy, PartialEq)]
+///     pub enum Turn { Half<"180">, Quarter<"90"> }
+/// }
+///
+/// let mut ctx = TulispContext::new();
+/// ctx.defun("turn", |t: Turn| t);
+/// assert_eq!(ctx.eval_string(r#"(turn "90")"#).unwrap().to_string(), r#""90""#);
+/// ```
 ///
 /// `Display` writes a variant's spelling, and `FromStr` reads it back; its
 /// error names the accepted spellings.
@@ -74,7 +124,23 @@ macro_rules! AsSymbol {
     (@symbol $variant:ident<$symbol:literal>) => { $symbol };
     (@symbol $variant:ident) => { $crate::as_list::field_key(stringify!($variant)) };
 
+    ($( #[doc = $doc:literal] )* #[lisp(strings)] $($rest:tt)*) => {
+        $crate::AsSymbol!(@decl true $( #[doc = $doc] )* $($rest)*);
+    };
+    ($( #[doc = $doc:literal] )* #[lisp($option:ident)] $($rest:tt)*) => {
+        compile_error!(concat!(
+            "unknown AsSymbol! option #[lisp(",
+            stringify!($option),
+            ")]; the only one is #[lisp(strings)]"
+        ));
+    };
+
+    ($( #[$meta:meta] )* $vis:vis enum $($rest:tt)*) => {
+        $crate::AsSymbol!(@decl false $( #[$meta] )* $vis enum $($rest)*);
+    };
+
     (
+        @decl $strings:literal
         $( #[$meta:meta] )*
         $vis:vis enum $name:ident {
             $(
@@ -89,14 +155,14 @@ macro_rules! AsSymbol {
         }
 
         impl $name {
-            /// The symbol this variant reads from and writes to.
+            /// The spelling this variant reads from and writes to.
             pub fn symbol_name(&self) -> &'static str {
                 match self {
                     $( $name::$variant => $crate::AsSymbol!(@symbol $variant $(<$symbol>)?), )+
                 }
             }
 
-            /// The variant that reads from the symbol `name`, if any.
+            /// The variant with this spelling, if any.
             pub fn from_symbol_name(__name: &str) -> Option<Self> {
                 $( if __name == $crate::AsSymbol!(@symbol $variant $(<$symbol>)?) {
                     return Some($name::$variant);
@@ -104,7 +170,7 @@ macro_rules! AsSymbol {
                 None
             }
 
-            /// Every variant's symbol, in declaration order.
+            /// Every variant's spelling, in declaration order.
             pub const SYMBOL_NAMES: &'static [&'static str] = &[
                 $( $crate::AsSymbol!(@symbol $variant $(<$symbol>)?), )+
             ];
@@ -120,21 +186,21 @@ macro_rules! AsSymbol {
                 __ctx: &mut $crate::TulispContext,
                 __value: &$crate::TulispObject,
             ) -> Result<Self, $crate::Error> {
-                let Some(__result) = $crate::as_symbol::with_symbol_name(__value, |__name| {
+                let Some(__result) = $crate::as_symbol::with_name(__value, $strings, |__name| {
                     <Self as ::std::str::FromStr>::from_str(__name)
                         .map_err(|__err| __err.with_trace(__value.clone()))
                 }) else {
-                    return Err($crate::Error::type_mismatch(format!(
-                        "Expected a symbol for {}, got: {__value}",
-                        stringify!($name)
-                    ))
-                    .with_trace(__value.clone()));
+                    return Err($crate::as_symbol::not_a_name(stringify!($name), $strings, __value));
                 };
                 __result
             }
 
             fn into_tulisp(self, __ctx: &mut $crate::TulispContext) -> $crate::TulispObject {
-                __ctx.intern(self.symbol_name())
+                if $strings {
+                    $crate::TulispObject::from(self.symbol_name())
+                } else {
+                    __ctx.intern(self.symbol_name())
+                }
             }
         }
 
@@ -177,7 +243,7 @@ pub const fn distinct(names: &[&str]) -> bool {
 #[cfg(test)]
 mod tests {
     use crate::test_utils::{eval_assert_equal, eval_assert_error};
-    use crate::{TulispContext, TulispConvertible};
+    use crate::{TulispContext, TulispConvertible, TulispObject};
 
     crate::AsSymbol! {
         #[derive(Debug, Clone, Copy, PartialEq)]
@@ -291,6 +357,60 @@ mod tests {
         assert!(
             err.to_string().contains("Expected a symbol for Tri"),
             "{err}"
+        );
+    }
+
+    crate::AsSymbol! {
+        /// Turns, read from symbols or strings.
+        #[lisp(strings)]
+        #[derive(Debug, Clone, Copy, PartialEq)]
+        enum Turn {
+            None<"nil">,
+            Quarter<"90">,
+            Half<"half">,
+        }
+    }
+
+    #[test]
+    fn with_strings_a_string_also_reads_and_a_variant_writes_as_a_string() {
+        let mut ctx = TulispContext::new();
+        let sym = ctx.intern("half");
+        assert_eq!(Turn::from_tulisp(&mut ctx, &sym).unwrap(), Turn::Half);
+        for (text, variant) in [("90", Turn::Quarter), ("half", Turn::Half)] {
+            let s = text.to_string().into_tulisp(&mut ctx);
+            assert_eq!(Turn::from_tulisp(&mut ctx, &s).unwrap(), variant);
+            let back = variant.into_tulisp(&mut ctx);
+            assert!(back.stringp(), "{back}");
+            assert_eq!(back.as_string().unwrap(), text);
+        }
+    }
+
+    #[test]
+    fn with_strings_an_option_keeps_nil_apart_from_the_string_nil() {
+        let mut ctx = TulispContext::new();
+        let nil = TulispObject::nil();
+        assert_eq!(Option::<Turn>::from_tulisp(&mut ctx, &nil).unwrap(), None);
+        let s = "nil".to_string().into_tulisp(&mut ctx);
+        let turn = Option::<Turn>::from_tulisp(&mut ctx, &s).unwrap();
+        assert_eq!(turn, Some(Turn::None));
+        let back = turn.into_tulisp(&mut ctx);
+        assert_eq!(back.as_string().unwrap(), "nil");
+        assert!(None::<Turn>.into_tulisp(&mut ctx).null());
+    }
+
+    #[test]
+    fn with_strings_other_values_and_unknown_names_are_errors() {
+        let mut ctx = TulispContext::new();
+        ctx.defun("turn", |t: Turn| t);
+        eval_assert_error(
+            &mut ctx,
+            "(turn 90)",
+            "ERR TypeMismatch: Expected a symbol or a string for Turn, got: 90\n<eval_string>:1.1-1.9:  at (turn 90)\n",
+        );
+        eval_assert_error(
+            &mut ctx,
+            r#"(turn "45")"#,
+            "ERR InvalidArgument: unknown Turn '45'; expected one of nil, 90, half\n<eval_string>:1.1-1.11:  at (turn \"45\")\n",
         );
     }
 

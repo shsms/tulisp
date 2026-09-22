@@ -92,7 +92,9 @@ ctx.defun("careful-p", |m: Mode| -> bool { m == Mode::Careful });
 assert_eq!(ctx.eval_string("(careful-p 'careful)").unwrap().to_string(), "t");
 ```
 
-The enum also gets `Display` and `FromStr` with the same spellings.
+The enum also gets `Display` and `FromStr` with the same spellings. A
+`#[lisp(strings)]` marker, after the enum's doc comment and before its other
+attributes, makes it read a string as well as a symbol, and write a string.
 
 For raw argument lists and code transformation, see
 [`defspecial`](https://docs.rs/tulisp/latest/tulisp/struct.TulispContext.html#method.defspecial)
