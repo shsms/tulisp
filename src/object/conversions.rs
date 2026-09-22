@@ -19,6 +19,7 @@ use crate::{Error, Number, Shared, TulispAny, TulispContext, TulispObject, Tulis
 /// | `String`                | string                                                             |
 /// | `Number`                | integer or float                                                   |
 /// | `Vec<T>`                | list                                                               |
+/// | `(A, B, ...)`           | list of exactly that many elements, up to twelve                  |
 /// | `Option<T>`             | `T`, or absent                                                     |
 /// | `TulispObject`          | any (pass-through)                                                 |
 /// | `T: TulispAny`          | an opaque host value, by clone                                     |
@@ -196,6 +197,48 @@ impl<T: TulispAny + Clone> TulispConvertible for T {
     }
 }
 
+/// A tuple is a list with exactly one element per field, each converted
+/// through its own type.
+macro_rules! impl_tuple {
+    ($len:literal; $($t:ident $v:ident),+) => {
+        impl<$($t: TulispConvertible),+> TulispConvertible for ($($t,)+) {
+            fn from_tulisp(ctx: &mut TulispContext, value: &TulispObject) -> Result<Self, Error> {
+                let items = crate::cons::collect_list(value, Ok)?;
+                let found = items.len();
+                let [$($v),+]: [TulispObject; $len] = items
+                    .try_into()
+                    .map_err(|_| wrong_length($len, found, value))?;
+                Ok(($($t::from_tulisp(ctx, &$v)?,)+))
+            }
+            fn into_tulisp(self, ctx: &mut TulispContext) -> TulispObject {
+                let ($($v,)+) = self;
+                [$($v.into_tulisp(ctx)),+].into_iter().collect()
+            }
+        }
+    };
+}
+
+/// The type mismatch for a list read as a tuple of `len` elements.
+fn wrong_length(len: usize, found: usize, value: &TulispObject) -> Error {
+    Error::type_mismatch(format!(
+        "Expected a list of {len} elements, got {found}: {value}"
+    ))
+    .with_trace(value.clone())
+}
+
+impl_tuple!(1; A a);
+impl_tuple!(2; A a, B b);
+impl_tuple!(3; A a, B b, C c);
+impl_tuple!(4; A a, B b, C c, D d);
+impl_tuple!(5; A a, B b, C c, D d, E e);
+impl_tuple!(6; A a, B b, C c, D d, E e, F f);
+impl_tuple!(7; A a, B b, C c, D d, E e, F f, G g);
+impl_tuple!(8; A a, B b, C c, D d, E e, F f, G g, H h);
+impl_tuple!(9; A a, B b, C c, D d, E e, F f, G g, H h, I i);
+impl_tuple!(10; A a, B b, C c, D d, E e, F f, G g, H h, I i, J j);
+impl_tuple!(11; A a, B b, C c, D d, E e, F f, G g, H h, I i, J j, K k);
+impl_tuple!(12; A a, B b, C c, D d, E e, F f, G g, H h, I i, J j, K k, L l);
+
 /// The type mismatch for `value` not holding a `T`, named by
 /// `T::lisp_type_name` and traced to `value`.
 fn mismatch<T: TulispAny>(value: &TulispObject) -> Error {
@@ -215,7 +258,7 @@ impl<T: TulispAny> TulispConvertible for Shared<T> {
 #[cfg(test)]
 mod tests {
     use super::TulispConvertible;
-    use crate::{Number, TulispContext, TulispObject};
+    use crate::{ErrorKind, Number, TulispContext, TulispObject};
 
     #[test]
     fn primitives_round_trip_through_the_context() {
@@ -353,5 +396,52 @@ mod tests {
         );
         let err = ctx.eval_string("(point-x 4)").unwrap_err();
         assert!(err.to_string().contains("Point"), "{err}");
+    }
+
+    #[test]
+    fn a_tuple_is_a_list_of_its_fields() {
+        let mut ctx = TulispContext::new();
+        let pair = (1i64, "a".to_string()).into_tulisp(&mut ctx);
+        assert_eq!(pair.to_string(), r#"(1 "a")"#);
+        let back = <(i64, String)>::from_tulisp(&mut ctx, &pair).unwrap();
+        assert_eq!(back, (1, "a".to_string()));
+
+        let nested = ctx.eval_string(r#"'((1 2) "x" nil)"#).unwrap();
+        let read = <((i64, i64), String, Option<f64>)>::from_tulisp(&mut ctx, &nested).unwrap();
+        assert_eq!(read, ((1, 2), "x".to_string(), None));
+    }
+
+    #[test]
+    fn a_tuple_rejects_a_wrong_length_a_wrong_element_and_a_dotted_list() {
+        let mut ctx = TulispContext::new();
+        let three = ctx.eval_string("'(1 2 3)").unwrap();
+        let err = <(i64, i64)>::from_tulisp(&mut ctx, &three).unwrap_err();
+        assert!(matches!(err.kind(), ErrorKind::TypeMismatch), "{err}");
+        assert_eq!(err.desc(), "Expected a list of 2 elements, got 3: (1 2 3)");
+        let short = ctx.eval_string("'(1)").unwrap();
+        assert!(<(i64, i64)>::from_tulisp(&mut ctx, &short).is_err());
+        let wrong = ctx.eval_string(r#"'(1 "b")"#).unwrap();
+        let err = <(i64, i64)>::from_tulisp(&mut ctx, &wrong).unwrap_err();
+        assert!(err.to_string().contains("Expected integer"), "{err}");
+        let dotted = ctx.eval_string("'(1 2 . 3)").unwrap();
+        assert!(<(i64, i64)>::from_tulisp(&mut ctx, &dotted).is_err());
+        assert!(<(i64,)>::from_tulisp(&mut ctx, &TulispObject::nil()).is_err());
+    }
+
+    #[test]
+    fn a_tuple_works_as_a_defun_parameter_and_return() {
+        let mut ctx = TulispContext::new();
+        ctx.defun("swap", |p: (i64, String)| -> (String, i64) { (p.1, p.0) });
+        assert_eq!(
+            ctx.eval_string(r#"(swap '(7 "x"))"#).unwrap().to_string(),
+            r#"("x" 7)"#
+        );
+        let twelve = (
+            1i64, 2i64, 3i64, 4i64, 5i64, 6i64, 7i64, 8i64, 9i64, 10i64, 11i64, 12i64,
+        );
+        let list = twelve.into_tulisp(&mut ctx);
+        assert_eq!(list.to_string(), "(1 2 3 4 5 6 7 8 9 10 11 12)");
+        type Twelve = (i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64);
+        assert_eq!(Twelve::from_tulisp(&mut ctx, &list).unwrap(), twelve);
     }
 }
