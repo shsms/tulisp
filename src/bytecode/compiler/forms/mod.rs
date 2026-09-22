@@ -163,26 +163,11 @@ pub(super) fn compile_form(
                     args_count += 1;
                     rest = rest.cdr()?;
                 }
-                // Same wording as the runtime check in
-                // `eval::funcall`, so a defun whose arity is
-                // wrong reports the same error whether it's caught
-                // by the VM compiler here or by the runtime closure.
-                // The form's source span (added via `with_trace`)
-                // already pins the call site, so adding the name +
-                // counts here would only differ from the runtime
-                // path's wording.
-                if args_count < arity.required {
-                    return Err(
-                        crate::Error::missing_argument("Too few arguments".to_string())
-                            .with_trace(form.clone()),
-                    );
-                }
-                if !arity.has_rest && args_count > arity.required + arity.optional {
-                    return Err(
-                        crate::Error::invalid_argument("Too many arguments".to_string())
-                            .with_trace(form.clone()),
-                    );
-                }
+                // The form's source span pins the call site; the
+                // wording is the runtime paths' own.
+                arity
+                    .check(args_count)
+                    .map_err(|e| e.with_trace(form.clone()))?;
                 let keep_result = ctx.compiler.as_ref().unwrap().keep_result;
                 result.push(Instruction::RustCallTyped {
                     name: name.clone(),

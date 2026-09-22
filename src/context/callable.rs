@@ -37,8 +37,6 @@ impl<T: TulispConvertible + 'static> Param for T {
                 *args = rest;
                 T::from_tulisp(ctx, value)
             }
-            // The dispatcher checks arity first; this guards a call path
-            // that did not.
             None if T::REQUIRED => Err(Error::missing_argument(
                 "missing required argument".to_string(),
             )),

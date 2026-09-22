@@ -174,13 +174,15 @@ fn eval_lambda<E: Evaluator>(
                 crate::bytecode::run_lambda(ctx, value, evaluated)?
             }
             TulispValue::Func(f) => f(ctx, &bounce_args)?,
-            TulispValue::Defun { call, .. } => {
+            TulispValue::Defun { call, arity } => {
                 // Bounce args are already evaluated values from the
                 // previous call's tail position — hand them straight
                 // to the typed-args closure.
                 let call = call.clone();
+                let arity = arity.clone();
                 drop(inner);
                 let evaluated: Vec<TulispObject> = bounce_args.base_iter().collect();
+                arity.check(evaluated.len())?;
                 call(ctx, &evaluated)?
             }
             _ => return Err(Error::undefined(format!("function is void: {}", func))),
@@ -243,12 +245,7 @@ pub(crate) fn funcall<E: Evaluator>(
             let call = call.clone();
             let arity = arity.clone();
             let args_count = args.base_iter().count();
-            if args_count < arity.required {
-                return Err(Error::missing_argument("Too few arguments".to_string()));
-            }
-            if !arity.has_rest && args_count > arity.required + arity.optional {
-                return Err(Error::invalid_argument("Too many arguments".to_string()));
-            }
+            arity.check(args_count)?;
             let mut evaluated = Vec::with_capacity(args_count);
             let mut args_iter = args.base_iter();
             for arg in args_iter.by_ref() {
@@ -867,6 +864,23 @@ fn substitute_lexical_inner(
 #[cfg(test)]
 mod tests {
     use crate::TulispContext;
+
+    // A tail call marked at parse time bounces to whatever the symbol
+    // names at run time, so a Rust defun reached that way is checked
+    // like on every other path.
+    #[test]
+    fn a_bounced_call_to_a_defun_checks_arity() {
+        let ctx = &mut TulispContext::new();
+        ctx.tw_eval_string("(defun helper (a) a)").unwrap();
+        ctx.tw_eval_string("(defun caller (x) (helper x)) (defun caller2 (x y) (helper x y))")
+            .unwrap();
+        ctx.defun("helper", |a: i64, b: i64| a + b);
+        let err = ctx.tw_eval_string("(caller 7)").unwrap_err();
+        assert!(err.to_string().contains("Too few arguments"), "{err}");
+        ctx.defun("helper", |a: i64| a);
+        let err = ctx.tw_eval_string("(caller2 7 8)").unwrap_err();
+        assert!(err.to_string().contains("Too many arguments"), "{err}");
+    }
 
     // A form with a dotted tail can only come from a macro. Emacs
     // rejects it; nothing may silently drop the tail.

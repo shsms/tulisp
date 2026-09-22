@@ -945,19 +945,10 @@ fn funcall_inline(
             // — hand them straight to the typed-args closure.
             // No interpreter re-entry: we're using the closure's
             // `&[TulispObject]` shape directly.
-            //
-            // Arity check mirrors `eval::funcall`'s `Defun` arm, so
-            // a wrong-arity call reports the same error on both
-            // paths.
             let call = call.clone();
             let arity = arity.clone();
             drop(inner);
-            if args.len() < arity.required {
-                return Err(Error::missing_argument("Too few arguments".to_string()));
-            }
-            if !arity.has_rest && args.len() > arity.required + arity.optional {
-                return Err(Error::invalid_argument("Too many arguments".to_string()));
-            }
+            arity.check(args.len())?;
             call(ctx, &args)
         }
         TulispValue::Lambda { .. } | TulispValue::Func(_) => {

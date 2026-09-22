@@ -56,6 +56,20 @@ pub struct DefunArity {
     pub has_rest: bool,
 }
 
+impl DefunArity {
+    /// Rejects a call with too few or too many arguments.
+    #[inline]
+    pub(crate) fn check(&self, args_count: usize) -> Result<(), Error> {
+        if args_count < self.required {
+            return Err(Error::missing_argument("Too few arguments".to_string()));
+        }
+        if !self.has_rest && args_count > self.required + self.optional {
+            return Err(Error::invalid_argument("Too many arguments".to_string()));
+        }
+        Ok(())
+    }
+}
+
 #[doc(hidden)]
 #[derive(Debug, Default, Clone)]
 pub struct DefunParams {
