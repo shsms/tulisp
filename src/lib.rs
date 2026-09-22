@@ -22,6 +22,9 @@ pub use error::{Error, ErrorKind};
 pub mod alist;
 pub use alist::{Alistable, alist_from, alist_get, assoc};
 
+#[doc(hidden)]
+pub mod as_list;
+
 pub mod lists;
 
 pub mod plist;
