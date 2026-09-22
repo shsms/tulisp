@@ -24,8 +24,9 @@ pub fn with_symbol_name<R>(value: &TulispObject, f: impl FnOnce(&str) -> R) -> O
 ///
 /// A variant without `<"...">` uses its own name as the symbol, without
 /// the `r#` of a raw identifier. `symbol_name` and `from_symbol_name`
-/// map a variant to its symbol and back. Two variants naming the same
-/// symbol are a compile error:
+/// map a variant to its symbol and back, and `SYMBOL_NAMES` lists every
+/// symbol in declaration order. Two variants naming the same symbol
+/// are a compile error:
 ///
 /// ```compile_fail
 /// tulisp::AsSymbol! { enum Dup { Alpha<"same">, Beta<"same"> } }
@@ -52,6 +53,7 @@ pub fn with_symbol_name<R>(value: &TulispObject, f: impl FnOnce(&str) -> R) -> O
 /// ctx.defun("mode-name", |m: Mode| -> String { m.symbol_name().to_uppercase() });
 /// assert_eq!(ctx.eval_string("(mode-name 'careful)").unwrap().to_string(), r#""CAREFUL""#);
 /// assert_eq!(Mode::from_symbol_name("fast"), Some(Mode::Fast));
+/// assert_eq!(Mode::SYMBOL_NAMES, ["fast", "careful"]);
 /// ```
 #[macro_export]
 macro_rules! AsSymbol {
@@ -88,7 +90,8 @@ macro_rules! AsSymbol {
                 None
             }
 
-            const SYMBOL_NAMES: &'static [&'static str] = &[
+            /// Every variant's symbol, in declaration order.
+            pub const SYMBOL_NAMES: &'static [&'static str] = &[
                 $( $crate::AsSymbol!(@symbol $variant $(<$symbol>)?), )+
             ];
         }
