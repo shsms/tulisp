@@ -15,16 +15,20 @@ pub fn with_name<R>(value: &TulispObject, strings: bool, f: impl FnOnce(&str) ->
     }
 }
 
-/// The error for a value that is not a name at all.
+/// The error for a value that is not a name at all; it names the accepted
+/// spellings, as `unknown_name` does.
 #[doc(hidden)]
-pub fn not_a_name(type_name: &str, strings: bool, value: &TulispObject) -> Error {
+pub fn not_a_name(type_name: &str, strings: bool, names: &[&str], value: &TulispObject) -> Error {
     let expected = if strings {
         "a symbol or a string"
     } else {
         "a symbol"
     };
-    Error::type_mismatch(format!("Expected {expected} for {type_name}, got: {value}"))
-        .with_trace(value.clone())
+    Error::type_mismatch(format!(
+        "Expected {expected} for {type_name} (one of {}), got: {value}",
+        names.join(", ")
+    ))
+    .with_trace(value.clone())
 }
 
 /// The error for a name that is none of `names`.
@@ -62,10 +66,10 @@ pub fn unknown_name(type_name: &str, name: &str, names: &[&str]) -> Error {
 ///
 /// Without `#[lisp(strings)]`, `from_tulisp` requires a symbol; a
 /// string is a type mismatch and an unknown symbol is an invalid
-/// argument naming the accepted symbols. `into_tulisp` interns the
-/// variant's symbol. `nil` and `t` are accepted as symbol names, so a
-/// variant may be spelled `<"nil">` or `<"t">`; through an `Option`,
-/// though, `nil` is always `None`.
+/// argument, and both errors name the accepted symbols. `into_tulisp`
+/// interns the variant's symbol. `nil` and `t` are accepted as symbol
+/// names, so a variant may be spelled `<"nil">` or `<"t">`; through an
+/// `Option`, though, `nil` is always `None`.
 ///
 /// A `#[lisp(strings)]` marker, after the doc comment and before the
 /// other attributes, lets `from_tulisp` also read a string with a
@@ -190,7 +194,12 @@ macro_rules! AsSymbol {
                     <Self as ::std::str::FromStr>::from_str(__name)
                         .map_err(|__err| __err.with_trace(__value.clone()))
                 }) else {
-                    return Err($crate::as_symbol::not_a_name(stringify!($name), $strings, __value));
+                    return Err($crate::as_symbol::not_a_name(
+                        stringify!($name),
+                        $strings,
+                        Self::SYMBOL_NAMES,
+                        __value,
+                    ));
                 };
                 __result
             }
@@ -405,7 +414,7 @@ mod tests {
         eval_assert_error(
             &mut ctx,
             "(turn 90)",
-            "ERR TypeMismatch: Expected a symbol or a string for Turn, got: 90\n<eval_string>:1.1-1.9:  at (turn 90)\n",
+            "ERR TypeMismatch: Expected a symbol or a string for Turn (one of nil, 90, half), got: 90\n<eval_string>:1.1-1.9:  at (turn 90)\n",
         );
         eval_assert_error(
             &mut ctx,
@@ -440,7 +449,7 @@ mod tests {
         eval_assert_error(
             &mut ctx,
             "(flip \"ok\")",
-            "ERR TypeMismatch: Expected a symbol for Health, got: \"ok\"\n<eval_string>:1.1-1.11:  at (flip \"ok\")\n",
+            "ERR TypeMismatch: Expected a symbol for Health (one of ok, error, Standby), got: \"ok\"\n<eval_string>:1.1-1.11:  at (flip \"ok\")\n",
         );
     }
 }
