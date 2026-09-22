@@ -382,10 +382,17 @@ mod tests {
         Ok(())
     }
 
-    crate::AsPlist! {
+    crate::AsList! {
         struct Cfg {
             a: i64,
-            b: Option<i64> {= None},
+            b: Option<i64>,
+        }
+    }
+
+    crate::AsList! {
+        struct Opt {
+            a: Option<i64>,
+            b: Option<i64>,
         }
     }
 
@@ -452,6 +459,26 @@ mod tests {
         });
         eval_assert_equal(&mut ctx, "(cfg 2 :a 3)", "6");
         eval_assert_equal(&mut ctx, "(cfg 2 :a 3 :b 4)", "14");
+    }
+
+    #[test]
+    fn a_keyword_tail_with_no_arguments_left_binds_an_empty_plist() {
+        let mut ctx = TulispContext::new();
+        ctx.defun("scaled", |scale: i64, c: Plist<Opt>| -> i64 {
+            scale * (c.a.unwrap_or(1) + c.b.unwrap_or(1))
+        });
+        eval_assert_equal(&mut ctx, "(scaled 2)", "4");
+        eval_assert_equal(&mut ctx, "(scaled 2 :a 3)", "8");
+    }
+
+    #[test]
+    fn an_absent_optional_position_before_a_keyword_tail_binds_an_empty_plist() {
+        let mut ctx = TulispContext::new();
+        ctx.defun("g", |a: Option<i64>, p: Plist<Opt>| -> i64 {
+            a.unwrap_or(-1) + p.a.unwrap_or(-5)
+        });
+        eval_assert_equal(&mut ctx, "(g)", "-6");
+        eval_assert_equal(&mut ctx, "(g nil :a 3)", "2");
     }
 
     #[test]

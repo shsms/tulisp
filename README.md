@@ -59,39 +59,49 @@ For raw argument lists and code transformation, see
 and
 [`defmacro`](https://docs.rs/tulisp/latest/tulisp/struct.TulispContext.html#method.defmacro).
 
-## Keyword-argument and alist-shaped structs
+## Keyed-list structs
 
-When a function accepts many keyword-style parameters, derive
-[`Plistable`](https://docs.rs/tulisp/latest/tulisp/trait.Plistable.html)
-on a struct via
-[`AsPlist!`](https://docs.rs/tulisp/latest/tulisp/macro.AsPlist.html)
-and use
-[`Plist<T>`](https://docs.rs/tulisp/latest/tulisp/struct.Plist.html) as
-the parameter type:
+A struct declared with
+[`AsList!`](https://docs.rs/tulisp/latest/tulisp/macro.AsList.html)
+reads from a plist or an alist and writes back the shape it names
+(plist unless `#[lisp(alist)]` is given).  As a
+[`Plist<T>`](https://docs.rs/tulisp/latest/tulisp/struct.Plist.html)
+parameter it takes a function's remaining arguments as keyword/value
+pairs; as a plain parameter it takes one list value; and it can be a
+field of another `AsList!` struct.
 
 ```rust
-use tulisp::{TulispContext, Plist, AsPlist};
+use tulisp::{AsList, Plist, TulispContext};
 
-AsPlist! {
-    struct ServerConfig { host: String, port: i64 {= 8080} }
+AsList! {
+    struct ServerConfig { host: String, port: i64 {= 8080}, tag: Option<String> }
 }
 
 let mut ctx = TulispContext::new();
 ctx.defun("connect", |cfg: Plist<ServerConfig>| -> String {
     format!("{}:{}", cfg.host, cfg.port)
 });
-// (connect :host "example.com" :port 443)  =>  "example.com:443"
+ctx.defun("connect-to", |cfg: ServerConfig| -> String {
+    format!("{}:{}", cfg.host, cfg.port)
+});
+assert_eq!(
+    ctx.eval_string(r#"(connect :host "example.com" :port 443)"#).unwrap().as_string().unwrap(),
+    "example.com:443"
+);
+assert_eq!(
+    ctx.eval_string(r#"(connect-to '((host . "example.com")))"#).unwrap().as_string().unwrap(),
+    "example.com:8080"
+);
 ```
 
 `{= expr}` provides a default, `field<":custom-key">` overrides the
-keyword name, and `Option<T>` fields read explicit `nil` as `None`.
-
-[`AsAlist!`](https://docs.rs/tulisp/latest/tulisp/macro.AsAlist.html) /
+key, and an `Option<T>` field with no default is `None` when absent
+or nil.  For a
+list held in a free variable, the generated
+[`Plistable`](https://docs.rs/tulisp/latest/tulisp/trait.Plistable.html)
+and
 [`Alistable`](https://docs.rs/tulisp/latest/tulisp/trait.Alistable.html)
-mirror the design for alist-shaped values that arrive as a single
-argument (a list of dotted pairs).  For converting a plist or alist
-held in a free variable rather than from a defun call, both traits
-also expose `from_plist` / `from_alist` standalone.
+impls expose `from_plist` / `from_alist` directly.
 
 ## Built-in Lisp features
 

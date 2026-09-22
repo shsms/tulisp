@@ -114,34 +114,19 @@ fn assoc_find(
 
 /// Conversion between a Rust struct and a Lisp alist.
 ///
-/// Values in the alist are treated as already-evaluated lisp objects
-/// and passed through to the field types' `TryFrom<TulispObject>`
-/// impls without further evaluation:
+/// The alist's values are already-evaluated lisp objects, and each one
+/// becomes its field's value through
+/// [`TulispConvertible`](crate::TulispConvertible) with no further
+/// evaluation:
 ///
 /// ```ignore
 /// let cfg = MyType::from_alist(&mut ctx, &obj)?;
 /// ```
 ///
-/// Unlike [`Plistable`](crate::Plistable), there is no `Alist<T>`
-/// wrapper for use as a [`defun`](crate::TulispContext::defun)
-/// argument — alists arrive as a single value, not as a flat
-/// keyword-argument list, so they are passed through normal
-/// [`TulispObject`] argument types and converted via [`from_alist`]
-/// inside the function body:
-///
-/// ```ignore
-/// ctx.defun("apply-config", |obj: TulispObject| -> Result<(), Error> {
-///     let cfg = Config::from_alist(/* ctx? */, &obj)?;
-///     // ...
-/// });
-/// ```
-///
-/// (Because `from_alist` takes a `&mut TulispContext` to intern field
-/// keys, you'll need a closure form that includes ctx as the first
-/// parameter — see [`TulispContext::defun`].)
-///
-/// The [`AsAlist!`](macro@crate::AsAlist) macro generates both
-/// `from_alist` and `into_alist` from a struct definition.
+/// A struct declared with [`AsList!`](macro@crate::AsList) implements
+/// this trait and is a [`defun`](crate::TulispContext::defun) parameter
+/// in its own right; [`from_alist`] is for an alist held in a free
+/// variable.
 ///
 /// [`from_alist`]: Self::from_alist
 pub trait Alistable {
@@ -154,166 +139,6 @@ pub trait Alistable {
 
     /// Serialize `self` into a Lisp alist of dotted pairs.
     fn into_alist(self, ctx: &mut TulispContext) -> TulispObject;
-}
-
-/// Derive [`Alistable`] for a struct.
-///
-/// # Syntax
-///
-/// ```text
-/// AsAlist! {
-///     [attributes]
-///     [pub] struct Name {
-///         [field_vis] field[<"key-name">]: Type [{= default}],
-///         ...
-///     }
-/// }
-/// ```
-///
-/// - Each field maps to a symbol key in the alist. By default the key
-///   is `stringify!(field)`. Use `field<"custom-name">` to override.
-/// - A field with `{= expr}` is optional; if absent from the alist the
-///   default expression is used.
-/// - A field without a default is required; a missing key is an error.
-///
-/// # Example
-///
-/// ```rust
-/// use tulisp::{TulispContext, Alistable, AsAlist};
-///
-/// AsAlist! {
-///     struct Person {
-///         name: String,
-///         age: i64 {= 0},
-///     }
-/// }
-///
-/// let mut ctx = TulispContext::new();
-/// ctx.eval_string(r#"(setq alice '((name . "Alice") (age . 30)))"#).unwrap();
-/// let alice_obj = ctx.eval_string("alice").unwrap();
-/// let alice = Person::from_alist(&mut ctx, &alice_obj).unwrap();
-/// assert_eq!(alice.name, "Alice");
-/// assert_eq!(alice.age, 30);
-/// ```
-#[macro_export]
-macro_rules! AsAlist {
-    (@key-name
-        $field:ident<$field_key:literal>) => {
-        $field_key
-    };
-    (@key-name $field:ident) => {
-        stringify!($field)
-    };
-
-    (@missing-field $key_name:expr, $default:expr) => {
-        Ok($default)
-    };
-    (@missing-field $key_name:expr,) => {
-        Err($crate::Error::alist_error(concat!("Missing ", $key_name, " field")))
-    };
-
-    (@extract-field $value:ident, None) => {
-        if $value.null() {
-            None
-        } else {
-            Some($value.try_into()?)
-        }
-    };
-
-    (@extract-field $value:ident, Some($e: expr)) => {
-        if $value.null() {
-            None
-        } else {
-            Some($value.try_into()?)
-        }
-    };
-
-    (@extract-field $value:ident, $e: expr) => {
-        $value.try_into()?
-    };
-
-    (@extract-field $value:ident) => {
-        $value.try_into()?
-    };
-
-    (
-        $( #[$meta:meta] )*
-        $vis:vis struct $struct_name:ident {
-            $(
-                $( #[$($field_meta:tt)+] )*
-                $field_vis:vis $field:ident$(<$field_key:literal>)? : $type:ty
-                $({= $($default:tt)+ })?
-            ),+ $(,)?
-        }
-    ) => {
-
-        $( #[$meta] )*
-        $vis struct $struct_name {
-
-            $($( #[$($field_meta)+] )* $field_vis $field: $type),+
-        }
-
-        impl $crate::Alistable for $struct_name {
-            fn from_alist(
-                ctx: &mut TulispContext, alist: &$crate::TulispObject
-            ) -> Result<Self, $crate::Error> {
-                #[derive(Default)]
-                struct Builder {
-                    $($field: Option<$type>),+
-                }
-
-                impl Builder {
-                    fn build(self) -> Result<$struct_name, $crate::Error> {
-                        Ok($struct_name {
-                            $($field: if let Some(f) = self.$field { f } else {
-                                $crate::AsAlist!(
-                                    @missing-field
-                                    $crate::AsAlist!(@key-name $field $(<$field_key>)?),
-                                    $( $($default)+ )?
-                                )?}),+
-                        })
-                    }
-                }
-
-                let symbols = $crate::intern!(ctx => {
-                    $($field: $crate::AsAlist!(@key-name $field $(<$field_key>)?)),+
-                });
-
-                let mut builder = Builder::default();
-
-                for entry in alist.base_iter() {
-                    if !entry.consp() {
-                        return Err($crate::Error::alist_error(format!(
-                            "Alist entry is not a cons pair: {}",
-                            entry
-                        )));
-                    }
-                    let key = entry.car()?;
-                    let value = entry.cdr()?;
-                    $(if key.eq(&symbols.$field) {
-                        builder.$field = Some($crate::AsAlist!(@extract-field value $(, $($default)+)?));
-                    } else)+ {
-                        return Err($crate::Error::alist_error(format!(
-                            "Unexpected key in alist: {}",
-                            key
-                        )));
-                    }
-                }
-
-                builder.build()
-            }
-
-            fn into_alist(self, ctx: &mut TulispContext) -> $crate::TulispObject {
-                let symbols = $crate::intern!(ctx => {
-                    $($field: $crate::AsAlist!(@key-name $field $(<$field_key>)?)),+
-                });
-
-                $crate::alist::alist_from([
-                    $((symbols.$field.clone(), self.$field.into())),+
-                ])
-            }
-        }
-    };
 }
 
 #[cfg(test)]
@@ -356,7 +181,8 @@ mod tests {
         Ok(())
     }
 
-    AsAlist! {
+    crate::AsList! {
+        #[lisp(alist)]
         #[derive(Default, Debug)]
         struct Person {
             /// The person's first name
@@ -416,8 +242,8 @@ mod tests {
         assert_eq!(q.name, "Carol");
         assert_eq!(q.age, 40);
         assert_eq!(q.addr, vec!["Pine St".to_string()]);
-        // None serializes as nil; the macro now reads nil back as None
-        // for optional fields rather than erroring on `try_into::<T>`.
+        // None serializes as nil, and an optional field reads an
+        // explicit nil as `None`.
         assert_eq!(q.education, None);
         assert_eq!(q.place.as_deref(), Some("Home"));
         assert_eq!(q.answer, 42);

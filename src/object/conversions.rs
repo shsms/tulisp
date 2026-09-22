@@ -28,8 +28,9 @@ use crate::{Error, Number, Shared, TulispAny, TulispContext, TulispObject, Tulis
 ///
 /// # Implementing for custom types
 ///
-/// For structs that map to Lisp plists, use the [`AsPlist!`](macro@crate::AsPlist) macro instead of
-/// implementing this trait by hand.
+/// For structs that map to a Lisp plist or alist, use the
+/// [`AsList!`](macro@crate::AsList) macro instead of implementing this trait by
+/// hand.
 ///
 /// For arbitrary Rust types that have no natural Lisp representation, mark the
 /// type with [`TulispAny`]: a `Clone` implementor then crosses into Lisp behind a

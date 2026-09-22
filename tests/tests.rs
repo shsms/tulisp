@@ -1,5 +1,5 @@
 use std::fmt::Display;
-use tulisp::{AsPlist, Error, Iter, Plist, TulispContext, TulispObject, destruct_eval_bind};
+use tulisp::{AsList, Error, Iter, Plist, TulispContext, TulispObject, destruct_eval_bind};
 
 macro_rules! tulisp_assert {
     (@impl $ctx: expr, program:$input:expr, result:$result:expr $(,)?) => {
@@ -1856,23 +1856,11 @@ fn test_funcall_compiled_defun_through_tw() -> Result<(), Error> {
 
 #[test]
 fn test_plist_defun_callable_from_vm_run() -> Result<(), Error> {
-    // Regression for the cross-path bug specific to `Plist<T>`-arg
-    // defuns. Pre-rewrite, the `plist_args` arms in
-    // `context/callable.rs` registered via `ctx.defspecial` and
-    // produced a `TulispValue::Func`. From inside a VM run, calling
-    // such a defun went through `RustCall` → the closure's
-    // `Plist::new(ctx, rest)` → `ctx.eval(value)` per pair → if
-    // `value` was itself a `CompiledDefun` call, `eval::funcall`
-    // re-acquired `ctx.vm.borrow_mut()` — deadlock under `sync`,
-    // RefCell panic otherwise.
-    //
-    // The fix routes Plist-arg defuns through the typed-arg path
-    // (`define_typed_defun` → `RustCallTyped`). Args arrive
-    // already-evaluated; the callback rebuilds the plist shape with
-    // values wrapped in `quote` so `Plist::new`'s per-value eval is
-    // a no-op.
+    // A defun taking a `Plist<T>`, called from VM-compiled code with
+    // argument expressions that are themselves compiled calls, binds
+    // the evaluated values.
 
-    AsPlist! {
+    AsList! {
         struct Cfg {
             x: i64,
             y: i64,

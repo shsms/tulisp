@@ -1,12 +1,12 @@
-//! Defuns can take a typed Lisp plist directly. `AsPlist!` derives
+//! Defuns can take a typed Lisp plist directly. `AsList!` derives
 //! the conversion, optional fields get defaults, and the call site
 //! reads as Emacs Lisp keyword arguments.
 //!
 //! Run with `cargo run --example plist_args`.
 
-use tulisp::{AsPlist, Error, Plist, TulispContext};
+use tulisp::{AsList, Error, Plist, TulispContext};
 
-AsPlist! {
+AsList! {
     struct ServerConfig {
         host: String,
         // Override the keyword spelling — Lisp side uses `:port-number`.

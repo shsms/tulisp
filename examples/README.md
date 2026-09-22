@@ -8,7 +8,7 @@ Each `examples/*.rs` is a self-contained program. Run with
 | example           | shows                                                 |
 |-------------------|-------------------------------------------------------|
 | `hello`           | minimal `defun` + `eval_string` round-trip            |
-| `plist_args`      | `AsPlist!` for keyword-argument conversion            |
+| `plist_args`      | `AsList!` for keyword-argument conversion             |
 | `callbacks`       | `ctx.funcall` / `ctx.map` / `ctx.reduce` calling Lisp |
 | `embed_rust_type` | opaque Rust struct round-tripping through Lisp        |
 
