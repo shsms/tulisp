@@ -349,9 +349,9 @@ impl SymbolBindings {
 // Thread-local item stacks for lexical bindings. A LexBinding is shared
 // across threads (one per defun/lambda param, allocated once at
 // creation); but each thread has its own push/pop stack indexed by the
-// binding's id. This lets concurrent calls into the same function —
-// e.g. tulisp-async timers — bind parameters independently, without
-// the cross-thread `Vec` aliasing that was Bug #3.
+// binding's id. This lets concurrent calls into the same function,
+// from a timer or any other host thread, bind parameters independently
+// with no cross-thread `Vec` aliasing.
 //
 // Each stack entry is a `SharedMut<TulispObject>` — an actual cell
 // shared with any closures that captured this scope. `setq` mutates
