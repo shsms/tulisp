@@ -1064,6 +1064,20 @@ impl TulispValue {
         }
     }
 
+    /// The name this value reads as a symbol: a symbol's or a lexical
+    /// binding's name, `nil` or `t`.
+    #[inline(always)]
+    #[allow(dead_code)]
+    pub(crate) fn symbol_name(&self) -> Option<&str> {
+        match self {
+            TulispValue::Symbol { value } => Some(&value.name),
+            TulispValue::LexicalBinding { binding } => Some(binding.name()),
+            TulispValue::Nil => Some("nil"),
+            TulispValue::T => Some("t"),
+            _ => None,
+        }
+    }
+
     #[inline(always)]
     pub(crate) fn as_float(&self) -> Result<f64, Error> {
         match self {
@@ -1496,6 +1510,16 @@ mod tests {
         ] {
             assert_eq!(super::short_type_name(full), short);
         }
+    }
+
+    #[test]
+    fn symbol_name_covers_symbols_nil_and_t() {
+        let ctx = &mut TulispContext::new();
+        let named = |obj: crate::TulispObject| obj.inner_ref().0.symbol_name().map(str::to_string);
+        assert_eq!(named(ctx.intern("foo")).as_deref(), Some("foo"));
+        assert_eq!(named(crate::TulispObject::nil()).as_deref(), Some("nil"));
+        assert_eq!(named(crate::TulispObject::t()).as_deref(), Some("t"));
+        assert_eq!(named(crate::TulispObject::from(1)), None);
     }
 
     #[test]
