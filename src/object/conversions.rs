@@ -21,7 +21,6 @@ use crate::{Error, Number, Shared, TulispAny, TulispContext, TulispObject, Tulis
 /// | `Vec<T>`                | list                                                               |
 /// | `Option<T>`             | `T`, or absent                                                     |
 /// | `TulispObject`          | any (pass-through)                                                 |
-/// | `Shared<dyn TulispAny>` | an opaque host value, type-erased                                  |
 /// | `T: TulispAny`          | an opaque host value, by clone                                     |
 /// | `Shared<T>`             | an opaque host value, by reference                                 |
 ///
@@ -130,18 +129,6 @@ impl TulispConvertible for bool {
     }
     fn into_tulisp(self, _ctx: &mut TulispContext) -> TulispObject {
         self.into()
-    }
-}
-
-impl TulispConvertible for Shared<dyn TulispAny> {
-    fn from_tulisp(
-        _ctx: &mut TulispContext,
-        value: &TulispObject,
-    ) -> Result<Shared<dyn TulispAny>, Error> {
-        value.as_any().map_err(|e| e.with_trace(value.clone()))
-    }
-    fn into_tulisp(self, _ctx: &mut TulispContext) -> TulispObject {
-        TulispValue::from(self).into_ref(None)
     }
 }
 

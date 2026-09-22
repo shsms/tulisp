@@ -348,51 +348,12 @@ impl TulispObject {
         as_string,
         "Returns a string if `self` contains a string, and an Error otherwise."
     );
-    extractor_fn_with_err!(
-        Shared<dyn TulispAny>,
-        as_any,
-        r#"Returns a boxed value if `self` contains a boxed value, and an Error otherwise.
-
-Functions exported to _Tulisp_ can return arbitrary boxed values, which can be extracted
-with `as_any`, and downcast to desired types.
-
-## Example
-```rust
-# use tulisp::{TulispContext, destruct_bind, Error, TulispAny, Shared};
-#
-# fn main() -> Result<(), Error> {
-let mut ctx = TulispContext::new();
-
-struct TestStruct {
-    value: i64,
-}
-
-impl std::fmt::Display for TestStruct {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "\"TestStruct {}\"", self.value)
+    /// The host value this object holds, type-erased, or an error for
+    /// any other value. [`downcast`](Self::downcast) is the typed form.
+    #[inline(always)]
+    pub(crate) fn as_any(&self) -> Result<Shared<dyn TulispAny>, Error> {
+        self.rc.borrow().0.as_any()
     }
-}
-impl tulisp::TulispAny for TestStruct {}
-
-ctx.defspecial("make_any", |_ctx, args| {
-    destruct_bind!((inp) = args);
-    let inp: i64 = inp.try_into()?;
-
-    let any_obj = Shared::new(TestStruct { value: inp });
-
-    Ok(any_obj.into())
-});
-
-let out = ctx.eval_string("(make_any 25)")?;
-let ts = out.as_any()?.downcast::<TestStruct>().unwrap();
-
-assert_eq!(ts.value, 25);
-#
-# Ok(())
-# }
-```
-"#
-    );
 
     /// The host value of type `T` this object holds, or `None` when it
     /// holds anything else. For a predicate or a parameter that accepts
@@ -676,22 +637,6 @@ impl TryFrom<&TulispObject> for bool {
 
     fn try_from(value: &TulispObject) -> Result<Self, Self::Error> {
         Ok(value.is_truthy())
-    }
-}
-
-impl TryFrom<TulispObject> for Shared<dyn TulispAny> {
-    type Error = Error;
-
-    fn try_from(value: TulispObject) -> Result<Self, Self::Error> {
-        value.as_any().map_err(|e| e.with_trace(value))
-    }
-}
-
-impl TryFrom<&TulispObject> for Shared<dyn TulispAny> {
-    type Error = Error;
-
-    fn try_from(value: &TulispObject) -> Result<Self, Self::Error> {
-        value.as_any().map_err(|e| e.with_trace(value.clone()))
     }
 }
 
