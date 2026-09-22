@@ -39,20 +39,58 @@ fn main() {
 
 [`TulispContext::defun`](https://docs.rs/tulisp/latest/tulisp/struct.TulispContext.html#method.defun)
 handles argument evaluation, arity checking, and type conversion
-automatically.  Built-in arg/return types include `i64`, `f64`, `bool`,
-`String`,
+automatically, for up to twelve parameters.  Built-in arg/return
+types include `i64`, `f64`, `bool`, `String`,
 [`Number`](https://docs.rs/tulisp/latest/tulisp/enum.Number.html),
-`Vec<T>`, and
+`Vec<T>`, `Option<T>` and
 [`TulispObject`](https://docs.rs/tulisp/latest/tulisp/struct.TulispObject.html).
-Use `Option<T>` for `&optional` parameters,
-[`Rest<T>`](https://docs.rs/tulisp/latest/tulisp/struct.Rest.html) for
-`&rest`, a `Result<T, Error>` return type for fallible functions, and
-`&mut TulispContext` as the first parameter to access the interpreter
-from the function body.  Custom Rust types become passable by
-implementing
-[`TulispConvertible`](https://docs.rs/tulisp/latest/tulisp/trait.TulispConvertible.html)
-— most commonly via opaque `Shared<dyn TulispAny>` storage for
-arbitrary `Clone + Display` values.
+An `Option<T>` parameter that no required parameter follows may be
+left out of the call (right before a `Plist<T>` tail, pass `nil` when
+keywords follow),
+[`Rest<T>`](https://docs.rs/tulisp/latest/tulisp/struct.Rest.html)
+takes the remaining arguments, a `Result<T, Error>` return type makes
+the function fallible, a unit return is `nil`, and `&mut
+TulispContext` as the first parameter gives the body the interpreter.
+
+A Rust type crosses the boundary by implementing
+[`TulispConvertible`](https://docs.rs/tulisp/latest/tulisp/trait.TulispConvertible.html).
+For an opaque value that Lisp only passes around, a `Clone + Display`
+type instead opts in with one empty `TulispAny` impl and gets the
+conversion for free:
+
+```rust
+use tulisp::{TulispAny, TulispContext};
+
+#[derive(Clone, Debug)]
+struct Handle { id: u64 }
+impl std::fmt::Display for Handle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "#<handle {}>", self.id)
+    }
+}
+impl TulispAny for Handle {}
+
+let mut ctx = TulispContext::new();
+ctx.defun("make-handle", |id: i64| Handle { id: id as u64 });
+ctx.defun("handle-id", |h: Handle| -> i64 { h.id as i64 });
+assert_eq!(ctx.eval_string("(handle-id (make-handle 7))").unwrap().to_string(), "7");
+```
+
+An enum whose variants are symbols is declared with
+[`AsSymbol!`](https://docs.rs/tulisp/latest/tulisp/macro.AsSymbol.html):
+
+```rust
+use tulisp::{AsSymbol, TulispContext};
+
+AsSymbol! {
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    pub enum Mode { Fast<"fast">, Careful<"careful"> }
+}
+
+let mut ctx = TulispContext::new();
+ctx.defun("careful-p", |m: Mode| -> bool { m == Mode::Careful });
+assert_eq!(ctx.eval_string("(careful-p 'careful)").unwrap().to_string(), "t");
+```
 
 For raw argument lists and code transformation, see
 [`defspecial`](https://docs.rs/tulisp/latest/tulisp/struct.TulispContext.html#method.defspecial)
