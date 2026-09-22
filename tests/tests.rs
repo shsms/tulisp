@@ -3101,7 +3101,7 @@ fn test_any() -> Result<(), Error> {
     }
 
     impl TulispConvertible for TestStruct {
-        fn from_tulisp(value: &TulispObject) -> Result<Self, Error> {
+        fn from_tulisp(_ctx: &mut TulispContext, value: &TulispObject) -> Result<Self, Error> {
             match value.as_any() {
                 Ok(value) => match value.downcast_ref::<TestStruct>() {
                     Some(v) => Ok(v.clone()),
@@ -3110,7 +3110,7 @@ fn test_any() -> Result<(), Error> {
                 Err(_) => Err(Error::type_mismatch("Expected TestStruct".to_string())),
             }
         }
-        fn into_tulisp(self) -> TulispObject {
+        fn into_tulisp(self, _ctx: &mut TulispContext) -> TulispObject {
             Shared::new(self).into()
         }
     }

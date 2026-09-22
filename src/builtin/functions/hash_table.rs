@@ -161,7 +161,7 @@ impl std::fmt::Display for HashTable {
 }
 
 impl TulispConvertible for HashTable {
-    fn from_tulisp(value: &TulispObject) -> Result<HashTable, Error> {
+    fn from_tulisp(_ctx: &mut TulispContext, value: &TulispObject) -> Result<HashTable, Error> {
         value
             .as_any()
             .ok()
@@ -171,7 +171,7 @@ impl TulispConvertible for HashTable {
                     .with_trace(value.clone())
             })
     }
-    fn into_tulisp(self) -> TulispObject {
+    fn into_tulisp(self, _ctx: &mut TulispContext) -> TulispObject {
         Shared::new(self).into()
     }
 }

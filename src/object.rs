@@ -980,12 +980,12 @@ mod tests {
 
     #[test]
     fn rust_bools_share_one_t_and_nil_stays_fresh() -> Result<(), Error> {
+        let mut ctx = TulispContext::new();
         let t: TulispObject = true.into();
         assert!(t.eq_ptr(&true.into()));
-        assert!(t.eq_ptr(&true.into_tulisp()));
+        assert!(t.eq_ptr(&true.into_tulisp(&mut ctx)));
         // Results of the VM's comparisons and of `-> bool` builtins
         // come through the same conversion.
-        let mut ctx = TulispContext::new();
         assert!(t.eq_ptr(&ctx.eval_string("(> 2 1)")?));
         assert!(t.eq_ptr(&ctx.eval_string("(numberp 1)")?));
         // A `nil` can be pushed onto in place, so every `nil` must be
