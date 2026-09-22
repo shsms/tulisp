@@ -167,7 +167,8 @@ impl TulispObject {
     }
 
     /// Returns an iterator over the `TryInto` results on the values inside
-    /// `self`.
+    /// `self`. An improper or circular list ends the iteration with the
+    /// list walk's error as its last item.
     ///
     /// ## Example
     /// ```rust
@@ -178,10 +179,7 @@ impl TulispObject {
     /// #
     /// let items = ctx.eval_string("'(10 20 30 40 -5)")?;
     ///
-    /// let items_vec: Vec<i64> = items
-    ///     .iter::<i64>()?
-    ///     .map(|x| x.unwrap()) // works because there are only i64 values.
-    ///     .collect();
+    /// let items_vec: Vec<i64> = items.iter::<i64>()?.collect::<Result<_, _>>()?;
     ///
     /// assert_eq!(items_vec, vec![10, 20, 30, 40, -5]);
     /// #
@@ -678,11 +676,7 @@ where
     type Error = Error;
 
     fn try_from(value: TulispObject) -> Result<Self, Self::Error> {
-        value
-            .base_iter()
-            .map(|item| item.try_into())
-            .collect::<Result<Vec<T>, Error>>()
-            .map_err(|e| e.with_trace(value))
+        Vec::try_from(&value)
     }
 }
 
@@ -693,11 +687,7 @@ where
     type Error = Error;
 
     fn try_from(value: &TulispObject) -> Result<Self, Self::Error> {
-        value
-            .base_iter()
-            .map(|item| item.try_into())
-            .collect::<Result<Vec<T>, Error>>()
-            .map_err(|e| e.with_trace(value.clone()))
+        cons::collect_list(value, |item| item.try_into())
     }
 }
 
@@ -946,6 +936,47 @@ impl TulispObject {
 #[cfg(test)]
 mod tests {
     use crate::{Error, TulispContext, TulispConvertible, TulispObject};
+
+    #[test]
+    fn a_vec_from_a_dotted_or_circular_list_or_an_atom_is_an_error() {
+        let mut ctx = TulispContext::new();
+        for source in [
+            "5",
+            "'(1 2 . 3)",
+            "(let ((l (list 1 2 3))) (setcdr (cdr (cdr l)) l) l)",
+        ] {
+            let value = ctx.eval_string(source).unwrap();
+            assert!(Vec::<i64>::try_from(&value).is_err(), "{source}");
+            assert!(Vec::<i64>::try_from(value).is_err(), "{source}");
+        }
+        let value = ctx.eval_string("'(1 2)").unwrap();
+        assert_eq!(Vec::<i64>::try_from(value).unwrap(), vec![1, 2]);
+    }
+
+    #[test]
+    fn a_vec_error_points_at_the_list() {
+        let mut ctx = TulispContext::new();
+        for (source, formatted) in [
+            (
+                "'(1 2 . 3)",
+                concat!(
+                    "ERR TypeMismatch: cxr: Not a Cons: 3\n",
+                    "<eval_string>:1.2-1.10:  at (1 2 . 3)\n"
+                ),
+            ),
+            (
+                r#"'(1 "x" 3)"#,
+                concat!(
+                    "ERR TypeMismatch: Expected integer: \"x\"\n",
+                    "<eval_string>:1.2-1.10:  at (1 \"x\" 3)\n"
+                ),
+            ),
+        ] {
+            let value = ctx.eval_string(source).unwrap();
+            let err = Vec::<i64>::try_from(&value).unwrap_err();
+            assert_eq!(err.format(&ctx), formatted, "{source}");
+        }
+    }
 
     #[test]
     fn rust_bools_share_one_t_and_nil_stays_fresh() -> Result<(), Error> {

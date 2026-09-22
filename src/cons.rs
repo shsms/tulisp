@@ -273,6 +273,9 @@ pub struct BaseIter {
     /// list ends the iteration the same way, with a "Circular list"
     /// error.
     error: Option<Error>,
+    /// Set with `error`; the walk yields nothing more, even after
+    /// `take_error`.
+    stopped: bool,
     /// A cell seen earlier, for Brent's cycle check: `next` is
     /// compared with it at every step, and it moves up to the
     /// current cell after 8, 16, 32, ... steps. Short lists never
@@ -290,6 +293,7 @@ impl BaseIter {
         BaseIter {
             next,
             error: None,
+            stopped: false,
             saved: None,
             steps: 0,
             limit: 8,
@@ -298,7 +302,8 @@ impl BaseIter {
 
     /// Returns an error if iteration ended on an improper-list tail.
     /// Call after the iteration completes (e.g. via `iter.by_ref()`)
-    /// to reject `(1 2 . 3)`-shaped inputs the way Emacs does.
+    /// to reject `(1 2 . 3)`-shaped inputs the way Emacs does. Takes
+    /// the error: a second call returns `Ok`.
     pub fn take_error(&mut self) -> Result<(), Error> {
         match self.error.take() {
             None => Ok(()),
@@ -308,7 +313,8 @@ impl BaseIter {
 
     /// After the iteration: the tail of an improper list, nil for a
     /// proper list, or the "Circular list" error. For a walker that
-    /// keeps an improper tail instead of rejecting it.
+    /// keeps an improper tail instead of rejecting it; the iteration
+    /// is over either way.
     pub(crate) fn tail(&mut self) -> Result<TulispObject, Error> {
         if self.next.null() {
             self.take_error()?;
@@ -323,13 +329,14 @@ impl Iterator for BaseIter {
     type Item = TulispObject;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.next.null() {
+        if self.stopped || self.next.null() {
             return None;
         }
         let car = match self.next.car() {
             Ok(c) => c,
             Err(e) => {
                 self.error = Some(e);
+                self.stopped = true;
                 return None;
             }
         };
@@ -337,6 +344,7 @@ impl Iterator for BaseIter {
             Ok(c) => c,
             Err(e) => {
                 self.error = Some(e);
+                self.stopped = true;
                 return None;
             }
         };
@@ -348,6 +356,7 @@ impl Iterator for BaseIter {
             .is_some_and(|saved| self.next.eq_ptr(saved))
         {
             self.error = Some(Error::out_of_range("Circular list".to_string()));
+            self.stopped = true;
             self.next = TulispObject::nil();
         } else if self.steps == self.limit {
             self.saved = Some(self.next.clone());
@@ -356,6 +365,24 @@ impl Iterator for BaseIter {
         }
         Some(car)
     }
+}
+
+/// Converts every element of the list `value` with `f`; an improper
+/// or circular list is an error, and every error is traced to `value`.
+pub(crate) fn collect_list<T>(
+    value: &TulispObject,
+    f: impl FnMut(TulispObject) -> Result<T, Error>,
+) -> Result<Vec<T>, Error> {
+    let mut items = value.base_iter();
+    let vec = items
+        .by_ref()
+        .map(f)
+        .collect::<Result<Vec<T>, Error>>()
+        .map_err(|e| e.with_trace(value.clone()))?;
+    items
+        .take_error()
+        .map_err(|e| e.with_trace(value.clone()))?;
+    Ok(vec)
 }
 
 pub struct Iter<T: std::convert::TryFrom<TulispObject>> {
@@ -376,18 +403,31 @@ impl<T: 'static + std::convert::TryFrom<TulispObject>> Iterator for Iter<T> {
     type Item = Result<T, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.iter.next().map(|vv| {
-            vv.clone().try_into().map_err(|_| {
+        match self.iter.next() {
+            Some(vv) => Some(vv.clone().try_into().map_err(|_| {
                 let tid = std::any::type_name::<T>();
                 Error::type_mismatch(format!("Iter<{}> can't handle {}", tid, vv))
-            })
-        })
+            })),
+            // An improper or circular list ends with its error, once.
+            None => self.iter.take_error().err().map(Err),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::TulispContext;
+
+    #[test]
+    fn a_typed_iterator_ends_an_improper_list_with_its_error() {
+        let ctx = &mut TulispContext::new();
+        let list = ctx.eval_string("'(1 2 . 3)").unwrap();
+        let mut items = list.iter::<i64>().unwrap();
+        assert_eq!(items.next().unwrap().unwrap(), 1);
+        assert_eq!(items.next().unwrap().unwrap(), 2);
+        assert!(items.next().unwrap().is_err());
+        assert!(items.next().is_none());
+    }
 
     #[test]
     fn a_circular_list_ends_the_iteration_with_an_error() {

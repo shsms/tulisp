@@ -93,7 +93,7 @@ mod tests {
 
     #[test]
     fn equal_compares_exotic_values_by_identity() {
-        // Opaque values are `equal` only to themselves. Emacs compares
+        // TulispAny values are `equal` only to themselves. Emacs compares
         // two identical lambdas by structure; tulisp does not, on
         // purpose.
         let mut ctx = TulispContext::new();

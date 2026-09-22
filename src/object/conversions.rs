@@ -130,11 +130,7 @@ where
     T: TulispConvertible,
 {
     fn from_tulisp(value: &TulispObject) -> Result<Vec<T>, Error> {
-        value
-            .base_iter()
-            .map(|item| T::from_tulisp(&item))
-            .collect::<Result<Vec<T>, Error>>()
-            .map_err(|e| e.with_trace(value.clone()))
+        crate::cons::collect_list(value, |item| T::from_tulisp(&item))
     }
     fn into_tulisp(self) -> TulispObject {
         self.into_iter()
@@ -158,5 +154,27 @@ impl TulispConvertible for Number {
     }
     fn into_tulisp(self) -> TulispObject {
         TulispValue::from(self).into_ref(None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TulispConvertible;
+    use crate::{TulispContext, TulispObject};
+
+    #[test]
+    fn a_vec_rejects_an_atom_a_dotted_list_and_a_circular_list() {
+        let mut ctx = TulispContext::new();
+        for source in [
+            "5",
+            "\"abc\"",
+            "'(1 2 . 3)",
+            "(let ((l (list 1 2 3))) (setcdr (cdr (cdr l)) l) l)",
+        ] {
+            let value = ctx.eval_string(source).unwrap();
+            assert!(Vec::<i64>::from_tulisp(&value).is_err(), "{source}");
+        }
+        let empty = Vec::<i64>::from_tulisp(&TulispObject::nil()).unwrap();
+        assert!(empty.is_empty());
     }
 }
