@@ -11,6 +11,7 @@ mod cons;
 pub use cons::{BaseIter, Iter};
 
 mod context;
+pub use context::callable::{Param, ParamKind, PositionalParam, Return};
 pub use context::{Rest, TulispContext};
 
 mod error;

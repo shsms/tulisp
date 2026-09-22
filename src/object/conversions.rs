@@ -58,12 +58,26 @@ use crate::{Error, Number, Shared, TulispAny, TulispContext, TulispObject, Tulis
 /// assert_eq!(ctx.eval_string("(point-x (make-point 3 4))").unwrap().to_string(), "3");
 /// ```
 pub trait TulispConvertible {
+    /// False only for a type that may be absent as an argument or
+    /// field, in which case [`from_absent`](Self::from_absent) supplies
+    /// its value.
+    const REQUIRED: bool = true;
+
     /// Converts a Lisp value into this Rust type.
     ///
     /// Returns an error if the value has the wrong Lisp type.
     fn from_tulisp(ctx: &mut TulispContext, value: &TulispObject) -> Result<Self, Error>
     where
         Self: Sized;
+
+    /// The value of an absent argument or field: `nil` converted,
+    /// unless overridden.
+    fn from_absent(ctx: &mut TulispContext) -> Result<Self, Error>
+    where
+        Self: Sized,
+    {
+        Self::from_tulisp(ctx, &TulispObject::nil())
+    }
 
     /// Converts this Rust value into a Lisp value.
     fn into_tulisp(self, ctx: &mut TulispContext) -> TulispObject;

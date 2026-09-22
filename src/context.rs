@@ -1,4 +1,4 @@
-mod callable;
+pub(crate) mod callable;
 
 mod rest;
 pub use rest::Rest;

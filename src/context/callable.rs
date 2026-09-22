@@ -1,5 +1,100 @@
 use crate::object::wrappers::generic::SyncSend;
-use crate::{Error, Rest, TulispContext, TulispObject};
+use crate::{Error, Plist, Plistable, Rest, TulispContext, TulispConvertible, TulispObject};
+
+/// How a closure parameter takes its value from a call's arguments.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ParamKind {
+    /// One argument at this position; `required` is false for a
+    /// parameter that may be absent.
+    Positional { required: bool },
+    /// Every remaining argument, as a [`Rest<T>`].
+    Rest,
+    /// Every remaining argument, as keyword/value pairs in a
+    /// [`Plist<T>`].
+    Plist,
+}
+
+/// A parameter of a function registered with
+/// [`defun`](TulispContext::defun).
+pub trait Param: Sized + 'static {
+    const KIND: ParamKind;
+
+    /// Takes this parameter's value from the front of `args`, leaving
+    /// the arguments it did not consume. Arity has been checked by
+    /// the caller, so a required position is always present.
+    fn take(ctx: &mut TulispContext, args: &mut &[TulispObject]) -> Result<Self, Error>;
+}
+
+impl<T: TulispConvertible + 'static> Param for T {
+    const KIND: ParamKind = ParamKind::Positional {
+        required: T::REQUIRED,
+    };
+
+    fn take(ctx: &mut TulispContext, args: &mut &[TulispObject]) -> Result<Self, Error> {
+        match args.split_first() {
+            Some((value, rest)) => {
+                *args = rest;
+                T::from_tulisp(ctx, value)
+            }
+            // The dispatcher checks arity first; this guards a call path
+            // that did not.
+            None if T::REQUIRED => Err(Error::missing_argument(
+                "missing required argument".to_string(),
+            )),
+            None => T::from_absent(ctx),
+        }
+    }
+}
+
+impl<T: TulispConvertible + 'static> Param for Rest<T> {
+    const KIND: ParamKind = ParamKind::Rest;
+
+    fn take(ctx: &mut TulispContext, args: &mut &[TulispObject]) -> Result<Self, Error> {
+        std::mem::take(args)
+            .iter()
+            .map(|arg| T::from_tulisp(ctx, arg))
+            .collect::<Result<Rest<T>, Error>>()
+    }
+}
+
+impl<T: Plistable + 'static> Param for Plist<T> {
+    const KIND: ParamKind = ParamKind::Plist;
+
+    fn take(ctx: &mut TulispContext, args: &mut &[TulispObject]) -> Result<Self, Error> {
+        Plist::new(ctx, std::mem::take(args))
+    }
+}
+
+/// A [`Param`] that binds one argument position, so it may come
+/// before another parameter; [`Rest<T>`] and [`Plist<T>`] may not. A
+/// hand-written [`Param`] needs this impl too to sit anywhere but last.
+pub trait PositionalParam: Param {}
+
+impl<T: TulispConvertible + 'static> PositionalParam for T {}
+
+/// The value a [`defun`](TulispContext::defun) closure returns.
+pub trait Return: 'static {
+    /// The Lisp value the call answers with, or the error it raises.
+    fn into_result(self, ctx: &mut TulispContext) -> Result<TulispObject, Error>;
+}
+
+impl<T: TulispConvertible + 'static> Return for T {
+    fn into_result(self, ctx: &mut TulispContext) -> Result<TulispObject, Error> {
+        Ok(self.into_tulisp(ctx))
+    }
+}
+
+impl Return for () {
+    fn into_result(self, _ctx: &mut TulispContext) -> Result<TulispObject, Error> {
+        Ok(TulispObject::nil())
+    }
+}
+
+impl<T: Return> Return for Result<T, Error> {
+    fn into_result(self, ctx: &mut TulispContext) -> Result<TulispObject, Error> {
+        self.and_then(|value| value.into_result(ctx))
+    }
+}
 
 pub trait TulispCallable<
     Args: 'static,
@@ -698,8 +793,29 @@ mod plist_args {
 
 #[cfg(test)]
 mod tests {
+    use super::{Param, ParamKind};
     use crate::test_utils::{eval_assert, eval_assert_equal, eval_assert_error};
     use crate::{Error, Rest, TulispContext, TulispObject};
+
+    #[test]
+    fn a_missing_required_position_is_an_error() {
+        let mut ctx = TulispContext::new();
+        let mut none: &[TulispObject] = &[];
+        let err = <i64 as Param>::take(&mut ctx, &mut none).unwrap_err();
+        assert!(
+            err.to_string().contains("missing required argument"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn a_parameter_kind_comes_from_its_type() {
+        assert!(matches!(
+            <i64 as Param>::KIND,
+            ParamKind::Positional { required: true }
+        ));
+        assert!(matches!(<Rest<i64> as Param>::KIND, ParamKind::Rest));
+    }
 
     #[test]
     fn test_add_functions_only_rest() -> Result<(), crate::Error> {
