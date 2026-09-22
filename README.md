@@ -108,7 +108,6 @@ the full list of forms and functions.
 | Feature         | Description                                                                  |
 |-----------------|------------------------------------------------------------------------------|
 | `sync`          | Makes the interpreter thread-safe (`Arc`/`RwLock` instead of `Rc`/`RefCell`) |
-| `big_functions` | Increases the maximum number of defun parameters from 5 to 10                |
 | `etags`         | Enables TAGS file generation for Lisp source files                           |
 
 ## Next steps

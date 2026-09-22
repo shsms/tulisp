@@ -238,10 +238,8 @@ pub(crate) fn funcall<E: Evaluator>(
             // evaluated. Count the args list first (cheap — no eval)
             // and reject arity mismatches before any arg expression
             // runs, so a too-many-args call doesn't side-effect
-            // through the extras. The closure relies on arity having
-            // been checked here for TW, and in `compile_form` for VM,
-            // so it can do `TulispConvertible` coercion via direct
-            // indexing without rechecking length.
+            // through the extras. The VM does the same check in
+            // `compile_form`.
             let call = call.clone();
             let arity = arity.clone();
             let args_count = args.base_iter().count();

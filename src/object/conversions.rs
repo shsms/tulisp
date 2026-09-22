@@ -4,8 +4,10 @@ use crate::{Error, Number, Shared, TulispAny, TulispContext, TulispObject, Tulis
 /// the interpreter context available in both directions (for interning
 /// symbols, reading keyed lists, and the like).
 ///
-/// This trait is the bridge between Rust and Lisp values. Every argument type
-/// and return type used with [`TulispContext::defun`](crate::TulispContext::defun) must implement it.
+/// This trait is the bridge between Rust and Lisp values. Every parameter
+/// type used with [`TulispContext::defun`](crate::TulispContext::defun) must
+/// implement it; a return type goes through [`Return`](crate::Return), which
+/// also covers `()` and `Result<T, Error>`.
 ///
 /// # Built-in implementations
 ///
@@ -17,6 +19,7 @@ use crate::{Error, Number, Shared, TulispAny, TulispContext, TulispObject, Tulis
 /// | `String`                | string                                                             |
 /// | `Number`                | integer or float                                                   |
 /// | `Vec<T>`                | list                                                               |
+/// | `Option<T>`             | `T`, or absent                                                     |
 /// | `TulispObject`          | any (pass-through)                                                 |
 /// | `Shared<dyn TulispAny>` | an opaque host value, type-erased                                  |
 /// | `T: TulispAny`          | an opaque host value, by clone                                     |
@@ -164,6 +167,28 @@ impl TulispConvertible for Number {
     }
 }
 
+impl<T: TulispConvertible> TulispConvertible for Option<T> {
+    const REQUIRED: bool = false;
+
+    fn from_tulisp(ctx: &mut TulispContext, value: &TulispObject) -> Result<Self, Error> {
+        if value.null() {
+            Ok(None)
+        } else {
+            T::from_tulisp(ctx, value).map(Some)
+        }
+    }
+    /// `None`, with no nil built to inspect.
+    fn from_absent(_ctx: &mut TulispContext) -> Result<Self, Error> {
+        Ok(None)
+    }
+    fn into_tulisp(self, ctx: &mut TulispContext) -> TulispObject {
+        match self {
+            Some(value) => value.into_tulisp(ctx),
+            None => TulispObject::nil(),
+        }
+    }
+}
+
 impl<T: TulispAny + Clone> TulispConvertible for T {
     fn from_tulisp(_ctx: &mut TulispContext, value: &TulispObject) -> Result<Self, Error> {
         let any = value.as_any().map_err(|_| mismatch::<T>(value))?;
@@ -239,12 +264,36 @@ mod tests {
     }
 
     #[test]
+    fn an_absent_value_is_none_or_nil_converted() {
+        let mut ctx = TulispContext::new();
+        assert_eq!(Option::<i64>::from_absent(&mut ctx).unwrap(), None);
+        assert!(Vec::<i64>::from_absent(&mut ctx).unwrap().is_empty());
+        assert!(i64::from_absent(&mut ctx).is_err());
+    }
+
+    #[test]
     fn a_lisp_object_converts_to_itself() {
         let mut ctx = TulispContext::new();
         let obj = ctx.eval_string("'(a b)").unwrap();
         let back = TulispObject::from_tulisp(&mut ctx, &obj).unwrap();
         assert!(back.eq_ptr(&obj));
         assert!(obj.clone().into_tulisp(&mut ctx).eq_ptr(&obj));
+    }
+
+    #[test]
+    fn an_option_is_none_for_nil_and_some_for_a_value() {
+        let mut ctx = TulispContext::new();
+        assert_eq!(
+            Option::<i64>::from_tulisp(&mut ctx, &TulispObject::nil()).unwrap(),
+            None
+        );
+        let four = 4i64.into_tulisp(&mut ctx);
+        assert_eq!(
+            Option::<i64>::from_tulisp(&mut ctx, &four).unwrap(),
+            Some(4)
+        );
+        assert!(Some(5i64).into_tulisp(&mut ctx).equal(&5.into()));
+        assert!(None::<i64>.into_tulisp(&mut ctx).null());
     }
 
     #[derive(Clone, Debug, PartialEq)]

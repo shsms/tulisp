@@ -11,6 +11,8 @@ mod cons;
 pub use cons::{BaseIter, Iter};
 
 mod context;
+#[doc(hidden)]
+pub use context::callable::TulispCallable;
 pub use context::callable::{Param, ParamKind, PositionalParam, Return};
 pub use context::{Rest, TulispContext};
 

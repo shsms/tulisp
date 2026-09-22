@@ -40,11 +40,9 @@ impl std::fmt::Display for DefunParam {
 /// Compile-time arity metadata for a `ctx.defun`-registered fn.
 /// Recorded on `TulispValue::Defun` so the VM compiler can reject
 /// arity mismatches at compile time, before any args are pushed.
-/// Populated from the `TulispCallable` const generics at registration
-/// time, so the values are exact for typed-arg arms; Plist arms
-/// register with `required: 0, optional: 0, has_rest: true` because
-/// arity is in the plist contents and validated at runtime by
-/// `Plistable::from_plist`.
+/// Derived from the parameter types at registration time, so the
+/// values are exact; a `Plist<T>` tail counts as `has_rest`, since its
+/// keys are validated at runtime by `Plistable::from_plist_as_slice`.
 ///
 /// Marked `pub` (and `#[doc(hidden)]`) only because it appears as a
 /// field of the public `TulispValue::Defun` variant — same reason

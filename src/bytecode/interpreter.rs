@@ -946,11 +946,9 @@ fn funcall_inline(
             // No interpreter re-entry: we're using the closure's
             // `&[TulispObject]` shape directly.
             //
-            // Arity check mirrors `eval::funcall`'s `Defun` arm —
-            // the typed closure's `@bind` macro indexes
-            // `&args[..required]` without bounds-checking, so a
-            // too-few-args call would panic without this gate
-            // (e.g. `(funcall '+)` would crash inside the macro).
+            // Arity check mirrors `eval::funcall`'s `Defun` arm, so
+            // a wrong-arity call reports the same error on both
+            // paths.
             let call = call.clone();
             let arity = arity.clone();
             drop(inner);

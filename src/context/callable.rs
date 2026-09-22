@@ -1,4 +1,5 @@
 use crate::object::wrappers::generic::SyncSend;
+use crate::value::DefunArity;
 use crate::{Error, Plist, Plistable, Rest, TulispContext, TulispConvertible, TulispObject};
 
 /// How a closure parameter takes its value from a call's arguments.
@@ -96,706 +97,97 @@ impl<T: Return> Return for Result<T, Error> {
     }
 }
 
-pub trait TulispCallable<
-    Args: 'static,
-    Output: 'static,
-    const NEEDS_CONTEXT: bool,
-    const NUM_ARGS: usize,
-    const NUM_OPTIONAL: usize,
-    const HAS_PLIST: bool,
-    const HAS_REST: bool,
-    const HAS_RETURN: bool,
-    const FALLIBLE: bool,
->
-{
+/// The arity a parameter list declares: a required position is any
+/// position up to the last required parameter; a `Rest` or `Plist`
+/// parameter, always last, takes the remainder.
+pub(crate) fn arity(kinds: &[ParamKind]) -> DefunArity {
+    let mut required = 0;
+    let mut positional = 0;
+    let mut has_rest = false;
+    for (index, kind) in kinds.iter().enumerate() {
+        match kind {
+            ParamKind::Positional { required: true } => {
+                required = index + 1;
+                positional = index + 1;
+            }
+            ParamKind::Positional { required: false } => positional = index + 1,
+            ParamKind::Rest | ParamKind::Plist => has_rest = true,
+        }
+    }
+    DefunArity {
+        required,
+        optional: positional - required,
+        has_rest,
+    }
+}
+
+/// A closure that [`defun`](TulispContext::defun) can register:
+/// `Fn(P1, .., Pn) -> R` or `Fn(&mut TulispContext, P1, .., Pn) -> R`
+/// for up to twelve parameters and a [`Return`]; every parameter but
+/// the last is a [`PositionalParam`], the last any [`Param`].
+#[diagnostic::on_unimplemented(
+    message = "`defun` cannot register this closure",
+    note = "up to twelve parameters, each `TulispConvertible`; only the last may be `Rest<T>` or `Plist<T>`",
+    note = "the return type must be `TulispConvertible`, `()`, or a `Result` of one",
+    note = "a `TulispAny` type converts by value only when it is `Clone`; `Shared<T>` converts one that is not"
+)]
+pub trait TulispCallable<Args: 'static, Output: 'static, const CTX: bool> {
     fn add_to_context(self, ctx: &mut TulispContext, name: &str);
 }
 
 macro_rules! impl_tulisp_callable {
-    (
-        args: $args_count:literal: ($($arg: ident),*),
-        opts: $opts_count:literal: ($($opt: ident),*) $(,)?
-    ) => {
-
-        // Without context, infallible, no rest
+    // One impl per arity for closures with and without the context
+    // parameter; `$cx` is the name the closure binds it to. Every
+    // parameter but the last binds one position.
+    (@impl $ctx:literal, $cx:ident, ($($fn_ctx:tt)*), ($($call_ctx:tt)*), ($($p:ident),*), ($($last:ident)?)) => {
         #[allow(nonstandard_style)]
-        impl<OutT, FnT, $($arg,)* $($opt,)*>
-        TulispCallable<($($arg,)* $($opt,)*) , OutT, false, $args_count, $opts_count, false, false, true, false> for FnT
+        impl<FnT, R, $($p,)* $($last,)?> TulispCallable<($($p,)* $($last,)?), R, $ctx> for FnT
         where
-        FnT: Fn($($arg,)* $(Option<$opt>),*) -> OutT + 'static + SyncSend,
-        $($arg: $crate::TulispConvertible + 'static,)*
-        $($opt: $crate::TulispConvertible + 'static,)*
-        OutT: $crate::TulispConvertible + 'static,
+            FnT: Fn($($fn_ctx)* $($p,)* $($last)?) -> R + SyncSend + 'static,
+            R: Return,
+            $($p: PositionalParam,)*
+            $($last: Param,)?
         {
+            // `define_typed_defun` records the caller's location for TAGS.
             #[track_caller]
-            fn add_to_context(
-                self,
-                ctx: &mut TulispContext,
-                name: &str,
-            ) {
-                ctx.define_typed_defun(
-                    name,
-                    crate::value::DefunArity { required: $args_count, optional: $opts_count, has_rest: false },
-                    move |_ctx, _args| {
-                        impl_tulisp_callable!(@bind _args, _ctx, $($arg)*, $($opt)*);
-                        let res = (self)($($crate::TulispConvertible::from_tulisp(_ctx, $arg)?,)* $($opt,)*);
-                        Ok($crate::TulispConvertible::into_tulisp(res, _ctx))
-                    }
-                );
-            }
-        }
-
-        // Without context, no return, no rest
-        #[allow(nonstandard_style)]
-        impl<FnT, $($arg,)* $($opt,)*>
-        TulispCallable<($($arg,)* $($opt,)*) , (), false, $args_count, $opts_count, false, false, false, false> for FnT
-        where
-        FnT: Fn($($arg,)* $(Option<$opt>),*) + 'static + SyncSend,
-        $($arg: $crate::TulispConvertible + 'static,)*
-        $($opt: $crate::TulispConvertible + 'static,)*
-        {
-            #[track_caller]
-            fn add_to_context(
-                self,
-                ctx: &mut TulispContext,
-                name: &str,
-            ) {
-                ctx.define_typed_defun(
-                    name,
-                    crate::value::DefunArity { required: $args_count, optional: $opts_count, has_rest: false },
-                    move |_ctx, _args| {
-                        impl_tulisp_callable!(@bind _args, _ctx, $($arg)*, $($opt)*);
-                        (self)($($crate::TulispConvertible::from_tulisp(_ctx, $arg)?,)* $($opt,)*);
-                        Ok(TulispObject::nil())
-                    }
-                );
-            }
-        }
-
-        // With context, infallible, no rest
-        #[allow(nonstandard_style)]
-        impl<OutT, FnT, $($arg,)* $($opt,)*>
-        TulispCallable<($($arg,)* $($opt,)*) , OutT, true, $args_count, $opts_count, false, false, true,false> for FnT
-        where
-        FnT: Fn(&mut TulispContext, $($arg,)* $(Option<$opt>),*) -> OutT + 'static + SyncSend,
-        $($arg: $crate::TulispConvertible + 'static,)*
-        $($opt: $crate::TulispConvertible + 'static,)*
-        OutT: $crate::TulispConvertible + 'static,
-        {
-            #[track_caller]
-            fn add_to_context(
-                self,
-                ctx: &mut TulispContext,
-                name: &str,
-            ) {
-                ctx.define_typed_defun(
-                    name,
-                    crate::value::DefunArity { required: $args_count, optional: $opts_count, has_rest: false },
-                    move |ctx, _args| {
-                        impl_tulisp_callable!(@bind _args, ctx, $($arg)*, $($opt)*);
-                        $(let $arg = $crate::TulispConvertible::from_tulisp(ctx, $arg)?;)*
-                        let res = (self)(ctx, $($arg,)* $($opt,)*);
-                        Ok($crate::TulispConvertible::into_tulisp(res, ctx))
-                    }
-                );
-            }
-        }
-
-        // With context, no return, no rest
-        #[allow(nonstandard_style)]
-        impl<FnT, $($arg,)* $($opt,)*>
-        TulispCallable<($($arg,)* $($opt,)*), (), true, $args_count, $opts_count, false, false, false,false> for FnT
-        where
-        FnT: Fn(&mut TulispContext, $($arg,)* $(Option<$opt>),*) + 'static + SyncSend,
-        $($arg: $crate::TulispConvertible + 'static,)*
-        $($opt: $crate::TulispConvertible + 'static,)*
-        {
-            #[track_caller]
-            fn add_to_context(
-                self,
-                ctx: &mut TulispContext,
-                name: &str,
-            ) {
-                ctx.define_typed_defun(
-                    name,
-                    crate::value::DefunArity { required: $args_count, optional: $opts_count, has_rest: false },
-                    move |ctx, _args| {
-                        impl_tulisp_callable!(@bind _args, ctx, $($arg)*, $($opt)*);
-                        $(let $arg = $crate::TulispConvertible::from_tulisp(ctx, $arg)?;)*
-                        (self)(ctx, $($arg,)* $($opt,)*);
-                        Ok(TulispObject::nil())
-                    }
-                );
-            }
-        }
-
-        // Without context, fallible, no rest
-        #[allow(nonstandard_style)]
-        impl<OutT, FnT, $($arg,)* $($opt,)*>
-        TulispCallable<($($arg,)* $($opt,)*) , OutT, false, $args_count, $opts_count, false, false, true, true> for FnT
-        where
-        FnT: Fn($($arg,)* $(Option<$opt>),*) -> Result<OutT, Error> + 'static + SyncSend,
-        $($arg: $crate::TulispConvertible + 'static,)*
-        $($opt: $crate::TulispConvertible + 'static,)*
-        OutT: $crate::TulispConvertible + 'static,
-        {
-            #[track_caller]
-            fn add_to_context(
-                self,
-                ctx: &mut TulispContext,
-                name: &str,
-            ) {
-                ctx.define_typed_defun(
-                    name,
-                    crate::value::DefunArity { required: $args_count, optional: $opts_count, has_rest: false },
-                    move |_ctx, _args| {
-                        impl_tulisp_callable!(@bind _args, _ctx, $($arg)*, $($opt)*);
-                        let res = (self)($($crate::TulispConvertible::from_tulisp(_ctx, $arg)?,)* $($opt,)*)?;
-                        Ok($crate::TulispConvertible::into_tulisp(res, _ctx))
-                    }
-                );
-            }
-        }
-
-        // With context, fallible, no rest
-        #[allow(nonstandard_style)]
-        impl<OutT, FnT, $($arg,)* $($opt,)*>
-        TulispCallable<($($arg,)* $($opt,)*) , OutT, true, $args_count, $opts_count, false, false, true, true> for FnT
-        where
-        FnT: Fn(&mut TulispContext, $($arg,)* $(Option<$opt>),*) -> Result<OutT, Error> + 'static + SyncSend,
-        $($arg: $crate::TulispConvertible + 'static,)*
-        $($opt: $crate::TulispConvertible + 'static,)*
-        OutT: $crate::TulispConvertible + 'static,
-        {
-            #[track_caller]
-            fn add_to_context(
-                self,
-                ctx: &mut TulispContext,
-                name: &str,
-            ) {
-                ctx.define_typed_defun(
-                    name,
-                    crate::value::DefunArity { required: $args_count, optional: $opts_count, has_rest: false },
-                    move |ctx, _args| {
-                        impl_tulisp_callable!(@bind _args, ctx, $($arg)*, $($opt)*);
-                        $(let $arg = $crate::TulispConvertible::from_tulisp(ctx, $arg)?;)*
-                        let res = (self)(ctx, $($arg,)* $($opt,)*)?;
-                        Ok($crate::TulispConvertible::into_tulisp(res, ctx))
-                    }
-                );
-            }
-        }
-
-        // Without context, infallible, with rest
-        #[allow(nonstandard_style)]
-        impl<RestT, OutT, FnT, $($arg,)* $($opt,)*>
-        TulispCallable<($($arg,)* $($opt,)* RestT,), OutT, false, $args_count, $opts_count, false, true, true, false> for FnT
-        where
-        FnT: Fn($($arg,)* $(Option<$opt>,)* Rest<RestT>) -> OutT + 'static + SyncSend,
-        $($arg: $crate::TulispConvertible + 'static,)*
-        $($opt: $crate::TulispConvertible + 'static,)*
-        RestT: $crate::TulispConvertible + 'static,
-        OutT: $crate::TulispConvertible + 'static,
-        {
-            #[track_caller]
-            fn add_to_context(
-                self,
-                ctx: &mut TulispContext,
-                name: &str,
-            ) {
-                ctx.define_typed_defun(
-                    name,
-                    crate::value::DefunArity { required: $args_count, optional: $opts_count, has_rest: true },
-                    move |_ctx, _args| {
-                        impl_tulisp_callable!(@bind_rest _args, _ctx, $($arg)*, $($opt)*, RestT, rest);
-                        let res = (self)(
-                            $($crate::TulispConvertible::from_tulisp(_ctx, $arg)?,)*
-                            $($opt,)*
-                            rest
-                        );
-                        Ok($crate::TulispConvertible::into_tulisp(res, _ctx))
-                    }
-                );
-            }
-        }
-
-        // Without context, no return, with rest
-        #[allow(nonstandard_style)]
-        impl<RestT, FnT, $($arg,)* $($opt,)*>
-        TulispCallable<($($arg,)* $($opt,)* RestT,), (), false, $args_count, $opts_count, false, true, false, false> for FnT
-        where
-        FnT: Fn($($arg,)* $(Option<$opt>,)* Rest<RestT>) + 'static + SyncSend,
-        $($arg: $crate::TulispConvertible + 'static,)*
-        $($opt: $crate::TulispConvertible + 'static,)*
-        RestT: $crate::TulispConvertible + 'static,
-        {
-            #[track_caller]
-            fn add_to_context(
-                self,
-                ctx: &mut TulispContext,
-                name: &str,
-            ) {
-                ctx.define_typed_defun(
-                    name,
-                    crate::value::DefunArity { required: $args_count, optional: $opts_count, has_rest: true },
-                    move |_ctx, _args| {
-                        impl_tulisp_callable!(@bind_rest _args, _ctx, $($arg)*, $($opt)*, RestT, rest);
-                        (self)(
-                            $($crate::TulispConvertible::from_tulisp(_ctx, $arg)?,)*
-                            $($opt,)*
-                            rest
-                        );
-                        Ok(TulispObject::nil())
-                    }
-                );
-            }
-        }
-
-        // With context, infallible, with rest
-        #[allow(nonstandard_style)]
-        impl<RestT, OutT, FnT, $($arg,)* $($opt,)*>
-        TulispCallable<($($arg,)* $($opt,)* RestT,), OutT, true, $args_count, $opts_count, false, true, true, false> for FnT
-        where
-        FnT: Fn(&mut TulispContext, $($arg,)* $(Option<$opt>,)* Rest<RestT>) -> OutT + 'static + SyncSend,
-        $($arg: $crate::TulispConvertible + 'static,)*
-        $($opt: $crate::TulispConvertible + 'static,)*
-        RestT: $crate::TulispConvertible + 'static,
-        OutT: $crate::TulispConvertible + 'static,
-        {
-            #[track_caller]
-            fn add_to_context(
-                self,
-                ctx: &mut TulispContext,
-                name: &str,
-            ) {
-                ctx.define_typed_defun(
-                    name,
-                    crate::value::DefunArity { required: $args_count, optional: $opts_count, has_rest: true },
-                    move |ctx, _args| {
-                        impl_tulisp_callable!(@bind_rest _args, ctx, $($arg)*, $($opt)*, RestT, rest);
-                        $(let $arg = $crate::TulispConvertible::from_tulisp(ctx, $arg)?;)*
-                        let res = (self)(
-                            ctx,
-                            $($arg,)*
-                            $($opt,)*
-                            rest
-                        );
-                        Ok($crate::TulispConvertible::into_tulisp(res, ctx))
-                    }
-                );
-            }
-        }
-
-        // With context, no return, with rest
-        #[allow(nonstandard_style)]
-        impl<RestT, FnT, $($arg,)* $($opt,)*>
-        TulispCallable<($($arg,)* $($opt,)* RestT,), (), true, $args_count, $opts_count, false, true, false, false> for FnT
-        where
-        FnT: Fn(&mut TulispContext, $($arg,)* $(Option<$opt>,)* Rest<RestT>) + 'static + SyncSend,
-        $($arg: $crate::TulispConvertible + 'static,)*
-        $($opt: $crate::TulispConvertible + 'static,)*
-        RestT: $crate::TulispConvertible + 'static,
-        {
-            #[track_caller]
-            fn add_to_context(
-                self,
-                ctx: &mut TulispContext,
-                name: &str,
-            ) {
-                ctx.define_typed_defun(
-                    name,
-                    crate::value::DefunArity { required: $args_count, optional: $opts_count, has_rest: true },
-                    move |ctx, _args| {
-                        impl_tulisp_callable!(@bind_rest _args, ctx, $($arg)*, $($opt)*, RestT, rest);
-                        $(let $arg = $crate::TulispConvertible::from_tulisp(ctx, $arg)?;)*
-                        (self)(
-                            ctx,
-                            $($arg,)*
-                            $($opt,)*
-                            rest
-                        );
-                        Ok(TulispObject::nil())
-                    }
-                );
-            }
-        }
-
-        // Without context, fallible, with rest
-        #[allow(nonstandard_style)]
-        impl<RestT, OutT, FnT, $($arg,)* $($opt,)*>
-        TulispCallable<($($arg,)* $($opt,)* RestT,), OutT, false, $args_count, $opts_count, false, true, true, true> for FnT
-        where
-        FnT: Fn($($arg,)* $(Option<$opt>,)* Rest<RestT>) -> Result<OutT, Error> + 'static + SyncSend,
-        $($arg: $crate::TulispConvertible + 'static,)*
-        $($opt: $crate::TulispConvertible + 'static,)*
-        RestT: $crate::TulispConvertible + 'static,
-        OutT: $crate::TulispConvertible + 'static,
-        {
-            #[track_caller]
-            fn add_to_context(
-                self,
-                ctx: &mut TulispContext,
-                name: &str,
-            ) {
-                ctx.define_typed_defun(
-                    name,
-                    crate::value::DefunArity { required: $args_count, optional: $opts_count, has_rest: true },
-                    move |_ctx, _args| {
-                        impl_tulisp_callable!(@bind_rest _args, _ctx, $($arg)*, $($opt)*, RestT, rest);
-                        let res = (self)(
-                            $($crate::TulispConvertible::from_tulisp(_ctx, $arg)?,)*
-                            $($opt,)*
-                            rest
-                        )?;
-                        Ok($crate::TulispConvertible::into_tulisp(res, _ctx))
-                    }
-                );
-            }
-        }
-
-        // With context, fallible, with rest
-        #[allow(nonstandard_style)]
-        impl<RestT, OutT, FnT, $($arg,)* $($opt,)*>
-        TulispCallable<($($arg,)* $($opt,)* RestT,), OutT, true, $args_count, $opts_count, false, true, true, true> for FnT
-        where
-        FnT: Fn(&mut TulispContext, $($arg,)* $(Option<$opt>,)* Rest<RestT>) -> Result<OutT, Error> + 'static + SyncSend,
-        $($arg: $crate::TulispConvertible + 'static,)*
-        $($opt: $crate::TulispConvertible + 'static,)*
-        RestT: $crate::TulispConvertible + 'static,
-        OutT: $crate::TulispConvertible + 'static,
-        {
-            #[track_caller]
-            fn add_to_context(
-                self,
-                ctx: &mut TulispContext,
-                name: &str,
-            ) {
-                ctx.define_typed_defun(
-                    name,
-                    crate::value::DefunArity { required: $args_count, optional: $opts_count, has_rest: true },
-                    move |ctx, _args| {
-                        impl_tulisp_callable!(@bind_rest _args, ctx, $($arg)*, $($opt)*, RestT, rest);
-                        $(let $arg = $crate::TulispConvertible::from_tulisp(ctx, $arg)?;)*
-                        let res = (self)(
-                            ctx,
-                            $($arg,)*
-                            $($opt,)*
-                            rest
-                        )?;
-                        Ok($crate::TulispConvertible::into_tulisp(res, ctx))
-                    }
-                );
+            #[allow(unused_mut, unused_variables)]
+            fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
+                let arity = arity(&[$(<$p as Param>::KIND,)* $(<$last as Param>::KIND,)?]);
+                ctx.define_typed_defun(name, arity, move |$cx, args| {
+                    let mut args = args;
+                    $(let $p = <$p as Param>::take($cx, &mut args)?;)*
+                    $(let $last = <$last as Param>::take($cx, &mut args)?;)?
+                    (self)($($call_ctx)* $($p,)* $($last)?).into_result($cx)
+                });
             }
         }
     };
-
-    // Bind required + optional args from an evaluated arg slice
-    // (`&[TulispObject]`). Required args become `&TulispObject`
-    // bindings (named after the type-param ident); optional args
-    // become `Option<$opt>` bindings, with `null` treated as
-    // "absent" to match the prior `destruct_eval_bind!` semantics.
-    //
-    // Arity is checked by the dispatcher before this runs:
-    // `compile_form`'s `Defun` arm rejects mismatches at compile
-    // time for VM call sites; `eval::funcall`'s `Defun` arm rejects
-    // them at TW call time. The slice is therefore guaranteed to
-    // have at least `@count $($arg)*` entries and at most
-    // `@count $($arg)* + @count $($opt)*`, so we can index directly
-    // without bounds checks here.
-    (@bind $args_slice:ident, $ctx:ident, $($arg:ident)*, $($opt:ident)*) => {
-        #[allow(unused_assignments, unused_mut)]
-        let mut __idx: usize = 0;
-        $(
-            let $arg = &$args_slice[__idx];
-            __idx += 1;
-        )*
-        $(
-            #[allow(unused_assignments)]
-            let $opt: Option<$opt> = if __idx < $args_slice.len() {
-                let __v = &$args_slice[__idx];
-                __idx += 1;
-                if __v.null() {
-                    None
-                } else {
-                    Some(<$opt as $crate::TulispConvertible>::from_tulisp($ctx, __v)?)
-                }
-            } else {
-                None
-            };
-        )*
+    (($($p:ident),*), ($($last:ident)?)) => {
+        impl_tulisp_callable!(@impl false, cx, (), (), ($($p),*), ($($last)?));
+        impl_tulisp_callable!(@impl true, cx, (&mut TulispContext,), (cx,), ($($p),*), ($($last)?));
     };
-
-    // Same as @bind, plus a trailing `$rest_name: Rest<$rest_ty>`
-    // collected from the leftover slice. Same arity-already-checked
-    // contract.
-    (@bind_rest $args_slice:ident, $ctx:ident, $($arg:ident)*, $($opt:ident)*, $rest_ty:ident, $rest_name:ident) => {
-        #[allow(unused_assignments, unused_mut)]
-        let mut __idx: usize = 0;
-        $(
-            let $arg = &$args_slice[__idx];
-            __idx += 1;
-        )*
-        $(
-            let $opt: Option<$opt> = if __idx < $args_slice.len() {
-                let __v = &$args_slice[__idx];
-                __idx += 1;
-                if __v.null() {
-                    None
-                } else {
-                    Some(<$opt as $crate::TulispConvertible>::from_tulisp($ctx, __v)?)
-                }
-            } else {
-                None
-            };
-        )*
-        let $rest_name: Rest<$rest_ty> = $args_slice[__idx..]
-            .iter()
-            .map(|__a| <$rest_ty as $crate::TulispConvertible>::from_tulisp($ctx, __a))
-            .collect::<Result<_, _>>()?;
-    };
-
 }
 
-#[cfg(feature = "big_functions")]
-mod upto_10_args {
-    use super::*;
-    impl_tulisp_callable!(args: 0: (), opts: 10: (A, B, C, D, E, F, G, H, I, J),);
-    impl_tulisp_callable!(args: 1: (A), opts: 9: (B, C, D, E, F, G, H, I, J),);
-    impl_tulisp_callable!(args: 2: (A, B), opts: 8: (C, D, E, F, G, H, I, J),);
-    impl_tulisp_callable!(args: 3: (A, B, C), opts: 7: (D, E, F, G, H, I, J),);
-    impl_tulisp_callable!(args: 4: (A, B, C, D), opts: 6: (E, F, G, H, I, J),);
-    impl_tulisp_callable!(args: 5: (A, B, C, D, E), opts: 5: (F, G, H, I, J),);
-    impl_tulisp_callable!(args: 6: (A, B, C, D, E, F), opts: 4: (G, H, I, J),);
-    impl_tulisp_callable!(args: 7: (A, B, C, D, E, F, G), opts: 3: (H, I, J),);
-    impl_tulisp_callable!(args: 8: (A, B, C, D, E, F, G, H), opts: 2: (I, J),);
-    impl_tulisp_callable!(args: 9: (A, B, C, D, E, F, G, H, I), opts: 1: (J),);
-    impl_tulisp_callable!(args: 10: (A, B, C, D, E, F, G, H, I, J), opts: 0: (),);
-
-    impl_tulisp_callable!(args: 0: (), opts: 9: (A, B, C, D, E, F, G, H, I),);
-    impl_tulisp_callable!(args: 1: (A), opts: 8: (B, C, D, E, F, G, H, I),);
-    impl_tulisp_callable!(args: 2: (A, B), opts: 7: (C, D, E, F, G, H, I),);
-    impl_tulisp_callable!(args: 3: (A, B, C), opts: 6: (D, E, F, G, H, I),);
-    impl_tulisp_callable!(args: 4: (A, B, C, D), opts: 5: (E, F, G, H, I),);
-    impl_tulisp_callable!(args: 5: (A, B, C, D, E), opts: 4: (F, G, H, I),);
-    impl_tulisp_callable!(args: 6: (A, B, C, D, E, F), opts: 3: (G, H, I),);
-    impl_tulisp_callable!(args: 7: (A, B, C, D, E, F, G), opts: 2: (H, I),);
-    impl_tulisp_callable!(args: 8: (A, B, C, D, E, F, G, H), opts: 1: (I),);
-    impl_tulisp_callable!(args: 9: (A, B, C, D, E, F, G, H, I), opts: 0: (),);
-
-    impl_tulisp_callable!(args: 0: (), opts: 8: (A, B, C, D, E, F, G, H),);
-    impl_tulisp_callable!(args: 1: (A), opts: 7: (B, C, D, E, F, G, H),);
-    impl_tulisp_callable!(args: 2: (A, B), opts: 6: (C, D, E, F, G, H),);
-    impl_tulisp_callable!(args: 3: (A, B, C), opts: 5: (D, E, F, G, H),);
-    impl_tulisp_callable!(args: 4: (A, B, C, D), opts: 4: (E, F, G, H),);
-    impl_tulisp_callable!(args: 5: (A, B, C, D, E), opts: 3: (F, G, H),);
-    impl_tulisp_callable!(args: 6: (A, B, C, D, E, F), opts: 2: (G, H),);
-    impl_tulisp_callable!(args: 7: (A, B, C, D, E, F, G), opts: 1: (H),);
-    impl_tulisp_callable!(args: 8: (A, B, C, D, E, F, G, H), opts: 0: (),);
-
-    impl_tulisp_callable!(args: 0: (), opts: 7: (A, B, C, D, E, F, G),);
-    impl_tulisp_callable!(args: 1: (A), opts: 6: (B, C, D, E, F, G),);
-    impl_tulisp_callable!(args: 2: (A, B), opts: 5: (C, D, E, F, G),);
-    impl_tulisp_callable!(args: 3: (A, B, C), opts: 4: (D, E, F, G),);
-    impl_tulisp_callable!(args: 4: (A, B, C, D), opts: 3: (E, F, G),);
-    impl_tulisp_callable!(args: 5: (A, B, C, D, E), opts: 2: (F, G),);
-    impl_tulisp_callable!(args: 6: (A, B, C, D, E, F), opts: 1: (G),);
-    impl_tulisp_callable!(args: 7: (A, B, C, D, E, F, G), opts: 0: (),);
-
-    impl_tulisp_callable!(args: 0: (), opts: 6: (A, B, C, D, E, F),);
-    impl_tulisp_callable!(args: 1: (A), opts: 5: (B, C, D, E, F),);
-    impl_tulisp_callable!(args: 2: (A, B), opts: 4: (C, D, E, F),);
-    impl_tulisp_callable!(args: 3: (A, B, C), opts: 3: (D, E, F),);
-    impl_tulisp_callable!(args: 4: (A, B, C, D), opts: 2: (E, F),);
-    impl_tulisp_callable!(args: 5: (A, B, C, D, E), opts: 1: (F),);
-    impl_tulisp_callable!(args: 6: (A, B, C, D, E, F), opts: 0: (),);
-}
-
-mod upto_5_args {
-    use super::*;
-
-    impl_tulisp_callable!(args: 0: (), opts: 5: (A, B, C, D, E),);
-    impl_tulisp_callable!(args: 1: (A), opts: 4: (B, C, D, E),);
-    impl_tulisp_callable!(args: 2: (A, B), opts: 3: (C, D, E),);
-    impl_tulisp_callable!(args: 3: (A, B, C), opts: 2: (D, E),);
-    impl_tulisp_callable!(args: 4: (A, B, C, D), opts: 1: (E),);
-    impl_tulisp_callable!(args: 5: (A, B, C, D, E), opts: 0: (),);
-
-    impl_tulisp_callable!(args: 0: (), opts: 4: (A, B, C, D),);
-    impl_tulisp_callable!(args: 1: (A), opts: 3: (B, C, D),);
-    impl_tulisp_callable!(args: 2: (A, B), opts: 2: (C, D),);
-    impl_tulisp_callable!(args: 3: (A, B, C), opts: 1: (D),);
-    impl_tulisp_callable!(args: 4: (A, B, C, D), opts: 0: (),);
-
-    impl_tulisp_callable!(args: 0: (), opts: 3: (A, B, C),);
-    impl_tulisp_callable!(args: 1: (A), opts: 2: (B, C),);
-    impl_tulisp_callable!(args: 2: (A, B), opts: 1: (C),);
-    impl_tulisp_callable!(args: 3: (A, B, C), opts: 0: (),);
-
-    impl_tulisp_callable!(args: 0: (), opts: 2: (A, B),);
-    impl_tulisp_callable!(args: 1: (A), opts: 1: (B),);
-    impl_tulisp_callable!(args: 2: (A, B), opts: 0: (),);
-
-    impl_tulisp_callable!(args: 0: (), opts: 1: (A),);
-    impl_tulisp_callable!(args: 1: (A), opts: 0: (),);
-
-    impl_tulisp_callable!(args: 0: (), opts: 0: (),);
-}
-
-mod plist_args {
-    use crate::{Plist, Plistable};
-
-    use super::*;
-
-    #[allow(nonstandard_style)]
-    impl<PlistT, OutT, FnT> TulispCallable<(PlistT,), OutT, false, 0, 0, true, false, true, false>
-        for FnT
-    where
-        FnT: Fn(Plist<PlistT>) -> OutT + 'static + SyncSend,
-        PlistT: Plistable + 'static,
-        OutT: crate::TulispConvertible + 'static,
-    {
-        #[track_caller]
-        fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
-            ctx.define_typed_defun(
-                name,
-                crate::value::DefunArity {
-                    required: 0,
-                    optional: 0,
-                    has_rest: true,
-                },
-                move |ctx, args| {
-                    let res = (self)(Plist::new(ctx, args)?);
-                    Ok(crate::TulispConvertible::into_tulisp(res, ctx))
-                },
-            );
-        }
-    }
-    #[allow(nonstandard_style)]
-    impl<PlistT, FnT> TulispCallable<(PlistT,), (), false, 0, 0, true, false, true, false> for FnT
-    where
-        FnT: Fn(Plist<PlistT>) + 'static + SyncSend,
-        PlistT: Plistable + 'static,
-    {
-        #[track_caller]
-        fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
-            ctx.define_typed_defun(
-                name,
-                crate::value::DefunArity {
-                    required: 0,
-                    optional: 0,
-                    has_rest: true,
-                },
-                move |ctx, args| {
-                    (self)(Plist::new(ctx, args)?);
-                    Ok(TulispObject::nil())
-                },
-            );
-        }
-    }
-    #[allow(nonstandard_style)]
-    impl<PlistT, OutT, FnT> TulispCallable<(PlistT,), OutT, true, 0, 0, true, false, true, false>
-        for FnT
-    where
-        FnT: Fn(&mut TulispContext, Plist<PlistT>) -> OutT + 'static + SyncSend,
-        PlistT: Plistable + 'static,
-        OutT: crate::TulispConvertible + 'static,
-    {
-        #[track_caller]
-        fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
-            ctx.define_typed_defun(
-                name,
-                crate::value::DefunArity {
-                    required: 0,
-                    optional: 0,
-                    has_rest: true,
-                },
-                move |ctx, args| {
-                    let plist = Plist::new(ctx, args)?;
-                    let res = (self)(ctx, plist);
-                    Ok(crate::TulispConvertible::into_tulisp(res, ctx))
-                },
-            );
-        }
-    }
-    #[allow(nonstandard_style)]
-    impl<PlistT, FnT> TulispCallable<(PlistT,), (), true, 0, 0, true, false, false, false> for FnT
-    where
-        FnT: Fn(&mut TulispContext, Plist<PlistT>) + 'static + SyncSend,
-        PlistT: Plistable + 'static,
-    {
-        #[track_caller]
-        fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
-            ctx.define_typed_defun(
-                name,
-                crate::value::DefunArity {
-                    required: 0,
-                    optional: 0,
-                    has_rest: true,
-                },
-                move |ctx, args| {
-                    let plist = Plist::new(ctx, args)?;
-                    (self)(ctx, plist);
-                    Ok(TulispObject::nil())
-                },
-            );
-        }
-    }
-    #[allow(nonstandard_style)]
-    impl<PlistT, OutT, FnT> TulispCallable<(PlistT,), OutT, false, 0, 0, true, false, true, true>
-        for FnT
-    where
-        FnT: Fn(Plist<PlistT>) -> Result<OutT, Error> + 'static + SyncSend,
-        PlistT: Plistable + 'static,
-        OutT: crate::TulispConvertible + 'static,
-    {
-        #[track_caller]
-        fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
-            ctx.define_typed_defun(
-                name,
-                crate::value::DefunArity {
-                    required: 0,
-                    optional: 0,
-                    has_rest: true,
-                },
-                move |ctx, args| {
-                    let plist = Plist::new(ctx, args)?;
-                    let res = (self)(plist);
-                    res.map(|x| x.into_tulisp(ctx))
-                },
-            );
-        }
-    }
-    #[allow(nonstandard_style)]
-    impl<PlistT, OutT, FnT> TulispCallable<(PlistT,), OutT, true, 0, 0, true, false, true, true> for FnT
-    where
-        FnT: Fn(&mut TulispContext, Plist<PlistT>) -> Result<OutT, Error> + 'static + SyncSend,
-        PlistT: Plistable + 'static,
-        OutT: crate::TulispConvertible + 'static,
-    {
-        #[track_caller]
-        fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
-            ctx.define_typed_defun(
-                name,
-                crate::value::DefunArity {
-                    required: 0,
-                    optional: 0,
-                    has_rest: true,
-                },
-                move |ctx, args| {
-                    let plist = Plist::new(ctx, args)?;
-                    let res = (self)(ctx, plist);
-                    res.map(|x| x.into_tulisp(ctx))
-                },
-            );
-        }
-    }
-}
+impl_tulisp_callable!((), ());
+impl_tulisp_callable!((), (A));
+impl_tulisp_callable!((A), (B));
+impl_tulisp_callable!((A, B), (C));
+impl_tulisp_callable!((A, B, C), (D));
+impl_tulisp_callable!((A, B, C, D), (E));
+impl_tulisp_callable!((A, B, C, D, E), (F));
+impl_tulisp_callable!((A, B, C, D, E, F), (G));
+impl_tulisp_callable!((A, B, C, D, E, F, G), (H));
+impl_tulisp_callable!((A, B, C, D, E, F, G, H), (I));
+impl_tulisp_callable!((A, B, C, D, E, F, G, H, I), (J));
+impl_tulisp_callable!((A, B, C, D, E, F, G, H, I, J), (K));
+impl_tulisp_callable!((A, B, C, D, E, F, G, H, I, J, K), (L));
 
 #[cfg(test)]
 mod tests {
-    use super::{Param, ParamKind};
+    use super::{Param, ParamKind, arity};
     use crate::test_utils::{eval_assert, eval_assert_equal, eval_assert_error};
-    use crate::{Error, Rest, TulispContext, TulispObject};
+    use crate::value::DefunArity;
+    use crate::{Error, Plist, Rest, TulispContext, TulispObject};
 
     #[test]
     fn a_missing_required_position_is_an_error() {
@@ -988,5 +380,146 @@ mod tests {
         );
 
         Ok(())
+    }
+
+    crate::AsPlist! {
+        struct Cfg {
+            a: i64,
+            b: Option<i64> {= None},
+        }
+    }
+
+    fn arity_of(kinds: &[ParamKind]) -> (usize, usize, bool) {
+        let DefunArity {
+            required,
+            optional,
+            has_rest,
+        } = arity(kinds);
+        (required, optional, has_rest)
+    }
+
+    #[test]
+    fn arity_comes_from_the_parameter_types() {
+        assert_eq!(arity_of(&[]), (0, 0, false));
+        assert_eq!(
+            arity_of(&[<i64 as Param>::KIND, <Option<i64> as Param>::KIND]),
+            (1, 1, false)
+        );
+        assert_eq!(
+            arity_of(&[<Option<i64> as Param>::KIND, <i64 as Param>::KIND]),
+            (2, 0, false)
+        );
+        assert_eq!(
+            arity_of(&[<i64 as Param>::KIND, <Rest<i64> as Param>::KIND]),
+            (1, 0, true)
+        );
+        assert!(matches!(<Plist<Cfg> as Param>::KIND, ParamKind::Plist));
+    }
+
+    #[test]
+    fn an_absent_or_nil_optional_position_is_none() {
+        let mut ctx = TulispContext::new();
+        ctx.defun("opt", |a: i64, b: Option<i64>| -> i64 {
+            a + b.unwrap_or(10)
+        });
+        eval_assert_equal(&mut ctx, "(opt 1 2)", "3");
+        eval_assert_equal(&mut ctx, "(opt 1)", "11");
+        eval_assert_equal(&mut ctx, "(opt 1 nil)", "11");
+    }
+
+    #[test]
+    fn an_option_before_a_required_parameter_still_takes_a_position() {
+        let mut ctx = TulispContext::new();
+        ctx.defun("mid", |a: Option<i64>, b: i64| -> i64 {
+            a.unwrap_or(0) + b
+        });
+        eval_assert_equal(&mut ctx, "(mid nil 2)", "2");
+        eval_assert_equal(&mut ctx, "(mid 1 2)", "3");
+        eval_assert_error(
+            &mut ctx,
+            "(mid 2)",
+            r#"ERR MissingArgument: Too few arguments
+<eval_string>:1.1-1.7:  at (mid 2)
+"#,
+        );
+    }
+
+    #[test]
+    fn a_keyword_tail_binds_the_remaining_arguments() {
+        let mut ctx = TulispContext::new();
+        ctx.defun("cfg", |scale: i64, c: Plist<Cfg>| -> i64 {
+            scale * (c.a + c.b.unwrap_or(0))
+        });
+        eval_assert_equal(&mut ctx, "(cfg 2 :a 3)", "6");
+        eval_assert_equal(&mut ctx, "(cfg 2 :a 3 :b 4)", "14");
+    }
+
+    #[test]
+    fn returns_fold_unit_and_result() {
+        let mut ctx = TulispContext::new();
+        ctx.defun("nothing", |_a: i64| {});
+        eval_assert_equal(&mut ctx, "(nothing 1)", "nil");
+        ctx.defun("checked-nothing", |a: i64| -> Result<(), Error> {
+            if a < 0 {
+                Err(Error::invalid_argument("negative".to_string()))
+            } else {
+                Ok(())
+            }
+        });
+        eval_assert_equal(&mut ctx, "(checked-nothing 1)", "nil");
+        ctx.defun("checked", |a: i64| -> Result<i64, Error> {
+            if a < 0 {
+                Err(Error::invalid_argument("negative".to_string()))
+            } else {
+                Ok(a)
+            }
+        });
+        eval_assert_equal(&mut ctx, "(checked 1)", "1");
+        eval_assert_error(
+            &mut ctx,
+            "(checked -1)",
+            r#"ERR InvalidArgument: negative
+<eval_string>:1.1-1.12:  at (checked -1)
+"#,
+        );
+        ctx.defun(
+            "with-ctx",
+            |ctx: &mut TulispContext, name: String| -> TulispObject { ctx.intern(&name) },
+        );
+        eval_assert_equal(&mut ctx, "(with-ctx \"foo\")", "'foo");
+    }
+
+    #[test]
+    fn a_keyword_tail_binds_after_the_context_parameter() {
+        let mut ctx = TulispContext::new();
+        ctx.defun(
+            "tagged",
+            |ctx: &mut TulispContext, name: String, c: Plist<Cfg>| -> TulispObject {
+                ctx.intern(&format!("{name}{}", c.a))
+            },
+        );
+        eval_assert_equal(&mut ctx, "(tagged \"n\" :a 3)", "'n3");
+    }
+
+    #[test]
+    fn twelve_parameters_are_accepted() {
+        let mut ctx = TulispContext::new();
+        ctx.defun(
+            "twelve",
+            |a: i64,
+             b: i64,
+             c: i64,
+             d: i64,
+             e: i64,
+             f: i64,
+             g: i64,
+             h: i64,
+             i: i64,
+             j: i64,
+             k: i64,
+             l: i64|
+             -> i64 { a + b + c + d + e + f + g + h + i + j + k + l },
+        );
+        eval_assert_equal(&mut ctx, "(twelve 1 1 1 1 1 1 1 1 1 1 1 1)", "12");
     }
 }

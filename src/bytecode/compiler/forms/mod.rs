@@ -163,8 +163,8 @@ pub(super) fn compile_form(
                     args_count += 1;
                     rest = rest.cdr()?;
                 }
-                // Same wording as the @bind runtime check in
-                // `context/callable.rs`, so a defun whose arity is
+                // Same wording as the runtime check in
+                // `eval::funcall`, so a defun whose arity is
                 // wrong reports the same error whether it's caught
                 // by the VM compiler here or by the runtime closure.
                 // The form's source span (added via `with_trace`)

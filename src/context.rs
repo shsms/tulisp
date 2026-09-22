@@ -457,18 +457,32 @@ impl TulispContext {
     ///
     /// # Argument types
     ///
-    /// Each parameter type must implement [`TulispConvertible`](crate::TulispConvertible).  The built-in
-    /// implementations cover `i64`, `f64`, `bool`, `String`, [`Number`](crate::Number),
-    /// `Vec<T>`, and [`TulispObject`].
+    /// Up to twelve parameters. A positional parameter is any type that
+    /// implements [`TulispConvertible`](crate::TulispConvertible); the last
+    /// parameter may instead be [`Rest<T>`](Rest) or [`Plist<T>`](crate::Plist).
+    /// An `Option<T>` parameter that is not followed by a required one may be
+    /// left out of the call; one right before a `Plist<T>` tail must be given,
+    /// as `nil` at least, whenever keywords follow, or it takes the first
+    /// keyword.
     ///
-    /// | Signature pattern                        | Behaviour                                      |
-    /// |------------------------------------------|------------------------------------------------|
-    /// | `(T, U, ...) -> R`                       | fixed required arguments                       |
-    /// | `(..., Option<T>, Option<U>, ...) -> R`  | trailing optional arguments (Lisp `&optional`) |
-    /// | `(..., `[`Rest<T>`](Rest)`) -> R`        | trailing variadic arguments (Lisp `&rest`)     |
-    /// | `(&mut TulispContext, T, ...) -> R`      | access to the interpreter                      |
-    /// | `(...) -> Result<R, `[`Error`](Error)`>` | fallible function                              |
-    /// | `(`[`Plist<T>`](crate::Plist)`) -> R`    | entire argument list as a typed plist          |
+    /// | Signature pattern                          | Behaviour                                        |
+    /// |--------------------------------------------|--------------------------------------------------|
+    /// | `(T, U, ...) -> R`                         | positional arguments                             |
+    /// | `(..., Option<T>, ...) -> R`               | an argument that may be absent or nil            |
+    /// | `(..., `[`Rest<T>`](Rest)`) -> R`          | every remaining argument (Lisp `&rest`)          |
+    /// | `(..., `[`Plist<T>`](crate::Plist)`) -> R` | every remaining argument as keyword/value pairs  |
+    /// | `(&mut TulispContext, T, ...) -> R`        | access to the interpreter                        |
+    /// | `(...) -> Result<R, `[`Error`](Error)`>`   | fallible function                                |
+    /// | `(...)`                                    | returns nil                                      |
+    ///
+    /// A [`Rest<T>`](Rest) or [`Plist<T>`](crate::Plist) parameter anywhere but
+    /// last does not compile:
+    ///
+    /// ```compile_fail
+    /// use tulisp::{Rest, TulispContext};
+    /// let mut ctx = TulispContext::new();
+    /// ctx.defun("bad", |_rest: Rest<i64>, _b: i64| {});
+    /// ```
     ///
     /// # Examples
     ///
@@ -504,30 +518,10 @@ impl TulispContext {
     /// ```
     #[inline(always)]
     #[track_caller]
-    pub fn defun<
-        Args: 'static,
-        Output: 'static,
-        const NEEDS_CONTEXT: bool,
-        const NUM_ARGS: usize,
-        const NUM_OPTIONAL: usize,
-        const HAS_PLIST: bool,
-        const HAS_REST: bool,
-        const HAS_RETURN: bool,
-        const FALLIBLE: bool,
-    >(
+    pub fn defun<Args: 'static, Output: 'static, const CTX: bool>(
         &mut self,
         name: &str,
-        func: impl TulispCallable<
-            Args,
-            Output,
-            NEEDS_CONTEXT,
-            NUM_ARGS,
-            NUM_OPTIONAL,
-            HAS_PLIST,
-            HAS_REST,
-            HAS_RETURN,
-            FALLIBLE,
-        > + 'static,
+        func: impl TulispCallable<Args, Output, CTX> + 'static,
     ) -> &mut Self {
         func.add_to_context(self, name);
         self
