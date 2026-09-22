@@ -1067,7 +1067,6 @@ impl TulispValue {
     /// The name this value reads as a symbol: a symbol's or a lexical
     /// binding's name, `nil` or `t`.
     #[inline(always)]
-    #[allow(dead_code)]
     pub(crate) fn symbol_name(&self) -> Option<&str> {
         match self {
             TulispValue::Symbol { value } => Some(&value.name),

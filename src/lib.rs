@@ -46,6 +46,9 @@ pub use {
     object::wrappers::generic::Shared, object::wrappers::generic::SharedMut,
 };
 
+#[doc(hidden)]
+pub mod as_symbol;
+
 #[cfg(test)]
 mod test_utils {
     /// A pair of evaluators for the same source string, run on the
