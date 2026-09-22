@@ -83,8 +83,8 @@ macro_rules! AsSymbol {
             }
 
             /// The variant that reads from the symbol `name`, if any.
-            pub fn from_symbol_name(name: &str) -> Option<Self> {
-                $( if name == $crate::AsSymbol!(@symbol $variant $(<$symbol>)?) {
+            pub fn from_symbol_name(__name: &str) -> Option<Self> {
+                $( if __name == $crate::AsSymbol!(@symbol $variant $(<$symbol>)?) {
                     return Some($name::$variant);
                 } )+
                 None
@@ -103,30 +103,30 @@ macro_rules! AsSymbol {
 
         impl $crate::TulispConvertible for $name {
             fn from_tulisp(
-                _ctx: &mut $crate::TulispContext,
-                value: &$crate::TulispObject,
+                __ctx: &mut $crate::TulispContext,
+                __value: &$crate::TulispObject,
             ) -> Result<Self, $crate::Error> {
-                let Some(result) = $crate::as_symbol::with_symbol_name(value, |symbol| {
-                    Self::from_symbol_name(symbol).ok_or_else(|| {
+                let Some(__result) = $crate::as_symbol::with_symbol_name(__value, |__symbol| {
+                    Self::from_symbol_name(__symbol).ok_or_else(|| {
                         $crate::Error::invalid_argument(format!(
-                            "unknown {} '{symbol}'; expected one of {}",
+                            "unknown {} '{__symbol}'; expected one of {}",
                             stringify!($name),
                             Self::SYMBOL_NAMES.join(", ")
                         ))
-                        .with_trace(value.clone())
+                        .with_trace(__value.clone())
                     })
                 }) else {
                     return Err($crate::Error::type_mismatch(format!(
-                        "Expected a symbol for {}, got: {value}",
+                        "Expected a symbol for {}, got: {__value}",
                         stringify!($name)
                     ))
-                    .with_trace(value.clone()));
+                    .with_trace(__value.clone()));
                 };
-                result
+                __result
             }
 
-            fn into_tulisp(self, ctx: &mut $crate::TulispContext) -> $crate::TulispObject {
-                ctx.intern(self.symbol_name())
+            fn into_tulisp(self, __ctx: &mut $crate::TulispContext) -> $crate::TulispObject {
+                __ctx.intern(self.symbol_name())
             }
         }
     };
@@ -170,6 +170,32 @@ mod tests {
         enum Raw {
             r#type,
         }
+    }
+
+    // Constants spelled like the generated bindings must not capture
+    // them: an identifier pattern resolves to a constant in scope.
+    #[allow(non_upper_case_globals, dead_code)]
+    mod beside_constants {
+        const name: &str = "";
+        const value: &str = "";
+        const symbol: &str = "";
+        const result: &str = "";
+        const ctx: &str = "";
+        crate::AsSymbol! {
+            #[derive(Debug, PartialEq)]
+            pub enum Shadowed {
+                One<"one">,
+            }
+        }
+    }
+
+    #[test]
+    fn an_as_symbol_beside_same_named_constants_compiles() {
+        assert_eq!(
+            beside_constants::Shadowed::from_symbol_name("one"),
+            Some(beside_constants::Shadowed::One)
+        );
+        assert_eq!(beside_constants::Shadowed::SYMBOL_NAMES, ["one"]);
     }
 
     #[test]

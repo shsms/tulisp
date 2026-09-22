@@ -40,21 +40,21 @@ macro_rules! list {
         $ret.push($item)
     };
     (@push $ret:ident, @ $item:expr) => {
-        $item.deep_copy().and_then(|ret| $ret.append(ret))
+        $item.deep_copy().and_then(|__ret| $ret.append(__ret))
     };
     (@push $ret:ident, $item:expr, $($items:tt)+) => {
-        list!(@push $ret, $item).and_then(|ret|
-        list!(@push ret, $($items)+))
+        list!(@push $ret, $item).and_then(|__ret|
+        list!(@push __ret, $($items)+))
     };
     (@push $ret:ident, @ $item:expr, $($items:tt)+) => {
-        list!(@push $ret, @ $item).and_then(|ret|
-        list!(@push ret, $($items)+))
+        list!(@push $ret, @ $item).and_then(|__ret|
+        list!(@push __ret, $($items)+))
     };
     (, $($items:tt)+) => { list!($($items)+) };
     ($($items:tt)+) => {{
-	let ret = TulispObject::nil();
-        list!(@push ret, $($items)+)
-            .and_then(|ret| Ok(ret.to_owned()))
+        let __ret = TulispObject::nil();
+        list!(@push __ret, $($items)+)
+            .and_then(|__ret| Ok(__ret.to_owned()))
     }};
     () => { TulispObject::nil() }
 }
@@ -180,7 +180,7 @@ macro_rules! destruct_eval_bind {
                 "Too few arguments".to_string()
             ));
         }
-        let $var = $vv.car_and_then(|x| $ctx.eval(x))?;
+        let $var = $vv.car_and_then(|__x| $ctx.eval(__x))?;
         let $vv = $vv.cdr()?;
     };
     (@reqr $ctx:ident, $vv:ident, $var:ident $($vars:tt)+) => {
@@ -200,7 +200,7 @@ macro_rules! destruct_eval_bind {
     };
     (@optvar $ctx:ident, $vv:ident, $var:ident) => {
         let ($var, $vv) = if !$vv.null() {
-            ($vv.car_and_then(|x| $ctx.eval(x))?, $vv.cdr()?)
+            ($vv.car_and_then(|__x| $ctx.eval(__x))?, $vv.cdr()?)
         } else {
             (TulispObject::nil(), TulispObject::nil())
         };
@@ -289,11 +289,10 @@ macro_rules! intern {
         }
 
         impl $struct_name {
-            fn new(ctx: &mut $crate::TulispContext) -> Self {
-                let ret = $struct_name {
-                    $($name: ctx.intern($symbol),)+
-                };
-                ret
+            fn new(__ctx: &mut $crate::TulispContext) -> Self {
+                $struct_name {
+                    $($name: __ctx.intern($symbol),)+
+                }
             }
         }
     };
@@ -302,4 +301,30 @@ macro_rules! intern {
         $crate::intern!(pub(crate) struct Keywords {$($name : $symbol),+});
         Keywords::new($ctx)
     }};
+}
+
+#[cfg(test)]
+mod tests {
+    // Constants spelled like the generated bindings must not capture
+    // them: an identifier pattern resolves to a constant in scope.
+    #[allow(non_upper_case_globals, dead_code)]
+    mod beside_constants {
+        use crate::{Error, TulispContext, TulispObject};
+
+        const ret: &str = "";
+        const x: &str = "";
+
+        pub fn second(ctx: &mut TulispContext) -> Result<TulispObject, Error> {
+            let args = crate::list!(,TulispObject::from(1) ,TulispObject::from(2))?;
+            crate::destruct_eval_bind!(ctx, (a b) = args);
+            let _ = a;
+            Ok(b)
+        }
+    }
+
+    #[test]
+    fn a_list_and_destructure_beside_same_named_constants_compile() {
+        let mut ctx = crate::TulispContext::new();
+        assert_eq!(beside_constants::second(&mut ctx).unwrap().to_string(), "2");
+    }
 }

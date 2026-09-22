@@ -321,9 +321,9 @@ macro_rules! AsList {
             )))
         } else {
             <$type as $crate::TulispConvertible>::from_absent($ctx)
-                .map_err(|e| {
+                .map_err(|__e| {
                     <$shape as $crate::as_list::Shape>::error(format!(
-                        "{} field: {e}",
+                        "{} field: {__e}",
                         <$shape as $crate::as_list::Shape>::key($key)
                     ))
                 })
@@ -345,7 +345,7 @@ macro_rules! AsList {
                 if $fields.$field.is_none() {
                     $fields.$field = Some(
                         $crate::TulispConvertible::from_tulisp($ctx, $value)
-                            .map_err(|e| e.with_trace($value.clone()))?,
+                            .map_err(|__e| __e.with_trace($value.clone()))?,
                     );
                 }
             } else
@@ -400,15 +400,15 @@ macro_rules! AsList {
             /// Fills every key the list did not carry, naming an
             /// absent one the way `shape` spells it.
             fn build<AsListShape: $crate::as_list::Shape>(
-                _ctx: &mut $crate::TulispContext,
-                _shape: AsListShape,
-                fields: AsListFields,
+                __ctx: &mut $crate::TulispContext,
+                __shape: AsListShape,
+                __fields: AsListFields,
             ) -> Result<$name, $crate::Error> {
                 Ok($name {
-                    $( $field: match fields.$field {
-                        Some(value) => value,
+                    $( $field: match __fields.$field {
+                        Some(__value) => __value,
                         None => $crate::AsList!(
-                            @absent _ctx, AsListShape, $crate::AsList!(@key $field $(<$key>)?),
+                            @absent __ctx, AsListShape, $crate::AsList!(@key $field $(<$key>)?),
                             $type, $( $($default)+ )?
                         )?,
                     } ),+
@@ -417,44 +417,44 @@ macro_rules! AsList {
 
             impl $crate::Plistable for $name {
                 fn from_plist_as_slice(
-                    ctx: &mut $crate::TulispContext,
-                    kvs: &[$crate::TulispObject],
+                    __ctx: &mut $crate::TulispContext,
+                    __kvs: &[$crate::TulispObject],
                 ) -> Result<Self, $crate::Error> {
-                    let mut fields = AsListFields::default();
-                    let keys = AsListPlistKeys::new(ctx);
-                    $crate::as_list::plist_slice_pairs(kvs, |key, value| {
+                    let mut __fields = AsListFields::default();
+                    let __keys = AsListPlistKeys::new(__ctx);
+                    $crate::as_list::plist_slice_pairs(__kvs, |__key, __value| {
                         $crate::AsList!(
-                            @match $crate::as_list::PlistShape, key, value, ctx, fields, keys,
+                            @match $crate::as_list::PlistShape, __key, __value, __ctx, __fields, __keys,
                             ($( $field ),+)
                         );
                         Ok(())
                     })?;
-                    build(ctx, $crate::as_list::PlistShape, fields)
+                    build(__ctx, $crate::as_list::PlistShape, __fields)
                 }
 
                 fn from_plist(
-                    ctx: &mut $crate::TulispContext,
-                    obj: &$crate::TulispObject,
+                    __ctx: &mut $crate::TulispContext,
+                    __obj: &$crate::TulispObject,
                 ) -> Result<Self, $crate::Error> {
-                    let mut fields = AsListFields::default();
-                    let keys = AsListPlistKeys::new(ctx);
-                    $crate::as_list::plist_pairs(obj, |key, value| {
+                    let mut __fields = AsListFields::default();
+                    let __keys = AsListPlistKeys::new(__ctx);
+                    $crate::as_list::plist_pairs(__obj, |__key, __value| {
                         $crate::AsList!(
-                            @match $crate::as_list::PlistShape, key, value, ctx, fields, keys,
+                            @match $crate::as_list::PlistShape, __key, __value, __ctx, __fields, __keys,
                             ($( $field ),+)
                         );
                         Ok(())
                     })?;
-                    build(ctx, $crate::as_list::PlistShape, fields)
-                        .map_err(|e| e.with_trace(obj.clone()))
+                    build(__ctx, $crate::as_list::PlistShape, __fields)
+                        .map_err(|__e| __e.with_trace(__obj.clone()))
                 }
 
-                fn into_plist(self, ctx: &mut $crate::TulispContext) -> $crate::TulispObject {
-                    let keys = AsListPlistKeys::new(ctx);
+                fn into_plist(self, __ctx: &mut $crate::TulispContext) -> $crate::TulispObject {
+                    let __keys = AsListPlistKeys::new(__ctx);
                     $crate::plist::plist_from([
                         $( (
-                            keys.$field,
-                            $crate::TulispConvertible::into_tulisp(self.$field, ctx),
+                            __keys.$field,
+                            $crate::TulispConvertible::into_tulisp(self.$field, __ctx),
                         ) ),+
                     ])
                 }
@@ -462,28 +462,28 @@ macro_rules! AsList {
 
             impl $crate::Alistable for $name {
                 fn from_alist(
-                    ctx: &mut $crate::TulispContext,
-                    alist: &$crate::TulispObject,
+                    __ctx: &mut $crate::TulispContext,
+                    __alist: &$crate::TulispObject,
                 ) -> Result<Self, $crate::Error> {
-                    let mut fields = AsListFields::default();
-                    let keys = AsListAlistKeys::new(ctx);
-                    $crate::as_list::alist_pairs(alist, |key, value| {
+                    let mut __fields = AsListFields::default();
+                    let __keys = AsListAlistKeys::new(__ctx);
+                    $crate::as_list::alist_pairs(__alist, |__key, __value| {
                         $crate::AsList!(
-                            @match $crate::as_list::AlistShape, key, value, ctx, fields, keys,
+                            @match $crate::as_list::AlistShape, __key, __value, __ctx, __fields, __keys,
                             ($( $field ),+)
                         );
                         Ok(())
                     })?;
-                    build(ctx, $crate::as_list::AlistShape, fields)
-                        .map_err(|e| e.with_trace(alist.clone()))
+                    build(__ctx, $crate::as_list::AlistShape, __fields)
+                        .map_err(|__e| __e.with_trace(__alist.clone()))
                 }
 
-                fn into_alist(self, ctx: &mut $crate::TulispContext) -> $crate::TulispObject {
-                    let keys = AsListAlistKeys::new(ctx);
+                fn into_alist(self, __ctx: &mut $crate::TulispContext) -> $crate::TulispObject {
+                    let __keys = AsListAlistKeys::new(__ctx);
                     $crate::alist::alist_from([
                         $( (
-                            keys.$field,
-                            $crate::TulispConvertible::into_tulisp(self.$field, ctx),
+                            __keys.$field,
+                            $crate::TulispConvertible::into_tulisp(self.$field, __ctx),
                         ) ),+
                     ])
                 }
@@ -491,34 +491,34 @@ macro_rules! AsList {
 
             impl $crate::TulispConvertible for $name {
                 fn from_tulisp(
-                    ctx: &mut $crate::TulispContext,
-                    value: &$crate::TulispObject,
+                    __ctx: &mut $crate::TulispContext,
+                    __value: &$crate::TulispObject,
                 ) -> Result<Self, $crate::Error> {
-                    let mismatch = || {
+                    let __mismatch = || {
                         $crate::Error::type_mismatch(format!(
-                            "Expected a plist or alist for {}, got: {value}",
+                            "Expected a plist or alist for {}, got: {__value}",
                             stringify!($name)
                         ))
-                        .with_trace(value.clone())
+                        .with_trace(__value.clone())
                     };
-                    if value.null() {
-                        return build(ctx, $crate::AsList!(@shape $shape), AsListFields::default())
-                            .map_err(|e| e.with_trace(value.clone()));
+                    if __value.null() {
+                        return build(__ctx, $crate::AsList!(@shape $shape), AsListFields::default())
+                            .map_err(|__e| __e.with_trace(__value.clone()));
                     }
-                    if !value.consp() {
-                        return Err(mismatch());
+                    if !__value.consp() {
+                        return Err(__mismatch());
                     }
-                    match $crate::as_list::first_cons_or_symbol(value).map_err(|_| mismatch())? {
-                        Some(first) if first.consp() => {
-                            <Self as $crate::Alistable>::from_alist(ctx, value)
+                    match $crate::as_list::first_cons_or_symbol(__value).map_err(|_| __mismatch())? {
+                        Some(__first) if __first.consp() => {
+                            <Self as $crate::Alistable>::from_alist(__ctx, __value)
                         }
-                        Some(_) => <Self as $crate::Plistable>::from_plist(ctx, value),
-                        None => Err(mismatch()),
+                        Some(_) => <Self as $crate::Plistable>::from_plist(__ctx, __value),
+                        None => Err(__mismatch()),
                     }
                 }
 
-                fn into_tulisp(self, ctx: &mut $crate::TulispContext) -> $crate::TulispObject {
-                    $crate::AsList!(@render $shape)(self, ctx)
+                fn into_tulisp(self, __ctx: &mut $crate::TulispContext) -> $crate::TulispObject {
+                    $crate::AsList!(@render $shape)(self, __ctx)
                 }
             }
         };
@@ -751,6 +751,39 @@ mod tests {
         struct Raw {
             r#type: i64,
         }
+    }
+
+    // Constants spelled like the generated bindings must not capture
+    // them: an identifier pattern resolves to a constant in scope.
+    #[allow(non_upper_case_globals, dead_code)]
+    mod beside_constants {
+        const ctx: &str = "";
+        const fields: &str = "";
+        const keys: &str = "";
+        const key: &str = "";
+        const value: &str = "";
+        const obj: &str = "";
+        const kvs: &str = "";
+        const alist: &str = "";
+        const mismatch: &str = "";
+        const first: &str = "";
+        const shape: &str = "";
+        const e: &str = "";
+        crate::AsList! {
+            #[derive(Debug, PartialEq)]
+            pub struct Shadowed {
+                pub a: i64,
+                pub b: Option<i64>,
+            }
+        }
+    }
+
+    #[test]
+    fn an_as_list_beside_same_named_constants_compiles() {
+        let mut ctx = TulispContext::new();
+        let value = ctx.eval_string("'(:a 1)").unwrap();
+        let s = beside_constants::Shadowed::from_tulisp(&mut ctx, &value).unwrap();
+        assert_eq!(s, beside_constants::Shadowed { a: 1, b: None });
     }
 
     #[test]
