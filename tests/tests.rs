@@ -367,13 +367,13 @@ fn test_defun() -> Result<(), Error> {
         }
     tulisp_assert! {
         program: "(defun add (x y) (+ x y)) (add 10)",
-        error: r#"ERR MissingArgument: Too few arguments
+        error: r#"ERR ArityMismatch: Too few arguments
 <eval_string>:1.27-1.34:  at (add 10)
 "#
     }
     tulisp_assert! {
         program: "(defun add (x y) (+ x y)) (add 10 20 30)",
-        error: r#"ERR InvalidArgument: Too many arguments
+        error: r#"ERR ArityMismatch: Too many arguments
 <eval_string>:1.27-1.40:  at (add 10 20 30)
 "#
     }
@@ -397,13 +397,13 @@ fn test_defun() -> Result<(), Error> {
     }
     tulisp_assert! {
         program: "(defmacro inc (var)  (list 'setq var (list '+ 1 var))) (let ((x 4)) (inc))",
-        error: r#"ERR MissingArgument: Too few arguments
+        error: r#"ERR ArityMismatch: Too few arguments
 <eval_string>:1.69-1.73:  at (inc)
 "#
     }
     tulisp_assert! {
         program: "(defmacro inc (var)  (list 'setq var (list '+ 1 var))) (let ((x 4)) (inc 4 5))",
-        error: r#"ERR InvalidArgument: Too many arguments
+        error: r#"ERR ArityMismatch: Too many arguments
 <eval_string>:1.69-1.77:  at (inc 4 5)
 "#
     }
@@ -632,13 +632,13 @@ fn test_cons() -> Result<(), Error> {
     };
     tulisp_assert! {
         program: "(cons 1)",
-        error: r#"ERR MissingArgument: Too few arguments
+        error: r#"ERR ArityMismatch: Too few arguments
 <eval_string>:1.1-1.8:  at (cons 1)
 "#
     };
     tulisp_assert! {
         program: "(cons 1 2 3)",
-        error: r#"ERR InvalidArgument: Too many arguments
+        error: r#"ERR ArityMismatch: Too many arguments
 <eval_string>:1.1-1.12:  at (cons 1 2 3)
 "#
     };
@@ -1177,7 +1177,7 @@ fn test_math() -> Result<(), Error> {
     // `1+`, which still requires one.)
     tulisp_assert! {
         program: "(funcall '1+)",
-        error: r#"ERR MissingArgument: Too few arguments
+        error: r#"ERR ArityMismatch: Too few arguments
 <eval_string>:1.1-1.13:  at (funcall '1+)
 "#,
     }
@@ -1256,13 +1256,13 @@ fn test_rounding_operations() -> Result<(), Error> {
 
     tulisp_assert! {
         program: "(fround)",
-        error: r#"ERR MissingArgument: Too few arguments
+        error: r#"ERR ArityMismatch: Too few arguments
 <eval_string>:1.1-1.8:  at (fround)
 "#,
     }
     tulisp_assert! {
         program: "(fround 3.14 3.14)",
-        error: r#"ERR InvalidArgument: Too many arguments
+        error: r#"ERR ArityMismatch: Too many arguments
 <eval_string>:1.1-1.18:  at (fround 3.14 3.14)
 "#,
     }
@@ -2200,7 +2200,7 @@ fn test_typed_defun_arity_checked_before_arg_eval() -> Result<(), Error> {
     let err = ctx.tw_eval_string("(narrow (bump 1) (bump 2) (bump 3))");
     let msg = err.unwrap_err().format(&ctx);
     assert!(
-        msg.starts_with("ERR InvalidArgument: Too many arguments"),
+        msg.starts_with("ERR ArityMismatch: Too many arguments"),
         "expected too-many error, got: {}",
         msg
     );
@@ -2216,7 +2216,7 @@ fn test_typed_defun_arity_checked_before_arg_eval() -> Result<(), Error> {
     let err = ctx.tw_eval_string("(narrow)");
     let msg = err.unwrap_err().format(&ctx);
     assert!(
-        msg.starts_with("ERR MissingArgument: Too few arguments"),
+        msg.starts_with("ERR ArityMismatch: Too few arguments"),
         "expected too-few error, got: {}",
         msg
     );
@@ -2229,7 +2229,7 @@ fn test_typed_defun_arity_checked_before_arg_eval() -> Result<(), Error> {
     let err = ctx.eval_string("(narrow (bump 1) (bump 2) (bump 3))");
     let msg = err.unwrap_err().format(&ctx);
     assert!(
-        msg.starts_with("ERR InvalidArgument: Too many arguments"),
+        msg.starts_with("ERR ArityMismatch: Too many arguments"),
         "expected vm too-many error, got: {}",
         msg
     );
@@ -2901,7 +2901,7 @@ fn test_sort() -> Result<(), Error> {
     }
     tulisp_assert! {
         program: "(sort '(20 10 30 15 45))",
-        error: r#"ERR MissingArgument: Too few arguments
+        error: r#"ERR ArityMismatch: Too few arguments
 <eval_string>:1.1-1.24:  at (sort '(20 10 30 15 45))
 "#,
     }
@@ -3128,7 +3128,7 @@ fn test_any() -> Result<(), Error> {
     tulisp_assert! {
         ctx: ctx,
         program: "(maybe_add 10)",
-        error: r#"ERR MissingArgument: Too few arguments
+        error: r#"ERR ArityMismatch: Too few arguments
 <eval_string>:1.1-1.14:  at (maybe_add 10)
 "#
     }

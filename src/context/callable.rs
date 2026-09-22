@@ -37,9 +37,7 @@ impl<T: TulispConvertible + 'static> Param for T {
                 *args = rest;
                 T::from_tulisp(ctx, value)
             }
-            None if T::REQUIRED => Err(Error::missing_argument(
-                "missing required argument".to_string(),
-            )),
+            None if T::REQUIRED => Err(Error::too_few_arguments()),
             None => T::from_absent(ctx),
         }
     }
@@ -192,10 +190,7 @@ mod tests {
         let mut ctx = TulispContext::new();
         let mut none: &[TulispObject] = &[];
         let err = <i64 as Param>::take(&mut ctx, &mut none).unwrap_err();
-        assert!(
-            err.to_string().contains("missing required argument"),
-            "{err}"
-        );
+        assert!(err.to_string().contains("Too few arguments"), "{err}");
     }
 
     #[test]
@@ -269,7 +264,7 @@ mod tests {
         eval_assert_error(
             ctx,
             "(add_round 2)",
-            r#"ERR MissingArgument: Too few arguments
+            r#"ERR ArityMismatch: Too few arguments
 <eval_string>:1.1-1.13:  at (add_round 2)
 "#,
         );
@@ -279,7 +274,7 @@ mod tests {
         eval_assert_error(
             ctx,
             r#"(greet "Alice" "Peter")"#,
-            r#"ERR InvalidArgument: Too many arguments
+            r#"ERR ArityMismatch: Too many arguments
 <eval_string>:1.1-1.23:  at (greet "Alice" "Peter")
 "#,
         );
@@ -324,14 +319,14 @@ mod tests {
         eval_assert_error(
             ctx,
             "(power 2 3 4)",
-            r#"ERR InvalidArgument: Too many arguments
+            r#"ERR ArityMismatch: Too many arguments
 <eval_string>:1.1-1.13:  at (power 2 3 4)
 "#,
         );
         eval_assert_error(
             ctx,
             "(power)",
-            r#"ERR MissingArgument: Too few arguments
+            r#"ERR ArityMismatch: Too few arguments
 <eval_string>:1.1-1.7:  at (power)
 "#,
         );
@@ -443,7 +438,7 @@ mod tests {
         eval_assert_error(
             &mut ctx,
             "(mid 2)",
-            r#"ERR MissingArgument: Too few arguments
+            r#"ERR ArityMismatch: Too few arguments
 <eval_string>:1.1-1.7:  at (mid 2)
 "#,
         );

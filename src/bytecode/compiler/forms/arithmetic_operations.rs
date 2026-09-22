@@ -103,9 +103,8 @@ pub(super) fn compile_fn_div(
     let mut result = vec![];
     let args = args.base_iter().collect::<Vec<_>>();
     if args.is_empty() {
-        // `(/)` needs an argument (Emacs errors too); use the same
-        // wording as the tree-walker builtin so both paths agree.
-        return Err(Error::missing_argument("Too few arguments".to_string()));
+        // `(/)` needs an argument (Emacs errors too).
+        return Err(Error::too_few_arguments());
     }
     for arg in args.iter().rev() {
         result.append(&mut compile_expr(ctx, arg)?);

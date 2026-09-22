@@ -61,10 +61,10 @@ impl DefunArity {
     #[inline]
     pub(crate) fn check(&self, args_count: usize) -> Result<(), Error> {
         if args_count < self.required {
-            return Err(Error::missing_argument("Too few arguments".to_string()));
+            return Err(Error::too_few_arguments());
         }
         if !self.has_rest && args_count > self.required + self.optional {
-            return Err(Error::invalid_argument("Too many arguments".to_string()));
+            return Err(Error::too_many_arguments());
         }
         Ok(())
     }

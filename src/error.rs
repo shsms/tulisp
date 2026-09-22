@@ -80,6 +80,18 @@ ErrorKind!(
     (Throw(TulispObject)), // Custom constructor below
 );
 
+impl Error {
+    /// The error for a call short of its required arguments.
+    pub fn too_few_arguments() -> Error {
+        Error::arity_mismatch("Too few arguments".to_string())
+    }
+
+    /// The error for a call with more arguments than parameters.
+    pub fn too_many_arguments() -> Error {
+        Error::arity_mismatch("Too many arguments".to_string())
+    }
+}
+
 /// Represents an error that occurred during Tulisp evaluation.
 ///
 /// Use [format](crate::Error::format) to produce a formatted representation of the error

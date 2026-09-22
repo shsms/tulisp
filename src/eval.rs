@@ -69,12 +69,12 @@ fn eval_function_args<E: Evaluator>(
                 Cow::Owned(o) => o,
             }
         } else {
-            return Err(Error::missing_argument("Too few arguments".to_string()));
+            return Err(Error::too_few_arguments());
         };
         out.push(val);
     }
     if args_iter.next().is_some() {
-        return Err(Error::invalid_argument("Too many arguments".to_string()));
+        return Err(Error::too_many_arguments());
     }
     args_iter.take_error()?;
     Ok(out)
@@ -287,7 +287,7 @@ fn eval_args_for_vm<E: Evaluator>(
     let mut args_iter = args.base_iter();
     for _ in &params.required {
         let Some(arg) = args_iter.next() else {
-            return Err(Error::missing_argument("Too few arguments".to_string()));
+            return Err(Error::too_few_arguments());
         };
         out.push(match E::eval(ctx, &arg)? {
             Cow::Borrowed(_) => arg,
@@ -312,7 +312,7 @@ fn eval_args_for_vm<E: Evaluator>(
             });
         }
     } else if args_iter.next().is_some() {
-        return Err(Error::invalid_argument("Too many arguments".to_string()));
+        return Err(Error::too_many_arguments());
     }
     args_iter.take_error()?;
     Ok(out)

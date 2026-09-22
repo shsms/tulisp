@@ -878,10 +878,10 @@ fn split_arg_counts(params: &VMDefunParams, args_count: usize) -> Result<(usize,
     let required = params.required.len();
     let optional = params.optional.len();
     if args_count < required {
-        return Err(Error::missing_argument("Too few arguments".to_string()));
+        return Err(Error::too_few_arguments());
     }
     if params.rest.is_none() && args_count > required + optional {
-        return Err(Error::invalid_argument("Too many arguments".to_string()));
+        return Err(Error::too_many_arguments());
     }
     let left = args_count - required;
     Ok(if left > optional {

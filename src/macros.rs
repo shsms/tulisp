@@ -116,9 +116,7 @@ fn main() -> Result<(), Error> {
 macro_rules! destruct_bind {
     (@reqr $vv:ident, $var:ident) => {
         if !$vv.consp() {
-            return Err($crate::Error::missing_argument(
-                "Too few arguments".to_string()
-            ));
+            return Err($crate::Error::too_few_arguments());
         }
         let $var = $vv.car()?;
         let $vv = $vv.cdr()?;
@@ -130,9 +128,7 @@ macro_rules! destruct_bind {
     (@reqr $vv:ident,) => {};
     (@no-rest $vv:ident) => {
         if !$vv.null() {
-            return Err($crate::Error::invalid_argument(
-                "Too many arguments".to_string()
-            ));
+            return Err($crate::Error::too_many_arguments());
         }
     };
     (@rest $rest:ident $vv:ident) => {
@@ -176,9 +172,7 @@ macro_rules! destruct_bind {
 macro_rules! destruct_eval_bind {
     (@reqr $ctx:ident, $vv:ident, $var:ident) => {
         if !$vv.consp() {
-            return Err($crate::Error::missing_argument(
-                "Too few arguments".to_string()
-            ));
+            return Err($crate::Error::too_few_arguments());
         }
         let $var = $vv.car_and_then(|__x| $ctx.eval(__x))?;
         let $vv = $vv.cdr()?;
@@ -190,9 +184,7 @@ macro_rules! destruct_eval_bind {
     (@reqr $ctx:ident, $vv:ident,) => {};
     (@no-rest $ctx:ident, $vv:ident) => {
         if !$vv.null() {
-            return Err($crate::Error::invalid_argument(
-                "Too many arguments".to_string()
-            ));
+            return Err($crate::Error::too_many_arguments());
         }
     };
     (@rest $ctx:ident, $rest:ident $vv:ident) => {

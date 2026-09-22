@@ -13,12 +13,12 @@ impl TulispContext {
         ) -> Result<Vec<Instruction>, Error>,
     ) -> Result<Vec<Instruction>, Error> {
         if args.null() {
-            return Err(Error::missing_argument("Too few arguments".to_string()));
+            return Err(Error::too_few_arguments());
         }
         args.car_and_then(|arg1| {
             args.cdr_and_then(|rest| {
                 if !has_rest && !rest.null() {
-                    return Err(Error::invalid_argument("Too many arguments".to_string()));
+                    return Err(Error::too_many_arguments());
                 }
                 lambda(self, arg1, rest)
             })
@@ -38,16 +38,16 @@ impl TulispContext {
         ) -> Result<Vec<Instruction>, Error>,
     ) -> Result<Vec<Instruction>, Error> {
         let (TulispValue::List { cons: args, .. }, _) = &*args.inner_ref() else {
-            return Err(Error::missing_argument("Too few arguments".to_string()));
+            return Err(Error::too_few_arguments());
         };
         if args.cdr().null() {
-            return Err(Error::missing_argument("Too few arguments".to_string()));
+            return Err(Error::too_few_arguments());
         }
         let arg1 = args.car();
         args.cdr().car_and_then(|arg2| {
             args.cdr().cdr_and_then(|rest| {
                 if !has_rest && !rest.null() {
-                    return Err(Error::invalid_argument("Too many arguments".to_string()));
+                    return Err(Error::too_many_arguments());
                 }
                 lambda(self, arg1, arg2, rest)
             })

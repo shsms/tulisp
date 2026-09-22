@@ -133,22 +133,10 @@ fn compile_fn_defun_bounce_call(
             .and_then(|c| c.defun_args.get(&name.addr_as_usize()).cloned());
         if let Some(params) = target_arity {
             if args_count < params.required.len() {
-                return Err(Error::arity_mismatch(format!(
-                    "tail call to {}: too few arguments. expected: {} got: {}",
-                    name,
-                    params.required.len(),
-                    args_count,
-                ))
-                .with_trace(args.clone()));
+                return Err(Error::too_few_arguments().with_trace(args.clone()));
             }
             if params.rest.is_none() && args_count > params.required.len() + params.optional.len() {
-                return Err(Error::arity_mismatch(format!(
-                    "tail call to {}: too many arguments. expected: {} got: {}",
-                    name,
-                    params.required.len() + params.optional.len(),
-                    args_count,
-                ))
-                .with_trace(args.clone()));
+                return Err(Error::too_many_arguments().with_trace(args.clone()));
             }
         }
         // Tail-call escape: `TailCall` returns from `run_impl`
@@ -184,23 +172,13 @@ fn compile_fn_defun_bounce_call(
         args_count += 1;
     }
     if args_count < params.required.len() {
-        return Err(Error::arity_mismatch(format!(
-            "defun bounce call: too few arguments. expected: {} got: {}",
-            params.required.len(),
-            args_count
-        ))
-        .with_trace(args.clone()));
+        return Err(Error::too_few_arguments().with_trace(args.clone()));
     }
     let mut optional_count = 0;
     let left_args = args_count - params.required.len();
     if left_args > params.optional.len() {
         if params.rest.is_none() {
-            return Err(Error::arity_mismatch(format!(
-                "defun bounce call: too many arguments. expected: {} got: {}",
-                params.required.len() + params.optional.len(),
-                args_count
-            ))
-            .with_trace(args.clone()));
+            return Err(Error::too_many_arguments().with_trace(args.clone()));
         }
         result.push(Instruction::List(left_args - params.optional.len()));
         optional_count = params.optional.len();

@@ -192,6 +192,23 @@ mod tests {
             "(condition-case e (car 5) (wrong-type-argument 'caught))",
             "'caught",
         );
+        // Both arity errors are `wrong-number-of-arguments`, and not
+        // `wrong-type-argument`.
+        eval_assert_equal(
+            &mut ctx,
+            "(condition-case e (cons 1 2 3) (wrong-number-of-arguments 'caught))",
+            "'caught",
+        );
+        eval_assert_equal(
+            &mut ctx,
+            "(condition-case e (cons 1) (wrong-number-of-arguments 'caught))",
+            "'caught",
+        );
+        eval_assert_equal(
+            &mut ctx,
+            "(condition-case e (cons 1 2 3) (wrong-type-argument 'wrong) (error 'other))",
+            "'other",
+        );
         // List-of-symbols condition matches if any member matches.
         eval_assert_equal(
             &mut ctx,
