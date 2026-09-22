@@ -1,5 +1,38 @@
 use crate::{Error, TulispContext, TulispConvertible, TulispObject};
 
+/// The arguments of [`funcall`](TulispContext::funcall): a tuple with one
+/// element per argument, or `()` for none.
+pub trait FuncallArgs {
+    /// The arguments in order, each converted.
+    fn into_args(self, ctx: &mut TulispContext) -> Vec<TulispObject>;
+}
+
+macro_rules! impl_funcall_args {
+    ($($t:ident $v:ident),*) => {
+        impl<$($t: TulispConvertible),*> FuncallArgs for ($($t,)*) {
+            #[allow(unused_variables)]
+            fn into_args(self, ctx: &mut TulispContext) -> Vec<TulispObject> {
+                let ($($v,)*) = self;
+                vec![$($v.into_tulisp(ctx)),*]
+            }
+        }
+    };
+}
+
+impl_funcall_args!();
+impl_funcall_args!(A a);
+impl_funcall_args!(A a, B b);
+impl_funcall_args!(A a, B b, C c);
+impl_funcall_args!(A a, B b, C c, D d);
+impl_funcall_args!(A a, B b, C c, D d, E e);
+impl_funcall_args!(A a, B b, C c, D d, E e, F f);
+impl_funcall_args!(A a, B b, C c, D d, E e, F f, G g);
+impl_funcall_args!(A a, B b, C c, D d, E e, F f, G g, H h);
+impl_funcall_args!(A a, B b, C c, D d, E e, F f, G g, H h, I i);
+impl_funcall_args!(A a, B b, C c, D d, E e, F f, G g, H h, I i, J j);
+impl_funcall_args!(A a, B b, C c, D d, E e, F f, G g, H h, I i, J j, K k);
+impl_funcall_args!(A a, B b, C c, D d, E e, F f, G g, H h, I i, J j, K k, L l);
+
 /// The list whose elements [`apply`](TulispContext::apply) passes as its
 /// last arguments: a Lisp list, or a `Vec` of convertible values.
 pub trait SpreadArgs {
@@ -70,6 +103,22 @@ impl_apply_args!(A a, B b, C c, D d, E e, F f, G g, H h, I i, J j, K k);
 #[cfg(test)]
 mod tests {
     use crate::{TulispContext, TulispObject};
+
+    #[test]
+    fn funcall_passes_one_argument_per_tuple_element() {
+        let mut ctx = TulispContext::new();
+        ctx.eval_string("(defun pair (a b) (list b a))").unwrap();
+        let pair = ctx.intern("pair");
+        let result = ctx.funcall(&pair, (1i64, "x".to_string())).unwrap();
+        assert_eq!(result.to_string(), r#"("x" 1)"#);
+        let list = ctx.intern("list");
+        assert_eq!(ctx.funcall(&list, ()).unwrap().to_string(), "nil");
+        let forms = ctx.eval_string("'(+ 1 2)").unwrap();
+        let result = ctx.funcall(&list, (forms, vec![1i64, 2])).unwrap();
+        assert_eq!(result.to_string(), "((+ 1 2) (1 2))");
+        let err = ctx.funcall(&pair, (1i64,)).unwrap_err();
+        assert!(err.to_string().contains("Too few arguments"), "{err}");
+    }
 
     #[test]
     fn apply_spreads_its_last_argument() {

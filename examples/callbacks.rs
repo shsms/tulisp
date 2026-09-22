@@ -5,7 +5,7 @@
 //!
 //! Run with `cargo run --example callbacks`.
 
-use tulisp::{Error, TulispContext, TulispObject, list};
+use tulisp::{Error, TulispContext, TulispObject};
 
 fn main() -> Result<(), Error> {
     let mut ctx = TulispContext::new();
@@ -13,10 +13,10 @@ fn main() -> Result<(), Error> {
     // Define a Lisp function once.
     ctx.eval_string("(defun double (x) (* x 2))")?;
 
-    // Look up the symbol and invoke it with an arg list built in Rust.
-    // `list!` is the in-crate macro for constructing TulispObject lists.
+    // Look up the symbol and call it with arguments from Rust, one per
+    // tuple element.
     let double = ctx.intern("double");
-    let result = ctx.funcall(&double, &list!(,TulispObject::from(21))?)?;
+    let result = ctx.funcall(&double, (21,))?;
     println!("(double 21) => {}", result.as_int()?);
 
     // `ctx.map` is the same shape as Emacs' `mapcar`: apply a function

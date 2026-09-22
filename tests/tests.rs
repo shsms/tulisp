@@ -1844,10 +1844,7 @@ fn test_funcall_compiled_defun_through_tw() -> Result<(), Error> {
         "#,
     )?;
     let outer = ctx.intern("outer");
-    let args = TulispObject::nil();
-    args.push(1i64.into())?;
-    args.push(42.0_f64.into())?;
-    let result = ctx.funcall(&outer, &args)?;
+    let result = ctx.funcall(&outer, (1i64, 42.0_f64))?;
     assert!(
         result.equal(&42.0_f64.into()),
         "expected 42, got {}",
@@ -1901,7 +1898,7 @@ fn test_plist_defun_callable_from_vm_run() -> Result<(), Error> {
     )?;
 
     let outer = ctx.intern("outer");
-    let result = ctx.funcall(&outer, &TulispObject::nil())?;
+    let result = ctx.funcall(&outer, ())?;
     assert_eq!(result.as_string()?, "answer=42(3 sum=6)");
 
     // Also exercise the inverse path: TW-eval the call to make sure
@@ -2384,15 +2381,13 @@ fn test_closure_invoked_in_fresh_ctx() -> Result<(), Error> {
         let closure = ctx_a.eval_string(&prog)?;
 
         let mut ctx_b = TulispContext::new();
-        let result = ctx_b
-            .funcall(&closure, &TulispObject::nil())
-            .unwrap_or_else(|e| {
-                panic!(
-                    "cross-ctx funcall of `{}` failed: {}",
-                    prog,
-                    e.format(&ctx_b)
-                )
-            });
+        let result = ctx_b.funcall(&closure, ()).unwrap_or_else(|e| {
+            panic!(
+                "cross-ctx funcall of `{}` failed: {}",
+                prog,
+                e.format(&ctx_b)
+            )
+        });
         assert_eq!(
             result.to_string(),
             expected,

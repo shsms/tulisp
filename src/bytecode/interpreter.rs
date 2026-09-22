@@ -1287,9 +1287,8 @@ mod tests {
         ctx.defun("panicky", || -> i64 { panic!("host panic") });
         ctx.defspecial("inner-catch-call", |ctx, _args| {
             let lambda = ctx.eval_string("(lambda () (list 7 8 (panicky)))")?;
-            let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                ctx.funcall(&lambda, &TulispObject::nil())
-            }));
+            let caught =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| ctx.funcall(&lambda, ())));
             Ok(ctx.intern(if caught.is_err() { "caught" } else { "ok" }))
         });
         eval_assert_equal(

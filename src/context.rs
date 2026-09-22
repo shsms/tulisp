@@ -4,7 +4,7 @@ mod rest;
 pub use rest::Rest;
 
 pub(crate) mod call_args;
-use call_args::ApplyArgs;
+use call_args::{ApplyArgs, FuncallArgs};
 
 use std::{
     collections::HashMap,
@@ -609,15 +609,29 @@ impl TulispContext {
         f(self, &val)
     }
 
-    /// Calls the given function with the given arguments, and returns the
-    /// result.
+    /// Calls `func` as Emacs Lisp's `funcall` does, with one argument per
+    /// element of `args`, a tuple, or none for `()`. Each element is
+    /// converted and passed as it is, not evaluated.
+    ///
+    /// ```rust
+    /// use tulisp::TulispContext;
+    ///
+    /// let mut ctx = TulispContext::new();
+    /// ctx.eval_string("(defun greet (name n) (format \"%s x%d\" name n))").unwrap();
+    /// let greet = ctx.intern("greet");
+    /// let result = ctx.funcall(&greet, ("hi".to_string(), 3)).unwrap();
+    /// assert_eq!(result.to_string(), r#""hi x3""#);
+    /// ```
+    ///
+    /// For arguments already in a Lisp list, use [`apply`](Self::apply).
     pub fn funcall(
         &mut self,
         func: &TulispObject,
-        args: &TulispObject,
+        args: impl FuncallArgs,
     ) -> Result<TulispObject, Error> {
         let func = resolve_function(self, func)?;
-        funcall::<DummyEval>(self, &func, args)
+        let args: TulispObject = args.into_args(self).into_iter().collect();
+        funcall::<DummyEval>(self, &func, &args)
     }
 
     /// Calls `func` as Emacs Lisp's `apply` does: the leading elements of
@@ -896,15 +910,15 @@ mod tests {
     // symbol or a lambda list is looked up, any other list is not
     // run as code.
     #[test]
-    fn funcall_from_rust_does_not_evaluate_a_quoted_list() {
+    fn apply_from_rust_does_not_evaluate_a_quoted_list() {
         let mut ctx = TulispContext::new();
         let symbol = ctx.intern("list");
         let args = ctx.eval_string("'(1 2)").unwrap();
-        assert_eq!(ctx.funcall(&symbol, &args).unwrap().to_string(), "(1 2)");
+        assert_eq!(ctx.apply(&symbol, &args).unwrap().to_string(), "(1 2)");
         let lambda_list = ctx.eval_string("'(lambda (a b) (+ a b))").unwrap();
-        assert_eq!(ctx.funcall(&lambda_list, &args).unwrap().to_string(), "3");
+        assert_eq!(ctx.apply(&lambda_list, &args).unwrap().to_string(), "3");
         let progn = ctx.eval_string("'(progn (setq zz 1) 'list)").unwrap();
-        assert!(ctx.funcall(&progn, &args).is_err());
+        assert!(ctx.apply(&progn, &args).is_err());
         eval_assert_not(&mut ctx, "(boundp 'zz)");
     }
 
@@ -1016,11 +1030,11 @@ mod tests {
             ("tw_eval_string", |ctx| ctx.tw_eval_string("(f)")),
             ("funcall symbol", |ctx| {
                 let f = ctx.intern("f");
-                ctx.funcall(&f, &TulispObject::nil())
+                ctx.funcall(&f, ())
             }),
             ("funcall lambda", |ctx| {
                 let lambda = ctx.eval_string(r#"(lambda () (re-eval "(f)"))"#)?;
-                ctx.funcall(&lambda, &TulispObject::nil())
+                ctx.funcall(&lambda, ())
             }),
         ];
         for (label, entry) in entries {
