@@ -221,6 +221,7 @@ pub fn first_cons_or_symbol(value: &TulispObject) -> Result<Option<TulispObject>
 ///
 /// ```text
 /// AsList! {
+///     [doc comment]
 ///     [#[lisp(plist | alist)]]      // `into_tulisp`'s shape; plist when omitted
 ///     [attributes]
 ///     [pub] struct Name {
@@ -236,7 +237,7 @@ pub fn first_cons_or_symbol(value: &TulispObject) -> Result<Option<TulispObject>
 ///   (`nil` and `t` are not symbols here), which is read in pairs from
 ///   its first element. nil has every field absent, and a list with
 ///   neither, or a non-list, is a type mismatch. `#[lisp(...)]` comes
-///   before every other attribute.
+///   after the doc comment and before every other attribute.
 /// - Each field's key is `:field` in a plist and `field` in an alist,
 ///   without the `r#` of a raw identifier; `field<"key">` sets both (a
 ///   leading `:` is added for the plist key and dropped for the alist
@@ -525,8 +526,8 @@ macro_rules! AsList {
     };
 
     // The declared shape, defaulting to a plist.
-    (#[lisp($shape:ident)] $($rest:tt)*) => {
-        $crate::AsList!(@emit $shape, $($rest)*);
+    ($( #[doc = $doc:literal] )* #[lisp($shape:ident)] $($rest:tt)*) => {
+        $crate::AsList!(@emit $shape, $( #[doc = $doc] )* $($rest)*);
     };
     ($( #[$meta:meta] )* $vis:vis struct $($rest:tt)*) => {
         $crate::AsList!(@emit plist, $( #[$meta] )* $vis struct $($rest)*);
@@ -569,6 +570,7 @@ mod tests {
     }
 
     crate::AsList! {
+        /// Written as an alist.
         #[lisp(alist)]
         #[derive(Debug, PartialEq)]
         struct Pair {
