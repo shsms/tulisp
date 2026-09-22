@@ -128,6 +128,7 @@ mod tests {
                 f.write_str("host")
             }
         }
+        impl crate::TulispAny for Host {}
         let shared = Shared::new(Host);
         let a: TulispObject = shared.clone().into();
         let b: TulispObject = shared.into();

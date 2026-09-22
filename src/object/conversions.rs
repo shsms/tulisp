@@ -26,10 +26,9 @@ use crate::{Error, Number, Shared, TulispAny, TulispContext, TulispObject, Tulis
 /// For structs that map to Lisp plists, use the [`AsPlist!`](macro@crate::AsPlist) macro instead of
 /// implementing this trait by hand.
 ///
-/// For arbitrary Rust types that have no natural Lisp representation, store the
-/// value as an opaque [`TulispAny`] object using [`Shared::new`].  Any type
-/// that implements `Clone`, `Display`, and `Any` qualifies (the blanket impl of
-/// [`TulispAny`] covers all of these automatically).
+/// For arbitrary Rust types that have no natural Lisp representation, opt the
+/// type in with `impl TulispAny for T {}` and store the value with
+/// [`Shared::new`]; any `Clone + Display + Any` type qualifies.
 ///
 /// - **`into_tulisp`**: wrap with [`Shared::new`] and call `.into()`.
 /// - **`from_tulisp`**: call [`TulispObject::as_any`] to retrieve the
@@ -38,7 +37,7 @@ use crate::{Error, Number, Shared, TulispAny, TulispContext, TulispObject, Tulis
 ///
 /// ```rust
 /// use std::fmt;
-/// use tulisp::{Error, Shared, TulispContext, TulispConvertible, TulispObject};
+/// use tulisp::{Error, TulispAny, Shared, TulispContext, TulispConvertible, TulispObject};
 ///
 /// #[derive(Clone)]
 /// struct Point { x: i64, y: i64 }
@@ -48,6 +47,8 @@ use crate::{Error, Number, Shared, TulispAny, TulispContext, TulispObject, Tulis
 ///         write!(f, "(Point {} {})", self.x, self.y)
 ///     }
 /// }
+///
+/// impl TulispAny for Point {}
 ///
 /// impl TulispConvertible for Point {
 ///     fn from_tulisp(_ctx: &mut TulispContext, value: &TulispObject) -> Result<Self, Error> {

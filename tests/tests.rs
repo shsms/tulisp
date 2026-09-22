@@ -3099,6 +3099,7 @@ fn test_any() -> Result<(), Error> {
             write!(f, "(TestStruct {})", self.value)
         }
     }
+    impl tulisp::TulispAny for TestStruct {}
 
     impl TulispConvertible for TestStruct {
         fn from_tulisp(_ctx: &mut TulispContext, value: &TulispObject) -> Result<Self, Error> {

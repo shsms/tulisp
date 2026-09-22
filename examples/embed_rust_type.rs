@@ -22,6 +22,7 @@ impl fmt::Display for Color {
         write!(f, "#<color r={} g={} b={}>", self.r, self.g, self.b)
     }
 }
+impl tulisp::TulispAny for Color {}
 
 // The bridge: how Tulisp recognizes a `Color` argument and how a
 // `Color` value gets wrapped to live inside a `TulispObject`.

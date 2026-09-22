@@ -95,6 +95,14 @@ pub mod generic {
         }
     }
 
+    impl<T: TulispAny> Shared<T> {
+        /// The handle as a type-erased value, pointing at the same
+        /// allocation.
+        pub fn into_any(self) -> Shared<dyn TulispAny> {
+            Shared(self.0)
+        }
+    }
+
     impl<T: ?Sized> Shared<T> {
         /// True if both point at the same allocation.
         pub(crate) fn ptr_eq(&self, other: &Self) -> bool {
@@ -218,6 +226,14 @@ pub mod generic {
     impl<T> Shared<T> {
         pub(crate) fn new_sized(val: T) -> Self {
             Shared(std::sync::Arc::new(val))
+        }
+    }
+
+    impl<T: TulispAny> Shared<T> {
+        /// The handle as a type-erased value, pointing at the same
+        /// allocation.
+        pub fn into_any(self) -> Shared<dyn TulispAny> {
+            Shared(self.0)
         }
     }
 

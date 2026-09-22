@@ -375,6 +375,7 @@ impl std::fmt::Display for TestStruct {
         write!(f, "\"TestStruct {}\"", self.value)
     }
 }
+impl tulisp::TulispAny for TestStruct {}
 
 ctx.defspecial("make_any", |_ctx, args| {
     destruct_bind!((inp) = args);

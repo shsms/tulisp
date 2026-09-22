@@ -1,7 +1,8 @@
 use crate::{
-    Error, Number, TulispContext, TulispConvertible, TulispObject, TulispValue,
+    Error, Number, TulispAny, TulispContext, TulispConvertible, TulispObject, TulispValue,
     object::wrappers::generic::{Shared, SharedMut},
 };
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 
@@ -157,6 +158,12 @@ impl HashTable {
 impl std::fmt::Display for HashTable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "#<hash-table>")
+    }
+}
+
+impl TulispAny for HashTable {
+    fn lisp_type_name() -> Cow<'static, str> {
+        Cow::Borrowed("hash-table")
     }
 }
 
@@ -485,6 +492,7 @@ mod tests {
                 f.write_str("host")
             }
         }
+        impl crate::TulispAny for Host {}
         let shared = Shared::new(Host);
         let a: TulispObject = shared.clone().into();
         let b: TulispObject = shared.into();

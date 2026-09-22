@@ -11,6 +11,7 @@ use crate::{
         },
     },
 };
+use std::borrow::Cow;
 use std::{
     any::Any,
     cell::RefCell,
@@ -543,7 +544,21 @@ impl LexBinding {
     }
 }
 
-pub trait TulispAny: Any + Display + SyncSend {}
+/// A host type that Lisp holds as an opaque value: stored behind a
+/// shared handle, printed through `Display` and recovered by
+/// downcast. One empty impl opts a type in. An implementor is
+/// [`Any`] (so it owns no borrowed data) and, under the `sync`
+/// feature, `Send + Sync`.
+pub trait TulispAny: Any + Display + SyncSend {
+    /// The name a type mismatch reports for this type: its own name
+    /// without module paths, unless overridden.
+    fn lisp_type_name() -> Cow<'static, str>
+    where
+        Self: Sized,
+    {
+        Cow::Owned(short_type_name(std::any::type_name::<Self>()))
+    }
+}
 
 impl std::fmt::Debug for dyn TulispAny {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -551,7 +566,25 @@ impl std::fmt::Debug for dyn TulispAny {
     }
 }
 
-impl<T: Any + Display + SyncSend> TulispAny for T {}
+/// A type name without its module paths: `a::Wrapper<b::Inner>` reads
+/// `Wrapper<Inner>`. A path segment is a run of identifier characters,
+/// braces and `#`, which covers rustc's `{{closure}}`, `{{constructor}}`
+/// and `{opaque#0}` segments.
+fn short_type_name(full: &str) -> String {
+    let mut out = String::with_capacity(full.len());
+    let mut rest = full;
+    while let Some(pos) = rest.find("::") {
+        let (head, tail) = rest.split_at(pos);
+        out.push_str(
+            head.trim_end_matches(|c: char| {
+                c.is_alphanumeric() || matches!(c, '_' | '{' | '}' | '#')
+            }),
+        );
+        rest = &tail[2..];
+    }
+    out.push_str(rest);
+    out
+}
 
 #[doc(hidden)]
 #[derive(Clone)]
@@ -1438,6 +1471,28 @@ impl TulispValue {
 mod tests {
     use crate::TulispContext;
     use crate::test_utils::eval_assert_equal;
+
+    #[test]
+    fn a_short_type_name_drops_every_module_path() {
+        for (full, short) in [
+            ("TestStruct", "TestStruct"),
+            ("a::b::C", "C"),
+            ("a::Wrapper<b::c::Inner>", "Wrapper<Inner>"),
+            (
+                "alloc::vec::Vec<core::option::Option<i32>>",
+                "Vec<Option<i32>>",
+            ),
+            ("&str", "&str"),
+            ("[u8; 4]", "[u8; 4]"),
+            ("(a::A, b::B)", "(A, B)"),
+            ("dyn a::Tr + core::marker::Send", "dyn Tr + Send"),
+            ("fn(a::X) -> b::Y", "fn(X) -> Y"),
+            ("a::main::{{closure}}::S", "S"),
+            ("a::foo::{opaque#0}::S", "S"),
+        ] {
+            assert_eq!(super::short_type_name(full), short);
+        }
+    }
 
     #[test]
     fn improper_and_circular_lists_print() {
