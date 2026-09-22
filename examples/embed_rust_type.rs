@@ -8,7 +8,7 @@
 
 use std::fmt;
 
-use tulisp::{Error, Shared, TulispContext, TulispConvertible, TulispObject};
+use tulisp::{Error, TulispAny, TulispContext};
 
 #[derive(Clone)]
 struct Color {
@@ -22,22 +22,10 @@ impl fmt::Display for Color {
         write!(f, "#<color r={} g={} b={}>", self.r, self.g, self.b)
     }
 }
-impl tulisp::TulispAny for Color {}
 
-// The bridge: how Tulisp recognizes a `Color` argument and how a
-// `Color` value gets wrapped to live inside a `TulispObject`.
-impl TulispConvertible for Color {
-    fn from_tulisp(_ctx: &mut TulispContext, value: &TulispObject) -> Result<Self, Error> {
-        value
-            .as_any()
-            .ok()
-            .and_then(|v| v.downcast_ref::<Color>().cloned())
-            .ok_or_else(|| Error::type_mismatch(format!("Expected Color, got: {value}")))
-    }
-    fn into_tulisp(self, _ctx: &mut TulispContext) -> TulispObject {
-        Shared::new(self).into()
-    }
-}
+// The bridge: `TulispAny` stores a `Color` behind a shared handle when
+// it enters Lisp and reads it back by downcast and clone.
+impl TulispAny for Color {}
 
 fn main() -> Result<(), Error> {
     let mut ctx = TulispContext::new();

@@ -1,6 +1,6 @@
 use crate::{
-    Error, Number, TulispAny, TulispContext, TulispConvertible, TulispObject, TulispValue,
-    object::wrappers::generic::{Shared, SharedMut},
+    Error, Number, TulispAny, TulispContext, TulispObject, TulispValue,
+    object::wrappers::generic::SharedMut,
 };
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -164,22 +164,6 @@ impl std::fmt::Display for HashTable {
 impl TulispAny for HashTable {
     fn lisp_type_name() -> Cow<'static, str> {
         Cow::Borrowed("hash-table")
-    }
-}
-
-impl TulispConvertible for HashTable {
-    fn from_tulisp(_ctx: &mut TulispContext, value: &TulispObject) -> Result<HashTable, Error> {
-        value
-            .as_any()
-            .ok()
-            .and_then(|v| v.downcast_ref::<HashTable>().cloned())
-            .ok_or_else(|| {
-                Error::type_mismatch(format!("Expected hash-table, got: {value}"))
-                    .with_trace(value.clone())
-            })
-    }
-    fn into_tulisp(self, _ctx: &mut TulispContext) -> TulispObject {
-        Shared::new(self).into()
     }
 }
 
@@ -527,5 +511,15 @@ mod tests {
                 "'(1 2)",
             );
         }
+    }
+
+    #[test]
+    fn a_non_table_argument_is_named_hash_table() {
+        let mut ctx = TulispContext::new();
+        crate::test_utils::eval_assert_error(
+            &mut ctx,
+            "(gethash 1 2)",
+            "ERR TypeMismatch: Expected hash-table, got: 2\n<eval_string>:1.1-1.13:  at (gethash 1 2)\n",
+        );
     }
 }

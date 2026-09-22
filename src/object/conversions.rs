@@ -18,7 +18,9 @@ use crate::{Error, Number, Shared, TulispAny, TulispContext, TulispObject, Tulis
 /// | `Number`                | integer or float                                                   |
 /// | `Vec<T>`                | list                                                               |
 /// | `TulispObject`          | any (pass-through)                                                 |
-/// | `Shared<dyn TulispAny>` | any (to support custom types that implement [`TulispConvertible`]) |
+/// | `Shared<dyn TulispAny>` | an opaque host value, type-erased                                  |
+/// | `T: TulispAny`          | an opaque host value, by clone                                     |
+/// | `Shared<T>`             | an opaque host value, by reference                                 |
 ///
 ///
 /// # Implementing for custom types
@@ -26,18 +28,18 @@ use crate::{Error, Number, Shared, TulispAny, TulispContext, TulispObject, Tulis
 /// For structs that map to Lisp plists, use the [`AsPlist!`](macro@crate::AsPlist) macro instead of
 /// implementing this trait by hand.
 ///
-/// For arbitrary Rust types that have no natural Lisp representation, opt the
-/// type in with `impl TulispAny for T {}` and store the value with
-/// [`Shared::new`]; any `Clone + Display + Any` type qualifies.
+/// For arbitrary Rust types that have no natural Lisp representation, mark the
+/// type with [`TulispAny`]: a `Clone` implementor then crosses into Lisp behind a
+/// [`Shared`] handle and comes back by downcast and clone, through a blanket
+/// impl of this trait that it cannot also write by hand.
 ///
-/// - **`into_tulisp`**: wrap with [`Shared::new`] and call `.into()`.
-/// - **`from_tulisp`**: call [`TulispObject::as_any`] to retrieve the
-///   `Shared<dyn TulispAny>`, then [`downcast_ref`](crate::Shared::downcast_ref)
-///   to recover the concrete type.
+/// Use [`Shared<T>`](crate::Shared) instead of the bare type for a value that
+/// must not be cloned: it crosses by reference, and the handle that comes back
+/// points at the same allocation.
 ///
-/// ```rust
+/// ```
 /// use std::fmt;
-/// use tulisp::{Error, TulispAny, Shared, TulispContext, TulispConvertible, TulispObject};
+/// use tulisp::{TulispAny, TulispContext};
 ///
 /// #[derive(Clone)]
 /// struct Point { x: i64, y: i64 }
@@ -49,19 +51,6 @@ use crate::{Error, Number, Shared, TulispAny, TulispContext, TulispObject, Tulis
 /// }
 ///
 /// impl TulispAny for Point {}
-///
-/// impl TulispConvertible for Point {
-///     fn from_tulisp(_ctx: &mut TulispContext, value: &TulispObject) -> Result<Self, Error> {
-///         value
-///             .as_any()
-///             .ok()
-///             .and_then(|v| v.downcast_ref::<Point>().cloned())
-///             .ok_or_else(|| Error::type_mismatch("Expected Point"))
-///     }
-///     fn into_tulisp(self, _ctx: &mut TulispContext) -> TulispObject {
-///         Shared::new(self).into()
-///     }
-/// }
 ///
 /// let mut ctx = TulispContext::new();
 /// ctx.defun("make-point", |x: i64, y: i64| Point { x, y });
@@ -161,6 +150,35 @@ impl TulispConvertible for Number {
     }
 }
 
+impl<T: TulispAny + Clone> TulispConvertible for T {
+    fn from_tulisp(_ctx: &mut TulispContext, value: &TulispObject) -> Result<Self, Error> {
+        let any = value.as_any().map_err(|_| mismatch::<T>(value))?;
+        any.downcast_ref::<T>()
+            .cloned()
+            .ok_or_else(|| mismatch::<T>(value))
+    }
+    fn into_tulisp(self, _ctx: &mut TulispContext) -> TulispObject {
+        Shared::new(self).into()
+    }
+}
+
+/// The type mismatch for `value` not holding a `T`, named by
+/// `T::lisp_type_name` and traced to `value`.
+fn mismatch<T: TulispAny>(value: &TulispObject) -> Error {
+    Error::type_mismatch(format!("Expected {}, got: {value}", T::lisp_type_name()))
+        .with_trace(value.clone())
+}
+
+impl<T: TulispAny> TulispConvertible for Shared<T> {
+    fn from_tulisp(_ctx: &mut TulispContext, value: &TulispObject) -> Result<Self, Error> {
+        let any = value.as_any().map_err(|_| mismatch::<T>(value))?;
+        any.downcast::<T>().map_err(|_| mismatch::<T>(value))
+    }
+    fn into_tulisp(self, _ctx: &mut TulispContext) -> TulispObject {
+        self.into_any().into()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::TulispConvertible;
@@ -213,5 +231,70 @@ mod tests {
         let back = TulispObject::from_tulisp(&mut ctx, &obj).unwrap();
         assert!(back.eq_ptr(&obj));
         assert!(obj.clone().into_tulisp(&mut ctx).eq_ptr(&obj));
+    }
+
+    #[derive(Clone, Debug, PartialEq)]
+    struct Point {
+        x: i64,
+    }
+    impl std::fmt::Display for Point {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "(Point {})", self.x)
+        }
+    }
+    impl super::TulispAny for Point {}
+
+    #[derive(Clone, Debug)]
+    struct Other;
+    impl std::fmt::Display for Other {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("(Other)")
+        }
+    }
+    impl super::TulispAny for Other {}
+
+    #[test]
+    fn an_opaque_value_round_trips_by_clone() {
+        let mut ctx = TulispContext::new();
+        let obj = Point { x: 3 }.into_tulisp(&mut ctx);
+        assert_eq!(Point::from_tulisp(&mut ctx, &obj).unwrap(), Point { x: 3 });
+    }
+
+    #[test]
+    fn an_opaque_mismatch_names_the_expected_type() {
+        let mut ctx = TulispContext::new();
+        let one = 1i64.into_tulisp(&mut ctx);
+        let err = Point::from_tulisp(&mut ctx, &one).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("Expected Point, got: 1"), "{msg}");
+        let other = "s".to_string().into_tulisp(&mut ctx);
+        let err = Point::from_tulisp(&mut ctx, &other).unwrap_err();
+        assert!(err.to_string().contains("Point"), "{err}");
+    }
+
+    #[test]
+    fn a_typed_shared_handle_round_trips_by_reference() {
+        let mut ctx = TulispContext::new();
+        let handle = crate::Shared::new_sized(Point { x: 9 });
+        let obj = handle.clone().into_tulisp(&mut ctx);
+        let back = crate::Shared::<Point>::from_tulisp(&mut ctx, &obj).unwrap();
+        assert!(back.ptr_eq(&handle));
+        assert_eq!(back.x, 9);
+        assert!(crate::Shared::<Other>::from_tulisp(&mut ctx, &obj).is_err());
+    }
+
+    #[test]
+    fn an_opaque_value_works_as_a_defun_parameter_and_return() {
+        let mut ctx = TulispContext::new();
+        ctx.defun("make-point", |x: i64| Point { x });
+        ctx.defun("point-x", |p: Point| -> i64 { p.x });
+        assert_eq!(
+            ctx.eval_string("(point-x (make-point 4))")
+                .unwrap()
+                .to_string(),
+            "4"
+        );
+        let err = ctx.eval_string("(point-x 4)").unwrap_err();
+        assert!(err.to_string().contains("Point"), "{err}");
     }
 }

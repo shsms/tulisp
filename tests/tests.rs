@@ -1,8 +1,5 @@
 use std::fmt::Display;
-use tulisp::{
-    AsPlist, Error, Iter, Plist, Shared, TulispContext, TulispConvertible, TulispObject,
-    destruct_eval_bind,
-};
+use tulisp::{AsPlist, Error, Iter, Plist, TulispContext, TulispObject, destruct_eval_bind};
 
 macro_rules! tulisp_assert {
     (@impl $ctx: expr, program:$input:expr, result:$result:expr $(,)?) => {
@@ -3101,21 +3098,6 @@ fn test_any() -> Result<(), Error> {
     }
     impl tulisp::TulispAny for TestStruct {}
 
-    impl TulispConvertible for TestStruct {
-        fn from_tulisp(_ctx: &mut TulispContext, value: &TulispObject) -> Result<Self, Error> {
-            match value.as_any() {
-                Ok(value) => match value.downcast_ref::<TestStruct>() {
-                    Some(v) => Ok(v.clone()),
-                    None => Err(Error::type_mismatch("Expected TestStruct".to_string())),
-                },
-                Err(_) => Err(Error::type_mismatch("Expected TestStruct".to_string())),
-            }
-        }
-        fn into_tulisp(self, _ctx: &mut TulispContext) -> TulispObject {
-            Shared::new(self).into()
-        }
-    }
-
     let mut ctx = TulispContext::new();
 
     ctx.defun("make_any", |value: i64| TestStruct { value });
@@ -3142,7 +3124,7 @@ fn test_any() -> Result<(), Error> {
     tulisp_assert! {
         ctx: ctx,
         program: "(get_int 55)",
-        error: r#"ERR TypeMismatch: Expected TestStruct
+        error: r#"ERR TypeMismatch: Expected TestStruct, got: 55
 <eval_string>:1.1-1.12:  at (get_int 55)
 "#
     }
