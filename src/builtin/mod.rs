@@ -102,13 +102,23 @@ pairs. `format-seconds` formats a duration.
 pub(crate) mod functions;
 pub(crate) mod macros;
 
-use crate::{Error, TulispObject};
+use crate::{Error, TulispObject, TulispValue};
+
+/// Returns the "Can't set constant symbol" error when `name` is `nil`
+/// or `t`. Keywords are not checked here.
+pub(crate) fn check_not_nil_or_t(name: &TulispObject) -> Result<(), Error> {
+    if matches!(name.inner_ref().0, TulispValue::Nil | TulispValue::T) {
+        return Err(Error::setting_constant(name).with_trace(name.clone()));
+    }
+    Ok(())
+}
 
 /// Validate that `target` is a writable variable cell. Used by both
 /// the VM compiler (~setq~) and the TW ~setq~ defspecial so the two
 /// dispatch paths reject the same inputs with the same error shape,
 /// at compile time, before any value expression evaluates.
 pub(crate) fn check_settable_target(target: &TulispObject) -> Result<(), Error> {
+    check_not_nil_or_t(target)?;
     if !target.is_symbol_variant() {
         return Err(
             Error::type_mismatch(format!("Expected Symbol: Can't assign to {}", target))
@@ -116,10 +126,7 @@ pub(crate) fn check_settable_target(target: &TulispObject) -> Result<(), Error> 
         );
     }
     if target.keywordp() {
-        return Err(
-            Error::type_mismatch(format!("Can't set constant symbol: {}", target))
-                .with_trace(target.clone()),
-        );
+        return Err(Error::setting_constant(target).with_trace(target.clone()));
     }
     Ok(())
 }

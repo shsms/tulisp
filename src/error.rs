@@ -96,6 +96,12 @@ impl Error {
     pub(crate) fn circular_list() -> Error {
         Error::out_of_range("Circular list".to_string())
     }
+
+    /// The error for binding or setting a constant, such as `nil`,
+    /// `t` or a keyword. Emacs signals `setting-constant` here.
+    pub(crate) fn setting_constant(name: impl std::fmt::Display) -> Error {
+        Error::type_mismatch(format!("Can't set constant symbol: {name}"))
+    }
 }
 
 /// Represents an error that occurred during Tulisp evaluation.

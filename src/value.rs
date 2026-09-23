@@ -127,6 +127,7 @@ impl TryFrom<TulispObject> for DefunParams {
         let mut is_optional = false;
         let mut is_rest = false;
         while let Some(param) = params_iter.next() {
+            crate::builtin::check_not_nil_or_t(&param)?;
             let name = param.as_symbol()?;
             if name == "&optional" {
                 is_optional = true;
@@ -236,10 +237,7 @@ impl SymbolBindings {
     #[inline(always)]
     pub(crate) fn set(&mut self, to_set: TulispObject) -> Result<(), Error> {
         if self.constant {
-            return Err(Error::type_mismatch(format!(
-                "Can't set constant symbol: {}",
-                self.name
-            )));
+            return Err(Error::setting_constant(&self.name));
         }
         if self.items.is_empty() {
             self.has_global = true;
@@ -253,10 +251,7 @@ impl SymbolBindings {
     #[inline(always)]
     pub(crate) fn set_global(&mut self, to_set: TulispObject) -> Result<(), Error> {
         if self.constant {
-            return Err(Error::type_mismatch(format!(
-                "Can't set constant symbol: {}",
-                self.name
-            )));
+            return Err(Error::setting_constant(&self.name));
         }
         self.has_global = true;
         if self.items.is_empty() {
@@ -270,10 +265,7 @@ impl SymbolBindings {
     #[inline(always)]
     pub(crate) fn set_scope(&mut self, to_set: TulispObject) -> Result<(), Error> {
         if self.constant {
-            return Err(Error::type_mismatch(format!(
-                "Can't set constant symbol: {}",
-                self.name
-            )));
+            return Err(Error::setting_constant(&self.name));
         }
         self.items.push(to_set);
         Ok(())
@@ -908,6 +900,7 @@ impl TulispValue {
         match self {
             TulispValue::Symbol { value } => value.set(to_set),
             TulispValue::LexicalBinding { binding } => binding.set(to_set),
+            TulispValue::Nil | TulispValue::T => Err(Error::setting_constant(&*self)),
             _ => Err(Error::type_mismatch(format!(
                 "Expected Symbol: Can't assign to {self}"
             ))),
@@ -918,6 +911,7 @@ impl TulispValue {
     pub(crate) fn set_global(&mut self, to_set: TulispObject) -> Result<(), Error> {
         match self {
             TulispValue::Symbol { value } => value.set_global(to_set),
+            TulispValue::Nil | TulispValue::T => Err(Error::setting_constant(&*self)),
             // LexicalBindings have no "global" slot — setting the
             // global cell of a lexical binding is nonsensical. Fall
             // through to the same error as non-symbols.
@@ -935,6 +929,7 @@ impl TulispValue {
                 binding.set_scope(to_set);
                 Ok(())
             }
+            TulispValue::Nil | TulispValue::T => Err(Error::setting_constant(&*self)),
             _ => Err(Error::type_mismatch(format!(
                 "Expected Symbol: Can't assign to {self}"
             ))),

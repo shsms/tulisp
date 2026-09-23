@@ -185,6 +185,7 @@ pub(super) fn compile_fn_dolist(
         }
         let spec = spec.clone();
         destruct_bind!((var list &optional result_expr) = spec);
+        crate::builtin::check_not_nil_or_t(&var)?;
         if !var.is_symbol_variant() {
             return Err(Error::new(
                 ErrorKind::TypeMismatch,
@@ -259,6 +260,7 @@ pub(super) fn compile_fn_dotimes(
         }
         let spec = spec.clone();
         destruct_bind!((var count &optional result_expr) = spec);
+        crate::builtin::check_not_nil_or_t(&var)?;
         if !var.is_symbol_variant() {
             return Err(Error::new(
                 ErrorKind::TypeMismatch,

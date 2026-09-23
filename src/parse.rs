@@ -628,16 +628,17 @@ impl Parser<'_, '_> {
         if let Ok("defun" | "defmacro" | "defvar") =
             inner.car()?.as_symbol().as_ref().map(|x| x.as_str())
         {
+            // A name that is no plain symbol, such as `t`, gets no tag;
+            // evaluating the form reports the error.
             #[cfg(feature = "etags")]
+            if let Ok(name) = inner.cadr().and_then(|name| name.as_symbol())
+                && let Some(span) = inner.span()
             {
-                let name = inner.cadr()?.as_symbol()?.clone();
-                if let Some(span) = inner.span() {
-                    self.ctx
-                        .tags_table
-                        .entry(self.ctx.filenames[self.file_id].clone())
-                        .or_default()
-                        .insert(name, span.start.0);
-                }
+                self.ctx
+                    .tags_table
+                    .entry(self.ctx.filenames[self.file_id].clone())
+                    .or_default()
+                    .insert(name, span.start.0);
             }
 
             inner = macroexpand(self.ctx, inner)?;

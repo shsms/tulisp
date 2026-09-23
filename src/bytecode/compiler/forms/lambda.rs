@@ -52,6 +52,7 @@ pub(super) fn compile_fn_lambda(
         // raw param names. The actual is_optional / is_rest tracking
         // for placeholder placement happens in the second pass below.
         let mut seen_rest = false;
+        let mut rest_named = false;
         let mut params_iter = params.base_iter();
         for p in params_iter.by_ref() {
             if p.eq(&ctx.keywords.amp_optional) {
@@ -74,6 +75,15 @@ pub(super) fn compile_fn_lambda(
                 seen_rest = true;
                 continue;
             }
+            if seen_rest {
+                if rest_named {
+                    return Err(Error::type_mismatch(
+                        "Too many &rest parameters".to_string(),
+                    ));
+                }
+                rest_named = true;
+            }
+            crate::builtin::check_not_nil_or_t(&p)?;
             param_names.push(p);
         }
 
@@ -109,13 +119,6 @@ pub(super) fn compile_fn_lambda(
                 let ph = param_placeholders[cursor].clone();
                 cursor += 1;
                 if is_rest {
-                    if vm_params.rest.is_some() {
-                        return Err(Error::new(
-                            ErrorKind::Undefined,
-                            "multiple rest arguments".to_string(),
-                        )
-                        .with_trace(p));
-                    }
                     vm_params.rest = Some(ph);
                 } else if is_optional {
                     vm_params.optional.push(ph);

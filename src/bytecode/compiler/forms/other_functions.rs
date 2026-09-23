@@ -311,6 +311,7 @@ pub(super) fn compile_fn_defun(
                 is_optional = false;
                 is_rest = true;
             } else {
+                crate::builtin::check_not_nil_or_t(arg)?;
                 let lex = TulispObject::lexical_binding(ctx.lex_allocator.clone(), arg.clone());
                 mappings.push((arg.clone(), lex.clone()));
                 if is_optional {

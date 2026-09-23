@@ -53,18 +53,13 @@ pub(super) fn compile_fn_let_star(
         let mut mappings: Vec<(TulispObject, TulispObject)> = Vec::new();
         let mut varitems = varlist.base_iter();
         for varitem in varitems.by_ref() {
+            crate::builtin::check_not_nil_or_t(&varitem)?;
             let (name, value_expr) = if varitem.is_symbol_variant() {
                 (varitem.clone(), None)
             } else if varitem.consp() {
                 let varitem_clone = varitem.clone();
                 destruct_bind!((&optional name value &rest rest) = varitem_clone);
-                if name.null() {
-                    return Err(Error::new(
-                        ErrorKind::Undefined,
-                        "let varitem requires name".to_string(),
-                    )
-                    .with_trace(varitem));
-                }
+                crate::builtin::check_not_nil_or_t(&name)?;
                 if !name.is_symbol_variant() {
                     return Err(Error::new(
                         ErrorKind::TypeMismatch,

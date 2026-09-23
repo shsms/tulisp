@@ -59,15 +59,18 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     // handler body — same shape as Emacs (which uses
     // `(error-symbol DATA...)`, with the data list shape varying per
     // condition; we store the rendered message string instead). VAR
-    // can also be `nil` to skip the binding.
+    // can also be `nil` to skip the binding. A `t` or a keyword VAR is
+    // a constant, which a handler fails to bind. That is Tulisp's
+    // rule, as in Emacs under dynamic binding; under lexical binding,
+    // Emacs binds it.
     //
     // `Throw` errors aren't caught here — they're for `catch`/`throw`
     // and propagate through condition-case unchanged.
     ctx.defspecial("condition-case", |ctx, args| {
         destruct_bind!((var protected_form &rest handlers) = args);
-        if !var.is_symbol_variant() && !var.null() {
+        if !var.symbolp() {
             return Err(Error::type_mismatch(format!(
-                "condition-case: VAR must be a symbol or nil, got: {var}"
+                "condition-case: VAR must be a symbol, got: {var}"
             )));
         }
         let err = match ctx.eval(&protected_form) {
@@ -144,7 +147,7 @@ fn condition_matches(cond: &TulispObject, kind_sym: &str) -> Result<bool, Error>
 #[cfg(test)]
 mod tests {
     use crate::TulispContext;
-    use crate::test_utils::{eval_assert_equal, eval_assert_error};
+    use crate::test_utils::{eval_assert_equal, eval_assert_error, eval_assert_error_line};
 
     #[test]
     fn test_error_handling() {
@@ -227,6 +230,14 @@ mod tests {
             r#"(condition-case nil (error "x") (error 'caught))"#,
             "'caught",
         );
+        // A `t` VAR is a constant, which a handler fails to bind, as in
+        // Emacs under dynamic binding.
+        eval_assert_error_line(
+            &mut ctx,
+            r#"(condition-case t (error "x") (error 'caught))"#,
+            "ERR TypeMismatch: Can't set constant symbol: t",
+        );
+        eval_assert_equal(&mut ctx, "(condition-case t 5 (error 'caught))", "5");
         // Normal completion returns the protected-form's value.
         eval_assert_equal(&mut ctx, "(condition-case e 42 (error 'caught))", "42");
         // No handler matches — error re-raises.

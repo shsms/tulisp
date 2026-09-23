@@ -322,15 +322,15 @@ mod tests {
             "(macroexpand '(if-let* (t) 1 2))",
             "'(let* ((t (and t t))) (if t 1 2))",
         );
-        eval_assert_equal(
+        eval_assert_error_line(
             ctx,
-            "(condition-case nil (if-let* (nil) 1 2) (error 'failed))",
-            "'failed",
+            "(if-let* (nil) 1 2)",
+            "ERR TypeMismatch: Can't set constant symbol: nil",
         );
         eval_assert_error_line(
             ctx,
             "(when-let ((a 1) t) 3)",
-            "ERR TypeMismatch: Expected Symbol: Can't assign to t",
+            "ERR TypeMismatch: Can't set constant symbol: t",
         );
     }
 

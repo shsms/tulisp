@@ -306,13 +306,12 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         let mut dynamic_guard = DynamicScopeGuard { names: Vec::new() };
         let mut varitems = varlist.base_iter();
         for varitem in varitems.by_ref() {
+            crate::builtin::check_not_nil_or_t(&varitem)?;
             let (name, initial) = if varitem.is_symbol_variant() {
                 (varitem, TulispObject::nil())
             } else if varitem.consp() {
                 destruct_bind!((&optional name value &rest rest) = varitem);
-                if name.null() {
-                    return Err(Error::syntax_error("let varitem requires name".to_string()));
-                }
+                crate::builtin::check_not_nil_or_t(&name)?;
                 if !name.is_symbol_variant() {
                     return Err(Error::type_mismatch(format!(
                         "Expected Symbol: Can't assign to {name}"
@@ -679,6 +678,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defspecial("dolist", |ctx, args| {
         destruct_bind!((spec &rest body) = args);
         destruct_bind!((var list &optional result) = spec);
+        crate::builtin::check_not_nil_or_t(&var)?;
         // Under Emacs' `lexical-binding: t`, dolist freshly binds the
         // loop variable at each iteration — equivalent to `(while tail
         // (let ((var (car tail))) body))`. So closures captured in
@@ -701,6 +701,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defspecial("dotimes", |ctx, args| {
         destruct_bind!((spec &rest body) = args);
         destruct_bind!((var count &optional result) = spec);
+        crate::builtin::check_not_nil_or_t(&var)?;
         let lex = TulispObject::lexical_binding(ctx.lex_allocator.clone(), var.clone());
         let mappings = vec![(var, lex.clone())];
         let body = substitute_lexical(body, &mappings)?;
@@ -778,6 +779,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     ctx.defspecial("defvar", |ctx, args| {
         destruct_bind!((name &optional initval _docstring) = args);
+        crate::builtin::check_not_nil_or_t(&name)?;
         if !name.is_symbol_variant() {
             return Err(Error::type_mismatch(
                 "defvar: first argument must be a symbol".to_string(),
@@ -1062,7 +1064,7 @@ mod tests {
         eval_assert_error(
             ctx,
             "(setq t 5)",
-            r#"ERR TypeMismatch: Expected Symbol: Can't assign to t
+            r#"ERR TypeMismatch: Can't set constant symbol: t
 <eval_string>:1.7-1.7:  at t
 <eval_string>:1.1-1.10:  at (setq t 5)
 "#,
@@ -1070,7 +1072,7 @@ mod tests {
         eval_assert_error(
             ctx,
             "(setq nil 5)",
-            r#"ERR TypeMismatch: Expected Symbol: Can't assign to nil
+            r#"ERR TypeMismatch: Can't set constant symbol: nil
 <eval_string>:1.7-1.9:  at nil
 <eval_string>:1.1-1.12:  at (setq nil 5)
 "#,
@@ -1092,7 +1094,7 @@ mod tests {
         eval_assert_error(
             ctx,
             "(set 't 5)",
-            r#"ERR TypeMismatch: Expected Symbol: Can't assign to t
+            r#"ERR TypeMismatch: Can't set constant symbol: t
 <eval_string>:1.7-1.7:  at t
 <eval_string>:1.1-1.10:  at (set 't 5)
 "#,
@@ -1103,6 +1105,46 @@ mod tests {
             r#"ERR TypeMismatch: Can't set constant symbol: :foo
 <eval_string>:1.1-1.13:  at (set ':foo 5)
 "#,
+        );
+    }
+
+    #[test]
+    fn binding_nil_or_t_is_an_error() {
+        let ctx = &mut TulispContext::new();
+        for (form, name) in [
+            ("(let ((t 1)) t)", "t"),
+            ("(let ((nil 1)) 1)", "nil"),
+            ("(let ((nil)) 1)", "nil"),
+            ("(let (t) 1)", "t"),
+            ("(let* (nil) 1)", "nil"),
+            ("(let (()) 1)", "nil"),
+            ("(dolist (nil '(1)) 2)", "nil"),
+            ("(dotimes (t 2) 1)", "t"),
+            ("(defvar t 1)", "t"),
+            ("(defun f (t) 1)", "t"),
+            ("(defmacro m (a nil) a)", "nil"),
+            ("(funcall (lambda (t) 1) 2)", "t"),
+            ("(funcall (lambda (&optional t) 1))", "t"),
+            ("(funcall (lambda (a &rest nil) a) 1)", "nil"),
+            // Differs from Emacs, where a function named `t` is fine:
+            // a symbol has one value slot here.
+            ("(defun t () 1)", "t"),
+            // A defun a macro builds is checked when the VM compiles
+            // it, whatever its name.
+            ("(defmacro mk () (list 'defun :k '(t) 1)) (mk)", "t"),
+        ] {
+            eval_assert_error_line(
+                ctx,
+                form,
+                &format!("ERR TypeMismatch: Can't set constant symbol: {name}"),
+            );
+        }
+        // A second parameter after `&rest` is its own error, whatever
+        // its name.
+        eval_assert_error_line(
+            ctx,
+            "(funcall (lambda (&rest a t) 1))",
+            "ERR TypeMismatch: Too many &rest parameters",
         );
     }
 
