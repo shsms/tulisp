@@ -99,11 +99,13 @@ fn visit(
         }
     }
 
-    // Generic list: walk each element.
-    for item in obj.base_iter() {
+    // Generic list: walk each element, then an improper-list tail. A
+    // list that loops back is an error.
+    let mut items = obj.base_iter();
+    for item in items.by_ref() {
         visit(&item, free, scopes, quote_depth)?;
     }
-    Ok(())
+    visit(&items.tail()?, free, scopes, quote_depth)
 }
 
 fn visit_let(
@@ -117,7 +119,8 @@ fn visit_let(
     // only need the variable names.
     destruct_bind!((_let varlist &rest body) = form);
     let mut bound: Vec<TulispObject> = Vec::new();
-    for item in varlist.base_iter() {
+    let mut items = varlist.base_iter();
+    for item in items.by_ref() {
         if item.is_symbol_variant() {
             bound.push(item);
         } else if item.consp() {
@@ -133,6 +136,7 @@ fn visit_let(
             }
         }
     }
+    items.take_error()?;
     scopes.push(bound);
     let result = visit(&body, free, scopes, quote_depth);
     scopes.pop();
@@ -148,7 +152,8 @@ fn visit_lambda(
     // (lambda (params…) body…)
     destruct_bind!((_lambda params &rest body) = form);
     let mut bound: Vec<TulispObject> = Vec::new();
-    for p in params.base_iter() {
+    let mut items = params.base_iter();
+    for p in items.by_ref() {
         if p.is_symbol_variant() {
             // Skip &optional / &rest markers (they're keyword-ish
             // symbols starting with `&`; their names aren't bindings).
@@ -158,6 +163,7 @@ fn visit_lambda(
             }
         }
     }
+    items.take_error()?;
     scopes.push(bound);
     let result = visit(&body, free, scopes, quote_depth);
     scopes.pop();
@@ -189,5 +195,28 @@ fn visit_dolist_dotimes(
         result
     } else {
         visit(&body, free, scopes, quote_depth)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::classify_free_vars;
+    use crate::TulispContext;
+
+    #[test]
+    fn a_circular_body_is_an_error() {
+        let mut ctx = TulispContext::new();
+        for body in [
+            // `((list y 1 y 1 ...))`
+            "(let ((form (list 'list 'y 1))) (setcdr (cddr form) (cdr form)) (list form))",
+            // `((let ((y 1) (y 1) ...)))`
+            "(let ((vl (list '(y 1)))) (setcdr vl vl) (list (list 'let vl)))",
+            // `((lambda (y y ...)))`
+            "(let ((ps (list 'y))) (setcdr ps ps) (list (list 'lambda ps)))",
+        ] {
+            let body = ctx.eval_string(body).unwrap();
+            let err = classify_free_vars(&body, &[]).unwrap_err();
+            assert_eq!(err.to_string(), "ERR OutOfRange: Circular list", "{body}");
+        }
     }
 }

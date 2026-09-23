@@ -620,32 +620,26 @@ fn walk_tail_substitute(
     let span = body.span();
     let ctxobj = body.ctxobj();
     let mut builder = crate::cons::ListBuilder::new();
-    let mut cur = body;
-    let mut idx: usize = 0;
-    loop {
-        let car = cur.car()?;
-        let new_car = if idx < preserve {
+    let mut items = body.base_iter();
+    let mut count: usize = 0;
+    for car in items.by_ref() {
+        let new_car = if count < preserve {
             car
         } else {
             substitute_lexical_inner(car, mappings, quote_depth)?
         };
         builder.push(new_car);
-        let cdr = cur.cdr()?;
-        if cdr.null() {
-            break;
-        }
-        if !cdr.consp() {
-            // Improper-list tail.
-            let new_tail = if idx + 1 < preserve {
-                cdr
-            } else {
-                substitute_lexical_inner(cdr, mappings, quote_depth)?
-            };
-            builder.append(new_tail)?;
-            break;
-        }
-        cur = cdr;
-        idx += 1;
+        count += 1;
+    }
+    // An improper-list tail, or the error of a list that loops back.
+    let tail = items.tail()?;
+    if !tail.null() {
+        let new_tail = if count < preserve {
+            tail
+        } else {
+            substitute_lexical_inner(tail, mappings, quote_depth)?
+        };
+        builder.append(new_tail)?;
     }
     Ok(builder.build().with_span(span).with_ctxobj(ctxobj))
 }
@@ -825,19 +819,13 @@ fn substitute_lexical_inner(
             // it here would force a symbol lookup on every call.
             let ctxobj = body.ctxobj();
             let mut builder = crate::cons::ListBuilder::new();
-            let mut cur = body;
-            loop {
-                let car = cur.car()?;
+            let mut items = body.base_iter();
+            for car in items.by_ref() {
                 builder.push(substitute_lexical_inner(car, mappings, quote_depth)?);
-                let cdr = cur.cdr()?;
-                if cdr.null() {
-                    break;
-                }
-                if !cdr.consp() {
-                    builder.append(substitute_lexical_inner(cdr, mappings, quote_depth)?)?;
-                    break;
-                }
-                cur = cdr;
+            }
+            let tail = items.tail()?;
+            if !tail.null() {
+                builder.append(substitute_lexical_inner(tail, mappings, quote_depth)?)?;
             }
             builder.build().with_span(span).with_ctxobj(ctxobj)
         }
@@ -1230,6 +1218,27 @@ mod tests {
             ctx,
             "(circular-template)",
             "ERR OutOfRange: Circular list\n",
+        );
+    }
+
+    #[test]
+    fn let_rejects_a_circular_body() {
+        let ctx = &mut TulispContext::new();
+        // `(let ((y 1)) (setq y 2) y (setq y 2) y ...)`
+        eval_assert_error_line(
+            ctx,
+            "(let ((body (list '(setq y 2) 'y)))
+               (setcdr (cdr body) body)
+               (eval (cons 'let (cons '((y 1)) body))))",
+            "ERR OutOfRange: Circular list",
+        );
+        // `(let ((y 1)) (lambda (z) y y ...))`
+        eval_assert_error_line(
+            ctx,
+            "(let ((body (list 'y)))
+               (setcdr body body)
+               (eval (list 'let '((y 1)) (cons 'lambda (cons '(z) body)))))",
+            "ERR OutOfRange: Circular list",
         );
     }
 

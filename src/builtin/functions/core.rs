@@ -442,7 +442,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             allocator: &Shared<LexAllocator>,
             captured_vars: &mut Vec<(TulispObject, TulispObject)>,
             exclude: &[TulispObject],
-            mut body: TulispObject,
+            body: TulispObject,
             quote_depth: u32,
         ) -> Result<TulispObject, Error> {
             if !body.consp() {
@@ -518,8 +518,8 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
             let span = body.span();
             let mut builder = crate::cons::ListBuilder::new();
-            loop {
-                let car = body.car()?;
+            let mut items = body.base_iter();
+            for car in items.by_ref() {
                 builder.push(capture_variables_inner(
                     allocator,
                     captured_vars,
@@ -527,21 +527,18 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                     car,
                     quote_depth,
                 )?);
-                let cdr = body.cdr()?;
-                if cdr.null() {
-                    break;
-                }
-                if !cdr.consp() {
-                    builder.append(capture_variables_inner(
-                        allocator,
-                        captured_vars,
-                        exclude,
-                        cdr,
-                        quote_depth,
-                    )?)?;
-                    break;
-                }
-                body = cdr;
+            }
+            // An improper-list tail, or the error of a list that
+            // loops back.
+            let tail = items.tail()?;
+            if !tail.null() {
+                builder.append(capture_variables_inner(
+                    allocator,
+                    captured_vars,
+                    exclude,
+                    tail,
+                    quote_depth,
+                )?)?;
             }
             Ok(builder.build().with_span(span))
         }
@@ -976,6 +973,36 @@ mod tests {
         let ctx = &mut TulispContext::new();
         eval_assert(ctx, "(eq (defun q () 1) 'q)");
         eval_assert(ctx, "(eq (defmacro m () 1) 'm)");
+    }
+
+    #[test]
+    fn lambda_rejects_a_circular_body() {
+        let ctx = &mut TulispContext::new();
+        // `(list x 1 x 1 ...)`, built at run time for `eval`.
+        eval_assert_error_line(
+            ctx,
+            "(let ((form (list 'list 'x 1)))
+               (setcdr (cddr form) (cdr form))
+               (funcall (eval (list 'lambda '(x) form)) 1))",
+            "ERR OutOfRange: Circular list",
+        );
+    }
+
+    #[test]
+    fn a_closure_captures_a_variable_used_only_in_a_dotted_tail() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(funcall (let ((x 1)) (lambda () `(a . ,x))))",
+            "'(a . 1)",
+        );
+        eval_assert_equal(
+            ctx,
+            "(let (fns)
+               (dolist (x '(1 2)) (setq fns (cons (lambda () `(a . ,x)) fns)))
+               (mapcar #'funcall fns))",
+            "'((a . 2) (a . 1))",
+        );
     }
 
     #[test]
