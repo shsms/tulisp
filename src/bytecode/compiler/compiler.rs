@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    Error, ErrorKind, TulispContext, TulispObject, TulispValue,
+    Error, TulispContext, TulispObject, TulispValue,
     bytecode::{Bytecode, Instruction},
     object::wrappers::generic::SharedMut,
 };
@@ -347,41 +347,16 @@ fn compile_back_quote(
             }
         } else if let (TulispValue::Splice { value }, _) = first_inner {
             if depth == 1 {
-                let mut splice_result = compile_expr(ctx, value)?;
-                let list_inst = splice_result.pop().unwrap();
-                if let Instruction::List(n) = list_inst {
-                    result.append(&mut splice_result);
-                    items += n;
-                } else if let Instruction::Load(idx) = list_inst {
-                    result.append(&mut splice_result);
-                    result.push(Instruction::List(items));
-                    if need_append {
-                        result.push(Instruction::Append(2));
-                    }
-                    result.append(&mut vec![Instruction::Load(idx), Instruction::Append(2)]);
-                    need_append = true;
-                    items = 0;
-                } else {
-                    if !value.consp() {
-                        return Err(Error::new(
-                            ErrorKind::SyntaxError,
-                            format!(
-                                "Can only splice an inplace-list or a variable binding: {}",
-                                value
-                            ),
-                        )
-                        .with_trace(first.clone()));
-                    }
-                    result.push(Instruction::List(items));
-                    if need_append {
-                        result.push(Instruction::Append(2));
-                    }
-                    result.append(&mut splice_result);
-                    result.push(list_inst);
+                result.push(Instruction::List(items));
+                if need_append {
                     result.push(Instruction::Append(2));
-                    need_append = true;
-                    items = 0;
                 }
+                result.append(
+                    &mut compile_expr(ctx, value).map_err(|e| e.with_trace(first.clone()))?,
+                );
+                result.push(Instruction::Append(2));
+                need_append = true;
+                items = 0;
             } else {
                 // depth > 1: splice at this level is just data —
                 // wrap as a Splice value and treat as one element.

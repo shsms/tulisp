@@ -1162,6 +1162,27 @@ mod tests {
     }
 
     #[test]
+    fn backquote_splices_any_expression() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "`(,@nil)", "nil");
+        eval_assert_equal(ctx, "`(a ,@nil b)", "'(a b)");
+        eval_assert_equal(ctx, "`(a ,@'(1 2) b)", "'(a 1 2 b)");
+        eval_assert_equal(ctx, "`(a ,@'(1 2))", "'(a 1 2)");
+        eval_assert_equal(ctx, "`(a ,@5)", "'(a . 5)");
+        eval_assert_equal(ctx, "`((,@nil))", "'(nil)");
+        eval_assert_equal(
+            ctx,
+            "(defun f () (list 1 2)) `(a ,@(f) b ,@(f))",
+            "'(a 1 2 b 1 2)",
+        );
+        eval_assert(
+            ctx,
+            "(setq g (list 1 2)) (defun h () g) (eq (cdr `(a ,@(h))) g)",
+        );
+        eval_assert_error_line(ctx, "`(a ,@5 b)", "ERR TypeMismatch: Expected list, got: 5");
+    }
+
+    #[test]
     fn backquote_rejects_splicing_a_circular_list() {
         let ctx = &mut TulispContext::new();
         eval_assert_error_line(
