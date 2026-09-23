@@ -1090,26 +1090,6 @@ impl TulispValue {
     }
 
     #[inline(always)]
-    pub(crate) fn append(&mut self, val: TulispObject) -> Result<(), Error> {
-        if let TulispValue::List { cons, .. } = self {
-            cons.append(val.clone()).map_err(|e| e.with_trace(val))?;
-            Ok(())
-        } else if self.null() {
-            if !val.null() {
-                *self = TulispValue::List {
-                    cons: val
-                        .as_list_cons()
-                        .unwrap_or_else(|| Cons::new(val, TulispObject::nil())),
-                    ctxobj: None,
-                };
-            }
-            Ok(())
-        } else {
-            Err(Error::type_mismatch(format!("unable to append: {}", val)))
-        }
-    }
-
-    #[inline(always)]
     pub fn into_ref(self, span: Option<Span>) -> TulispObject {
         TulispObject::new(self, span)
     }

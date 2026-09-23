@@ -196,12 +196,21 @@ impl TulispObject {
     /// Adds the given value to the end of a list. Returns an Error if `self` is
     /// not a list.
     pub fn push(&self, val: TulispObject) -> Result<&TulispObject, Error> {
-        self.rc
-            .borrow_mut()
-            .0
-            .push(val)
-            .map(|_| self)
-            .map_err(|e| e.with_trace(self.clone()))
+        // A `let`, so that the borrow ends before `with_trace` reads
+        // `self`, which may be the borrowed cell.
+        let res = self.last_cons()?.rc.borrow_mut().0.push(val);
+        res.map(|_| self).map_err(|e| e.with_trace(self.clone()))
+    }
+
+    /// The last cons of the list `self`, or `self` if it is no cons.
+    /// `push` and `append` borrow this cell for writing, after the
+    /// walk: a list that loops back to `self` would otherwise reach
+    /// `self` while it is borrowed.
+    fn last_cons(&self) -> Result<TulispObject, Error> {
+        if !self.consp() {
+            return Ok(self.clone());
+        }
+        cons::last_cons(self.clone()).map_err(|e| e.with_trace(self.clone()))
     }
 
     /// Replaces the car of a cons cell. Mirrors Emacs `setcar`.
@@ -227,12 +236,44 @@ impl TulispObject {
     /// Attaches the other list to the end of self.  Returns an Error if `self`
     /// is not a list.
     pub fn append(&self, other_list: TulispObject) -> Result<&TulispObject, Error> {
-        self.rc
-            .borrow_mut()
-            .0
-            .append(other_list)
-            .map(|_| self)
-            .map_err(|e| e.with_trace(self.clone()))
+        let last = self.last_cons()?;
+        if last.null() {
+            // A `nil` `self` takes a copy of `other_list`'s first cell
+            // and shares the rest of it. A non-list `other_list` becomes
+            // a one-element list.
+            if let Some(cons) = other_list.as_list_cons() {
+                last.assign(TulispValue::List { cons, ctxobj: None });
+            } else if !other_list.null() {
+                last.assign(TulispValue::List {
+                    cons: Cons::new(other_list, TulispObject::nil()),
+                    ctxobj: None,
+                });
+            }
+            return Ok(self);
+        }
+        // Copy, and check that the copy can follow `last`, before
+        // borrowing `last` for writing. `other_list` may share cells
+        // with `self`, or be `self`, and the copy's elements still point
+        // into `other_list`, so printing the copy for an error message
+        // may reach `last`.
+        let other_list = other_list
+            .deep_copy()
+            .map_err(|e| e.with_trace(self.clone()))?;
+        if !last.consp() {
+            return Err(
+                Error::type_mismatch(format!("Unable to append: {}", other_list))
+                    .with_trace(self.clone()),
+            );
+        }
+        if !last.cdr()?.null() {
+            return Err(
+                Error::type_mismatch(format!("Unable to append: {}", other_list))
+                    .with_trace(other_list)
+                    .with_trace(self.clone()),
+            );
+        }
+        last.set_cdr(other_list)?;
+        Ok(self)
     }
 
     /// Returns a string representation of `self`, similar to the Emacs Lisp
@@ -979,7 +1020,7 @@ impl TulispObject {
 
 #[cfg(test)]
 mod tests {
-    use crate::{Error, TulispContext, TulispConvertible, TulispObject};
+    use crate::{Error, TulispContext, TulispConvertible, TulispObject, list};
 
     crate::AsList! {
         #[derive(Debug, PartialEq)]
@@ -1025,6 +1066,47 @@ mod tests {
         let five = TulispObject::from(5);
         let err = five.convert::<Mode>(&mut ctx).unwrap_err();
         assert_eq!(err.desc(), param_err.desc());
+    }
+
+    #[test]
+    fn push_and_append_take_a_value_that_shares_cells_with_self() {
+        let mut ctx = TulispContext::new();
+        let list = ctx.eval_string("(list 1 2)").unwrap();
+        list.append(list.cdr().unwrap()).unwrap();
+        assert_eq!(list.to_string(), "(1 2 2)");
+
+        let list = ctx.eval_string("(list 1 2)").unwrap();
+        list.append(list.clone()).unwrap();
+        assert_eq!(list.to_string(), "(1 2 1 2)");
+
+        let dotted = ctx.eval_string("(cons 1 2)").unwrap();
+        let err = dotted.append(dotted.clone()).unwrap_err();
+        assert!(err.to_string().contains("Unable to append"), "{err}");
+        assert!(dotted.push(3.into()).is_err());
+
+        let atom = TulispObject::from(5);
+        assert!(atom.append(atom.clone()).is_err());
+
+        // The error message prints the copy of the other list, whose
+        // elements reach `self` here. Run in a thread, so that a hang,
+        // as a lock taken twice would give, fails the test too.
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let atom = TulispObject::from(5);
+            let atom_err = atom.append(list!(atom.clone()).unwrap()).unwrap_err();
+            let dotted = TulispObject::cons(1.into(), 2.into());
+            let item = TulispObject::cons(0.into(), dotted.clone());
+            let dotted_err = dotted.append(list!(item).unwrap()).unwrap_err();
+            let _ = sender.send((atom_err.to_string(), dotted_err.to_string()));
+        });
+        let (atom_err, dotted_err) = receiver
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .unwrap();
+        assert_eq!(atom_err, "ERR TypeMismatch: Unable to append: (5)");
+        assert_eq!(
+            dotted_err,
+            "ERR TypeMismatch: Unable to append: ((0 1 . 2))"
+        );
     }
 
     #[test]

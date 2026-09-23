@@ -22,6 +22,8 @@ impl Cons {
         Cons { car, cdr }
     }
 
+    /// Adds `val` after this cell, which must be the last cell of its
+    /// list.
     pub fn push(&mut self, val: TulispObject) -> Result<(), Error> {
         self.push_with_meta(val, None, None)
     }
@@ -32,48 +34,17 @@ impl Cons {
         span: Option<Span>,
         ctxobj: Option<TulispObject>,
     ) -> Result<(), Error> {
-        let mut last = self.cdr.clone();
-
-        while last.consp() {
-            last = last.cdr()?;
-        }
-        if last.null() {
-            last.assign(TulispValue::List {
-                cons: Cons {
-                    car: val,
-                    cdr: TulispObject::nil(),
-                },
-                ctxobj,
-            });
-            last.with_span(span);
-        } else {
+        if !self.cdr.null() {
             return Err(Error::type_mismatch("Cons: unable to push".to_string()));
         }
-        Ok(())
-    }
-
-    pub fn append(&mut self, val: TulispObject) -> Result<(), Error> {
-        let mut last = self.cdr.clone();
-        let mut last_but_one = None;
-        while last.consp() {
-            last_but_one = Some(last.clone());
-            last = last.cdr()?;
-        }
-        if last.null() {
-            if let Some(last_but_one) = last_but_one {
-                last_but_one.assign(TulispValue::List {
-                    cons: Cons {
-                        car: last_but_one.car()?,
-                        cdr: val.deep_copy()?,
-                    },
-                    ctxobj: last_but_one.ctxobj(),
-                })
-            } else {
-                self.cdr = val.deep_copy()?;
-            }
-        } else {
-            return Err(Error::type_mismatch(format!("Unable to append: {}", val)));
-        }
+        self.cdr.assign(TulispValue::List {
+            cons: Cons {
+                car: val,
+                cdr: TulispObject::nil(),
+            },
+            ctxobj,
+        });
+        self.cdr.with_span(span);
         Ok(())
     }
 
@@ -182,9 +153,9 @@ impl ListBuilder {
         }
         match self.last_cons.take() {
             None => {
-                // Empty: mirrors `TulispValue::append`'s Nil branch.
-                // `as_list_cons` does not deep-copy — matching
-                // existing semantics.
+                // Empty: as `TulispObject::append` on a `nil` list does,
+                // copy only the first cell and share the rest. Unlike
+                // it, `walk_to_end` rejects a list that loops back.
                 let cons = val
                     .as_list_cons()
                     .unwrap_or_else(|| Cons::new(val.clone(), TulispObject::nil()));
@@ -192,7 +163,7 @@ impl ListBuilder {
                 self.walk_to_end(self.head.clone())?;
             }
             Some(last) => {
-                // Non-empty: mirrors `Cons::append` — set last's cdr
+                // Non-empty: mirrors `TulispObject::append` — set last's cdr
                 // to `val.deep_copy()`. The deep copy is held as a
                 // `TulispObject` (so a shared interned-symbol Rc
                 // stays untouched), then walked to update `last_cons`
@@ -524,6 +495,16 @@ mod tests {
     fn circular(ctx: &mut TulispContext) -> TulispObject {
         ctx.eval_string("(let ((l (list 1 2 3))) (setcdr (cddr l) l) l)")
             .unwrap()
+    }
+
+    #[test]
+    fn push_and_append_onto_a_circular_list_are_errors() {
+        let ctx = &mut TulispContext::new();
+        let list = circular(ctx);
+        let err = list.push(4.into()).unwrap_err();
+        assert_eq!(err.to_string(), "ERR OutOfRange: Circular list");
+        let err = list.append(ctx.eval_string("'(4)").unwrap()).unwrap_err();
+        assert_eq!(err.to_string(), "ERR OutOfRange: Circular list");
     }
 
     #[test]
