@@ -763,9 +763,12 @@ fn run_impl_inner(
                                 "append: expected list, got: {arg}"
                             )));
                         }
-                        for elem in arg.base_iter() {
+                        // A dotted or circular list is an error, as in Emacs.
+                        let mut items = arg.base_iter();
+                        for elem in items.by_ref() {
                             builder.push(elem);
                         }
+                        items.take_error()?;
                     }
                     builder.build_with_tail(last)
                 } else {

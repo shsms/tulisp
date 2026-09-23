@@ -702,9 +702,12 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                         "append: expected list, got: {arg}"
                     )));
                 }
-                for elem in arg.base_iter() {
+                // A dotted or circular list is an error, as in Emacs.
+                let mut items = arg.base_iter();
+                for elem in items.by_ref() {
                     builder.push(elem);
                 }
+                items.take_error()?;
             }
             Ok(builder.build_with_tail(last))
         },
@@ -1179,6 +1182,30 @@ mod tests {
               xs)
         "##,
             "'(1 2)",
+        );
+    }
+
+    #[test]
+    fn append_rejects_a_dotted_or_circular_list() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_error(
+            ctx,
+            "(append '(1 . 2) nil)",
+            "ERR TypeMismatch: Expected list, got: 2\n\
+             <eval_string>:1.1-1.21:  at (append '(1 . 2) nil)\n",
+        );
+        // Only the last argument may loop: it is shared, not copied.
+        eval_assert_error(
+            ctx,
+            "(let ((l (list 1 2 3))) (setcdr (cddr l) l) (append l nil))",
+            "ERR OutOfRange: Circular list\n\
+             <eval_string>:1.45-1.58:  at (append l nil)\n\
+             <eval_string>:1.1-1.59:  at (let ((l (list 1 2 3))) (setcdr (cddr l) l) (append l nil))\n",
+        );
+        eval_assert_equal(
+            ctx,
+            "(let ((l (list 1 2 3))) (setcdr (cddr l) l) (nth 7 (append '(0) l)))",
+            "1",
         );
     }
 }

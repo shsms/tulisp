@@ -880,7 +880,9 @@ fn substitute_lexical_inner(
 
 #[cfg(test)]
 mod tests {
-    use crate::test_utils::{eval_assert, eval_assert_equal, eval_assert_error, eval_assert_not};
+    use crate::test_utils::{
+        eval_assert, eval_assert_equal, eval_assert_error, eval_assert_error_line, eval_assert_not,
+    };
     use crate::{TulispContext, TulispValue, list};
 
     // A tail call marked at parse time bounces to whatever the symbol
@@ -1182,6 +1184,36 @@ mod tests {
             ctx,
             "(let ((l (list 1 2))) `(,@l ,(setcdr l nil)))",
             "'(1 nil)",
+        );
+    }
+
+    #[test]
+    fn backquote_rejects_splicing_a_circular_list() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_error_line(
+            ctx,
+            "(let ((l (list 1 2 3))) (setcdr (cddr l) l) `(a ,@l b))",
+            "ERR OutOfRange: Circular list",
+        );
+    }
+
+    #[test]
+    fn backquote_rejects_splicing_a_dotted_list_before_more_elements() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_error_line(
+            ctx,
+            "(let ((l (cons 1 2))) `(,@l 3))",
+            "ERR TypeMismatch: Expected list, got: 2",
+        );
+        eval_assert_error_line(
+            ctx,
+            "(let ((l (cons 1 2))) `(a ,@l . b))",
+            "ERR TypeMismatch: Expected list, got: 2",
+        );
+        eval_assert_error_line(
+            ctx,
+            "(let ((x 5)) `(a ,@x b))",
+            "ERR TypeMismatch: Expected list, got: 5",
         );
     }
 
