@@ -234,7 +234,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         },
     );
 
-    ctx.defspecial("while", |ctx, args| {
+    ctx.define_tw_special("while", |ctx, args| {
         destruct_bind!((condition &rest rest) = args);
         while condition.eval_into(ctx)? {
             tw_eval_progn(ctx, &rest)?;
@@ -242,7 +242,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(TulispObject::nil())
     });
 
-    ctx.defspecial("setq", |ctx, args| {
+    ctx.define_tw_special("setq", |ctx, args| {
         args.car_and_then(crate::builtin::check_settable_target)?;
         let value = args.cdr_and_then(|args| {
             if args.null() {
@@ -351,12 +351,12 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         let rewritten = substitute_lexical(body, &mappings)?;
         tw_eval_progn(ctx, &rewritten)
     }
-    ctx.defspecial("let", impl_let);
-    ctx.defspecial("let*", impl_let);
+    ctx.define_tw_special("let", impl_let);
+    ctx.define_tw_special("let*", impl_let);
 
-    ctx.defspecial("progn", tw_eval_progn);
+    ctx.define_tw_special("progn", tw_eval_progn);
 
-    ctx.defspecial("defun", |ctx, args| {
+    ctx.define_tw_special("defun", |ctx, args| {
         destruct_bind!((name params &rest rest) = args);
         let lambda = crate::eval::defun_lambda(ctx, &name, &params, rest)?;
         name.set_global(lambda)?;
@@ -559,9 +559,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         let body = substitute_lexical(body, &mappings)?;
         Ok(TulispValue::Lambda { params, body }.into_ref(None))
     }
-    ctx.defspecial("lambda", lambda);
+    ctx.define_tw_special("lambda", lambda);
 
-    ctx.defspecial("defmacro", |ctx, args| {
+    ctx.define_tw_special("defmacro", |ctx, args| {
         destruct_bind!((name params &rest rest) = args);
         let body = if rest.car()?.as_string().is_ok() {
             rest.cdr()?
@@ -584,7 +584,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         },
     );
 
-    ctx.defspecial("apply", |ctx, args| {
+    ctx.define_tw_special("apply", |ctx, args| {
         // (apply FUNCTION &rest ARGUMENTS) — calls FUNCTION with its
         // intermediate ARGUMENTS plus the elements of the final list
         // (which must itself evaluate to a list). E.g.
@@ -640,7 +640,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         }
     });
 
-    ctx.defspecial("funcall", |ctx, args| {
+    ctx.define_tw_special("funcall", |ctx, args| {
         destruct_bind!((name &rest rest) = args);
         let name = tw_eval(ctx, &name)?;
         let name = resolve_function(ctx, &name)?;
@@ -788,12 +788,12 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     );
     // predicates end
 
-    ctx.defspecial("declare", |_ctx, _args| {
+    ctx.define_tw_special("declare", |_ctx, _args| {
         // no-op
         Ok(TulispObject::nil())
     });
 
-    ctx.defspecial("defvar", |ctx, args| {
+    ctx.define_tw_special("defvar", |ctx, args| {
         destruct_bind!((name &optional initval _docstring) = args);
         crate::builtin::check_defvar_name(&name)?;
         // Flip the symbol's `special` flag so subsequent let/let* and
@@ -1398,7 +1398,7 @@ mod tests {
     fn functionp_accepts_only_functions() {
         let ctx = &mut TulispContext::new();
         ctx.defun("rust-identity", |x: TulispObject| x);
-        ctx.defspecial("rust-special", |_ctx, _args| Ok(TulispObject::nil()));
+        ctx.define_tw_special("rust-special", |_ctx, _args| Ok(TulispObject::nil()));
         eval_assert_equal(
             ctx,
             "(defun lisp-identity (x) x)

@@ -10,7 +10,7 @@ use crate::{
 use std::borrow::Cow;
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    ctx.defspecial("if", |ctx, args| {
+    ctx.define_tw_special("if", |ctx, args| {
         destruct_bind!((cond then &rest body) = args);
         if cond.eval_into(ctx)? {
             tw_eval(ctx, &then)
@@ -33,7 +33,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         ))
     });
 
-    ctx.defspecial("cond", |ctx, args| {
+    ctx.define_tw_special("cond", |ctx, args| {
         for item in args.base_iter() {
             if item.car_and_then(|x| x.eval_into(ctx))? {
                 return item.cdr_and_then(|x| tw_eval_progn(ctx, x));
@@ -45,7 +45,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     // Constructs for combining conditions
     ctx.defun("not", |x: TulispObject| -> bool { x.null() });
 
-    ctx.defspecial("and", |ctx, args| {
+    ctx.define_tw_special("and", |ctx, args| {
         // `(and)` is t, as in Emacs.
         let mut ret = true.into();
         for item in args.base_iter() {
@@ -61,7 +61,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(ret)
     });
 
-    ctx.defspecial("or", |ctx, args| {
+    ctx.define_tw_special("or", |ctx, args| {
         for item in args.base_iter() {
             let result = eval_basic(ctx, &item)?;
             match result {

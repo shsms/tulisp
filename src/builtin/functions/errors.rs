@@ -9,7 +9,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Err(Error::lisp_error(msg))
     });
 
-    ctx.defspecial("catch", |ctx, args| {
+    ctx.define_tw_special("catch", |ctx, args| {
         destruct_bind!((tag &rest body) = args);
         let tag = tw_eval(ctx, &tag)?;
         tw_eval_progn(ctx, &body).or_else(|err| catch_throw(err, &tag))
@@ -33,7 +33,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     // supersedes (masks) the BODYFORM's value or error. `Result::and`
     // encodes exactly this — `cleanup.and(result)` yields the cleanup
     // error when cleanup is `Err`, otherwise the BODYFORM's `result`.
-    ctx.defspecial("unwind-protect", |ctx, args| {
+    ctx.define_tw_special("unwind-protect", |ctx, args| {
         destruct_bind!((bodyform &rest unwindforms) = args);
         let result = tw_eval(ctx, &bodyform);
         let cleanup = tw_eval_progn(ctx, &unwindforms);
@@ -50,7 +50,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     // bound lexically, like a `let` variable, or dynamically when it is
     // special. A `nil` VAR binds nothing; `t` or a keyword fails when a
     // handler binds it.
-    ctx.defspecial("condition-case", |ctx, args| {
+    ctx.define_tw_special("condition-case", |ctx, args| {
         destruct_bind!((var protected_form &rest handlers) = args);
         check_condition_case_var(&var)?;
         let handlers = parse_handlers(&handlers)?;

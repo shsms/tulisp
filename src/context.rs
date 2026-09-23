@@ -402,6 +402,14 @@ impl TulispContext {
     #[inline(always)]
     #[track_caller]
     pub fn defspecial(&mut self, name: &str, func: impl TulispFn + std::any::Any) {
+        self.define_tw_special(name, func);
+    }
+
+    /// Registers FUNC as a tree-walker special form, which gets its
+    /// arguments unevaluated, as one list.
+    #[inline(always)]
+    #[track_caller]
+    pub(crate) fn define_tw_special(&mut self, name: &str, func: impl TulispFn + std::any::Any) {
         #[cfg(feature = "etags")]
         {
             let caller = std::panic::Location::caller();

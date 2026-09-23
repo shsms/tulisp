@@ -675,12 +675,10 @@ pub enum TulispValue {
     Any(Shared<dyn TulispAny>),
     Func(Shared<dyn TulispFn>),
     /// A `ctx.defun`-registered Rust function, with already-evaluated
-    /// args. Distinct from `Func` (defspecial-style raw args) so the
-    /// VM can dispatch via `RustCallTyped` — args are pushed onto the
-    /// stack one by one and the closure receives them as a slice,
-    /// without ever calling `ctx.eval` itself. Keeps the VM lock from
-    /// being re-entered when a defun's arg expression is itself a
-    /// `CompiledDefun` call.
+    /// args. Distinct from `Func` (a tree-walker special form, with raw
+    /// args) so the VM can dispatch via `RustCallTyped` — args are
+    /// pushed onto the stack one by one and the closure receives them
+    /// as a slice.
     Defun {
         call: Shared<dyn DefunFn>,
         arity: DefunArity,
