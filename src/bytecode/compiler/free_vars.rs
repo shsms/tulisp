@@ -82,6 +82,7 @@ fn visit(
         match name.as_str() {
             "let" | "let*" => return visit_let(obj, free, scopes, quote_depth),
             "lambda" => return visit_lambda(obj, free, scopes, quote_depth),
+            "condition-case" => return visit_condition_case(obj, free, scopes, quote_depth),
             _ => {}
         }
     }
@@ -161,10 +162,60 @@ fn visit_lambda(
     result
 }
 
+fn visit_condition_case(
+    form: &TulispObject,
+    free: &mut Vec<TulispObject>,
+    scopes: &mut Vec<Vec<TulispObject>>,
+    quote_depth: u32,
+) -> Result<(), Error> {
+    // (condition-case VAR BODYFORM HANDLERS...) — VAR is bound in the
+    // handler bodies, not in BODYFORM.
+    destruct_bind!((_head &optional var bodyform &rest handlers) = form);
+    visit(&bodyform, free, scopes, quote_depth)?;
+    let mut bound = Vec::new();
+    if var.is_symbol_variant() {
+        bound.push(var);
+    }
+    scopes.push(bound);
+    let mut result = Ok(());
+    let mut items = handlers.base_iter();
+    for handler in items.by_ref() {
+        if let Ok(forms) = handler.cdr() {
+            result = visit(&forms, free, scopes, quote_depth);
+            if result.is_err() {
+                break;
+            }
+        }
+    }
+    scopes.pop();
+    result?;
+    items.take_error()
+}
+
 #[cfg(test)]
 mod tests {
     use super::classify_free_vars;
     use crate::TulispContext;
+    use crate::TulispObject;
+    use crate::eval::substitute_lexical;
+
+    #[test]
+    fn a_condition_case_variable_is_bound_in_its_handlers() {
+        let ctx = &mut TulispContext::new();
+        let e = ctx.intern("e");
+        let outer = TulispObject::lexical_binding(ctx.lex_allocator.clone(), e.clone());
+        let free_in = |ctx: &mut TulispContext, program: &str| {
+            let form = ctx.eval_string(program).unwrap();
+            let form = substitute_lexical(form, &[(e.clone(), outer.clone())]).unwrap();
+            classify_free_vars(&TulispObject::cons(form, TulispObject::nil()), &[])
+                .unwrap()
+                .len()
+        };
+        // Only the handler uses `e`: that is VAR, not the outer binding.
+        assert_eq!(free_in(ctx, "'(condition-case e 1 (error e))"), 0);
+        // BODYFORM's `e` is the outer binding.
+        assert_eq!(free_in(ctx, "'(condition-case e e (error 1))"), 1);
+    }
 
     #[test]
     fn a_circular_body_is_an_error() {
