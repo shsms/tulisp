@@ -120,6 +120,86 @@ mod tests {
     use crate::test_utils::{eval_assert_equal, eval_assert_error, listing};
 
     #[test]
+    fn test_comparison_of_numbers() {
+        let ctx = &mut crate::TulispContext::new();
+        // Greater than
+        eval_assert_equal(ctx, "(> 10 10)", "nil");
+        eval_assert_equal(ctx, "(> 10 5)", "t");
+        eval_assert_equal(ctx, "(> 5 10)", "nil");
+        eval_assert_equal(ctx, "(> 2 4 6)", "nil");
+        eval_assert_equal(ctx, "(> 2 6 4)", "nil");
+        eval_assert_equal(ctx, "(> 6 2 4)", "nil");
+        eval_assert_equal(ctx, "(> 6 4 2)", "t");
+        eval_assert_equal(ctx, "(> 10.0 5.0)", "t");
+        eval_assert_equal(ctx, "(> 5.0 10.0)", "nil");
+        // A single-arg comparison is vacuously true (Emacs: `(> 5)` => t).
+        eval_assert_equal(ctx, "(let ((a 10)) (> a))", "t");
+        // A zero-arg comparison errors.
+        eval_assert_error(
+            ctx,
+            "(>)",
+            r#"ERR MissingArgument: Comparison requires at least 1 argument
+<eval_string>:1.1-1.3:  at (>)
+"#,
+        );
+        eval_assert_error(
+            ctx,
+            r#"(> 10 "hello")"#,
+            r#"ERR TypeMismatch: Expected number, got: "hello"
+<eval_string>:1.1-1.14:  at (> 10 "hello")
+"#,
+        );
+
+        // Greater than or equal
+        eval_assert_equal(ctx, "(>= 10 10)", "t");
+        eval_assert_equal(ctx, "(>= 10 5)", "t");
+        eval_assert_equal(ctx, "(>= 5 10)", "nil");
+        eval_assert_equal(ctx, "(>= 2 4 6)", "nil");
+        eval_assert_equal(ctx, "(>= 2 6 4)", "nil");
+        eval_assert_equal(ctx, "(>= 6 2 4)", "nil");
+        eval_assert_equal(ctx, "(>= 6 4 2)", "t");
+        eval_assert_equal(ctx, "(>= 10.0 5.0)", "t");
+        eval_assert_equal(ctx, "(>= 5.0 10.0)", "nil");
+        eval_assert_equal(ctx, "(let ((a 10)) (>= a))", "t");
+
+        // Less than
+        eval_assert_equal(ctx, "(< 10 10)", "nil");
+        eval_assert_equal(ctx, "(< 10 5)", "nil");
+        eval_assert_equal(ctx, "(< 5 10)", "t");
+        eval_assert_equal(ctx, "(< 2 4 6)", "t");
+        eval_assert_equal(ctx, "(< 2 6 4)", "nil");
+        eval_assert_equal(ctx, "(< 6 2 4)", "nil");
+        eval_assert_equal(ctx, "(< 6 4 2)", "nil");
+        eval_assert_equal(ctx, "(< 10.0 5.0)", "nil");
+        eval_assert_equal(ctx, "(< 5.0 10.0)", "t");
+        eval_assert_equal(ctx, "(let ((a 10)) (< a))", "t");
+
+        // Less than or equal
+        eval_assert_equal(ctx, "(<= 10 10)", "t");
+        eval_assert_equal(ctx, "(<= 10 5)", "nil");
+        eval_assert_equal(ctx, "(<= 5 10)", "t");
+        eval_assert_equal(ctx, "(<= 2 4 6)", "t");
+        eval_assert_equal(ctx, "(<= 2 6 4)", "nil");
+        eval_assert_equal(ctx, "(<= 6 2 4)", "nil");
+        eval_assert_equal(ctx, "(<= 6 4 2)", "nil");
+        eval_assert_equal(ctx, "(<= 10.0 5.0)", "nil");
+        eval_assert_equal(ctx, "(<= 5.0 10.0)", "t");
+        eval_assert_equal(ctx, "(let ((a 10)) (<= a))", "t");
+
+        // Two arguments
+        eval_assert_equal(ctx, "(< 8 32)", "t");
+        eval_assert_equal(ctx, "(< 80 32)", "nil");
+        eval_assert_equal(ctx, "(<= 32 32)", "t");
+        eval_assert_equal(ctx, "(<= 8 32)", "t");
+        eval_assert_equal(ctx, "(<= 80 32)", "nil");
+        eval_assert_equal(ctx, "(> 8 32)", "nil");
+        eval_assert_equal(ctx, "(> 80 32)", "t");
+        eval_assert_equal(ctx, "(>= 32 32)", "t");
+        eval_assert_equal(ctx, "(>= 8 32)", "nil");
+        eval_assert_equal(ctx, "(>= 80 32)", "t");
+    }
+
+    #[test]
     fn test_equal_and_eq_fuse_into_the_jump() {
         let ctx = &mut crate::TulispContext::new();
         let l = listing(ctx, "(if (equal x 1) 1 2)");

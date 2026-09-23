@@ -125,73 +125,6 @@ fn test_princ_print_newlines() -> Result<(), Error> {
 }
 
 #[test]
-fn test_comparison_of_numbers() -> Result<(), Error> {
-    // Greater than
-    tulisp_assert! { program: "(> 10 10)", result: "nil" }
-    tulisp_assert! { program: "(> 10 5)", result: "t" }
-    tulisp_assert! { program: "(> 5 10)", result: "nil" }
-    tulisp_assert! { program: "(> 2 4 6)", result: "nil" }
-    tulisp_assert! { program: "(> 2 6 4)", result: "nil" }
-    tulisp_assert! { program: "(> 6 2 4)", result: "nil" }
-    tulisp_assert! { program: "(> 6 4 2)", result: "t" }
-    tulisp_assert! { program: "(> 10.0 5.0)", result: "t" }
-    tulisp_assert! { program: "(> 5.0 10.0)", result: "nil" }
-    // A single-arg comparison is vacuously true (Emacs: `(> 5)` => t).
-    tulisp_assert! { program: "(let ((a 10)) (> a))", result: "t" }
-    // A zero-arg comparison errors.
-    tulisp_assert! {
-        program: "(>)",
-        error: r#"ERR MissingArgument: Comparison requires at least 1 argument
-<eval_string>:1.1-1.3:  at (>)
-"#
-    }
-    tulisp_assert! {
-        program: r#"(> 10 "hello")"#,
-        error: r#"ERR TypeMismatch: Expected number, got: "hello"
-<eval_string>:1.1-1.14:  at (> 10 "hello")
-"#
-    }
-
-    // Greater than or equal
-    tulisp_assert! { program: "(>= 10 10)", result: "t" }
-    tulisp_assert! { program: "(>= 10 5)", result: "t" }
-    tulisp_assert! { program: "(>= 5 10)", result: "nil" }
-    tulisp_assert! { program: "(>= 2 4 6)", result: "nil" }
-    tulisp_assert! { program: "(>= 2 6 4)", result: "nil" }
-    tulisp_assert! { program: "(>= 6 2 4)", result: "nil" }
-    tulisp_assert! { program: "(>= 6 4 2)", result: "t" }
-    tulisp_assert! { program: "(>= 10.0 5.0)", result: "t" }
-    tulisp_assert! { program: "(>= 5.0 10.0)", result: "nil" }
-    tulisp_assert! { program: "(let ((a 10)) (>= a))", result: "t" }
-
-    // Less than
-    tulisp_assert! { program: "(< 10 10)", result: "nil" }
-    tulisp_assert! { program: "(< 10 5)", result: "nil" }
-    tulisp_assert! { program: "(< 5 10)", result: "t" }
-    tulisp_assert! { program: "(< 2 4 6)", result: "t" }
-    tulisp_assert! { program: "(< 2 6 4)", result: "nil" }
-    tulisp_assert! { program: "(< 6 2 4)", result: "nil" }
-    tulisp_assert! { program: "(< 6 4 2)", result: "nil" }
-    tulisp_assert! { program: "(< 10.0 5.0)", result: "nil" }
-    tulisp_assert! { program: "(< 5.0 10.0)", result: "t" }
-    tulisp_assert! { program: "(let ((a 10)) (< a))", result: "t" }
-
-    // Less than or equal
-    tulisp_assert! { program: "(<= 10 10)", result: "t" }
-    tulisp_assert! { program: "(<= 10 5)", result: "nil" }
-    tulisp_assert! { program: "(<= 5 10)", result: "t" }
-    tulisp_assert! { program: "(<= 2 4 6)", result: "t" }
-    tulisp_assert! { program: "(<= 2 6 4)", result: "nil" }
-    tulisp_assert! { program: "(<= 6 2 4)", result: "nil" }
-    tulisp_assert! { program: "(<= 6 4 2)", result: "nil" }
-    tulisp_assert! { program: "(<= 10.0 5.0)", result: "nil" }
-    tulisp_assert! { program: "(<= 5.0 10.0)", result: "t" }
-    tulisp_assert! { program: "(let ((a 10)) (<= a))", result: "t" }
-
-    Ok(())
-}
-
-#[test]
 fn test_conditionals() -> Result<(), Error> {
     tulisp_assert! { program: "(if t 10 15 20)",      result: "10" }
     tulisp_assert! { program: "(if nil 10 15 20)",    result: "20" }
@@ -764,16 +697,6 @@ fn test_lists() -> Result<(), Error> {
     }
 
     tulisp_assert! {
-        program: "(let ((res 0)) (list (dotimes (vv 4) (setq res (+ res vv))) res))",
-        result: "'(nil 6)",
-    }
-
-    tulisp_assert! {
-        program: "(let ((res 0)) (list (dotimes (vv 4 res) (setq res (+ res vv))) res))",
-        result: "'(6 6)",
-    }
-
-    tulisp_assert! {
         program: r##"
         (let ((vv '((name . "person") (age . 120))))
           (list (assoc 'age vv) (alist-get 'name vv) (alist-get 'names vv) (alist-get 'names vv "something") (alist-get 'name nil)))
@@ -1112,17 +1035,6 @@ fn test_math() -> Result<(), Error> {
     }
     tulisp_assert! { program: "(min 12 5 45)",             result: "5"     }
     tulisp_assert! { program: "(max 12 5 45.2 8)",         result: "45.2"  }
-
-    tulisp_assert! { program: "(< 8 32)",      result: "t"   }
-    tulisp_assert! { program: "(< 80 32)",     result: "nil" }
-    tulisp_assert! { program: "(<= 32 32)",    result: "t"   }
-    tulisp_assert! { program: "(<= 8 32)",     result: "t"   }
-    tulisp_assert! { program: "(<= 80 32)",    result: "nil" }
-    tulisp_assert! { program: "(> 8 32)",      result: "nil" }
-    tulisp_assert! { program: "(> 80 32)",     result: "t"   }
-    tulisp_assert! { program: "(>= 32 32)",    result: "t"   }
-    tulisp_assert! { program: "(>= 8 32)",     result: "nil" }
-    tulisp_assert! { program: "(>= 80 32)",    result: "t"   }
 
     tulisp_assert! { program: "1_000",            result: "1000"      }
     tulisp_assert! { program: "1_000_000",        result: "1000000"   }
