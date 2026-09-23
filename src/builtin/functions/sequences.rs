@@ -1,4 +1,4 @@
-use crate::{Error, TulispContext, TulispObject, TulispValue, lists};
+use crate::{Error, TulispContext, TulispObject, TulispValue, cons::CycleCheck, lists};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defun("length", |list: TulispObject| {
@@ -137,11 +137,13 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         eq: impl Fn(&TulispObject, &TulispObject) -> bool,
     ) -> Result<TulispObject, Error> {
         let mut cur = list;
+        let mut cycle = CycleCheck::new();
         while cur.consp() {
             if cur.car_and_then(|car| Ok(eq(car, elt)))? {
                 return Ok(cur);
             }
             cur = cur.cdr()?;
+            cycle.step(&cur)?;
         }
         // `cur` is non-cons: either nil (clean end) or an
         // improper-list tail. Reject the latter the way Emacs does.
@@ -168,7 +170,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 mod tests {
     use crate::{
         TulispContext,
-        test_utils::{eval_assert_equal, eval_assert_error},
+        test_utils::{eval_assert_equal, eval_assert_error, eval_assert_error_line},
     };
 
     #[test]
@@ -289,6 +291,24 @@ mod tests {
 <eval_string>:1.1-1.20:  at (memq 99 '(1 2 . 3))
 "#,
         );
+    }
+
+    #[test]
+    fn member_functions_reject_a_circular_list() {
+        let ctx = &mut TulispContext::new();
+        for f in ["memq", "memql", "member"] {
+            eval_assert_error_line(
+                ctx,
+                &format!("(let ((l (list 1 2 3))) (setcdr (cddr l) l) ({f} 9 l))"),
+                "ERR OutOfRange: Circular list",
+            );
+            // An element found before the walk comes around is fine.
+            eval_assert_equal(
+                ctx,
+                &format!("(let ((l (list 1 2 3))) (setcdr (cddr l) l) (nth 4 ({f} 3 l)))"),
+                "1",
+            );
+        }
     }
 
     #[test]

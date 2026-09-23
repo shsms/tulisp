@@ -22,25 +22,16 @@ pub fn plist_from<const N: usize>(input: [(TulispObject, TulispObject); N]) -> T
 /// Returns the value of the property `property` stored in the property list
 /// `plist`.
 pub fn plist_get(plist: &TulispObject, property: &TulispObject) -> Result<TulispObject, Error> {
-    // Floyd's tortoise / hare: hare advances by `cddr` (two cells) per
-    // iteration — the natural plist step — and tortoise by `cdr`. If
-    // they ever meet, the plist is circular. Mirrors `lists::length`
-    // and `alist::assoc`.
-    let mut slow = plist.clone();
     let mut cur = plist.clone();
-    loop {
-        if !cur.consp() {
-            return Ok(TulispObject::nil());
-        }
+    let mut cycle = crate::cons::CycleCheck::new();
+    while cur.consp() {
         if cur.car_and_then(|car| Ok(car.eq(property)))? {
             return cur.cadr();
         }
         cur = cur.cddr()?;
-        slow = slow.cdr()?;
-        if slow.eq_ptr(&cur) {
-            return Err(Error::out_of_range("Circular plist".to_string()));
-        }
+        cycle.step(&cur)?;
     }
+    Ok(TulispObject::nil())
 }
 
 /// A typed wrapper around a Lisp plist, for use as a [`defun`](crate::TulispContext::defun) argument.
@@ -184,7 +175,7 @@ mod tests {
         let missing = ctx.intern(":missing");
         let err = plist_get(&x, &missing).unwrap_err();
         let msg = err.format(&ctx);
-        assert!(msg.contains("Circular plist"), "got: {msg}");
+        assert!(msg.contains("Circular list"), "got: {msg}");
     }
 
     crate::AsList! {
