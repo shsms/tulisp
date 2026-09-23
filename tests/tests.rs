@@ -600,11 +600,6 @@ fn test_lists() -> Result<(), Error> {
         result: "'((4 20 3 22 55) (3 22 55) (55) nil)"
     }
 
-    tulisp_assert! {
-        program: r##"(let ((res 0)) (dolist (vv '(20 30 50 33) res) (setq res (+ res vv))))"##,
-        result: "133",
-    }
-
     Ok(())
 }
 
@@ -1071,30 +1066,6 @@ fn test_lexical_binding() -> Result<(), Error> {
         (let* ((a 1) (b (+ a 10)) (c (+ a b))) (list a b c))
         "#,
         result: "'(1 11 12)",
-    }
-
-    // dolist under Emacs' `lexical-binding: t` binds the loop variable
-    // freshly at each iteration (roughly `(while tail (let ((i (car
-    // tail))) body))`), so each captured closure sees its own value.
-    tulisp_assert! {
-        program: r#"
-        (setq fns nil)
-        (dolist (i '(1 2 3))
-          (setq fns (cons (lambda () i) fns)))
-        (mapcar 'funcall fns)
-        "#,
-        result: "'(3 2 1)",
-    }
-
-    // dotimes behaves like dolist: fresh binding per iteration.
-    tulisp_assert! {
-        program: r#"
-        (setq fns nil)
-        (dotimes (j 3)
-          (setq fns (cons (lambda () j) fns)))
-        (mapcar 'funcall fns)
-        "#,
-        result: "'(2 1 0)",
     }
 
     // setq on a let-bound variable inside the let scope propagates to a

@@ -1109,6 +1109,61 @@ mod tests {
     }
 
     #[test]
+    fn dolist_returns_its_result_form() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(let ((res 0)) (dolist (vv '(20 30 50 33) res) (setq res (+ res vv))))",
+            "133",
+        );
+    }
+
+    #[test]
+    fn dolist_binds_a_fresh_variable_per_iteration() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            r#"
+        (setq fns nil)
+        (dolist (i '(1 2 3))
+          (setq fns (cons (lambda () i) fns)))
+        (mapcar 'funcall fns)
+        "#,
+            "'(3 2 1)",
+        );
+    }
+
+    #[test]
+    fn dotimes_binds_a_fresh_variable_per_iteration() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            r#"
+        (setq fns nil)
+        (dotimes (j 3)
+          (setq fns (cons (lambda () j) fns)))
+        (mapcar 'funcall fns)
+        "#,
+            "'(2 1 0)",
+        );
+    }
+
+    #[test]
+    fn dotimes_returns_nil_or_its_result_form() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(let ((res 0)) (list (dotimes (vv 4) (setq res (+ res vv))) res))",
+            "'(nil 6)",
+        );
+        eval_assert_equal(
+            ctx,
+            "(let ((res 0)) (list (dotimes (vv 4 res) (setq res (+ res vv))) res))",
+            "'(6 6)",
+        );
+    }
+
+    #[test]
     fn binding_nil_or_t_is_an_error() {
         let ctx = &mut TulispContext::new();
         for (form, name) in [

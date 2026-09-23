@@ -407,21 +407,6 @@ mod tests {
     use crate::test_utils::{eval_assert_equal, eval_assert_error, listing};
 
     #[test]
-    fn dotimes_returns_nil_or_its_result_form() {
-        let ctx = &mut TulispContext::new();
-        eval_assert_equal(
-            ctx,
-            "(let ((res 0)) (list (dotimes (vv 4) (setq res (+ res vv))) res))",
-            "'(nil 6)",
-        );
-        eval_assert_equal(
-            ctx,
-            "(let ((res 0)) (list (dotimes (vv 4 res) (setq res (+ res vv))) res))",
-            "'(6 6)",
-        );
-    }
-
-    #[test]
     fn while_has_the_value_nil() {
         let ctx = &mut TulispContext::new();
         eval_assert_equal(ctx, "(list (while nil))", "'(nil)");
