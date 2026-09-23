@@ -1222,6 +1222,50 @@ mod tests {
     }
 
     #[test]
+    fn backquote_in_a_lexical_scope() {
+        let ctx = &mut TulispContext::new();
+        // Quote inside backquote: 'a stays literal, ,b is substituted.
+        eval_assert_equal(ctx, "(let ((b 42)) `('a ,b))", "'('a 42)");
+
+        // Regression: literal symbol in a backquote alist key position
+        // must NOT be rewritten even when it shares a name with a
+        // lambda param. With the bug present, `k` in `(k . literal)`
+        // would be substituted to a LexicalBinding wrapper, so
+        // `(assoc 'k entry)` would miss.
+        eval_assert_equal(
+            ctx,
+            r#"
+        (defun make-entry (k v)
+          `((key . ,k) (value . ,v) (k . literal-k)))
+        (let ((entry (make-entry 'foo 42)))
+          (list (cdr (assoc 'key entry))
+                (cdr (assoc 'value entry))
+                (cdr (assoc 'k entry))))
+        "#,
+            "'(foo 42 literal-k)",
+        );
+
+        // Regression: a backquote whose unquoted data contains literal
+        // symbols matching enclosing lambda params must stay usable as
+        // a lambda form. The bug turned inner literal keys into
+        // LexicalBindings, which then errored when the stored form was
+        // re-evaluated by funcall.
+        eval_assert_equal(
+            ctx,
+            r#"
+        (defun make-resetter (items)
+          `(lambda ()
+             (dolist (item (quote ,items))
+               (cdr (assoc 'value item)))))
+        (let ((form (make-resetter '(((value . 1)) ((value . 2))))))
+          (funcall (eval form))
+          'ok)
+        "#,
+            "'ok",
+        );
+    }
+
+    #[test]
     fn let_rejects_a_circular_body() {
         let ctx = &mut TulispContext::new();
         // `(let ((y 1)) (setq y 2) y (setq y 2) y ...)`

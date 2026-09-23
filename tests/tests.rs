@@ -1113,15 +1113,6 @@ fn test_lexical_binding() -> Result<(), Error> {
         result: "14",
     }
 
-    // Quote inside backquote: 'a stays literal, ,b is substituted.
-    tulisp_assert! {
-        program: r#"
-        (let ((b 42))
-          `('a ,b))
-        "#,
-        result: "'('a 42)",
-    }
-
     // let* sequential binding — later bindings see earlier ones.
     tulisp_assert! {
         program: r#"
@@ -1237,22 +1228,6 @@ fn test_lexical_binding() -> Result<(), Error> {
         result: "720",
     }
 
-    // Regression: literal symbol in a backquote alist key position must
-    // NOT be rewritten even when it shares a name with a lambda param.
-    // With the bug present, `k` in `(k . literal)` would be substituted
-    // to a LexicalBinding wrapper, so `(assoc 'k entry)` would miss.
-    tulisp_assert! {
-        program: r#"
-        (defun make-entry (k v)
-          `((key . ,k) (value . ,v) (k . literal-k)))
-        (let ((entry (make-entry 'foo 42)))
-          (list (cdr (assoc 'key entry))
-                (cdr (assoc 'value entry))
-                (cdr (assoc 'k entry))))
-        "#,
-        result: "'(foo 42 literal-k)",
-    }
-
     // Regression: `(quote X)` written as a list form must not be
     // descended into for substitution, even if X names a defun param.
     // With the bug present, `(quote key)` would rewrite the literal
@@ -1264,24 +1239,6 @@ fn test_lexical_binding() -> Result<(), Error> {
         (pick 'ignored '((key . the-key-value) (other . o)))
         "#,
         result: "'the-key-value",
-    }
-
-    // Regression: a backquote whose unquoted data contains literal
-    // symbols matching enclosing lambda params must stay usable as a
-    // lambda form. The bug turned inner literal keys into
-    // LexicalBindings, which then errored when the stored form was
-    // re-evaluated by funcall.
-    tulisp_assert! {
-        program: r#"
-        (defun make-resetter (items)
-          `(lambda ()
-             (dolist (item (quote ,items))
-               (cdr (assoc 'value item)))))
-        (let ((form (make-resetter '(((value . 1)) ((value . 2))))))
-          (funcall (eval form))
-          'ok)
-        "#,
-        result: "'ok",
     }
 
     // VM-specific: an anonymous lambda created inside a function body
