@@ -1,4 +1,4 @@
-use crate::{Error, ErrorKind, TulispContext, TulispObject, destruct_bind};
+use crate::{Error, ErrorKind, TulispContext, TulispObject, TulispValue, destruct_bind};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defun("error", |msg: String| -> Result<TulispObject, Error> {
@@ -127,21 +127,28 @@ fn error_kind_symbol(kind: &ErrorKind) -> Option<&'static str> {
 }
 
 /// Does CONDITION match `kind_sym`? CONDITION is either a single
-/// symbol or a list of symbols; `error` matches any non-throw kind.
+/// symbol or a list of symbols; `error` or `t` matches any non-throw
+/// kind.
 fn condition_matches(cond: &TulispObject, kind_sym: &str) -> Result<bool, Error> {
-    let symbol_matches = |s: &str| s == "error" || s == kind_sym;
-    if cond.is_symbol_variant() {
-        return Ok(symbol_matches(&cond.as_symbol()?));
-    }
+    let matches_one = |c: &TulispObject| -> Result<bool, Error> {
+        if matches!(c.inner_ref().0, TulispValue::T) {
+            return Ok(true);
+        }
+        if !c.is_symbol_variant() {
+            return Ok(false);
+        }
+        let name = c.as_symbol()?;
+        Ok(name == "error" || name == kind_sym)
+    };
     if cond.consp() {
         for c in cond.base_iter() {
-            if c.is_symbol_variant() && symbol_matches(&c.as_symbol()?) {
+            if matches_one(&c)? {
                 return Ok(true);
             }
         }
         return Ok(false);
     }
-    Ok(false)
+    matches_one(cond)
 }
 
 #[cfg(test)]
@@ -258,6 +265,19 @@ mod tests {
 <eval_string>:1.19-1.32:  at (throw 'tag 5)
 <eval_string>:1.1-1.49:  at (condition-case e (throw 'tag 5) (error 'caught))
 "#,
+        );
+    }
+
+    #[test]
+    fn a_t_condition_catches_every_error() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, r#"(condition-case nil (error "x") (t 1))"#, "1");
+        eval_assert_equal(ctx, "(condition-case nil (car 5) ((t) 1))", "1");
+        eval_assert_equal(ctx, "(condition-case nil (car 5) ((foo t) 1))", "1");
+        eval_assert_equal(
+            ctx,
+            r#"(condition-case e (error "x") (wrong-type-argument 'wrong) (t e))"#,
+            r#"'(error . "x")"#,
         );
     }
 
