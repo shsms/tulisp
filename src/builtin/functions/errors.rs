@@ -7,16 +7,8 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     ctx.defspecial("catch", |ctx, args| {
         destruct_bind!((tag &rest body) = args);
-        let res = ctx.eval_progn(&body);
-        if let Err(ref e) = res {
-            let tag = ctx.eval(&tag)?;
-            if let ErrorKind::Throw(obj) = e.kind_ref()
-                && let Ok(true) = obj.car_and_then(|e_tag| Ok(e_tag.eq(&tag)))
-            {
-                return obj.cdr();
-            }
-        }
-        res
+        let tag = ctx.eval(&tag)?;
+        ctx.eval_progn(&body).or_else(|err| catch_throw(err, &tag))
     });
 
     ctx.defun(
@@ -151,6 +143,17 @@ fn condition_matches(cond: &TulispObject, kind_sym: &str) -> Result<bool, Error>
     matches_one(cond)
 }
 
+/// The value thrown to TAG when ERR is a `throw` to TAG, or ERR
+/// itself otherwise.
+pub(crate) fn catch_throw(err: Error, tag: &TulispObject) -> Result<TulispObject, Error> {
+    if let ErrorKind::Throw(obj) = err.kind_ref()
+        && obj.car_and_then(|thrown_tag| Ok(thrown_tag.eq(tag)))?
+    {
+        return obj.cdr();
+    }
+    Err(err)
+}
+
 #[cfg(test)]
 mod tests {
     use crate::TulispContext;
@@ -266,6 +269,18 @@ mod tests {
 <eval_string>:1.1-1.49:  at (condition-case e (throw 'tag 5) (error 'caught))
 "#,
         );
+    }
+
+    #[test]
+    fn catch_evaluates_its_tag_first() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(let ((tg 'a)) (catch tg (setq tg 'b) (throw 'a 1)))",
+            "1",
+        );
+        eval_assert_error_line(ctx, r#"(catch (error "t") 1)"#, "ERR LispError: t");
+        eval_assert_equal(ctx, "(catch 'a)", "nil");
     }
 
     #[test]

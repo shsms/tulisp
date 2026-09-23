@@ -4,7 +4,7 @@ mod comparison_of_strings;
 mod conditionals;
 mod core;
 mod equality_predicates;
-mod errors;
+pub(crate) mod errors;
 mod hash_table;
 mod list_elements;
 mod numbers;
