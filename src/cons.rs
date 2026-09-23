@@ -262,6 +262,52 @@ impl ListBuilder {
     }
 }
 
+/// Brent's cycle check for a walk down a list's cdrs. The walk calls
+/// `step` with each cell it moves to; `step` compares that cell with
+/// one saved earlier, and moves the saved cell up to the current one
+/// after 8, 16, 32, ... steps. A list that loops back meets the saved
+/// cell within three times as many steps as the list has cells, plus
+/// a few, and gets the "Circular list" error. Short lists never pay
+/// for the clone.
+pub(crate) struct CycleCheck {
+    saved: Option<TulispObject>,
+    /// Steps taken since `saved` last moved.
+    steps: u32,
+    /// Steps after which `saved` moves again.
+    limit: u32,
+}
+
+impl CycleCheck {
+    pub(crate) fn new() -> Self {
+        CycleCheck {
+            saved: None,
+            steps: 0,
+            limit: 8,
+        }
+    }
+
+    /// Records a step to `next`; errors if the walk has been there.
+    #[inline]
+    pub(crate) fn step(&mut self, next: &TulispObject) -> Result<(), Error> {
+        self.steps += 1;
+        if self.saved.as_ref().is_some_and(|saved| next.eq_ptr(saved)) {
+            return Err(Error::circular_list());
+        }
+        if self.steps == self.limit {
+            self.saved = Some(next.clone());
+            self.steps = 0;
+            self.limit = self.limit.saturating_mul(2);
+        }
+        Ok(())
+    }
+}
+
+impl Default for CycleCheck {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Default)]
 pub struct BaseIter {
     pub(crate) next: TulispObject,
@@ -276,15 +322,7 @@ pub struct BaseIter {
     /// Set with `error`; the walk yields nothing more, even after
     /// `take_error`.
     stopped: bool,
-    /// A cell seen earlier, for Brent's cycle check: `next` is
-    /// compared with it at every step, and it moves up to the
-    /// current cell after 8, 16, 32, ... steps. Short lists never
-    /// pay for the clone.
-    saved: Option<TulispObject>,
-    /// Steps taken since `saved` last moved.
-    steps: u32,
-    /// Steps after which `saved` moves again.
-    limit: u32,
+    cycle: CycleCheck,
 }
 
 impl BaseIter {
@@ -294,9 +332,7 @@ impl BaseIter {
             next,
             error: None,
             stopped: false,
-            saved: None,
-            steps: 0,
-            limit: 8,
+            cycle: CycleCheck::new(),
         }
     }
 
@@ -349,19 +385,10 @@ impl Iterator for BaseIter {
             }
         };
         self.next = cdr;
-        self.steps += 1;
-        if self
-            .saved
-            .as_ref()
-            .is_some_and(|saved| self.next.eq_ptr(saved))
-        {
-            self.error = Some(Error::out_of_range("Circular list".to_string()));
+        if let Err(e) = self.cycle.step(&self.next) {
+            self.error = Some(e);
             self.stopped = true;
             self.next = TulispObject::nil();
-        } else if self.steps == self.limit {
-            self.saved = Some(self.next.clone());
-            self.steps = 0;
-            self.limit = self.limit.saturating_mul(2);
         }
         Some(car)
     }
@@ -442,6 +469,41 @@ mod tests {
             iter.take_error().unwrap_err().to_string(),
             "ERR OutOfRange: Circular list"
         );
+    }
+
+    #[test]
+    fn cycle_check_stops_every_loop_and_no_proper_list() {
+        use super::CycleCheck;
+        use crate::TulispObject;
+        // `n` cells whose last cdr points back to cell `k`, or to nil
+        // when `k` is `n`. A loop must stop within 3n + 8 steps, and a
+        // proper list must not stop at all.
+        for n in 1..=70usize {
+            for k in 0..=n {
+                let cells: Vec<TulispObject> = (0..n)
+                    .map(|i| TulispObject::cons((i as i64).into(), TulispObject::nil()))
+                    .collect();
+                for pair in cells.windows(2) {
+                    pair[0].set_cdr(pair[1].clone()).unwrap();
+                }
+                let end = cells.get(k).cloned().unwrap_or_else(TulispObject::nil);
+                cells[n - 1].set_cdr(end).unwrap();
+                let mut cycle = CycleCheck::new();
+                let mut cur = cells[0].clone();
+                let mut steps = 0;
+                let mut stopped = false;
+                while cur.consp() {
+                    cur = cur.cdr().unwrap();
+                    steps += 1;
+                    if cycle.step(&cur).is_err() {
+                        stopped = true;
+                        break;
+                    }
+                    assert!(steps <= 3 * n + 8, "n = {n}, k = {k}");
+                }
+                assert_eq!(stopped, k < n, "n = {n}, k = {k}");
+            }
+        }
     }
 
     #[test]

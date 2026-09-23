@@ -1,4 +1,4 @@
-use crate::{Error, TulispObject};
+use crate::{Error, TulispObject, cons::CycleCheck};
 
 /// Returns the number of elements in the given list, or the number of
 /// characters if the argument is a string. Errors on a circular list
@@ -10,34 +10,19 @@ pub fn length(list: &TulispObject) -> Result<i64, Error> {
             .try_into()
             .map_err(|e: _| Error::out_of_range(format!("{}", e)));
     }
-    // Floyd's tortoise / hare: hare advances two cells per step; if
-    // it ever lands on the same cell as the tortoise (advancing by
-    // one), the list is circular. Without this check `setcdr` cycles
-    // (now reachable via the `setcdr` defun) would infloop here.
-    let mut slow = list.clone();
-    let mut fast = list.clone();
+    let mut cur = list.clone();
+    let mut cycle = CycleCheck::new();
     let mut count: i64 = 0;
     loop {
-        if fast.null() {
+        if cur.null() {
             return Ok(count);
         }
-        if !fast.consp() {
-            return Err(Error::type_mismatch(format!("expected list, got: {fast}")));
+        if !cur.consp() {
+            return Err(Error::type_mismatch(format!("expected list, got: {cur}")));
         }
-        fast = fast.cdr()?;
+        cur = cur.cdr()?;
         count += 1;
-        if fast.null() {
-            return Ok(count);
-        }
-        if !fast.consp() {
-            return Err(Error::type_mismatch(format!("expected list, got: {fast}")));
-        }
-        fast = fast.cdr()?;
-        count += 1;
-        slow = slow.cdr()?;
-        if slow.eq_ptr(&fast) {
-            return Err(Error::out_of_range("Circular list".to_string()));
-        }
+        cycle.step(&cur)?;
     }
 }
 

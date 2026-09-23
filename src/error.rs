@@ -90,6 +90,12 @@ impl Error {
     pub fn too_many_arguments() -> Error {
         Error::arity_mismatch("Too many arguments".to_string())
     }
+
+    /// The error for a list whose cdrs loop back to an earlier cell.
+    /// Emacs signals `circular-list` here.
+    pub(crate) fn circular_list() -> Error {
+        Error::out_of_range("Circular list".to_string())
+    }
 }
 
 /// Represents an error that occurred during Tulisp evaluation.
