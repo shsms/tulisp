@@ -114,18 +114,33 @@ pub struct Machine {
     functions: HashMap<usize, CompiledDefun>, // key: fn_name.addr_as_usize()
 }
 
-/// Pops two operands and jumps when `$cmp` holds for them. `$a` is
+/// Pops two operands and gives whether `$cmp` holds for them. `$a` is
 /// the top of the stack and `$b` the one below it. The operands are
 /// dropped before an error from `$cmp` propagates.
-macro_rules! jump_if_binary {
-    ($ctx:ident, $pc:ident, $pos:ident, |$a:ident, $b:ident| $cmp:expr) => {{
+macro_rules! pop_compare {
+    ($ctx:ident, |$a:ident, $b:ident| $cmp:expr) => {{
         let minus2 = $ctx.vm.stack.len() - 2;
         let [ref $b, ref $a] = $ctx.vm.stack[minus2..] else {
             unreachable!()
         };
         let cmp: Result<bool, Error> = $cmp;
         $ctx.vm.stack.truncate(minus2);
-        if cmp? {
+        cmp?
+    }};
+}
+
+/// Pops two operands and pushes whether `$cmp` holds for them.
+macro_rules! compare_binary {
+    ($ctx:ident, |$a:ident, $b:ident| $cmp:expr) => {{
+        let holds = pop_compare!($ctx, |$a, $b| $cmp);
+        $ctx.vm.stack.push(holds.into());
+    }};
+}
+
+/// Pops two operands and jumps when `$cmp` holds for them.
+macro_rules! jump_if_binary {
+    ($ctx:ident, $pc:ident, $pos:ident, |$a:ident, $b:ident| $cmp:expr) => {{
+        if pop_compare!($ctx, |$a, $b| $cmp) {
             jump_to_pos!($ctx, $pc, $pos);
             continue;
         }
@@ -475,36 +490,12 @@ fn run_impl_inner(
                 jump_to_pos!(ctx, pc, pos);
                 continue;
             }
-            Instruction::Equal => {
-                let a = ctx.vm.stack.pop().unwrap();
-                let b = ctx.vm.stack.pop().unwrap();
-                ctx.vm.stack.push(a.equal(&b).into());
-            }
-            Instruction::Eq => {
-                let a = ctx.vm.stack.pop().unwrap();
-                let b = ctx.vm.stack.pop().unwrap();
-                ctx.vm.stack.push(a.eq(&b).into());
-            }
-            Instruction::Lt => {
-                let a = ctx.vm.stack.pop().unwrap();
-                let b = ctx.vm.stack.pop().unwrap();
-                ctx.vm.stack.push(compare_op(&a, &b, |a, b| a < b)?.into());
-            }
-            Instruction::LtEq => {
-                let a = ctx.vm.stack.pop().unwrap();
-                let b = ctx.vm.stack.pop().unwrap();
-                ctx.vm.stack.push(compare_op(&a, &b, |a, b| a <= b)?.into());
-            }
-            Instruction::Gt => {
-                let a = ctx.vm.stack.pop().unwrap();
-                let b = ctx.vm.stack.pop().unwrap();
-                ctx.vm.stack.push(compare_op(&a, &b, |a, b| a > b)?.into());
-            }
-            Instruction::GtEq => {
-                let a = ctx.vm.stack.pop().unwrap();
-                let b = ctx.vm.stack.pop().unwrap();
-                ctx.vm.stack.push(compare_op(&a, &b, |a, b| a >= b)?.into());
-            }
+            Instruction::Equal => compare_binary!(ctx, |a, b| Ok(a.equal(b))),
+            Instruction::Eq => compare_binary!(ctx, |a, b| Ok(a.eq(b))),
+            Instruction::Lt => compare_binary!(ctx, |a, b| compare_op(a, b, |a, b| a < b)),
+            Instruction::LtEq => compare_binary!(ctx, |a, b| compare_op(a, b, |a, b| a <= b)),
+            Instruction::Gt => compare_binary!(ctx, |a, b| compare_op(a, b, |a, b| a > b)),
+            Instruction::GtEq => compare_binary!(ctx, |a, b| compare_op(a, b, |a, b| a >= b)),
             Instruction::Set => {
                 let minus2 = ctx.vm.stack.len() - 2;
                 let [ref value, ref variable] = ctx.vm.stack[minus2..] else {
