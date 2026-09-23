@@ -330,9 +330,15 @@ fn compile_back_quote(
     }
     let mut result = vec![];
 
+    // Like Emacs, build the list with one `append` whose arguments
+    // are the value of each splice and a list of each run of other
+    // elements. Every element is evaluated before they are joined,
+    // and the last argument is shared.
     let mut elements = value.base_iter();
+    // Elements pushed since the last splice.
     let mut items = 0;
-    let mut need_append = false;
+    // Arguments for the `append`, not counting `items`.
+    let mut pieces = 0;
     for first in elements.by_ref() {
         let first_inner = &*first.inner_ref();
         if let (TulispValue::Unquote { value }, _) = first_inner {
@@ -347,16 +353,15 @@ fn compile_back_quote(
             }
         } else if let (TulispValue::Splice { value }, _) = first_inner {
             if depth == 1 {
-                result.push(Instruction::List(items));
-                if need_append {
-                    result.push(Instruction::Append(2));
+                if items > 0 {
+                    result.push(Instruction::List(items));
+                    pieces += 1;
+                    items = 0;
                 }
                 result.append(
                     &mut compile_expr(ctx, value).map_err(|e| e.with_trace(first.clone()))?,
                 );
-                result.push(Instruction::Append(2));
-                need_append = true;
-                items = 0;
+                pieces += 1;
             } else {
                 // depth > 1: splice at this level is just data —
                 // wrap as a Splice value and treat as one element.
@@ -376,12 +381,9 @@ fn compile_back_quote(
     // A template that loops back is an error here.
     let rest = elements.tail().map_err(|e| e.with_trace(value.clone()))?;
     if rest.null() {
-        if need_append && items == 0 {
-            // Nothing follows the last splice, so its value is the
-            // last argument of `append`: shared, and it may be dotted.
-            need_append = false;
-        } else {
+        if items > 0 {
             result.push(Instruction::List(items));
+            pieces += 1;
         }
     } else {
         if let (TulispValue::Unquote { value }, _) = &*rest.inner_ref() {
@@ -396,9 +398,10 @@ fn compile_back_quote(
         }
         // Cons each element since the last splice onto the tail.
         result.extend(std::iter::repeat_n(Instruction::Cons, items));
+        pieces += 1;
     }
-    if need_append {
-        result.push(Instruction::Append(2));
+    if pieces > 1 {
+        result.push(Instruction::Append(pieces));
     }
     Ok(result)
 }

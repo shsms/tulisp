@@ -1162,6 +1162,34 @@ mod tests {
     }
 
     #[test]
+    fn backquote_evaluates_every_element_before_joining() {
+        let ctx = &mut TulispContext::new();
+        // Each splice but the last is copied only after the whole
+        // template has run, as by `append`.
+        eval_assert_equal(
+            ctx,
+            "(let ((l (list 1 2)) (m (list 3))) `(,@l ,@m ,(setcdr l nil)))",
+            "'(1 3 nil)",
+        );
+        eval_assert_equal(
+            ctx,
+            "(let ((l (list 1 2))) `(,@l b ,@l ,(setcdr l nil)))",
+            "'(1 b 1 nil)",
+        );
+        eval_assert_equal(
+            ctx,
+            "(let ((l (list 1 2))) `(,@l b . ,(setcdr l nil)))",
+            "'(1 b)",
+        );
+        // A bad splice is found only after every element has run.
+        eval_assert_error_line(
+            ctx,
+            "(let ((x 5) (y nil)) `(a ,@x ,@y ,(error \"boom\")))",
+            "ERR LispError: boom",
+        );
+    }
+
+    #[test]
     fn backquote_splices_any_expression() {
         let ctx = &mut TulispContext::new();
         eval_assert_equal(ctx, "`(,@nil)", "nil");
