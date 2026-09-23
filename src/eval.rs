@@ -1190,6 +1190,15 @@ mod tests {
     }
 
     #[test]
+    fn backquote_runs_its_unquotes_when_unused() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(let ((y 0)) `(,(setq y 1)) y)", "1");
+        eval_assert_equal(ctx, "(let ((y 0)) `(a ,@(setq y (list 2))) y)", "'(2)");
+        eval_assert_equal(ctx, "(let ((y 0)) `(a . ,(setq y 3)) y)", "3");
+        eval_assert_equal(ctx, "(defun f (y) `(,(setq y 4)) y) (f 0)", "4");
+    }
+
+    #[test]
     fn backquote_splices_any_expression() {
         let ctx = &mut TulispContext::new();
         eval_assert_equal(ctx, "`(,@nil)", "nil");

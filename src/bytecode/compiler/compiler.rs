@@ -288,10 +288,6 @@ fn compile_back_quote(
     value: &TulispObject,
     depth: u32,
 ) -> Result<Vec<Instruction>, Error> {
-    let compiler = ctx.compiler.as_mut().unwrap();
-    if !compiler.keep_result {
-        return Ok(vec![]);
-    }
     match &*value.inner_ref() {
         (TulispValue::Quote { value }, _) => {
             // `'X` inside a backquote is data — descend at the same
@@ -461,7 +457,18 @@ pub(crate) fn compile_expr(
         (TulispValue::Bounce, _) => Ok(vec![]),
 
         (TulispValue::Backquote { value }, _) => {
-            compile_back_quote(ctx, value, 1).map_err(|e| e.with_trace(expr.clone()))
+            // The unquotes run even when the list is not used.
+            let keep_result = compiler.keep_result;
+            compiler.keep_result = true;
+            let result = compile_back_quote(ctx, value, 1);
+            if let Some(compiler) = ctx.compiler.as_mut() {
+                compiler.keep_result = keep_result;
+            }
+            let mut result = result.map_err(|e| e.with_trace(expr.clone()))?;
+            if !keep_result {
+                result.push(Instruction::Pop);
+            }
+            Ok(result)
         }
         (TulispValue::Quote { value }, _) | (TulispValue::Sharpquote { value }, _) => {
             if compiler.keep_result {
