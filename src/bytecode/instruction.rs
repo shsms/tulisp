@@ -252,6 +252,13 @@ pub(crate) enum Instruction {
     /// Pop one value and push it wrapped in `TulispValue::Splice`.
     /// Same as `WrapUnquote` but for `,@X` at quasi-quote depth ≥ 2.
     WrapSplice,
+    /// Pop a list of one element and push that element, or with
+    /// `empty_is_nil`, pop an empty list and push nil. Emitted before
+    /// a `WrapUnquote`, `WrapSplice` or `Quote` whose content is a
+    /// `,@Y` spliced at quasi-quote depth 1, as in `,,@y`.
+    SoleElement {
+        empty_is_nil: bool,
+    },
 }
 
 /// The `Pos` inside a jump instruction, shared by `pos` and `pos_mut`.
@@ -427,6 +434,12 @@ impl std::fmt::Display for Instruction {
             Instruction::WrapBackquote => write!(f, "    wrap_backquote"),
             Instruction::WrapUnquote => write!(f, "    wrap_unquote"),
             Instruction::WrapSplice => write!(f, "    wrap_splice"),
+            Instruction::SoleElement {
+                empty_is_nil: false,
+            } => write!(f, "    sole_element"),
+            Instruction::SoleElement { empty_is_nil: true } => {
+                write!(f, "    sole_element_or_nil")
+            }
         }
     }
 }

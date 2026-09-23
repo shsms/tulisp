@@ -292,7 +292,7 @@ fn compile_back_quote(
         (TulispValue::Quote { value }, _) => {
             // `'X` inside a backquote is data — descend at the same
             // depth so nested unquotes inside still resolve.
-            return compile_back_quote(ctx, value, depth).map(|mut v| {
+            return compile_back_quote_operand(ctx, value, depth, false).map(|mut v| {
                 v.push(Instruction::Quote);
                 v
             });
@@ -301,7 +301,7 @@ fn compile_back_quote(
             if depth == 1 {
                 return compile_expr(ctx, value).map_err(|e| e.with_trace(value.clone()));
             }
-            let mut v = compile_back_quote(ctx, value, depth - 1)?;
+            let mut v = compile_back_quote_operand(ctx, value, depth - 1, true)?;
             v.push(Instruction::WrapUnquote);
             return Ok(v);
         }
@@ -312,7 +312,7 @@ fn compile_back_quote(
                     "Splice must be within a backquoted list.".to_string(),
                 ));
             }
-            let mut v = compile_back_quote(ctx, value, depth - 1)?;
+            let mut v = compile_back_quote_operand(ctx, value, depth - 1, true)?;
             v.push(Instruction::WrapSplice);
             return Ok(v);
         }
@@ -344,7 +344,12 @@ fn compile_back_quote(
                     &mut compile_expr(ctx, value).map_err(|e| e.with_trace(first.clone()))?,
                 );
             } else {
-                result.append(&mut compile_back_quote(ctx, value, depth - 1)?);
+                result.append(&mut compile_back_quote_operand(
+                    ctx,
+                    value,
+                    depth - 1,
+                    true,
+                )?);
                 result.push(Instruction::WrapUnquote);
             }
         } else if let (TulispValue::Splice { value }, _) = first_inner {
@@ -362,7 +367,12 @@ fn compile_back_quote(
                 // depth > 1: splice at this level is just data —
                 // wrap as a Splice value and treat as one element.
                 items += 1;
-                result.append(&mut compile_back_quote(ctx, value, depth - 1)?);
+                result.append(&mut compile_back_quote_operand(
+                    ctx,
+                    value,
+                    depth - 1,
+                    true,
+                )?);
                 result.push(Instruction::WrapSplice);
             }
         } else if let (TulispValue::Backquote { value }, _) = first_inner {
@@ -397,6 +407,26 @@ fn compile_back_quote(
         result.push(Instruction::Append(pieces));
     }
     Ok(result)
+}
+
+/// Compiles `X`, the one operand of a `,X` or `,@X` kept as data, or
+/// of a `'X`, at `depth`, as `eval_back_quote_operand` walks it: a
+/// `,@Y` for `depth` 1 gives the one element of the value of `Y`, or
+/// nil for an empty list when `empty_is_nil`.
+fn compile_back_quote_operand(
+    ctx: &mut TulispContext,
+    x: &TulispObject,
+    depth: u32,
+    empty_is_nil: bool,
+) -> Result<Vec<Instruction>, Error> {
+    if depth == 1
+        && let (TulispValue::Splice { value }, _) = &*x.inner_ref()
+    {
+        let mut result = compile_expr(ctx, value).map_err(|e| e.with_trace(x.clone()))?;
+        result.push(Instruction::SoleElement { empty_is_nil });
+        return Ok(result);
+    }
+    compile_back_quote(ctx, x, depth)
 }
 
 pub(crate) fn compile_expr(

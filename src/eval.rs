@@ -322,7 +322,7 @@ fn eval_back_quote(
             let value = value.clone();
             drop(inner);
             return Ok(TulispValue::Unquote {
-                value: eval_back_quote(ctx, value, depth - 1)?,
+                value: eval_back_quote_operand(ctx, &value, depth - 1, true)?,
             }
             .into_ref(span.or(inner_span)));
         } else if let TulispValue::Splice { value } = &inner.0 {
@@ -340,7 +340,7 @@ fn eval_back_quote(
             let value = value.clone();
             drop(inner);
             return Ok(TulispValue::Splice {
-                value: eval_back_quote(ctx, value, depth - 1)?,
+                value: eval_back_quote_operand(ctx, &value, depth - 1, true)?,
             }
             .into_ref(span.or(inner_span)));
         } else if let TulispValue::Backquote { value } = &inner.0 {
@@ -356,7 +356,7 @@ fn eval_back_quote(
             let value = value.clone();
             drop(inner);
             return Ok(TulispValue::Quote {
-                value: eval_back_quote(ctx, value, depth)?,
+                value: eval_back_quote_operand(ctx, &value, depth, false)?,
             }
             .into_ref(None)
             .with_span(inner_span));
@@ -382,7 +382,7 @@ fn eval_back_quote(
                 pieces.push((value, None));
             } else {
                 let inner_span = value.span();
-                let walked = eval_back_quote(ctx, value.clone(), depth - 1)?;
+                let walked = eval_back_quote_operand(ctx, value, depth - 1, true)?;
                 pieces.push((
                     TulispValue::Unquote { value: walked }.into_ref(first.span().or(inner_span)),
                     None,
@@ -397,7 +397,7 @@ fn eval_back_quote(
                 pieces.push((value, Some(first.clone())));
             } else {
                 let inner_span = value.span();
-                let walked = eval_back_quote(ctx, value.clone(), depth - 1)?;
+                let walked = eval_back_quote_operand(ctx, value, depth - 1, true)?;
                 pieces.push((
                     TulispValue::Splice { value: walked }.into_ref(first.span().or(inner_span)),
                     None,
@@ -425,7 +425,7 @@ fn eval_back_quote(
             )
         } else {
             let inner_span = value.span();
-            let walked = eval_back_quote(ctx, value.clone(), depth - 1)?;
+            let walked = eval_back_quote_operand(ctx, value, depth - 1, true)?;
             Some(TulispValue::Unquote { value: walked }.into_ref(rest.span().or(inner_span)))
         }
     } else if depth == 1 && matches!(&rest.inner_ref().0, TulispValue::Splice { .. }) {
@@ -452,6 +452,32 @@ fn eval_back_quote(
         return Ok(list);
     }
     Ok(list.with_span(span))
+}
+
+/// Walks `X`, the one operand of a `,X` or `,@X` kept as data, or of
+/// a `'X`, at `depth`. Emacs reads these as the lists `(\, X)`,
+/// `(\,@ X)` and `(quote X)` and walks `X` as their one element, so a
+/// `,@Y` for `depth` 1 splices the value of `Y` in: `,,@y` with `y`
+/// bound to `(z)` gives `,z`. Here each holds one value, so that value
+/// of `Y` must be a list of one element. For a `,` or `,@`
+/// (`empty_is_nil`) it may also be empty: Emacs then builds `(\,)`,
+/// which gives nil, or `(\,@)`, which splices nothing, so it gives
+/// `,nil` or `,@nil` here.
+fn eval_back_quote_operand(
+    ctx: &mut TulispContext,
+    x: &TulispObject,
+    depth: u32,
+    empty_is_nil: bool,
+) -> Result<TulispObject, Error> {
+    if depth == 1
+        && let TulispValue::Splice { value } = &x.inner_ref().0
+    {
+        return ctx
+            .eval(value)
+            .and_then(|list| crate::lists::sole_element(&list, empty_is_nil))
+            .map_err(|e| e.with_trace(x.clone()));
+    }
+    eval_back_quote(ctx, x.clone(), depth)
 }
 
 #[inline(always)]
@@ -1150,6 +1176,57 @@ mod tests {
         (eval '``(,,(f)))
         "#,
             r#"'`(,42)"#,
+        );
+    }
+
+    #[test]
+    fn backquote_splices_into_a_nested_unquote() {
+        let ctx = &mut TulispContext::new();
+        // Emacs reads `,,@x` as `(\, (\,@ x))`, so the value of `x`
+        // becomes the arguments of the inner `,`.
+        eval_assert_equal(ctx, "(let ((x (list 'y))) `(a `(b ,,@x)))", "'(a `(b ,y))");
+        eval_assert_equal(
+            ctx,
+            "(let ((x (list 'y))) `(a `(b ,@,@x)))",
+            "'(a `(b ,@y))",
+        );
+        eval_assert_equal(
+            ctx,
+            "(let ((x (list 'y))) `(a `(b . ,,@x)))",
+            "'(a `(b . ,y))",
+        );
+        eval_assert_equal(
+            ctx,
+            "(let ((x (list 1))) `(a `(c `(d ,,,@x))))",
+            "'(a `(c `(d ,,1)))",
+        );
+        eval_assert_equal(ctx, "(let ((x (list 1))) `(a ',@x))", "'(a '1)");
+        // From no elements Emacs builds `(\,)`, which gives nil, and
+        // `(\,@)`, which splices nothing: `,nil` and `,@nil` here.
+        eval_assert_equal(ctx, "`(a `(b ,,@nil))", "'(a `(b ,nil))");
+        eval_assert_equal(ctx, "(eval (cadr `(a `(b ,,@nil))))", "'(b nil)");
+        eval_assert_equal(ctx, "`(a `(b ,@,@nil))", "'(a `(b ,@nil))");
+        eval_assert_equal(ctx, "(eval (cadr `(a `(b ,@,@nil))))", "'(b)");
+        eval_assert_equal(ctx, "(eval (cadr `(a `(b . ,,@nil))))", "'(b)");
+        // From more elements Emacs builds `(\, 1 2)`, which its inner
+        // backquote rejects with "Multiple args to , are not
+        // supported". An unquote here holds one value, so the outer
+        // backquote rejects it. A quote of no elements, `(quote)`, is
+        // an error to evaluate in Emacs, and is rejected here too.
+        eval_assert_error_line(
+            ctx,
+            "(let ((x (list 1 2))) `(a `(b ,,@x)))",
+            "ERR TypeMismatch: Expected a list of at most one element, got: (1 2)",
+        );
+        eval_assert_error_line(
+            ctx,
+            "`(a `(b ,@,@(list 1 2)))",
+            "ERR TypeMismatch: Expected a list of at most one element, got: (1 2)",
+        );
+        eval_assert_error_line(
+            ctx,
+            "`(a ',@nil)",
+            "ERR TypeMismatch: Expected a list of one element, got: nil",
         );
     }
 

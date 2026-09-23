@@ -810,6 +810,12 @@ fn run_impl_inner(
                     .stack
                     .push(TulispValue::Splice { value: a }.into_ref(None));
             }
+            Instruction::SoleElement { empty_is_nil } => {
+                let a = ctx.vm.stack.pop().unwrap();
+                ctx.vm
+                    .stack
+                    .push(crate::lists::sole_element(&a, *empty_is_nil)?);
+            }
         }
         pc += 1;
     }

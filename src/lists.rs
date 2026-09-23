@@ -45,6 +45,21 @@ pub fn length(list: &TulispObject) -> Result<i64, Error> {
     }
 }
 
+/// The only element of `list`, which must be a list of one element,
+/// or nil for an empty list when `empty_is_nil`.
+pub(crate) fn sole_element(list: &TulispObject, empty_is_nil: bool) -> Result<TulispObject, Error> {
+    if empty_is_nil && list.null() {
+        return Ok(TulispObject::nil());
+    }
+    if list.consp() && list.cdr()?.null() {
+        return list.car();
+    }
+    let expected = if empty_is_nil { "at most one" } else { "one" };
+    Err(Error::type_mismatch(format!(
+        "Expected a list of {expected} element, got: {list}"
+    )))
+}
+
 /// Returns the last link in the given list.
 pub fn last(list: &TulispObject, n: Option<i64>) -> Result<TulispObject, Error> {
     if list.null() {
