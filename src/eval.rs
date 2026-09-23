@@ -849,6 +849,7 @@ fn substitute_lexical_inner(
 #[cfg(test)]
 mod tests {
     use crate::TulispContext;
+    use crate::test_utils::{eval_assert_equal, eval_assert_error};
 
     // A tail call marked at parse time bounces to whatever the symbol
     // names at run time, so a Rust defun reached that way is checked
@@ -946,5 +947,241 @@ mod tests {
             .unwrap()
             .join()
             .unwrap();
+    }
+
+    #[test]
+    fn backquote_fills_in_unquotes_and_splices() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(let ((vv '(12 20 30))) `(,(car vv) ,@(cdr vv) ,(cdr vv)))",
+            "'(12 20 30 (20 30))",
+        );
+
+        eval_assert_equal(
+            ctx,
+            r#"
+        (let ((a 10))
+          (eq 'a (cdr `(a . a))))
+        "#,
+            r#"t"#,
+        );
+
+        eval_assert_equal(
+            ctx,
+            r#"
+        (let ((a 10))
+          (cdr `(a . ,a)))
+        "#,
+            r#"10"#,
+        );
+
+        eval_assert_equal(
+            ctx,
+            r#"`(1 2 '(+ 10 20)  ',(+ 10 20)  (quote ,(+ 20 20)))"#,
+            r#"'(1 2 '(+ 10 20) '30 (quote 40))"#,
+        );
+
+        eval_assert_error(
+            ctx,
+            r#"`(1 2 ,,(+ 10 20))"#,
+            r#"ERR SyntaxError: Unquote without backquote
+<eval_string>:1.7-1.7:  at ,,(+ 10 20)
+<eval_string>:1.1-1.1:  at `(1 2 ,,(+ 10 20))
+"#,
+        );
+
+        // Nested backquote: `,,x` (depth 2 → 1 → 0) evaluates `x` at the
+        // outer backquote level; `,y` at depth 2 reduces to depth 1 and
+        // is preserved for the inner backquote to resolve later.
+        // Matches Emacs (verified with `emacs --batch`).
+        eval_assert_equal(
+            ctx,
+            r#"
+        (let ((x 1) (y 2))
+          `(a `(b ,,x ,y) c))
+        "#,
+            r#"'(a `(b ,1 ,y) c)"#,
+        );
+
+        // Single-comma at depth 2 stays as data (no eval) — both `,x`
+        // and `,y` reduce to depth 1, preserved for the inner backquote.
+        eval_assert_equal(
+            ctx,
+            r#"
+        (let ((x 1) (y 2))
+          `(a `(b ,x ,y) c))
+        "#,
+            r#"'(a `(b ,x ,y) c)"#,
+        );
+
+        // Dotted-tail double-comma resolves at the outer level.
+        eval_assert_equal(
+            ctx,
+            r#"
+        (let ((x 1))
+          `(a `(b . ,,x)))
+        "#,
+            r#"'(a `(b . ,1))"#,
+        );
+
+        // `,x` inside `(quote ...)` inside outer backquote: the quote's
+        // content is walked, `,x` evaluates at the outer level, and the
+        // result wraps in a Quote. Matches Emacs.
+        eval_assert_equal(
+            ctx,
+            r#"
+        (let ((x 1))
+          `(a (quote (,x)) c))
+        "#,
+            r#"'(a (quote (1)) c)"#,
+        );
+
+        // Outer `'` makes everything inside data: nothing evaluates, no
+        // matter how deeply nested the backquote / unquote forms are.
+        // `(let ((x 5)) '...)` shows the let-bound `x` is *not* picked
+        // up by `,,x` inside the quote.
+        eval_assert_equal(
+            ctx,
+            r#"
+        (let ((x 5))
+          '(`(,,x)))
+        "#,
+            r#"'(`(,,x))"#,
+        );
+
+        // Nested-backquote double-comma evaluating a `CompiledDefun`
+        // (anonymous lambdas compile to bytecode): native compilation
+        // emits `Funcall` for `(funcall f)`, no re-entry into `ctx.vm`.
+        eval_assert_equal(
+            ctx,
+            r#"
+        (setq f (lambda () 42))
+        ``(,,(funcall f))
+        "#,
+            r#"'`(,42)"#,
+        );
+
+        // Same case but via runtime `(eval ...)` — the form is wrapped
+        // in `'` so the VM compiler doesn't see the inner backquotes;
+        // at runtime the `eval` defun receives the quoted data and
+        // hands it to `ctx.eval` (TW), which walks the nested backquote
+        // and reaches the `CompiledDefun` for `f` while the outer
+        // `eval_string` is already running on the VM. The TW
+        // `funcall::CompiledDefun` arm then re-enters via
+        // `bytecode::run_lambda`, sharing `ctx.vm` with the outer run.
+        eval_assert_equal(
+            ctx,
+            r#"
+        (setq f (lambda () 42))
+        (eval '``(,,(funcall f)))
+        "#,
+            r#"'`(,42)"#,
+        );
+
+        // Top-level `(defun …)` stores a `TulispValue::Lambda` (not a
+        // `CompiledDefun`), so the same shape resolves through the TW
+        // `Lambda` arm without re-entering the VM.
+        eval_assert_equal(
+            ctx,
+            r#"
+        (defun f () 42)
+        (eval '``(,,(f)))
+        "#,
+            r#"'`(,42)"#,
+        );
+    }
+
+    #[test]
+    fn substitute_lexical_skips_binders() {
+        let ctx = &mut TulispContext::new();
+        // `substitute_lexical` leaves the parameter / varname
+        // positions of `lambda` / `let` / `let*` / `dolist` /
+        // `dotimes` alone: the inner form's compiler wraps those names
+        // in a `LexicalBinding` itself, and a `debug_assert!` in
+        // `TulispObject::lexical_binding` panics on a double wrap.
+        //
+        // Each shape has an outer binder (defun param or let-bound var)
+        // whose name is reused as a binder *inside* the body, where the
+        // outer substitution must not write into the inner binder's
+        // declaration.
+
+        // 1. defun param `x` reused as a let* var.
+        eval_assert_equal(
+            ctx,
+            r#"
+        (defun shadow-let (x)
+          (let* ((x (+ x 1)))
+            x))
+        (shadow-let 10)
+        "#,
+            "11",
+        );
+
+        // 2. defun param `&optional sep` shadowed by `(let* ((sep (or sep "")))…)`.
+        //    This is the `mapconcat` shape from the prelude.
+        eval_assert_equal(
+            ctx,
+            r#"
+        (defun joiner (xs &optional sep)
+          (let* ((sep (or sep "-")))
+            (mapconcat (lambda (x) (format "%S" x)) xs sep)))
+        (list (joiner '(a b c)) (joiner '(a b c) "/"))
+        "#,
+            r##"'("a-b-c" "a/b/c")"##,
+        );
+
+        // 3. defun param `x` reused as a nested lambda's param.
+        eval_assert_equal(
+            ctx,
+            r#"
+        (defun shadow-lambda (x)
+          (let ((fn (lambda (x) (* x 10))))
+            (funcall fn 5)))
+        (shadow-lambda 99)
+        "#,
+            "50",
+        );
+
+        // 4. defun param `x` reused as a `dolist` var.
+        eval_assert_equal(
+            ctx,
+            r#"
+        (defun shadow-dolist (x)
+          (let ((acc 0))
+            (dolist (x '(1 2 3))
+              (setq acc (+ acc x)))
+            acc))
+        (shadow-dolist 99)
+        "#,
+            "6",
+        );
+
+        // 5. defun param `i` reused as a `dotimes` var.
+        eval_assert_equal(
+            ctx,
+            r#"
+        (defun shadow-dotimes (i)
+          (let ((acc 0))
+            (dotimes (i 4)
+              (setq acc (+ acc i)))
+            acc))
+        (shadow-dotimes 99)
+        "#,
+            "6",
+        );
+
+        // 6. let* binder `x` referenced inside its own init expression
+        //    (the prior x), then shadowed for the body.
+        eval_assert_equal(
+            ctx,
+            r#"
+        (let* ((x 1)
+               (x (+ x 10))
+               (x (* x 2)))
+          x)
+        "#,
+            "22",
+        );
     }
 }

@@ -309,4 +309,36 @@ mod tests {
         let msg = err.format(&ctx);
         assert!(msg.contains("Circular alist"), "got: {msg}");
     }
+
+    #[test]
+    fn assoc_and_alist_get_find_pairs() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            r##"
+        (let ((vv '((name . "person") (age . 120))))
+          (list (assoc 'age vv) (alist-get 'name vv) (alist-get 'names vv) (alist-get 'names vv "something") (alist-get 'name nil)))
+        "##,
+            r##"'((age . 120) "person" nil "something" nil)"##,
+        );
+
+        eval_assert_equal(
+            ctx,
+            r##"
+        (let ((vv '((20 . "person") (30 . 120))))
+          (list (assoc 30 vv 'eq)
+                (assoc 30 vv 'equal)
+
+                (alist-get 20 vv nil nil 'eq)
+                (alist-get 20 vv nil nil 'equal)
+
+                (alist-get 40 vv)
+                (alist-get 40 vv nil nil 'equal)
+
+                (alist-get 40 vv "something")
+                (alist-get 40 vv "something" nil 'equal)))
+        "##,
+            r##"'((30 . 120) (30 . 120) "person" "person" nil nil "something" "something")"##,
+        );
+    }
 }

@@ -1136,4 +1136,49 @@ mod tests {
         // holding a function names that function.
         eval_assert(ctx, "(setq fn-var (lambda (x) x)) (functionp 'fn-var)");
     }
+
+    #[test]
+    fn append_copies_every_list_but_the_last() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            r##"
+        (let ((items (list 10 20)))
+          (setq items
+                (append items
+                        '(30 40)
+                        (list (+ 8 42) 60)))
+          items)
+        "##,
+            "'(10 20 30 40 50 60)",
+        );
+
+        eval_assert_error(
+            ctx,
+            r#"
+        (setq items
+              (append items '(10)))
+        "#,
+            r#"ERR Uninitialized: Variable definition is void: items
+<eval_string>:3.15-3.34:  at (append items '(10))
+<eval_string>:2.9-3.35:  at (setq items (append items '(10)))
+"#,
+        );
+
+        // Emacs `append` semantics: empty / single-arg / shared last arg /
+        // dotted tail / no input mutation.
+        eval_assert_equal(ctx, "(append)", "nil");
+        eval_assert_equal(ctx, "(append '(1 2 3))", "'(1 2 3)");
+        eval_assert_equal(ctx, "(append nil 77)", "77");
+        eval_assert_equal(ctx, "(append '(1 2) 3)", "'(1 2 . 3)");
+        eval_assert_equal(
+            ctx,
+            r##"
+            (let ((xs '(1 2)))
+              (append xs '(3 4))
+              xs)
+        "##,
+            "'(1 2)",
+        );
+    }
 }

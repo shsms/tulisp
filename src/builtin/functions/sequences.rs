@@ -163,7 +163,10 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
 #[cfg(test)]
 mod tests {
-    use crate::{TulispContext, test_utils::eval_assert_equal};
+    use crate::{
+        TulispContext,
+        test_utils::{eval_assert_equal, eval_assert_error},
+    };
 
     #[test]
     fn test_mapconcat() {
@@ -211,6 +214,20 @@ mod tests {
     }
 
     #[test]
+    fn test_length() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(let ((items '(4 20 3 22 55))) (length items))", "5");
+        eval_assert_error(
+            ctx,
+            "(let ((l (list 1 2 3))) (setcdr (cddr l) l) (length l))",
+            r#"ERR OutOfRange: Circular list
+<eval_string>:1.45-1.54:  at (length l)
+<eval_string>:1.1-1.55:  at (let ((l (list 1 2 3))) (setcdr (cddr l) l) (length l))
+"#,
+        );
+    }
+
+    #[test]
     fn test_length_string() {
         let ctx = &mut TulispContext::new();
         eval_assert_equal(ctx, r#"(length "abc")"#, "3");
@@ -236,6 +253,16 @@ mod tests {
         eval_assert_equal(ctx, "(memq 'z '(a b c))", "nil");
         eval_assert_equal(ctx, "(memq nil '(a nil b))", "'(nil b)");
         eval_assert_equal(ctx, "(memq t '(a t b))", "'(t b)");
+        // A match before an improper tail is still returned, as in
+        // Emacs; a walk that reaches the tail is an error.
+        eval_assert_equal(ctx, "(memq 2 '(1 2 . 3))", "'(2 . 3)");
+        eval_assert_error(
+            ctx,
+            "(memq 99 '(1 2 . 3))",
+            r#"ERR TypeMismatch: expected list, got: 3
+<eval_string>:1.1-1.20:  at (memq 99 '(1 2 . 3))
+"#,
+        );
     }
 
     #[test]

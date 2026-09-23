@@ -119,3 +119,141 @@ pub(crate) fn check_settable_target(target: &TulispObject) -> Result<(), Error> 
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::TulispContext;
+    use crate::test_utils::{eval_assert_equal, eval_assert_error};
+
+    #[test]
+    fn mapcar_maps_a_list() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(mapcar '1+ '(10 20 30))", "'(11 21 31)");
+
+        eval_assert_equal(
+            ctx,
+            r#"(mapcar (lambda (vv) (plist-get vv :age)) '((:name "person" :age 20) (:name "person2" :age 30)))"#,
+            "'(20 30)",
+        );
+    }
+
+    #[test]
+    fn seq_functions_walk_a_list() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(seq-map #'1+ '(2 4 6))", "'(3 5 7)");
+        eval_assert_equal(
+            ctx,
+            r#"(seq-filter #'numberp '(2 4 6 "hello" 8))"#,
+            "'(2 4 6 8)",
+        );
+        eval_assert_equal(
+            ctx,
+            r#"(seq-filter (lambda (x) (> x 5)) '(2 4 6 8))"#,
+            "'(6 8)",
+        );
+        eval_assert_equal(
+            ctx,
+            r##"
+        (let
+            ((items '(2 4 6 "hello" 8)))
+         (list (seq-find #'numberp items) (seq-find #'stringp items)))
+        "##,
+            r#"'(2 "hello")"#,
+        );
+        eval_assert_equal(
+            ctx,
+            r##"
+        (seq-reduce #'+ '(2 4 6 8) 0)
+        "##,
+            "20",
+        );
+        eval_assert_equal(
+            ctx,
+            r##"
+        (seq-reduce (lambda (x y) (+ x y)) '(2 4 6 8) 5)
+        "##,
+            "25",
+        );
+    }
+
+    #[test]
+    fn sort_orders_by_the_predicate() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(sort '(20 10 30 15 45) '<)", "'(10 15 20 30 45)");
+        eval_assert_equal(ctx, "(sort '(20 10 30 15 45) '>)", "'(45 30 20 15 10)");
+        // With a `>`-typed predicate applied to strings, the inner
+        // `funcall` hits a number-only operator and errors. The exact
+        // string that trips it depends on the sort walk order; `hello`
+        // happens to be first under the current Lisp implementation.
+        //
+        // The trace frames inside the prelude carry the crate-absolute
+        // path to `prelude.lisp` (see `eval_prelude` in `context.rs`),
+        // so we inject that at compile time via `CARGO_MANIFEST_DIR`.
+        let prelude = concat!(env!("CARGO_MANIFEST_DIR"), "/src/builtin/prelude.lisp");
+        eval_assert_error(
+            ctx,
+            r#"(sort '("sort" "hello" "a" "world") '>)"#,
+            &format!(
+                r#"ERR TypeMismatch: Expected number, got: "hello"
+{0}:78.35-78.55:  at (funcall pred item x)
+{0}:78.15-78.56:  at (and (not inserted) (funcall pred item x))
+{0}:78.11-82.36:  at (if (and (not inserted) (funcall pred item x)) (progn (setq new (cons item new))...
+{0}:77.9-82.37:  at (dolist (x out) (if (and (not inserted) (funcall pred item x)) (progn (setq new ...
+{0}:76.7-85.33:  at (let ((inserted nil) (new nil)) (dolist (x out) (if (and (not inserted) (funcall...
+{0}:75.5-85.34:  at (dolist (item seq) (let ((inserted nil) (new nil)) (dolist (x out) (if (and (not...
+{0}:74.3-86.8:  at (let ((out nil)) (dolist (item seq) (let ((inserted nil) (new nil)) (dolist (x o...
+<eval_string>:1.1-1.39:  at (sort '("sort" "hello" "a" "world") '>)
+"#,
+                prelude
+            ),
+        );
+        eval_assert_equal(
+            ctx,
+            r#"(sort '("sort" "hello" "a" "world") 'string<)"#,
+            r#"'("a" "hello" "sort" "world")"#,
+        );
+        eval_assert_equal(
+            ctx,
+            r#"(sort '("sort" "hello" "a" "world") 'string>)"#,
+            r#"'("world" "sort" "hello" "a")"#,
+        );
+        // `sort` is written in Lisp, so an unknown predicate fails at
+        // the inner `funcall`, and the trace has the sort body's
+        // frames.
+        eval_assert_error(
+            ctx,
+            "(sort '(20 10 30 15 45) '<<)",
+            &format!(
+                r#"ERR Uninitialized: Variable definition is void: <<
+{0}:78.35-78.55:  at (funcall pred item x)
+{0}:78.15-78.56:  at (and (not inserted) (funcall pred item x))
+{0}:78.11-82.36:  at (if (and (not inserted) (funcall pred item x)) (progn (setq new (cons item new))...
+{0}:77.9-82.37:  at (dolist (x out) (if (and (not inserted) (funcall pred item x)) (progn (setq new ...
+{0}:76.7-85.33:  at (let ((inserted nil) (new nil)) (dolist (x out) (if (and (not inserted) (funcall...
+{0}:75.5-85.34:  at (dolist (item seq) (let ((inserted nil) (new nil)) (dolist (x out) (if (and (not...
+{0}:74.3-86.8:  at (let ((out nil)) (dolist (item seq) (let ((inserted nil) (new nil)) (dolist (x o...
+<eval_string>:1.1-1.28:  at (sort '(20 10 30 15 45) '<<)
+"#,
+                prelude
+            ),
+        );
+        eval_assert_error(
+            ctx,
+            "(sort '(20 10 30 15 45))",
+            r#"ERR ArityMismatch: Too few arguments
+<eval_string>:1.1-1.24:  at (sort '(20 10 30 15 45))
+"#,
+        );
+        eval_assert_equal(
+            ctx,
+            "(defun << (v1 v2) (> v1 v2)) (sort '(20 10 30 15 45) '<<)",
+            "'(45 30 20 15 10)",
+        );
+
+        eval_assert_equal(
+            ctx,
+            "(sort '(20 10 30 15 45) '(lambda (v1 v2) (> v1 v2)))",
+            "'(45 30 20 15 10)",
+        );
+    }
+}

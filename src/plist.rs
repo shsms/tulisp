@@ -355,4 +355,19 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn plist_get_finds_values() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            r#"
+        (let ((plist '(:name person :dob "01.01.2001")))
+          (list (plist-get plist :dob)
+                (plist-get plist :name)
+                (plist-get plist :age)))
+        "#,
+            r#"'("01.01.2001" person nil)"#,
+        );
+    }
 }
