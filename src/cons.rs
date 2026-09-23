@@ -190,6 +190,17 @@ impl ListBuilder {
         Ok(())
     }
 
+    /// Pushes each element of the proper list `list`, sharing the
+    /// elements, as `append` does with every argument but its last.
+    /// A non-list, a dotted list or a circular list is an error.
+    pub(crate) fn push_all(&mut self, list: &TulispObject) -> Result<(), Error> {
+        let mut items = list.base_iter();
+        for item in items.by_ref() {
+            self.push(item);
+        }
+        items.take_error()
+    }
+
     /// Points `last_cons` and `tail` at the end of the chain that
     /// starts at the cons `cur`.
     fn walk_to_end(&mut self, cur: TulispObject) -> Result<(), Error> {

@@ -731,31 +731,8 @@ fn run_impl_inner(
                 ctx.vm.stack.push(list);
             }
             Instruction::Append(len) => {
-                // Emacs `append`: copy every arg except the last;
-                // share the last arg's cells with the result.
-                let mut iter = ctx.vm.stack.drain(ctx.vm.stack.len() - *len..);
-                let result = if let Some(last) = iter.next_back() {
-                    let last: TulispObject = last;
-                    let mut builder = crate::cons::ListBuilder::new();
-                    for arg in iter.by_ref() {
-                        let arg: TulispObject = arg;
-                        if !arg.listp() {
-                            return Err(Error::type_mismatch(format!(
-                                "append: expected list, got: {arg}"
-                            )));
-                        }
-                        // A dotted or circular list is an error, as in Emacs.
-                        let mut items = arg.base_iter();
-                        for elem in items.by_ref() {
-                            builder.push(elem);
-                        }
-                        items.take_error()?;
-                    }
-                    builder.build_with_tail(last)
-                } else {
-                    TulispObject::nil()
-                };
-                drop(iter);
+                let start = ctx.vm.stack.len() - *len;
+                let result = crate::lists::append(ctx.vm.stack.drain(start..))?;
                 ctx.vm.stack.push(result);
             }
             Instruction::Cxr(cxr) => {

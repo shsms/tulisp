@@ -1,4 +1,23 @@
-use crate::{Error, TulispObject, cons::CycleCheck};
+use crate::{
+    Error, TulispObject,
+    cons::{CycleCheck, ListBuilder},
+};
+
+/// Emacs's `append`: copies every list in `args` but the last, and
+/// shares the last with the result. The last may be any value; a
+/// non-list one becomes the dotted tail.
+pub(crate) fn append(
+    mut args: impl DoubleEndedIterator<Item = TulispObject>,
+) -> Result<TulispObject, Error> {
+    let Some(last) = args.next_back() else {
+        return Ok(TulispObject::nil());
+    };
+    let mut builder = ListBuilder::new();
+    for arg in args {
+        builder.push_all(&arg)?;
+    }
+    Ok(builder.build_with_tail(last))
+}
 
 /// Returns the number of elements in the given list, or the number of
 /// characters if the argument is a string. Errors on a circular list

@@ -439,7 +439,7 @@ fn eval_back_quote(
     let mut builder = crate::cons::ListBuilder::new();
     for (value, form) in pieces {
         match form {
-            Some(form) => append_spliced(&mut builder, &value).map_err(|e| e.with_trace(form))?,
+            Some(form) => builder.push_all(&value).map_err(|e| e.with_trace(form))?,
             None => builder.push(value),
         }
     }
@@ -452,20 +452,6 @@ fn eval_back_quote(
         return Ok(list);
     }
     Ok(list.with_span(span))
-}
-
-/// Adds the elements of the value of a `,@` that more of the template
-/// follows, sharing them, as `append` does with its arguments but the
-/// last. Like those, the value must be a proper list.
-fn append_spliced(
-    builder: &mut crate::cons::ListBuilder,
-    value: &TulispObject,
-) -> Result<(), Error> {
-    let mut items = value.base_iter();
-    for item in items.by_ref() {
-        builder.push(item);
-    }
-    items.take_error()
 }
 
 #[inline(always)]
@@ -1201,6 +1187,11 @@ mod tests {
         eval_assert_error_line(
             ctx,
             "(let ((x 5)) `(a ,@x b))",
+            "ERR TypeMismatch: Expected list, got: 5",
+        );
+        eval_assert_error_line(
+            ctx,
+            "(let ((x 5)) `(,@x b))",
             "ERR TypeMismatch: Expected list, got: 5",
         );
     }
