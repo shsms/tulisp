@@ -528,12 +528,12 @@ fn macroexpand_depth(
     let x = match &value.inner_ref().0 {
         TulispValue::Macro(func) => {
             let expansion = func(ctx, &expr.cdr()?).map_err(|e| e.with_trace(inp))?;
-            macroexpand_depth(ctx, expansion, depth + 1)?
+            with_call_span(macroexpand_depth(ctx, expansion, depth + 1)?, &expr)
         }
         TulispValue::Defmacro { params, body } => {
             let expansion =
                 eval_defmacro(ctx, params, body, &expr.cdr()?).map_err(|e| e.with_trace(inp))?;
-            macroexpand_depth(ctx, expansion, depth + 1)?
+            with_call_span(macroexpand_depth(ctx, expansion, depth + 1)?, &expr)
         }
         _ => expr,
     };
@@ -552,6 +552,17 @@ fn macroexpand_depth(
         Ok(builder.build().with_span(span))
     } else {
         Ok(x)
+    }
+}
+
+/// Gives a fully expanded list the span of the macro call it replaces,
+/// so error traces point at the call. The list is the fresh copy
+/// `macroexpand_depth` builds, so no list the macro shares is changed.
+fn with_call_span(expansion: TulispObject, call: &TulispObject) -> TulispObject {
+    if expansion.consp() && expansion.span().is_none() {
+        expansion.with_span(call.span())
+    } else {
+        expansion
     }
 }
 
@@ -974,6 +985,19 @@ mod tests {
         bumps.store(0, Ordering::Relaxed);
         assert_eq!(ctx.eval_string("(one (bump 5))").unwrap().to_string(), "5");
         assert_eq!(bumps.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn an_error_in_a_macro_expansion_is_traced_to_the_call() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_error(
+            ctx,
+            "(when t\n  (+ 1 \"a\"))",
+            r#"ERR TypeMismatch: Expected number, got: "a"
+<eval_string>:2.3-2.11:  at (+ 1 "a")
+<eval_string>:1.1-2.12:  at (if t (progn (+ 1 "a")))
+"#,
+        );
     }
 
     // A form with a dotted tail can only come from a macro. Emacs
