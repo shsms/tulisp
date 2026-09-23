@@ -1282,6 +1282,19 @@ mod tests {
     }
 
     #[test]
+    fn defvar_sets_only_an_unbound_symbol() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(defvar foo-new 42) foo-new", "42");
+        eval_assert_equal(
+            ctx,
+            "(setq foo-existing 1) (defvar foo-existing 99) foo-existing",
+            "1",
+        );
+        eval_assert_equal(ctx, r#"(defvar foo-doc 7 "docs") foo-doc"#, "7");
+        eval_assert_equal(ctx, "(defvar foo-sym 1)", "'foo-sym");
+    }
+
+    #[test]
     fn binding_nil_or_t_is_an_error() {
         let ctx = &mut TulispContext::new();
         for (form, name) in [

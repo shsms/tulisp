@@ -357,4 +357,20 @@ mod tests {
 "#,
         );
     }
+
+    #[test]
+    fn unwind_protect_runs_every_cleanup_form_in_order() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(progn
+               (setq log nil)
+               (unwind-protect 0
+                 (setq log (cons 1 log))
+                 (setq log (cons 2 log))
+                 (setq log (cons 3 log)))
+               log)",
+            "'(3 2 1)",
+        );
+    }
 }

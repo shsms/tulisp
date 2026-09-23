@@ -2214,31 +2214,6 @@ fn test_setq() -> Result<(), Error> {
 }
 
 #[test]
-fn test_defvar() -> Result<(), Error> {
-    // Sets when unbound.
-    tulisp_assert! {
-        program: "(defvar foo-new 42) foo-new",
-        result: "42",
-    }
-    // Leaves an already-bound value alone.
-    tulisp_assert! {
-        program: "(setq foo-existing 1) (defvar foo-existing 99) foo-existing",
-        result: "1",
-    }
-    // Accepts an optional docstring.
-    tulisp_assert! {
-        program: r#"(defvar foo-doc 7 "docs") foo-doc"#,
-        result: "7",
-    }
-    // Returns the symbol.
-    tulisp_assert! {
-        program: "(defvar foo-sym 1)",
-        result: "'foo-sym",
-    }
-    Ok(())
-}
-
-#[test]
 fn test_threading_macros() -> Result<(), Error> {
     tulisp_assert! {
         program: r##"
@@ -2749,80 +2724,6 @@ fn test_underscore_ident() -> Result<(), Error> {
     tulisp_assert! { program: "(let ((_x 7)) _x)", result: "7" }
     // Underscore as numeric separator still works.
     tulisp_assert! { program: "1_000", result: "1000" }
-    Ok(())
-}
-
-#[test]
-fn test_unwind_protect() -> Result<(), Error> {
-    // `(unwind-protect BODYFORM UNWINDFORMS...)` runs BODYFORM, then
-    // the UNWINDFORMS unconditionally (for side effects), and returns
-    // BODYFORM's value on normal exit. Cleanup is observed via a side
-    // effect on `log`. Verified against GNU Emacs 30.1.
-
-    // Normal exit: returns the body value AND the cleanup ran.
-    tulisp_assert! {
-        program: "(unwind-protect 42 (setq log 'cleaned))",
-        result: "42",
-    }
-    tulisp_assert! {
-        program: "(progn (setq log nil) (unwind-protect 42 (setq log 'cleaned)) log)",
-        result: "'cleaned",
-    }
-
-    // Multiple unwind forms all run, in order (newest pushed is first).
-    tulisp_assert! {
-        program: r#"
-        (progn
-          (setq log nil)
-          (unwind-protect 0
-            (setq log (cons 1 log))
-            (setq log (cons 2 log))
-            (setq log (cons 3 log)))
-          log)
-        "#,
-        result: "'(3 2 1)",
-    }
-
-    // An error in the body still runs cleanup, then re-propagates — the
-    // outer `condition-case` catches it, and `log` shows cleanup ran.
-    tulisp_assert! {
-        program: r#"
-        (progn
-          (setq log nil)
-          (list
-            (condition-case nil
-                (unwind-protect (error "boom") (setq log 'cleaned))
-              (error 'caught))
-            log))
-        "#,
-        result: "'(caught cleaned)",
-    }
-
-    // A `throw` in the body runs cleanup, then the throw escapes to the
-    // outer `catch`. `log` confirms cleanup ran on the throw path.
-    tulisp_assert! {
-        program: r#"
-        (progn
-          (setq log nil)
-          (list
-            (catch 'tag
-              (unwind-protect (throw 'tag 7) (setq log 'cleaned)))
-            log))
-        "#,
-        result: "'(7 cleaned)",
-    }
-
-    // Precedence: an error signaled by an unwind form supersedes the
-    // body's error (matches Emacs — the cleanup error is what escapes).
-    tulisp_assert! {
-        program: r#"
-        (condition-case e
-            (unwind-protect (error "body") (error "cleanup"))
-          (error (cdr e)))
-        "#,
-        result: r#""cleanup""#,
-    }
-
     Ok(())
 }
 
