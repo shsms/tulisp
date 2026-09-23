@@ -150,8 +150,8 @@ impls expose `from_plist` / `from_alist` directly.
 Tulisp covers the standard Emacs Lisp shapes — control flow, bindings,
 functions and macros, list / string / arithmetic / hash-table
 operations, threading macros, backquote / unquote, error handling
-(`error`, `catch`, `throw`, `condition-case`), tail-call optimisation,
-and lexical scoping.  See the
+(`error`, `catch`, `throw`, `condition-case`, `unwind-protect`),
+tail-call optimisation, and lexical scoping.  See the
 [`builtin`](https://docs.rs/tulisp/latest/tulisp/builtin) module for
 the full list of forms and functions.
 

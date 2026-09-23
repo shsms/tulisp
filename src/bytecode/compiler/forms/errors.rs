@@ -29,6 +29,22 @@ pub(super) fn compile_fn_catch(
     })
 }
 
+pub(super) fn compile_fn_unwind_protect(
+    ctx: &mut TulispContext,
+    name: &TulispObject,
+    args: &TulispObject,
+) -> Result<Vec<Instruction>, Error> {
+    ctx.compile_1_arg_call(name, args, true, |ctx, bodyform, unwindforms| {
+        let bodyform = TulispObject::cons(bodyform.clone(), TulispObject::nil());
+        let body = compile_block(ctx, &bodyform, None)?;
+        let cleanup = compile_block(ctx, unwindforms, None)?;
+        Ok(pop_unless_kept(
+            ctx,
+            vec![Instruction::UnwindProtect { body, cleanup }],
+        ))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use crate::TulispContext;
@@ -93,6 +109,87 @@ mod tests {
             "(defun catch-deep (n) (if (= n 0) 0 (catch 'x (catch-deep (- n 1)))))
              (catch-deep 100000)",
             "ERR LispError: Lisp nesting exceeds max-eval-depth (16)",
+        );
+    }
+
+    #[test]
+    fn unwind_protect_compiles_to_blocks() {
+        let ctx = &mut TulispContext::new();
+        let l = listing(ctx, "(unwind-protect 1 (setq x 2))");
+        assert!(
+            l.contains("unwind_protect") && l.contains("cleanup:") && !l.contains("rustcall"),
+            "{l}"
+        );
+        let l = listing(ctx, "(defun up-f () (unwind-protect 1 2))");
+        assert!(
+            l.contains("unwind_protect") && !l.contains("rustcall"),
+            "{l}"
+        );
+    }
+
+    #[test]
+    fn a_cleanup_runs_when_its_body_stops_at_the_depth_limit() {
+        let ctx = &mut TulispContext::new();
+        ctx.set_max_eval_depth(1);
+        assert!(
+            ctx.eval_string("(unwind-protect 1 (setq cleanup-ran t))")
+                .is_err()
+        );
+        // Calls the cleanup makes may use the reserve too.
+        assert!(
+            ctx.eval_string(
+                "(defun cleanup-fn () (setq cleanup-called t)) (unwind-protect 1 (cleanup-fn))"
+            )
+            .is_err()
+        );
+        ctx.set_max_eval_depth(16);
+        assert!(ctx.eval_string("cleanup-ran").unwrap().is_truthy());
+        assert!(ctx.eval_string("cleanup-called").unwrap().is_truthy());
+    }
+
+    #[test]
+    fn closures_across_an_unwind_protect_block() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(defun make-body (n) (lambda () (unwind-protect n nil)))
+             (list (funcall (make-body 1)) (funcall (make-body 2)))",
+            "'(1 2)",
+        );
+        eval_assert_equal(
+            ctx,
+            "(defun make-cleanup (n)
+               (lambda () (let ((r nil)) (unwind-protect nil (setq r n)) r)))
+             (list (funcall (make-cleanup 1)) (funcall (make-cleanup 2)))",
+            "'(1 2)",
+        );
+    }
+
+    #[test]
+    fn unwind_protect_runs_in_the_vm() {
+        let ctx = &mut TulispContext::new();
+        // Nested cleanups run innermost first.
+        eval_assert_equal(
+            ctx,
+            "(let ((log nil))
+               (unwind-protect
+                   (unwind-protect 1 (setq log (cons 'inner log)))
+                 (setq log (cons 'outer log)))
+               log)",
+            "'(outer inner)",
+        );
+        // A throw in a cleanup replaces a throw in the body.
+        eval_assert_equal(
+            ctx,
+            "(catch 'a (unwind-protect (throw 'a 1) (throw 'a 2)))",
+            "2",
+        );
+        // An unused value leaves the stack balanced.
+        eval_assert_equal(ctx, "(progn (unwind-protect 1 2) 3)", "3");
+        eval_assert_error_line(
+            ctx,
+            "(unwind-protect)",
+            "ERR ArityMismatch: Too few arguments",
         );
     }
 

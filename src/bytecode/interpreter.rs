@@ -245,6 +245,7 @@ pub fn run(ctx: &mut TulispContext, bytecode: Bytecode) -> Result<TulispObject, 
         guard.ctx,
         &bytecode.global,
         bytecode.global_trace_ranges.as_slice(),
+        false,
     )?;
     if tail.is_some() {
         return Err(Error::lisp_error(
@@ -294,6 +295,26 @@ pub(crate) fn run_block(
     block: &Block,
     arg: Option<TulispObject>,
 ) -> Result<TulispObject, Error> {
+    run_block_impl(ctx, block, arg, false)
+}
+
+/// Like `run_block`, for a cleanup or handler: it, and the calls it
+/// makes, may use the depth reserve (`enter_frame_with_reserve`), so it
+/// still runs when its body stopped at the limit.
+pub(crate) fn run_block_with_reserve(
+    ctx: &mut TulispContext,
+    block: &Block,
+    arg: Option<TulispObject>,
+) -> Result<TulispObject, Error> {
+    run_block_impl(ctx, block, arg, true)
+}
+
+fn run_block_impl(
+    ctx: &mut TulispContext,
+    block: &Block,
+    arg: Option<TulispObject>,
+    reserve: bool,
+) -> Result<TulispObject, Error> {
     debug_assert_eq!(block.takes_arg, arg.is_some(), "a block's argument");
     let mut guard = RunGuard::new(ctx);
     guard.ctx.vm.stack.extend(arg);
@@ -301,6 +322,7 @@ pub(crate) fn run_block(
         guard.ctx,
         &block.instructions,
         block.trace_ranges.as_slice(),
+        reserve,
     )?;
     if tail.is_some() {
         return Err(Error::lisp_error(
@@ -325,13 +347,18 @@ fn run_impl(
     ctx: &mut TulispContext,
     program: &SharedMut<Vec<Instruction>>,
     trace_ranges: &[TraceRange],
+    reserve: bool,
 ) -> Result<Option<TailCallInfo>, Error> {
     let mut pc: usize = 0;
     // Each nested (non-tail) call re-enters `run_impl`, while the
     // tail-call loops re-enter at a constant depth, so this counts
     // real stack growth.
     let result = {
-        let mut guard = ctx.enter_frame()?;
+        let mut guard = if reserve {
+            ctx.enter_frame_with_reserve()?
+        } else {
+            ctx.enter_frame()?
+        };
         run_impl_inner(&mut guard, program, &mut pc)
     };
     match result {
@@ -668,6 +695,14 @@ fn run_impl_inner(
                 instr_ref = program.borrow_mut();
                 ctx.vm.stack.push(result?);
             }
+            Instruction::UnwindProtect { body, cleanup } => {
+                let (body, cleanup) = (body.clone(), cleanup.clone());
+                drop(instr_ref);
+                let result = run_block(ctx, &body, None);
+                let cleaned = run_block_with_reserve(ctx, &cleanup, None);
+                instr_ref = program.borrow_mut();
+                ctx.vm.stack.push(cleaned.and(result)?);
+            }
             Instruction::Funcall { args_count } => {
                 let args_count = *args_count;
                 let split_at = ctx.vm.stack.len() - args_count;
@@ -906,6 +941,7 @@ fn run_tail_calls(ctx: &mut TulispContext, mut call: TailCallInfo) -> Result<(),
             ctx,
             &call.function.instructions,
             call.function.trace_ranges.as_slice(),
+            false,
         )?;
         drop(params);
         match tail {
@@ -1093,6 +1129,10 @@ fn rewrite_instruction(
             *template = crate::object::wrappers::generic::Shared::new(rebuilt);
         }
         Instruction::Catch { body } => *body = rewrite_block(body, mapping, rewrite)?,
+        Instruction::UnwindProtect { body, cleanup } => {
+            *body = rewrite_block(body, mapping, rewrite)?;
+            *cleanup = rewrite_block(cleanup, mapping, rewrite)?;
+        }
         _ => debug_assert!(!insn.holds_blocks(), "a block {insn} holds is not rewritten"),
     }
     Ok(())

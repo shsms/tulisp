@@ -113,6 +113,7 @@ impl VMCompilers {
             ("defmacro", other_functions::compile_fn_defmacro),
             // non-local exits
             ("catch", errors::compile_fn_catch),
+            ("unwind-protect", errors::compile_fn_unwind_protect),
         }
         VMCompilers { functions }
     }

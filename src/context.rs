@@ -94,6 +94,13 @@ const DEFAULT_MAX_EVAL_DEPTH: u32 = 16;
 #[cfg(not(test))]
 const DEFAULT_MAX_EVAL_DEPTH: u32 = PROFILE_MAX_EVAL_DEPTH;
 
+/// Frames past the depth limit that a running VM cleanup or handler,
+/// and the calls it makes, may use, so it still runs when its body
+/// stopped at the limit. This is similar to the extra depth Emacs gives
+/// `handler-bind` handlers and the debugger (`lisp-eval-depth-reserve`).
+/// The tree-walker's cleanups and handlers get no reserve.
+const CLEANUP_RESERVE: u32 = 8;
+
 /// Represents an instance of the _Tulisp_ interpreter.
 ///
 /// Owns the
@@ -112,6 +119,9 @@ pub struct TulispContext {
     pub(crate) lex_allocator: Shared<LexAllocator>,
     /// Current evaluation nesting depth, bounded by `max_eval_depth`.
     eval_depth: u32,
+    /// How many cleanup or handler frames are running. While any is,
+    /// every frame may use `CLEANUP_RESERVE` frames past the limit.
+    reserve_frames: u32,
     /// Nesting cap before evaluation raises a catchable error instead
     /// of overflowing the host's native stack.
     max_eval_depth: u32,
@@ -139,6 +149,7 @@ impl TulispContext {
             load_path: None,
             lex_allocator: Shared::new(LexAllocator::new()),
             eval_depth: 0,
+            reserve_frames: 0,
             max_eval_depth: DEFAULT_MAX_EVAL_DEPTH,
             #[cfg(feature = "etags")]
             tags_table: HashMap::new(),
@@ -213,14 +224,32 @@ impl TulispContext {
     /// guard, on any path including a panic, uncounts it.
     #[inline(always)]
     pub(crate) fn enter_frame(&mut self) -> Result<FrameGuard<'_>, Error> {
-        if self.eval_depth >= self.max_eval_depth {
+        self.enter_frame_as(false)
+    }
+
+    /// Like `enter_frame`, for a cleanup or handler block: it, and every
+    /// frame entered while it runs, may use `CLEANUP_RESERVE` frames past
+    /// the limit.
+    pub(crate) fn enter_frame_with_reserve(&mut self) -> Result<FrameGuard<'_>, Error> {
+        self.enter_frame_as(true)
+    }
+
+    #[inline(always)]
+    fn enter_frame_as(&mut self, reserve: bool) -> Result<FrameGuard<'_>, Error> {
+        let limit = if reserve || self.reserve_frames > 0 {
+            self.max_eval_depth.saturating_add(CLEANUP_RESERVE)
+        } else {
+            self.max_eval_depth
+        };
+        if self.eval_depth >= limit {
             return Err(Error::lisp_error(format!(
                 "Lisp nesting exceeds max-eval-depth ({})",
                 self.max_eval_depth
             )));
         }
         self.eval_depth += 1;
-        Ok(FrameGuard(self))
+        self.reserve_frames += u32::from(reserve);
+        Ok(FrameGuard(self, reserve))
     }
 
     /// Returns an interned symbol with the given name. `"nil"` and
@@ -901,7 +930,7 @@ impl TulispContext {
 
 /// One counted evaluation frame; see [`TulispContext::enter_frame`].
 /// Derefs to the context for the frame's duration.
-pub(crate) struct FrameGuard<'a>(&'a mut TulispContext);
+pub(crate) struct FrameGuard<'a>(&'a mut TulispContext, bool);
 
 impl std::ops::Deref for FrameGuard<'_> {
     type Target = TulispContext;
@@ -920,6 +949,7 @@ impl std::ops::DerefMut for FrameGuard<'_> {
 impl Drop for FrameGuard<'_> {
     fn drop(&mut self) {
         self.0.eval_depth -= 1;
+        self.0.reserve_frames -= u32::from(self.1);
     }
 }
 
@@ -1115,6 +1145,20 @@ mod tests {
             let result: i64 = entry(&mut ctx, "(rec 12)").unwrap().try_into().unwrap();
             assert_eq!(result, 12, "{label}");
         }
+    }
+
+    // A host panic inside a VM cleanup still gives back the frames it
+    // held, including the reserve.
+    #[test]
+    fn reserve_counter_unwinds_through_caught_panic_in_a_cleanup() {
+        let mut ctx = TulispContext::new();
+        ctx.defun("panicky", || -> i64 { panic!("host panic") });
+        let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = ctx.eval_string("(unwind-protect 1 (panicky))");
+        }));
+        assert!(caught.is_err());
+        assert_eq!(ctx.eval_depth, 0);
+        assert_eq!(ctx.reserve_frames, 0);
     }
 
     // Tree-walker calls count toward the cap on their own, with no

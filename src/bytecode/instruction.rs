@@ -209,6 +209,13 @@ pub(crate) enum Instruction {
     Catch {
         body: Block,
     },
+    /// `(unwind-protect BODYFORM UNWINDFORMS...)`: runs BODY, then
+    /// CLEANUP whatever BODY did, and pushes BODY's value. An error or
+    /// throw from CLEANUP replaces BODY's result.
+    UnwindProtect {
+        body: Block,
+        cleanup: Block,
+    },
     /// Inline `(funcall fn arg1 …)` dispatch. The function value is
     /// pushed first, then each arg, in source order (so at execution
     /// the top of stack is the last arg, `args_count + 1` below it is
@@ -299,7 +306,7 @@ impl Instruction {
     /// a new one must say.
     pub(crate) fn holds_blocks(&self) -> bool {
         match self {
-            Instruction::Catch { .. } => true,
+            Instruction::Catch { .. } | Instruction::UnwindProtect { .. } => true,
             Instruction::Push(..)
             | Instruction::Pop
             | Instruction::Set
@@ -366,6 +373,10 @@ impl Instruction {
     pub(crate) fn blocks(&self) -> Vec<(String, Block)> {
         match self {
             Instruction::Catch { body } => vec![("body".to_string(), body.clone())],
+            Instruction::UnwindProtect { body, cleanup } => vec![
+                ("body".to_string(), body.clone()),
+                ("cleanup".to_string(), cleanup.clone()),
+            ],
             _ => {
                 debug_assert!(!self.holds_blocks(), "{self} holds blocks it does not list");
                 Vec::new()
@@ -470,6 +481,7 @@ impl std::fmt::Display for Instruction {
             Instruction::TailCall { name, .. } => write!(f, "    tcall {}", name),
             Instruction::MakeLambda(_) => write!(f, "    make_lambda"),
             Instruction::Catch { .. } => write!(f, "    catch"),
+            Instruction::UnwindProtect { .. } => write!(f, "    unwind_protect"),
             Instruction::Funcall { args_count } => write!(f, "    funcall {}", args_count),
             Instruction::Apply { args_count } => write!(f, "    apply {}", args_count),
             Instruction::Ret => write!(f, "    ret"),
