@@ -10,6 +10,7 @@ use crate::eval::EvalInto;
 use crate::eval::resolve_function;
 use crate::eval::substitute_lexical;
 use crate::eval::{WrappedOperand, wrapped_operand};
+use crate::list;
 use crate::object::wrappers::generic::{Shared, SharedMut};
 use crate::value::{DefunParams, LexAllocator};
 use std::convert::TryInto;
@@ -675,43 +676,57 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         },
     );
 
-    ctx.defspecial("dolist", |ctx, args| {
+    // `dolist` and `dotimes` are macros over `let` and `while`, as in
+    // Emacs, so every evaluator sees the same scoping. Each iteration
+    // binds `var` afresh, so closures made in different iterations see
+    // different values. The loop state lives in uninterned symbols,
+    // which user code cannot name.
+    ctx.defmacro("dolist", |ctx, args| {
         destruct_bind!((spec &rest body) = args);
         destruct_bind!((var list &optional result) = spec);
         crate::builtin::check_not_nil_or_t(&var)?;
-        // Under Emacs' `lexical-binding: t`, dolist freshly binds the
-        // loop variable at each iteration — equivalent to `(while tail
-        // (let ((var (car tail))) body))`. So closures captured in
-        // different iterations get distinct slots. `result` is
-        // evaluated in the *outer* scope and does not see `var`.
-        let lex = TulispObject::lexical_binding(ctx.lex_allocator.clone(), var.clone());
-        let mappings = vec![(var, lex.clone())];
-        let body = substitute_lexical(body, &mappings)?;
-        let mut list = ctx.eval(&list)?;
-        while list.is_truthy() {
-            lex.set_scope(list.car()?)?;
-            let res = ctx.eval_progn(&body);
-            lex.unset()?;
-            res?;
-            list = list.cdr()?;
-        }
-        ctx.eval(&result)
+        let tail = TulispObject::symbol("tail".to_string(), false);
+        // (let ((tail list))
+        //   (while tail
+        //     (let ((var (car tail))) body...)
+        //     (setq tail (cdr tail)))
+        //   result)
+        list!(,ctx.intern("let") ,list!(,list!(,tail.clone() ,list)?)?
+              ,list!(,ctx.intern("while") ,tail.clone()
+                     ,list!(,ctx.intern("let")
+                            ,list!(,list!(,var ,list!(,ctx.intern("car") ,tail.clone())?)?)?
+                            ,@body)?
+                     ,list!(,ctx.intern("setq") ,tail.clone()
+                            ,list!(,ctx.intern("cdr") ,tail)?)?)?
+              ,result)
     });
 
-    ctx.defspecial("dotimes", |ctx, args| {
+    ctx.defmacro("dotimes", |ctx, args| {
         destruct_bind!((spec &rest body) = args);
-        destruct_bind!((var count &optional result) = spec);
+        destruct_bind!((var count &rest result) = spec);
         crate::builtin::check_not_nil_or_t(&var)?;
-        let lex = TulispObject::lexical_binding(ctx.lex_allocator.clone(), var.clone());
-        let mappings = vec![(var, lex.clone())];
-        let body = substitute_lexical(body, &mappings)?;
-        for counter in 0..count.as_int()? {
-            lex.set_scope(TulispObject::from(counter))?;
-            let res = ctx.eval_progn(&body);
-            lex.unset()?;
-            res?;
-        }
-        ctx.eval(&result)
+        let limit = TulispObject::symbol("limit".to_string(), false);
+        let counter = TulispObject::symbol("counter".to_string(), false);
+        // (let ((limit count) (counter 0))
+        //   (while (< counter limit)
+        //     (let ((var counter)) body...)
+        //     (setq counter (+ counter 1)))
+        //   (let ((var counter)) result...))  ; only with result forms
+        let result = if result.null() {
+            TulispObject::nil()
+        } else {
+            list!(,list!(,ctx.intern("let") ,list!(,list!(,var.clone() ,counter.clone())?)?
+                         ,@result)?)?
+        };
+        list!(,ctx.intern("let")
+              ,list!(,list!(,limit.clone() ,count)? ,list!(,counter.clone() ,0.into())?)?
+              ,list!(,ctx.intern("while")
+                     ,list!(,ctx.intern("<") ,counter.clone() ,limit)?
+                     ,list!(,ctx.intern("let") ,list!(,list!(,var ,counter.clone())?)?
+                            ,@body)?
+                     ,list!(,ctx.intern("setq") ,counter.clone()
+                            ,list!(,ctx.intern("+") ,counter ,1.into())?)?)?
+              ,@result)
     });
 
     ctx.defun("list", |args: crate::Rest<TulispObject>| -> TulispObject {
@@ -1149,6 +1164,36 @@ mod tests {
     }
 
     #[test]
+    fn dotimes_evaluates_its_count() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(defun g (n) (let ((s 0)) (dotimes (i n) (setq s (+ s i))) s)) (g 4)",
+            "6",
+        );
+        eval_assert_equal(
+            ctx,
+            "(let ((s 0)) (dotimes (i 2.5) (setq s (1+ s))) s)",
+            "3",
+        );
+        eval_assert_error_line(
+            ctx,
+            r#"(dotimes (i "a") 1)"#,
+            r#"ERR TypeMismatch: Expected number, got: "a""#,
+        );
+    }
+
+    #[test]
+    fn dotimes_runs_every_result_form() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(let ((x 0)) (list (dotimes (i 2 (setq x i) 7)) x))",
+            "'(7 2)",
+        );
+    }
+
+    #[test]
     fn dotimes_returns_nil_or_its_result_form() {
         let ctx = &mut TulispContext::new();
         eval_assert_equal(
@@ -1164,6 +1209,79 @@ mod tests {
     }
 
     #[test]
+    fn dotimes_binds_its_variable_to_the_count_in_the_result_form() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(let ((i 7)) (dotimes (i 3 i)))", "3");
+        eval_assert_equal(ctx, "(dotimes (i 2.5 i))", "3");
+        eval_assert_equal(ctx, "(dotimes (i -2 i))", "0");
+        eval_assert_equal(ctx, "(let ((i 7)) (dotimes (i 3 i)) i)", "7");
+        eval_assert_equal(ctx, "(funcall (dotimes (i 2 (lambda () i))))", "2");
+        eval_assert_equal(
+            ctx,
+            "(let ((i 5)) (funcall (lambda () (dotimes (i 2 i)))))",
+            "2",
+        );
+        eval_assert_equal(
+            ctx,
+            "(let ((i 5)) (funcall (funcall (lambda () (dotimes (i 2 (lambda () i)))))))",
+            "2",
+        );
+        eval_assert_equal(
+            ctx,
+            r#"(let ((i 9)) (condition-case nil (dotimes (i 2 (error "x"))) (error nil)) i)"#,
+            "9",
+        );
+    }
+
+    #[test]
+    fn an_unused_loop_result_form_still_runs() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(setq x 0) (dolist (e '(1) (setq x 5))) x", "5");
+        eval_assert_equal(
+            ctx,
+            "(defun h () (dolist (e '(1) (setq x 1))) (dotimes (i 2 (setq y 2))) nil)
+             (setq x 0) (setq y 0) (h) (list x y)",
+            "'(1 2)",
+        );
+    }
+
+    #[test]
+    fn a_closure_captures_a_variable_used_only_in_a_loop_result() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(let ((f (let ((x 1)) (lambda () (dolist (e '(1) x)))))) (funcall f))",
+            "1",
+        );
+        eval_assert_equal(
+            ctx,
+            "(let ((f (let ((x 1)) (lambda () (dolist (x '(5) x)))))) (funcall f))",
+            "1",
+        );
+        eval_assert_equal(
+            ctx,
+            "(let ((f (let ((x 2)) (lambda () (dotimes (e 1 x)))))) (funcall f))",
+            "2",
+        );
+    }
+
+    #[test]
+    fn a_loop_does_not_see_user_variables_named_like_its_state() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(let ((tail 5)) (dolist (x '(1 2) tail) (setq tail (+ tail x))))",
+            "8",
+        );
+        eval_assert_equal(
+            ctx,
+            "(let ((counter 5) (limit 9))
+               (dotimes (i 2 (list counter limit)) (setq counter (1+ counter))))",
+            "'(7 9)",
+        );
+    }
+
+    #[test]
     fn binding_nil_or_t_is_an_error() {
         let ctx = &mut TulispContext::new();
         for (form, name) in [
@@ -1175,6 +1293,10 @@ mod tests {
             ("(let (()) 1)", "nil"),
             ("(dolist (nil '(1)) 2)", "nil"),
             ("(dotimes (t 2) 1)", "t"),
+            // Differs from Emacs, which returns nil when the loop runs
+            // no iterations.
+            ("(dolist (nil nil) 1)", "nil"),
+            ("(dotimes (t 0))", "t"),
             ("(defvar t 1)", "t"),
             ("(defun f (t) 1)", "t"),
             ("(defmacro m (a nil) a)", "nil"),

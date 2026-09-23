@@ -1840,11 +1840,12 @@ fn test_tail_call_does_not_leak_lex_stack() -> Result<(), Error> {
     // leaving let bindings stuck on `LEX_STACKS` permanently. The
     // fix injects the cleanup before each `TailCall` in the body.
     //
-    // `dolist` / `dotimes` aren't recursed into by `mark_tail_calls`,
-    // so the body of those forms can't contain a `tcall`. They're
-    // exercised here anyway as a guard against a future regression
-    // and to confirm the surrounding-let-scope fix still applies
-    // when the let body's tail call comes after a loop form.
+    // `dolist` / `dotimes` expand to `let` over `while`, and
+    // `mark_tail_calls` does not enter `while`, so a loop body can't
+    // contain a `tcall`. They're exercised here anyway as a guard
+    // against a future regression and to confirm the
+    // surrounding-let-scope fix still applies when the let body's tail
+    // call comes after a loop form.
 
     // Helper: each case is a defun + a top-level call expression.
     // The defun's body shape is what we're testing.
@@ -1896,10 +1897,10 @@ fn test_tail_call_does_not_leak_lex_stack() -> Result<(), Error> {
                      (mapcar (lambda (x) (+ x a b)) '(1 2 3)))))"#,
             "(f 5)",
         ),
-        // dolist body is NOT in tail position (mark_tail_calls doesn't
-        // recurse into dolist), so no tcall is emitted inside the
-        // dolist. But dolist itself can sit in a let whose body's
-        // tail is a separate tcall after the loop.
+        // A dolist body is NOT in tail position (mark_tail_calls
+        // doesn't enter the `while` it expands to), so no tcall is
+        // emitted inside the loop. But the loop can sit in a let whose
+        // body's tail is a separate tcall after the loop.
         (
             "dolist_inside_let_with_trailing_tcall",
             r#"(defun f (xs)
@@ -1917,8 +1918,8 @@ fn test_tail_call_does_not_leak_lex_stack() -> Result<(), Error> {
                    (mapcar (lambda (x) (+ x acc)) '(1 2 3))))"#,
             "(f 5)",
         ),
-        // dolist itself in tail position of a let — mark_tail_calls
-        // does NOT mark anything inside the dolist, so no tcall is
+        // dolist with no result form in tail position of a let —
+        // nothing inside the loop is in tail position, so no tcall is
         // emitted in this defun's body. Confirms the no-leak baseline.
         (
             "dolist_as_tail",
@@ -1926,6 +1927,21 @@ fn test_tail_call_does_not_leak_lex_stack() -> Result<(), Error> {
                  (let ((acc 0))
                    (dolist (x xs) (setq acc (+ acc x)))))"#,
             "(f '(1 2 3 4))",
+        ),
+        // When the loop is in tail position, so is its result form,
+        // inside the loop's own bindings, so its tail call must pop
+        // them first.
+        (
+            "dolist_result_is_tcall",
+            r#"(defun f (n)
+                 (if (= n 0) 0 (dolist (x '(1) (f (- n 1))))))"#,
+            "(f 50)",
+        ),
+        (
+            "dotimes_result_is_tcall",
+            r#"(defun f (n)
+                 (if (= n 0) 0 (dotimes (i 1 (f (- n 1))))))"#,
+            "(f 50)",
         ),
         // Self tail-call from let body — `Bounce` form on the same
         // function name. The let bindings must be popped before the
@@ -1970,11 +1986,11 @@ fn test_tail_call_does_not_leak_lex_stack() -> Result<(), Error> {
 
 #[test]
 fn test_error_escape_does_not_leak_scope() -> Result<(), Error> {
-    // Regression: every `BeginScope` (let, let*, dolist, dotimes,
-    // inline lambda body) used to leak its binding when the body
-    // errored before the matching `EndScope`. `run_impl_inner` now
-    // tracks active scopes via a Drop guard that unsets remaining
-    // entries on the error-unwind path. See analysis.org a24.
+    // Regression: every `BeginScope` (let, let*, inline lambda body; dolist and
+    // dotimes expand to let) used to leak its binding when the body errored
+    // before the matching `EndScope`. `run_impl_inner` now tracks active scopes
+    // via a Drop guard that unsets remaining entries on the error-unwind path.
+    // See analysis.org a24.
     let cases: &[(&str, &str, &str)] = &[
         (
             "let_body_errors",

@@ -68,9 +68,9 @@ impl Drop for SetParams {
     }
 }
 
-/// Per-frame Drop guard for `BeginScope` bindings — `let` / `let*` /
-/// `dolist` / `dotimes` / inline `lambda` body bindings. Mirrors
-/// `SetParams` (function params) and `LexScopeGuard` (TW path).
+/// Per-frame Drop guard for `BeginScope` bindings — `let` / `let*` / inline
+/// `lambda` body bindings. Mirrors `SetParams` (function params) and
+/// `LexScopeGuard` (TW path).
 ///
 /// On clean execution every `BeginScope` is matched by an `EndScope`,
 /// which removes the entry from the guard, so `Drop` finds the Vec

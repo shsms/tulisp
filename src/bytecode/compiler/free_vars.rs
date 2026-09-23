@@ -2,13 +2,12 @@ use crate::{Error, TulispObject, TulispValue, destruct_bind, eval::wrapped_opera
 
 /// Classify symbol references in a lambda body.
 ///
-/// Returns the deduplicated list of references that are *not* bound by
-/// the lambda's own params or by any inner `let` / `lambda` /
-/// `dolist` / `dotimes` inside the body. These are the candidates for
-/// capture at runtime — at phase 2, each is checked against the
-/// enclosing scope; if a symbol has a live lexical slot there, it's
-/// captured, otherwise it falls through to the symbol's own global /
-/// dynamic storage.
+/// Returns the deduplicated list of references that are *not* bound by the
+/// lambda's own params or by any inner `let` / `lambda` inside the body. These
+/// are the candidates for capture at runtime — at phase 2, each is checked
+/// against the enclosing scope; if a symbol has a live lexical slot there, it's
+/// captured, otherwise it falls through to the symbol's own global / dynamic
+/// storage.
 ///
 /// `params` is the list of the lambda's own formal parameters (the
 /// entries as they appear in the source, minus `&optional` / `&rest`
@@ -83,9 +82,6 @@ fn visit(
         match name.as_str() {
             "let" | "let*" => return visit_let(obj, free, scopes, quote_depth),
             "lambda" => return visit_lambda(obj, free, scopes, quote_depth),
-            "dolist" | "dotimes" => {
-                return visit_dolist_dotimes(obj, free, scopes, quote_depth);
-            }
             _ => {}
         }
     }
@@ -163,34 +159,6 @@ fn visit_lambda(
     let result = visit(&body, free, scopes, quote_depth);
     scopes.pop();
     result
-}
-
-fn visit_dolist_dotimes(
-    form: &TulispObject,
-    free: &mut Vec<TulispObject>,
-    scopes: &mut Vec<Vec<TulispObject>>,
-    quote_depth: u32,
-) -> Result<(), Error> {
-    // (dolist (var listform [resultform]) body…)  — var is bound in body.
-    // (dotimes (var countform [resultform]) body…)
-    destruct_bind!((_head spec &rest body) = form);
-    if spec.consp() {
-        // Visit the list/count initializer in the outer scope.
-        if let Ok(init) = spec.cadr() {
-            visit(&init, free, scopes, quote_depth)?;
-        }
-        let var = spec.car()?;
-        let mut bound = Vec::new();
-        if var.is_symbol_variant() {
-            bound.push(var);
-        }
-        scopes.push(bound);
-        let result = visit(&body, free, scopes, quote_depth);
-        scopes.pop();
-        result
-    } else {
-        visit(&body, free, scopes, quote_depth)
-    }
 }
 
 #[cfg(test)]

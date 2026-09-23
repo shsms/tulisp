@@ -721,9 +721,9 @@ fn walk_tail_substitute(
     Ok(builder.build().with_span(span).with_ctxobj(ctxobj))
 }
 
-/// If `name` is a binding-introducing form (lambda, let, let*,
-/// dolist, dotimes), substitute the value/body positions while
-/// leaving the binder names alone, and return the rewritten form.
+/// If `name` is a binding-introducing form (lambda, let, let*),
+/// substitute the value/body positions while leaving the binder names
+/// alone, and return the rewritten form.
 /// Returns `Ok(None)` for anything else — the caller falls back to
 /// the default element-by-element walk.
 fn substitute_binding_form(
@@ -783,39 +783,6 @@ fn substitute_binding_form(
             builder.push(head);
             builder.push(new_varlist);
             // Substitute the body forms.
-            let mut forms = body_forms.base_iter();
-            for form in forms.by_ref() {
-                builder.push(substitute_lexical_inner(form, mappings, quote_depth)?);
-            }
-            let tail = forms.tail()?;
-            if !tail.null() {
-                builder.append(substitute_lexical_inner(tail, mappings, quote_depth)?)?;
-            }
-            Ok(Some(
-                builder
-                    .build()
-                    .with_span(body_span)
-                    .with_ctxobj(body_ctxobj),
-            ))
-        }
-        // (dolist (var list-expr [result-expr]) BODY...)
-        // (dotimes (var count-expr [result-expr]) BODY...)
-        "dolist" | "dotimes" => {
-            let head = body.car()?;
-            let rest = body.cdr()?;
-            let spec = rest.car()?;
-            let body_forms = rest.cdr()?;
-            // Preserve the var (spec.car); substitute the rest of spec.
-            let new_spec = if spec.consp() {
-                walk_tail_substitute(spec, 1, mappings, quote_depth)?
-            } else {
-                spec
-            };
-            let body_span = body.span();
-            let body_ctxobj = body.ctxobj();
-            let mut builder = crate::cons::ListBuilder::new();
-            builder.push(head);
-            builder.push(new_spec);
             let mut forms = body_forms.base_iter();
             for form in forms.by_ref() {
                 builder.push(substitute_lexical_inner(form, mappings, quote_depth)?);
@@ -1587,10 +1554,10 @@ mod tests {
     #[test]
     fn substitute_lexical_skips_binders() {
         let ctx = &mut TulispContext::new();
-        // `substitute_lexical` leaves the parameter / varname
-        // positions of `lambda` / `let` / `let*` / `dolist` /
-        // `dotimes` alone: the inner form's compiler wraps those names
-        // in a `LexicalBinding` itself, and a `debug_assert!` in
+        // `substitute_lexical` leaves the parameter / varname positions of
+        // `lambda` / `let` / `let*` alone (`dolist` and `dotimes` expand to
+        // `let`): the inner form's compiler wraps those names in a
+        // `LexicalBinding` itself, and a `debug_assert!` in
         // `TulispObject::lexical_binding` panics on a double wrap.
         //
         // Each shape has an outer binder (defun param or let-bound var)
