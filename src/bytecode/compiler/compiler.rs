@@ -290,10 +290,10 @@ pub(crate) fn compile_progn_keep_result(
 /// callees.
 fn compile_back_quote(
     ctx: &mut TulispContext,
-    value: &TulispObject,
+    template: &TulispObject,
     depth: u32,
 ) -> Result<Vec<Instruction>, Error> {
-    match &*value.inner_ref() {
+    match &*template.inner_ref() {
         (TulispValue::Quote { value }, _) => {
             // `'X` inside a backquote is data — descend at the same
             // depth so nested unquotes inside still resolve.
@@ -302,20 +302,20 @@ fn compile_back_quote(
                 v
             });
         }
-        (TulispValue::Unquote { value }, _) => {
+        (TulispValue::Unquote { value: operand }, _) => {
             if depth == 1 {
-                return compile_expr(ctx, value).map_err(|e| e.with_trace(value.clone()));
+                return compile_expr(ctx, operand).map_err(|e| e.with_trace(template.clone()));
             }
-            let mut v = compile_back_quote_operand(ctx, value, depth - 1, true)?;
+            let mut v = compile_back_quote_operand(ctx, operand, depth - 1, true)?;
             v.push(Instruction::WrapUnquote);
             return Ok(v);
         }
-        (TulispValue::Splice { value }, _) => {
+        (TulispValue::Splice { value: operand }, _) => {
             if depth == 1 {
                 // A whole template `,@x` is the value of `x`.
-                return compile_expr(ctx, value).map_err(|e| e.with_trace(value.clone()));
+                return compile_expr(ctx, operand).map_err(|e| e.with_trace(template.clone()));
             }
-            let mut v = compile_back_quote_operand(ctx, value, depth - 1, true)?;
+            let mut v = compile_back_quote_operand(ctx, operand, depth - 1, true)?;
             v.push(Instruction::WrapSplice);
             return Ok(v);
         }
@@ -325,7 +325,7 @@ fn compile_back_quote(
             return Ok(v);
         }
         (TulispValue::List { .. }, _) => {}
-        _ => return Ok(vec![Instruction::Push(value.clone())]),
+        _ => return Ok(vec![Instruction::Push(template.clone())]),
     }
     let mut result = vec![];
 
@@ -333,62 +333,32 @@ fn compile_back_quote(
     // are the value of each splice and a list of each run of other
     // elements. Every element is evaluated before they are joined,
     // and the last argument is shared.
-    let mut elements = value.base_iter();
+    let mut elements = template.base_iter();
     // Elements pushed since the last splice.
     let mut items = 0;
     // Arguments for the `append`, not counting `items`.
     let mut pieces = 0;
     for first in elements.by_ref() {
-        let first_inner = &*first.inner_ref();
-        if let (TulispValue::Unquote { value }, _) = first_inner {
-            items += 1;
-            if depth == 1 {
-                result.append(
-                    &mut compile_expr(ctx, value).map_err(|e| e.with_trace(first.clone()))?,
-                );
-            } else {
-                result.append(&mut compile_back_quote_operand(
-                    ctx,
-                    value,
-                    depth - 1,
-                    true,
-                )?);
-                result.push(Instruction::WrapUnquote);
-            }
-        } else if let (TulispValue::Splice { value }, _) = first_inner {
-            if depth == 1 {
-                if items > 0 {
-                    result.push(Instruction::List(items));
-                    pieces += 1;
-                    items = 0;
-                }
-                result.append(
-                    &mut compile_expr(ctx, value).map_err(|e| e.with_trace(first.clone()))?,
-                );
+        // Only a `,@` that splices needs the list around it.
+        if depth == 1
+            && let (TulispValue::Splice { value }, _) = &*first.inner_ref()
+        {
+            if items > 0 {
+                result.push(Instruction::List(items));
                 pieces += 1;
-            } else {
-                // depth > 1: splice at this level is just data —
-                // wrap as a Splice value and treat as one element.
-                items += 1;
-                result.append(&mut compile_back_quote_operand(
-                    ctx,
-                    value,
-                    depth - 1,
-                    true,
-                )?);
-                result.push(Instruction::WrapSplice);
+                items = 0;
             }
-        } else if let (TulispValue::Backquote { value }, _) = first_inner {
-            items += 1;
-            result.append(&mut compile_back_quote(ctx, value, depth + 1)?);
-            result.push(Instruction::WrapBackquote);
+            result.append(&mut compile_expr(ctx, value).map_err(|e| e.with_trace(first.clone()))?);
+            pieces += 1;
         } else {
             items += 1;
             result.append(&mut compile_back_quote(ctx, &first, depth)?);
         }
     }
     // A template that loops back is an error here.
-    let rest = elements.tail().map_err(|e| e.with_trace(value.clone()))?;
+    let rest = elements
+        .tail()
+        .map_err(|e| e.with_trace(template.clone()))?;
     if rest.null() {
         if items > 0 {
             result.push(Instruction::List(items));

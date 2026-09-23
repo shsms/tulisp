@@ -375,37 +375,15 @@ fn eval_back_quote(
     // `append` are.
     let mut pieces: Vec<(TulispObject, Option<TulispObject>)> = Vec::new();
     for first in items.by_ref() {
-        let first_inner = &first.inner_ref().0;
-        if let TulispValue::Unquote { value } = first_inner {
-            if depth == 1 {
-                let value = ctx
-                    .eval(value)
-                    .map_err(|e| e.with_trace(first.clone()))?
-                    .with_span(value.span());
-                pieces.push((value, None));
-            } else {
-                let inner_span = value.span();
-                let walked = eval_back_quote_operand(ctx, value, depth - 1, true)?;
-                pieces.push((
-                    TulispValue::Unquote { value: walked }.into_ref(first.span().or(inner_span)),
-                    None,
-                ));
-            }
-        } else if let TulispValue::Splice { value } = first_inner {
-            if depth == 1 {
-                let value = ctx
-                    .eval(value)
-                    .map_err(|e| e.with_trace(first.clone()))?
-                    .with_span(value.span());
-                pieces.push((value, Some(first.clone())));
-            } else {
-                let inner_span = value.span();
-                let walked = eval_back_quote_operand(ctx, value, depth - 1, true)?;
-                pieces.push((
-                    TulispValue::Splice { value: walked }.into_ref(first.span().or(inner_span)),
-                    None,
-                ));
-            }
+        // Only a `,@` that splices needs the list around it.
+        if depth == 1
+            && let TulispValue::Splice { value } = &first.inner_ref().0
+        {
+            let value = ctx
+                .eval(value)
+                .map_err(|e| e.with_trace(first.clone()))?
+                .with_span(value.span());
+            pieces.push((value, Some(first.clone())));
         } else {
             pieces.push((eval_back_quote(ctx, first.clone(), depth)?, None));
         }
@@ -418,19 +396,6 @@ fn eval_back_quote(
         pieces
             .pop_if(|(_, form)| form.is_some())
             .map(|(value, _)| value)
-    } else if let TulispValue::Unquote { value } = &rest.inner_ref().0 {
-        if depth == 1 {
-            // `(a . ,x)` shares `x` as its tail, as in Emacs and the VM.
-            Some(
-                ctx.eval(value)
-                    .map_err(|e| e.with_trace(rest.clone()))?
-                    .with_span(value.span()),
-            )
-        } else {
-            let inner_span = value.span();
-            let walked = eval_back_quote_operand(ctx, value, depth - 1, true)?;
-            Some(TulispValue::Unquote { value: walked }.into_ref(rest.span().or(inner_span)))
-        }
     } else if let TulispValue::Splice { value } = &rest.inner_ref().0 {
         // Emacs reads `(a . ,@x)` as `(a \,@ x)`, a list with the `\,@`
         // symbol in it. So the `,@` splices nothing and stays, and `x`
@@ -1383,6 +1348,15 @@ mod tests {
         eval_assert(ctx, "(let ((x (list 1 2))) (eq `,@x x))");
         eval_assert_equal(ctx, "`,@5", "5");
         eval_assert_equal(ctx, "(let ((x 1)) `(a `,@,x))", "'(a `,@1)");
+        // An error in its operand traces the whole `,@X`.
+        eval_assert_error(
+            ctx,
+            "`,@(let 5)",
+            "ERR TypeMismatch: Expected list, got: 5\n\
+             <eval_string>:1.4-1.10:  at (let 5)\n\
+             <eval_string>:1.2-1.3:  at ,@(let 5)\n\
+             <eval_string>:1.1-1.1:  at `,@(let 5)\n",
+        );
     }
 
     #[test]
