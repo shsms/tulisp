@@ -105,7 +105,9 @@ pub(super) fn compile_fn_equal(
 #[cfg(test)]
 mod tests {
     use crate::TulispObject;
-    use crate::test_utils::{eval_assert_equal, eval_assert_error, listing};
+    use crate::test_utils::{
+        eval_assert_equal, eval_assert_error, eval_assert_error_line, listing,
+    };
 
     /// A context where `(p v)` returns `v` and adds it to `seen`.
     fn ctx_with_p() -> crate::TulispContext {
@@ -136,6 +138,93 @@ mod tests {
         // Only the side effects are kept.
         assert_order(ctx, "(progn (< (p 1) (p 2)) 0)", "0", "(1 2)");
         assert_order(ctx, "(progn (eq (p 1) (p 2)) 0)", "0", "(1 2)");
+    }
+
+    #[test]
+    fn two_arguments_evaluate_left_to_right_as_a_condition() {
+        let ctx = &mut ctx_with_p();
+        // Each of these compiles to a fused jump.
+        for (form, jump) in [
+            ("(if (< a b) 1 2)", "jnlt"),
+            ("(if (not (<= a b)) 1 2)", "jle"),
+            ("(if (> a b) 1 2)", "jngt"),
+            ("(if (not (>= a b)) 1 2)", "jge"),
+            ("(if (eq a b) 1 2)", "jne"),
+            ("(if (not (equal a b)) 1 2)", "jequal"),
+        ] {
+            let l = listing(ctx, form);
+            assert!(l.contains(&format!("    {jump} ")), "{form}: {l}");
+            let (a, b) = (l.find("load a").unwrap(), l.find("load b").unwrap());
+            assert!(a < b, "{form}: {l}");
+        }
+        assert_order(ctx, "(if (< (p 1) (p 2)) 'y 'n)", "y", "(1 2)");
+        assert_order(ctx, "(if (not (<= (p 1) (p 2))) 'y 'n)", "n", "(1 2)");
+        assert_order(ctx, "(if (> (p 2) (p 1)) 'y 'n)", "y", "(2 1)");
+        assert_order(ctx, "(if (not (>= (p 1) (p 2))) 'y 'n)", "y", "(1 2)");
+        assert_order(ctx, "(if (eq (p 'a) (p 'b)) 'y 'n)", "n", "(a b)");
+        assert_order(ctx, "(if (not (equal (p 1) (p 2))) 'y 'n)", "y", "(1 2)");
+        assert_order(
+            ctx,
+            "(cond ((> (p 1) (p 2)) 'a) ((<= (p 3) (p 4)) 'b))",
+            "b",
+            "(1 2 3 4)",
+        );
+        assert_order(
+            ctx,
+            "(let ((i 0)) (while (< (p i) (p 2)) (setq i (+ i 1))) i)",
+            "2",
+            "(0 2 1 2 2 2)",
+        );
+    }
+
+    #[test]
+    fn two_argument_comparisons_keep_their_meaning() {
+        let ctx = &mut crate::TulispContext::new();
+        // Both operands bad: the first one is reported, as in Emacs.
+        eval_assert_error(
+            ctx,
+            r#"(< "a" "b")"#,
+            r#"ERR TypeMismatch: Expected number, got: "a"
+<eval_string>:1.1-1.11:  at (< "a" "b")
+"#,
+        );
+        eval_assert_error(
+            ctx,
+            r#"(if (>= "a" "b") 1 2)"#,
+            r#"ERR TypeMismatch: Expected number, got: "a"
+<eval_string>:1.5-1.16:  at (>= "a" "b")
+<eval_string>:1.1-1.21:  at (if (>= "a" "b") 1 2)
+"#,
+        );
+        // So does each of `<`, `<=`, `>` and `>=`, as a value and as a
+        // condition, with and without `not`.
+        for op in ["<", "<=", ">", ">="] {
+            for form in [
+                format!(r#"({op} "a" "b")"#),
+                format!(r#"(if ({op} "a" "b") 1 2)"#),
+                format!(r#"(if (not ({op} "a" "b")) 1 2)"#),
+            ] {
+                eval_assert_error_line(
+                    ctx,
+                    &form,
+                    r#"ERR TypeMismatch: Expected number, got: "a""#,
+                );
+            }
+        }
+        eval_assert_equal(
+            ctx,
+            "(list (< 1 1.5) (> 1.5 1) (<= 2 2.0) (>= 2.0 2) (< 2 1.5) (if (> 1 1.5) 'y 'n))",
+            "'(t t t t nil n)",
+        );
+        // A NaN fails every comparison, and `not` of one holds.
+        eval_assert_equal(
+            ctx,
+            "(let ((n (/ 0.0 0.0)))
+               (list (< n 1) (< 1 n) (>= n 1) (>= 1 n)
+                     (if (< n 1) 'y 'n) (if (>= 1 n) 'y 'n)
+                     (if (not (> n 1)) 'y 'n) (if (not (<= 1 n)) 'y 'n)))",
+            "'(nil nil nil nil n n y y)",
+        );
     }
 
     #[test]
