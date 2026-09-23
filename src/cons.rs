@@ -205,9 +205,8 @@ impl ListBuilder {
 
     /// Consume the builder and return its head with `tail` linked
     /// directly as the trailing cdr of the last cons (no copy, no
-    /// walk). For an empty builder, returns `tail` itself. Used by
-    /// `(append seqs..)` to share the last argument with the result,
-    /// matching Emacs' `append` semantics.
+    /// walk), so the result shares `tail`, as Emacs's `append` shares
+    /// its last argument. For an empty builder, returns `tail` itself.
     pub(crate) fn build_with_tail(self, tail: TulispObject) -> TulispObject {
         match self.last_cons {
             None => tail,

@@ -303,7 +303,7 @@ pub(crate) fn eval_form<E: Evaluator>(
 /// backquote to resolve.
 fn eval_back_quote(
     ctx: &mut TulispContext,
-    mut vv: TulispObject,
+    vv: TulispObject,
     depth: u32,
 ) -> Result<TulispObject, Error> {
     if !vv.consp() {
@@ -366,74 +366,106 @@ fn eval_back_quote(
     }
     // TODO: with_span should stop cloning.
     let span = vv.span();
-    let mut builder = crate::cons::ListBuilder::new();
-    loop {
-        vv.car_and_then(|first| {
-            let first_inner = &first.inner_ref().0;
-            if let TulispValue::Unquote { value } = first_inner {
-                if depth == 1 {
-                    builder.push(
-                        ctx.eval(value)
-                            .map_err(|e| e.with_trace(first.clone()))?
-                            .with_span(value.span()),
-                    );
-                } else {
-                    let inner_span = value.span();
-                    let walked = eval_back_quote(ctx, value.clone(), depth - 1)?;
-                    builder.push(
-                        TulispValue::Unquote { value: walked }
-                            .into_ref(first.span().or(inner_span)),
-                    );
-                }
-            } else if let TulispValue::Splice { value } = first_inner {
-                if depth == 1 {
-                    builder
-                        .append(
-                            ctx.eval(value)
-                                .map_err(|e| e.with_trace(first.clone()))?
-                                .deep_copy()
-                                .map_err(|e| e.with_trace(first.clone()))?
-                                .with_span(value.span()),
-                        )
-                        .map_err(|e| e.with_trace(first.clone()))?;
-                } else {
-                    let inner_span = value.span();
-                    let walked = eval_back_quote(ctx, value.clone(), depth - 1)?;
-                    builder.push(
-                        TulispValue::Splice { value: walked }.into_ref(first.span().or(inner_span)),
-                    );
-                }
-            } else {
-                builder.push(eval_back_quote(ctx, first.clone(), depth)?);
-            }
-            Ok(())
-        })?;
-        // TODO: is Nil check necessary
-        let rest = vv.cdr()?;
-        if let TulispValue::Unquote { value } = &rest.inner_ref().0 {
+    let mut items = vv.base_iter();
+    // The value of each element, with the form of a `,@`. All of them
+    // are evaluated before any splice is copied, as the arguments of
+    // `append` are.
+    let mut pieces: Vec<(TulispObject, Option<TulispObject>)> = Vec::new();
+    for first in items.by_ref() {
+        let first_inner = &first.inner_ref().0;
+        if let TulispValue::Unquote { value } = first_inner {
             if depth == 1 {
-                builder
-                    .append(
-                        ctx.eval(value)
-                            .map_err(|e| e.with_trace(rest.clone()))?
-                            .with_span(value.span()),
-                    )
-                    .map_err(|e| e.with_trace(rest.clone()))?;
-                return Ok(builder.build().with_span(span));
+                let value = ctx
+                    .eval(value)
+                    .map_err(|e| e.with_trace(first.clone()))?
+                    .with_span(value.span());
+                pieces.push((value, None));
+            } else {
+                let inner_span = value.span();
+                let walked = eval_back_quote(ctx, value.clone(), depth - 1)?;
+                pieces.push((
+                    TulispValue::Unquote { value: walked }.into_ref(first.span().or(inner_span)),
+                    None,
+                ));
             }
+        } else if let TulispValue::Splice { value } = first_inner {
+            if depth == 1 {
+                let value = ctx
+                    .eval(value)
+                    .map_err(|e| e.with_trace(first.clone()))?
+                    .with_span(value.span());
+                pieces.push((value, Some(first.clone())));
+            } else {
+                let inner_span = value.span();
+                let walked = eval_back_quote(ctx, value.clone(), depth - 1)?;
+                pieces.push((
+                    TulispValue::Splice { value: walked }.into_ref(first.span().or(inner_span)),
+                    None,
+                ));
+            }
+        } else {
+            pieces.push((eval_back_quote(ctx, first.clone(), depth)?, None));
+        }
+    }
+    // A template that loops back is an error here.
+    let rest = items.tail().map_err(|e| e.with_trace(vv.clone()))?;
+    let tail = if rest.null() {
+        // Nothing follows the last splice, so it is shared as the tail,
+        // as the last argument of `append` is, and may be dotted.
+        pieces
+            .pop_if(|(_, form)| form.is_some())
+            .map(|(value, _)| value)
+    } else if let TulispValue::Unquote { value } = &rest.inner_ref().0 {
+        if depth == 1 {
+            // `(a . ,x)` shares `x` as its tail, as in Emacs and the VM.
+            Some(
+                ctx.eval(value)
+                    .map_err(|e| e.with_trace(rest.clone()))?
+                    .with_span(value.span()),
+            )
+        } else {
             let inner_span = value.span();
             let walked = eval_back_quote(ctx, value.clone(), depth - 1)?;
-            builder.append(
-                TulispValue::Unquote { value: walked }.into_ref(rest.span().or(inner_span)),
-            )?;
-            return Ok(builder.build().with_span(span));
+            Some(TulispValue::Unquote { value: walked }.into_ref(rest.span().or(inner_span)))
         }
-        if !rest.consp() {
-            builder.append(eval_back_quote(ctx, rest, depth)?)?;
-            return Ok(builder.build().with_span(span));
+    } else if depth == 1 && matches!(&rest.inner_ref().0, TulispValue::Splice { .. }) {
+        // A `,@` in the dotted tail, `(a . ,@x)`, splices nothing and
+        // stays as data, as in the VM. Emacs reads it as `(a \,@ x)`,
+        // a list with the `\,@` symbol in it, and does the same.
+        Some(rest.clone())
+    } else {
+        Some(eval_back_quote(ctx, rest.clone(), depth)?)
+    };
+    let mut builder = crate::cons::ListBuilder::new();
+    for (value, form) in pieces {
+        match form {
+            Some(form) => append_spliced(&mut builder, &value).map_err(|e| e.with_trace(form))?,
+            None => builder.push(value),
         }
-        vv = rest;
     }
+    let Some(tail) = tail else {
+        return Ok(builder.build().with_span(span));
+    };
+    let list = builder.build_with_tail(tail.clone());
+    // With nothing before it, the tail is the whole result: keep its span.
+    if list.eq_ptr(&tail) {
+        return Ok(list);
+    }
+    Ok(list.with_span(span))
+}
+
+/// Adds the elements of the value of a `,@` that more of the template
+/// follows, sharing them, as `append` does with its arguments but the
+/// last. Like those, the value must be a proper list.
+fn append_spliced(
+    builder: &mut crate::cons::ListBuilder,
+    value: &TulispObject,
+) -> Result<(), Error> {
+    let mut items = value.base_iter();
+    for item in items.by_ref() {
+        builder.push(item);
+    }
+    items.take_error()
 }
 
 #[inline(always)]
@@ -848,8 +880,8 @@ fn substitute_lexical_inner(
 
 #[cfg(test)]
 mod tests {
-    use crate::TulispContext;
-    use crate::test_utils::{eval_assert_equal, eval_assert_error};
+    use crate::test_utils::{eval_assert, eval_assert_equal, eval_assert_error, eval_assert_not};
+    use crate::{TulispContext, TulispValue, list};
 
     // A tail call marked at parse time bounces to whatever the symbol
     // names at run time, so a Rust defun reached that way is checked
@@ -1089,6 +1121,83 @@ mod tests {
         (eval '``(,,(f)))
         "#,
             r#"'`(,42)"#,
+        );
+    }
+
+    #[test]
+    fn backquote_keeps_a_dotted_tail() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(let ((x 3)) `(a b . ,x))", "'(a b . 3)");
+        eval_assert_equal(ctx, "`(a b . c)", "'(a b . c)");
+        eval_assert_equal(ctx, "(list 1 `(a b . c) 2)", "'(1 (a b . c) 2)");
+        eval_assert_equal(
+            ctx,
+            "(let ((x (list 1 2)) (y 3)) `(,@x . ,y))",
+            "'(1 2 . 3)",
+        );
+        eval_assert_equal(
+            ctx,
+            "(let ((x (list 1 2))) `(a ,@x b . c))",
+            "'(a 1 2 b . c)",
+        );
+        eval_assert_equal(ctx, "`(p ,@(list 7 8) q . r)", "'(p 7 8 q . r)");
+        eval_assert_equal(ctx, "`(,@(list) . c)", "'c");
+        // A `,@` in the dotted tail splices nothing and stays as data.
+        // Emacs reads `(a . ,@x)` as `(a \,@ x)`, and keeps the `\,@`
+        // symbol as data too.
+        eval_assert_equal(
+            ctx,
+            "(let ((x (list 1 2))) (format \"%S\" `(a . ,@x)))",
+            "\"(a . ,@x)\"",
+        );
+        // A dotted unquote shares the value as the tail, as in Emacs,
+        // so it may loop.
+        eval_assert(
+            ctx,
+            "(let ((l (list 1 2 3))) (setcdr (cddr l) l) (eq (cdr `(a . ,l)) l))",
+        );
+    }
+
+    #[test]
+    fn backquote_shares_the_last_splice() {
+        let ctx = &mut TulispContext::new();
+        // Like the last argument of `append`, it is shared and may be
+        // dotted, as in Emacs.
+        eval_assert_equal(ctx, "(let ((l (cons 1 2))) `(a ,@l))", "'(a 1 . 2)");
+        eval_assert_equal(ctx, "(let ((l (cons 1 2))) `(,@l))", "'(1 . 2)");
+        eval_assert_equal(ctx, "(let ((x 5)) `(a ,@x))", "'(a . 5)");
+        eval_assert(ctx, "(let ((l (list 1 2))) (eq (cdr `(a ,@l)) l))");
+        eval_assert(ctx, "(let ((l (list 1 2))) (eq `(,@l) l))");
+        // Every other splice is copied.
+        eval_assert_not(ctx, "(let ((l (list 1 2))) (eq (cdr `(a ,@l b)) l))");
+        eval_assert_equal(ctx, "(let ((l nil)) `(a ,@l b ,@l))", "'(a b)");
+        // Only its cells are copied: its elements are shared, as with
+        // `append`, and the copy is made after every element of the
+        // template is evaluated.
+        eval_assert(
+            ctx,
+            "(let ((x (list (list 1)))) (eq (car x) (car `(,@x b))))",
+        );
+        eval_assert_equal(
+            ctx,
+            "(let ((l (list 1 2))) `(,@l ,(setcdr l nil)))",
+            "'(1 nil)",
+        );
+    }
+
+    #[test]
+    fn backquote_rejects_a_circular_template() {
+        let ctx = &mut TulispContext::new();
+        // Only a Rust macro can hand over a template that loops.
+        ctx.defmacro("circular-template", |_, _| {
+            let items = list!(1.into(), 2.into(), 3.into())?;
+            items.cddr()?.set_cdr(items.clone())?;
+            Ok(TulispValue::Backquote { value: items }.into_ref(None))
+        });
+        eval_assert_error(
+            ctx,
+            "(circular-template)",
+            "ERR OutOfRange: Circular list\n",
         );
     }
 

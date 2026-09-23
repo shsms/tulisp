@@ -330,103 +330,97 @@ fn compile_back_quote(
     }
     let mut result = vec![];
 
-    let mut value = value.clone();
+    let mut elements = value.base_iter();
     let mut items = 0;
-    let mut need_list = true;
     let mut need_append = false;
-    loop {
-        value.car_and_then(|first| {
-            let first_inner = &*first.inner_ref();
-            if let (TulispValue::Unquote { value }, _) = first_inner {
-                items += 1;
-                if depth == 1 {
-                    result.append(
-                        &mut compile_expr(ctx, value).map_err(|e| e.with_trace(first.clone()))?,
-                    );
-                } else {
-                    result.append(&mut compile_back_quote(ctx, value, depth - 1)?);
-                    result.push(Instruction::WrapUnquote);
-                }
-            } else if let (TulispValue::Splice { value }, _) = first_inner {
-                if depth == 1 {
-                    let mut splice_result = compile_expr(ctx, value)?;
-                    let list_inst = splice_result.pop().unwrap();
-                    if let Instruction::List(n) = list_inst {
-                        result.append(&mut splice_result);
-                        items += n;
-                    } else if let Instruction::Load(idx) = list_inst {
-                        result.append(&mut splice_result);
-                        result.push(Instruction::List(items));
-                        if need_append {
-                            result.push(Instruction::Append(2));
-                        }
-                        result.append(&mut vec![Instruction::Load(idx), Instruction::Append(2)]);
-                        need_append = true;
-                        items = 0;
-                    } else {
-                        if !value.consp() {
-                            return Err(Error::new(
-                                ErrorKind::SyntaxError,
-                                format!(
-                                    "Can only splice an inplace-list or a variable binding: {}",
-                                    value
-                                ),
-                            )
-                            .with_trace(first.clone()));
-                        }
-                        result.push(Instruction::List(items));
-                        if need_append {
-                            result.push(Instruction::Append(2));
-                        }
-                        result.append(&mut splice_result);
-                        result.push(list_inst);
-                        result.push(Instruction::Append(2));
-                        need_append = true;
-                        items = 0;
-                    }
-                } else {
-                    // depth > 1: splice at this level is just data —
-                    // wrap as a Splice value and treat as one element.
-                    items += 1;
-                    result.append(&mut compile_back_quote(ctx, value, depth - 1)?);
-                    result.push(Instruction::WrapSplice);
-                }
-            } else if let (TulispValue::Backquote { value }, _) = first_inner {
-                items += 1;
-                result.append(&mut compile_back_quote(ctx, value, depth + 1)?);
-                result.push(Instruction::WrapBackquote);
+    for first in elements.by_ref() {
+        let first_inner = &*first.inner_ref();
+        if let (TulispValue::Unquote { value }, _) = first_inner {
+            items += 1;
+            if depth == 1 {
+                result.append(
+                    &mut compile_expr(ctx, value).map_err(|e| e.with_trace(first.clone()))?,
+                );
             } else {
-                items += 1;
-                result.append(&mut compile_back_quote(ctx, first, depth)?);
+                result.append(&mut compile_back_quote(ctx, value, depth - 1)?);
+                result.push(Instruction::WrapUnquote);
             }
-            Ok(())
-        })?;
-        let rest = value.cdr()?;
+        } else if let (TulispValue::Splice { value }, _) = first_inner {
+            if depth == 1 {
+                let mut splice_result = compile_expr(ctx, value)?;
+                let list_inst = splice_result.pop().unwrap();
+                if let Instruction::List(n) = list_inst {
+                    result.append(&mut splice_result);
+                    items += n;
+                } else if let Instruction::Load(idx) = list_inst {
+                    result.append(&mut splice_result);
+                    result.push(Instruction::List(items));
+                    if need_append {
+                        result.push(Instruction::Append(2));
+                    }
+                    result.append(&mut vec![Instruction::Load(idx), Instruction::Append(2)]);
+                    need_append = true;
+                    items = 0;
+                } else {
+                    if !value.consp() {
+                        return Err(Error::new(
+                            ErrorKind::SyntaxError,
+                            format!(
+                                "Can only splice an inplace-list or a variable binding: {}",
+                                value
+                            ),
+                        )
+                        .with_trace(first.clone()));
+                    }
+                    result.push(Instruction::List(items));
+                    if need_append {
+                        result.push(Instruction::Append(2));
+                    }
+                    result.append(&mut splice_result);
+                    result.push(list_inst);
+                    result.push(Instruction::Append(2));
+                    need_append = true;
+                    items = 0;
+                }
+            } else {
+                // depth > 1: splice at this level is just data —
+                // wrap as a Splice value and treat as one element.
+                items += 1;
+                result.append(&mut compile_back_quote(ctx, value, depth - 1)?);
+                result.push(Instruction::WrapSplice);
+            }
+        } else if let (TulispValue::Backquote { value }, _) = first_inner {
+            items += 1;
+            result.append(&mut compile_back_quote(ctx, value, depth + 1)?);
+            result.push(Instruction::WrapBackquote);
+        } else {
+            items += 1;
+            result.append(&mut compile_back_quote(ctx, &first, depth)?);
+        }
+    }
+    // A template that loops back is an error here.
+    let rest = elements.tail().map_err(|e| e.with_trace(value.clone()))?;
+    if rest.null() {
+        if need_append && items == 0 {
+            // Nothing follows the last splice, so its value is the
+            // last argument of `append`: shared, and it may be dotted.
+            need_append = false;
+        } else {
+            result.push(Instruction::List(items));
+        }
+    } else {
         if let (TulispValue::Unquote { value }, _) = &*rest.inner_ref() {
             if depth == 1 {
                 result.append(&mut compile_expr(ctx, value)?);
-                result.push(Instruction::Cons);
-                need_list = false;
-                break;
+            } else {
+                result.append(&mut compile_back_quote(ctx, value, depth - 1)?);
+                result.push(Instruction::WrapUnquote);
             }
-            result.append(&mut compile_back_quote(ctx, value, depth - 1)?);
-            result.push(Instruction::WrapUnquote);
-            result.push(Instruction::Cons);
-            need_list = false;
-            break;
+        } else {
+            result.push(Instruction::Push(rest.clone()));
         }
-        if !rest.consp() {
-            if !rest.null() {
-                result.push(Instruction::Push(rest.clone()));
-                result.push(Instruction::Cons);
-                need_list = false;
-            }
-            break;
-        }
-        value = rest;
-    }
-    if need_list {
-        result.push(Instruction::List(items));
+        // Cons each element since the last splice onto the tail.
+        result.extend(std::iter::repeat_n(Instruction::Cons, items));
     }
     if need_append {
         result.push(Instruction::Append(2));
