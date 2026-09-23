@@ -33,12 +33,12 @@ pub(super) fn compile_fn_lambda(
         let body = if body_head.as_string().is_ok() {
             body_rest.clone()
         } else {
-            let out = TulispObject::nil();
-            out.push(body_head.clone())?;
+            let mut out = crate::cons::ListBuilder::new();
+            out.push(body_head.clone());
             for item in body_rest.base_iter() {
-                out.push(item)?;
+                out.push(item);
             }
-            out
+            out.build()
         };
 
         // Parse params: required, &optional group, &rest group.
