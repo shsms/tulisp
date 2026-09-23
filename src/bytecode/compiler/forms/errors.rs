@@ -48,7 +48,9 @@ pub(super) fn compile_fn_unwind_protect(
 #[cfg(test)]
 mod tests {
     use crate::TulispContext;
-    use crate::test_utils::{eval_assert_equal, eval_assert_error_line, listing};
+    use crate::test_utils::{
+        eval_assert_equal, eval_assert_error, eval_assert_error_line, listing,
+    };
 
     #[test]
     fn catch_compiles_to_a_block() {
@@ -190,6 +192,35 @@ mod tests {
             ctx,
             "(unwind-protect)",
             "ERR ArityMismatch: Too few arguments",
+        );
+    }
+
+    #[test]
+    fn a_form_that_fails_to_compile_raises_its_error_when_reached() {
+        let ctx = &mut TulispContext::new();
+        // A handler catches it, as when the tree-walker ran the body.
+        eval_assert_equal(
+            ctx,
+            "(condition-case e (cons 1 2 3) (wrong-number-of-arguments 'caught))",
+            "'caught",
+        );
+        // The forms before it still run, and a cleanup still runs.
+        eval_assert_equal(
+            ctx,
+            "(setq log nil)
+             (condition-case nil
+                 (unwind-protect (progn (setq log (cons 'before log)) (cons 1))
+                   (setq log (cons 'cleanup log)))
+               (error log))",
+            "'(cleanup before)",
+        );
+        eval_assert_error(
+            ctx,
+            "(catch 'a (cons 1 2 3))",
+            "ERR ArityMismatch: Too many arguments
+<eval_string>:1.11-1.22:  at (cons 1 2 3)
+<eval_string>:1.1-1.23:  at (catch 'a (cons 1 2 3))
+",
         );
     }
 

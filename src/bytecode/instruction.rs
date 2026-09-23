@@ -216,6 +216,9 @@ pub(crate) enum Instruction {
         body: Block,
         cleanup: Block,
     },
+    /// Raises an error found while compiling a form in a block, when the
+    /// form is reached (see `Compiler::in_block`).
+    Raise(Box<crate::Error>),
     /// Inline `(funcall fn arg1 …)` dispatch. The function value is
     /// pushed first, then each arg, in source order (so at execution
     /// the top of stack is the last arg, `args_count + 1` below it is
@@ -351,6 +354,7 @@ impl Instruction {
             | Instruction::Call { .. }
             | Instruction::TailCall { .. }
             | Instruction::MakeLambda(..)
+            | Instruction::Raise(..)
             | Instruction::Funcall { .. }
             | Instruction::Apply { .. }
             | Instruction::Ret
@@ -482,6 +486,7 @@ impl std::fmt::Display for Instruction {
             Instruction::MakeLambda(_) => write!(f, "    make_lambda"),
             Instruction::Catch { .. } => write!(f, "    catch"),
             Instruction::UnwindProtect { .. } => write!(f, "    unwind_protect"),
+            Instruction::Raise(err) => write!(f, "    raise {}", err),
             Instruction::Funcall { args_count } => write!(f, "    funcall {}", args_count),
             Instruction::Apply { args_count } => write!(f, "    apply {}", args_count),
             Instruction::Ret => write!(f, "    ret"),

@@ -695,6 +695,7 @@ fn run_impl_inner(
                 instr_ref = program.borrow_mut();
                 ctx.vm.stack.push(result?);
             }
+            Instruction::Raise(err) => return Err((**err).clone()),
             Instruction::UnwindProtect { body, cleanup } => {
                 let (body, cleanup) = (body.clone(), cleanup.clone());
                 drop(instr_ref);
