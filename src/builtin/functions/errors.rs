@@ -412,6 +412,29 @@ mod tests {
     }
 
     #[test]
+    fn each_error_kind_matches_its_symbol() {
+        let ctx = &mut TulispContext::new();
+        for (form, symbol) in [
+            ("(car 5)", "wrong-type-argument"),
+            (r#"(aset "ab" 9 ?x)"#, "args-out-of-range"),
+            ("(/ 1 0)", "arith-error"),
+            (r#"(error "x")"#, "error"),
+            ("(cons 1)", "wrong-number-of-arguments"),
+            ("cc-undefined-variable", "void-variable"),
+            ("(cc-undefined-function)", "void-variable"),
+            ("(funcall 5)", "void-function"),
+            (r#"(format "%q" 1)"#, "invalid-read-syntax"),
+            (r#"(load "/nonexistent/cc.lisp")"#, "file-error"),
+        ] {
+            eval_assert_equal(
+                ctx,
+                &format!("(condition-case e {form} ({symbol} (car e)))"),
+                &format!("'{symbol}"),
+            );
+        }
+    }
+
+    #[test]
     fn division_by_zero_is_an_arith_error() {
         let ctx = &mut TulispContext::new();
         for form in [

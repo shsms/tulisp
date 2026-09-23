@@ -3,7 +3,7 @@ use crate::{
     object::wrappers::{DefunFn, TulispFn, generic::Shared},
 };
 
-use super::block::Block;
+use super::block::{Block, Handler};
 use super::bytecode::CompiledDefun;
 use super::lambda_template::LambdaTemplate;
 
@@ -216,8 +216,18 @@ pub(crate) enum Instruction {
         body: Block,
         cleanup: Block,
     },
-    /// Raises an error found while compiling a form in a block, when the
-    /// form is reached (see `Compiler::in_block`).
+    /// `(condition-case VAR BODYFORM HANDLERS...)`: runs BODY; on an
+    /// error, runs the first handler whose condition matches, and pushes
+    /// the value. When BINDS, the error data is pushed for the handler
+    /// to bind to VAR.
+    ConditionCase {
+        binds: bool,
+        body: Block,
+        handlers: Shared<Vec<Handler>>,
+    },
+    /// Raises an error the compiler found, once it is reached: a form in
+    /// a block that failed to compile (see `Compiler::in_block`), or a
+    /// handler whose VAR is a constant.
     Raise(Box<crate::Error>),
     /// Inline `(funcall fn arg1 …)` dispatch. The function value is
     /// pushed first, then each arg, in source order (so at execution
@@ -309,7 +319,9 @@ impl Instruction {
     /// a new one must say.
     pub(crate) fn holds_blocks(&self) -> bool {
         match self {
-            Instruction::Catch { .. } | Instruction::UnwindProtect { .. } => true,
+            Instruction::Catch { .. }
+            | Instruction::UnwindProtect { .. }
+            | Instruction::ConditionCase { .. } => true,
             Instruction::Push(..)
             | Instruction::Pop
             | Instruction::Set
@@ -381,6 +393,16 @@ impl Instruction {
                 ("body".to_string(), body.clone()),
                 ("cleanup".to_string(), cleanup.clone()),
             ],
+            Instruction::ConditionCase { body, handlers, .. } => {
+                let mut blocks = vec![("body".to_string(), body.clone())];
+                for handler in handlers.iter() {
+                    blocks.push((
+                        format!("handler {}", handler.condition),
+                        handler.body.clone(),
+                    ));
+                }
+                blocks
+            }
             _ => {
                 debug_assert!(!self.holds_blocks(), "{self} holds blocks it does not list");
                 Vec::new()
@@ -486,6 +508,7 @@ impl std::fmt::Display for Instruction {
             Instruction::MakeLambda(_) => write!(f, "    make_lambda"),
             Instruction::Catch { .. } => write!(f, "    catch"),
             Instruction::UnwindProtect { .. } => write!(f, "    unwind_protect"),
+            Instruction::ConditionCase { .. } => write!(f, "    condition_case"),
             Instruction::Raise(err) => write!(f, "    raise {}", err),
             Instruction::Funcall { args_count } => write!(f, "    funcall {}", args_count),
             Instruction::Apply { args_count } => write!(f, "    apply {}", args_count),

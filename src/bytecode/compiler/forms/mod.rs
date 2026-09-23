@@ -114,6 +114,7 @@ impl VMCompilers {
             // non-local exits
             ("catch", errors::compile_fn_catch),
             ("unwind-protect", errors::compile_fn_unwind_protect),
+            ("condition-case", errors::compile_fn_condition_case),
         }
         VMCompilers { functions }
     }

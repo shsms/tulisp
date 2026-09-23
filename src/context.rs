@@ -1019,6 +1019,35 @@ mod tests {
             .unwrap();
     }
 
+    // A cleanup or handler may use a few frames past the limit, but its
+    // frame still counts, so recursion through them errors instead of
+    // overflowing the stack.
+    #[test]
+    fn recursion_through_cleanups_and_handlers_errors_before_overflowing() {
+        let stack = 8 * 1024 * 1024;
+        std::thread::Builder::new()
+            .stack_size(stack)
+            .spawn(|| {
+                for program in [
+                    "(defun rc-g () (unwind-protect nil (rc-g)))
+                     (condition-case nil (rc-g) (error 'caught))",
+                    "(defun rc-k () (unwind-protect nil (unwind-protect nil
+                       (unwind-protect nil (unwind-protect nil (rc-k))))))
+                     (condition-case nil (rc-k) (error 'caught))",
+                    r#"(defun rc-h () (condition-case nil (error "x") (error (rc-h))))
+                       (condition-case nil (rc-h) (error 'caught))"#,
+                ] {
+                    let mut ctx = TulispContext::new();
+                    ctx.set_max_eval_depth(super::PROFILE_MAX_EVAL_DEPTH);
+                    let value = ctx.eval_string(program).unwrap();
+                    assert_eq!(value.to_string(), "caught", "{program}");
+                }
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
     // The cap is configurable, and tail calls are trampolined so they
     // don't count toward it: 30000-deep tail recursion completes even
     // under a cap of 16, while shallow non-tail recursion trips it.

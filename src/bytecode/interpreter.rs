@@ -1,5 +1,5 @@
 use super::{
-    Block, Instruction, LambdaTemplate, bytecode::Bytecode, bytecode::CompiledDefun,
+    Block, Handler, Instruction, LambdaTemplate, bytecode::Bytecode, bytecode::CompiledDefun,
     bytecode::TraceRange, compiler::VMDefunParams,
 };
 use crate::{
@@ -330,6 +330,28 @@ fn run_block_impl(
         ));
     }
     Ok(guard.take_value())
+}
+
+/// Runs the first of HANDLERS whose condition matches ERR, with the
+/// error data pushed for it when BINDS, or gives back ERR when none
+/// matches.
+fn run_handler(
+    ctx: &mut TulispContext,
+    binds: bool,
+    handlers: &[Handler],
+    err: Error,
+) -> Result<TulispObject, Error> {
+    use crate::builtin::functions::errors::{condition_matches, error_data, error_symbol};
+    let Some(kind_sym) = error_symbol(&err) else {
+        return Err(err);
+    };
+    for handler in handlers {
+        if condition_matches(&handler.condition, kind_sym)? {
+            let data = binds.then(|| error_data(ctx, kind_sym, &err));
+            return run_block_with_reserve(ctx, &handler.body, data);
+        }
+    }
+    Err(err)
 }
 
 /// Wrapper around `run_impl_inner` that applies form-trace
@@ -695,7 +717,6 @@ fn run_impl_inner(
                 instr_ref = program.borrow_mut();
                 ctx.vm.stack.push(result?);
             }
-            Instruction::Raise(err) => return Err((**err).clone()),
             Instruction::UnwindProtect { body, cleanup } => {
                 let (body, cleanup) = (body.clone(), cleanup.clone());
                 drop(instr_ref);
@@ -703,6 +724,21 @@ fn run_impl_inner(
                 let cleaned = run_block_with_reserve(ctx, &cleanup, None);
                 instr_ref = program.borrow_mut();
                 ctx.vm.stack.push(cleaned.and(result)?);
+            }
+            Instruction::Raise(err) => return Err((**err).clone()),
+            Instruction::ConditionCase {
+                binds,
+                body,
+                handlers,
+            } => {
+                let (binds, body, handlers) = (*binds, body.clone(), handlers.clone());
+                drop(instr_ref);
+                let result = match run_block(ctx, &body, None) {
+                    Err(err) => run_handler(ctx, binds, &handlers, err),
+                    value => value,
+                };
+                instr_ref = program.borrow_mut();
+                ctx.vm.stack.push(result?);
             }
             Instruction::Funcall { args_count } => {
                 let args_count = *args_count;
@@ -1133,6 +1169,17 @@ fn rewrite_instruction(
         Instruction::UnwindProtect { body, cleanup } => {
             *body = rewrite_block(body, mapping, rewrite)?;
             *cleanup = rewrite_block(cleanup, mapping, rewrite)?;
+        }
+        Instruction::ConditionCase { body, handlers, .. } => {
+            *body = rewrite_block(body, mapping, rewrite)?;
+            let mut rewritten = Vec::with_capacity(handlers.len());
+            for handler in handlers.iter() {
+                rewritten.push(Handler {
+                    condition: handler.condition.clone(),
+                    body: rewrite_block(&handler.body, mapping, rewrite)?,
+                });
+            }
+            *handlers = crate::object::wrappers::generic::Shared::new(rewritten);
         }
         _ => debug_assert!(!insn.holds_blocks(), "a block {insn} holds is not rewritten"),
     }

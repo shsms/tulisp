@@ -2,10 +2,13 @@
 
 use crate::{
     Error, TulispContext, TulispObject,
+    builtin::functions::errors::{check_condition_case_var, parse_handlers},
     bytecode::{
-        Instruction,
+        Block, Handler, Instruction,
         compiler::compiler::{compile_block, compile_expr_keep_result},
     },
+    eval::substitute_lexical,
+    object::wrappers::generic::Shared,
 };
 
 /// CODE, followed by a `Pop` when the form's value is unused.
@@ -41,6 +44,52 @@ pub(super) fn compile_fn_unwind_protect(
         Ok(pop_unless_kept(
             ctx,
             vec![Instruction::UnwindProtect { body, cleanup }],
+        ))
+    })
+}
+
+pub(super) fn compile_fn_condition_case(
+    ctx: &mut TulispContext,
+    name: &TulispObject,
+    args: &TulispObject,
+) -> Result<Vec<Instruction>, Error> {
+    ctx.compile_2_arg_call(name, args, true, |ctx, var, bodyform, handlers| {
+        check_condition_case_var(var)?;
+        let handlers = parse_handlers(handlers)?;
+        let bodyform = TulispObject::cons(bodyform.clone(), TulispObject::nil());
+        let body = compile_block(ctx, &bodyform, None)?;
+        // A constant VAR, `t` or a keyword, fails when a handler binds it.
+        let refused = if var.null() {
+            None
+        } else {
+            crate::builtin::check_settable_target(var).err()
+        };
+        let binds = !var.null() && refused.is_none();
+        let mut compiled = Vec::with_capacity(handlers.len());
+        for (condition, forms) in handlers {
+            let handler = if let Some(err) = &refused {
+                Block::new(vec![Instruction::Raise(Box::new(err.clone()))], false)?
+            } else if !binds {
+                compile_block(ctx, &forms, None)?
+            } else if var.is_special() {
+                compile_block(ctx, &forms, Some(var))?
+            } else {
+                let binding = TulispObject::lexical_binding(ctx.lex_allocator.clone(), var.clone());
+                let forms = substitute_lexical(forms, &[(var.clone(), binding.clone())])?;
+                compile_block(ctx, &forms, Some(&binding))?
+            };
+            compiled.push(Handler {
+                condition,
+                body: handler,
+            });
+        }
+        Ok(pop_unless_kept(
+            ctx,
+            vec![Instruction::ConditionCase {
+                binds,
+                body,
+                handlers: Shared::new(compiled),
+            }],
         ))
     })
 }
@@ -192,6 +241,115 @@ mod tests {
             ctx,
             "(unwind-protect)",
             "ERR ArityMismatch: Too few arguments",
+        );
+    }
+
+    #[test]
+    fn condition_case_compiles_to_blocks() {
+        let ctx = &mut TulispContext::new();
+        let l = listing(ctx, r#"(condition-case e (error "x") (error e))"#);
+        assert!(
+            l.contains("condition_case")
+                && l.contains("handler")
+                && !l.contains("rustcall condition-case"),
+            "{l}"
+        );
+        let l = listing(ctx, "(defun cc-f () (condition-case e 1 (error 2)))");
+        assert!(
+            l.contains("condition_case") && !l.contains("rustcall"),
+            "{l}"
+        );
+    }
+
+    #[test]
+    fn a_handler_runs_when_its_body_stops_at_the_depth_limit() {
+        let ctx = &mut TulispContext::new();
+        ctx.set_max_eval_depth(1);
+        // The body block cannot start at the limit; the handler catches
+        // that error.
+        let value = ctx
+            .eval_string("(condition-case nil 'unreached (error 'handled))")
+            .unwrap();
+        assert_eq!(value.to_string(), "handled");
+        // Calls the handler makes may use the reserve too.
+        let value = ctx
+            .eval_string(
+                "(defun handler-fn () 'handled-by-call)
+                 (condition-case nil 'unreached (error (handler-fn)))",
+            )
+            .unwrap();
+        assert_eq!(value.to_string(), "handled-by-call");
+    }
+
+    #[test]
+    fn closures_across_condition_case_blocks() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            r#"(defun make-handler (n) (lambda () (condition-case nil (error "a") (error n))))
+               (list (funcall (make-handler 1)) (funcall (make-handler 2)))"#,
+            "'(1 2)",
+        );
+        eval_assert_equal(
+            ctx,
+            "(defun make-guarded (n) (lambda () (condition-case nil n (error 0))))
+             (list (funcall (make-guarded 1)) (funcall (make-guarded 2)))",
+            "'(1 2)",
+        );
+    }
+
+    #[test]
+    fn condition_case_runs_in_the_vm() {
+        let ctx = &mut TulispContext::new();
+        // A closure made in a handler inside a function keeps VAR.
+        eval_assert_equal(
+            ctx,
+            r#"(funcall (funcall (lambda () (condition-case e (error "a") (error (lambda () e))))))"#,
+            r#"'(error . "a")"#,
+        );
+        // A defvar placed after the function that uses VAR makes it special
+        // for both evaluators, since defvar runs when the program is parsed.
+        eval_assert_equal(
+            ctx,
+            r#"(defun cc-late () (condition-case cc-late-var (error "a") (error (cc-late-read))))
+               (defun cc-late-read () cc-late-var)
+               (defvar cc-late-var 0)
+               (cc-late)"#,
+            r#"'(error . "a")"#,
+        );
+        // An error inside a handler escapes with its own trace.
+        eval_assert_error(
+            ctx,
+            r#"(condition-case e (error "a") (error (car 5)))"#,
+            r#"ERR TypeMismatch: Expected list, got: 5
+<eval_string>:1.38-1.44:  at (car 5)
+<eval_string>:1.1-1.46:  at (condition-case e (error "a") (error (car 5)))
+"#,
+        );
+        // Bindings made inside the body are undone when an error leaves it.
+        eval_assert_equal(
+            ctx,
+            r#"(let ((x 1)) (list (condition-case nil (let ((x 2)) (error "a")) (error x)) x))"#,
+            "'(1 1)",
+        );
+        eval_assert_equal(
+            ctx,
+            r#"(defvar cc-dyn 1)
+               (list (condition-case nil (let ((cc-dyn 2)) (error "a")) (error cc-dyn)) cc-dyn)"#,
+            "'(1 1)",
+        );
+        // A throw from a handler.
+        eval_assert_equal(
+            ctx,
+            r#"(catch 'a (condition-case e (error "x") (error (throw 'a 3))))"#,
+            "3",
+        );
+        // Empty handler, and an unused value.
+        eval_assert_equal(ctx, r#"(condition-case e (error "x") (error))"#, "nil");
+        eval_assert_equal(
+            ctx,
+            r#"(progn (condition-case e (error "x") (error 1)) 2)"#,
+            "2",
         );
     }
 

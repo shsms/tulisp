@@ -3,8 +3,8 @@
 
 use super::bytecode::{TraceRange, assemble};
 use super::instruction::Instruction;
-use crate::Error;
 use crate::object::wrappers::generic::{Shared, SharedMut};
+use crate::{Error, TulispObject};
 
 /// A body compiled as its own unit. Only the instruction that holds it
 /// runs it, since it reads the lexical bindings of the code around that
@@ -28,4 +28,11 @@ impl Block {
             takes_arg,
         })
     }
+}
+
+/// A `condition-case` handler: its condition as written, and its body.
+#[derive(Clone)]
+pub(crate) struct Handler {
+    pub(crate) condition: TulispObject,
+    pub(crate) body: Block,
 }
