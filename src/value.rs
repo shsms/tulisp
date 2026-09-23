@@ -1263,7 +1263,10 @@ impl TulispValue {
     pub(crate) fn symbolp(&self) -> bool {
         matches!(
             self,
-            TulispValue::Symbol { .. } | TulispValue::LexicalBinding { .. }
+            TulispValue::Symbol { .. }
+                | TulispValue::LexicalBinding { .. }
+                | TulispValue::Nil
+                | TulispValue::T
         )
     }
 

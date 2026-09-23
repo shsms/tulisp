@@ -244,7 +244,8 @@ impl TulispObject {
     /// Sets a value to `self` in the current scope. If there was a previous
     /// value assigned to `self` in the current scope, it will be lost.
     ///
-    /// Returns an Error if `self` is not a `Symbol`.
+    /// Returns an Error if `self` is not a symbol, or is a constant:
+    /// `nil`, `t` or a keyword.
     pub fn set(&self, to_set: TulispObject) -> Result<(), Error> {
         self.rc
             .borrow_mut()
@@ -256,7 +257,8 @@ impl TulispObject {
     /// Sets a value to `self`, in the new scope, such that when it is `unset`,
     /// the previous value becomes active again.
     ///
-    /// Returns an Error if `self` is not a `Symbol`.
+    /// Returns an Error if `self` is not a symbol, or is a constant:
+    /// `nil`, `t` or a keyword.
     pub fn set_scope(&self, to_set: TulispObject) -> Result<(), Error> {
         self.rc
             .borrow_mut()
@@ -287,7 +289,8 @@ impl TulispObject {
 
     /// Unsets the value from the most recent scope.
     ///
-    /// Returns an Error if `self` is not a `Symbol`.
+    /// Returns an Error if `self` has no value to unset: it is not a
+    /// symbol, is `nil` or `t`, or was never set.
     pub fn unset(&self) -> Result<(), Error> {
         self.rc
             .borrow_mut()
@@ -296,11 +299,12 @@ impl TulispObject {
             .map_err(|e| e.with_trace(self.clone()))
     }
 
-    /// Gets the value from `self`.
+    /// Gets the value from `self`. A keyword, `nil` or `t` is its own
+    /// value.
     ///
-    /// Returns an Error if `self` is not a `Symbol`.
+    /// Returns an Error if `self` is not a symbol, or has no value.
     pub fn get(&self) -> Result<TulispObject, Error> {
-        if self.keywordp() {
+        if self.keywordp() || matches!(self.rc.borrow().0, TulispValue::Nil | TulispValue::T) {
             Ok(self.clone())
         } else {
             self.rc
@@ -341,7 +345,7 @@ impl TulispObject {
     extractor_fn_with_err!(
         String,
         as_symbol,
-        "Returns a string containing symbol name, if `self` is a symbol, and an Error otherwise."
+        "Returns a string containing symbol name, if `self` is a symbol other than `nil` or `t`, and an Error otherwise."
     );
     extractor_fn_with_err!(
         String,
@@ -425,7 +429,11 @@ impl TulispObject {
         "Returns True if `self` is a number. i.e., an integer or a float."
     );
     predicate_fn!(pub, stringp, "Returns True if `self` is a string.");
-    predicate_fn!(pub, symbolp, "Returns True if `self` is a Symbol.");
+    predicate_fn!(
+        pub,
+        symbolp,
+        "Returns True if `self` is a Symbol, including `nil`, `t` and keywords."
+    );
     predicate_fn!(
         pub,
         boundp,
@@ -1103,6 +1111,36 @@ mod tests {
         .join()
         .expect("thread panicked")?;
         assert!(TulispObject::from(true).span().is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn symbolp_counts_nil_and_t() -> Result<(), Error> {
+        let mut ctx = TulispContext::new();
+        let items = ctx.eval_string(r#"(list nil t 'a :a 1 1.5 "a" '(a))"#)?;
+        let expected = [true, true, true, true, false, false, false, false];
+        let symbolp = ctx.intern("symbolp");
+        for (item, want) in items.base_iter().zip(expected) {
+            assert_eq!(item.symbolp(), want, "symbolp of {item}");
+            // The host and Lisp see the same answer.
+            let lisp = ctx.funcall(&symbolp, (item.clone(),))?;
+            assert_eq!(lisp.is_truthy(), want, "(symbolp {item})");
+        }
+        assert!(TulispObject::nil().symbolp());
+        assert!(TulispObject::t().symbolp());
+        // Each is its own value, and as_symbol still rejects it.
+        assert!(TulispObject::nil().get()?.null());
+        assert!(TulispObject::t().get()?.eq(&TulispObject::t()));
+        assert!(TulispObject::t().as_symbol().is_err());
+
+        let expected = [false, false, true, true, false, false, false, false];
+        for (item, want) in items.base_iter().zip(expected) {
+            assert_eq!(
+                item.is_symbol_variant(),
+                want,
+                "is_symbol_variant of {item}"
+            );
+        }
         Ok(())
     }
 }

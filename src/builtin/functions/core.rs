@@ -838,7 +838,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 #[cfg(test)]
 mod tests {
     use crate::TulispContext;
-    use crate::test_utils::{eval_assert, eval_assert_equal, eval_assert_error};
+    use crate::test_utils::{
+        eval_assert, eval_assert_equal, eval_assert_error, eval_assert_error_line,
+    };
 
     #[test]
     fn funcall_accepts_symbols_and_lambdas() {
@@ -1013,6 +1015,23 @@ mod tests {
             ctx,
             "(list (keywordp :a) (keywordp ':abcd) (keywordp 'abcd) (keywordp nil))",
             "'(t t nil nil)",
+        );
+    }
+
+    #[test]
+    fn symbol_value_of_nil_t_and_keywords_is_themselves() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(list (symbol-value nil) (symbol-value t) (symbol-value :a)
+                   (let ((x 'nil)) (symbol-value x)))",
+            "'(nil t :a nil)",
+        );
+        eval_assert_equal(ctx, "(setq v 1) (symbol-value 'v)", "1");
+        eval_assert_error_line(
+            ctx,
+            "(symbol-value 1)",
+            "ERR TypeMismatch: symbol-value: expected a symbol, got 1",
         );
     }
 }

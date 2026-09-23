@@ -178,4 +178,22 @@ mod test_utils {
             }
         }
     }
+
+    /// Like `eval_assert_error`, but checks only the error line and
+    /// not the trace, for errors the two paths trace differently.
+    #[track_caller]
+    pub(crate) fn eval_assert_error_line(ctx: &mut crate::TulispContext, a: &str, line: &str) {
+        for kind in [EvalKind::Tw, EvalKind::Vm] {
+            match eval_string(ctx, kind, a) {
+                Ok(v) => panic!("[{}] Expected error but got {} for {}", kind.name(), v, a),
+                Err(e) => assert_eq!(
+                    e.lines().next(),
+                    Some(line),
+                    "[{}] Error line mismatch for {}",
+                    kind.name(),
+                    a
+                ),
+            }
+        }
+    }
 }

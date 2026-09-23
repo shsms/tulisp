@@ -184,7 +184,7 @@ fn build_bindings(ctx: &mut TulispContext, bindings: &TulispObject) -> Result<Tu
 #[cfg(test)]
 mod tests {
     use crate::TulispContext;
-    use crate::test_utils::{eval_assert_equal, eval_assert_prints_as};
+    use crate::test_utils::{eval_assert_equal, eval_assert_error_line, eval_assert_prints_as};
 
     #[test]
     fn and_returns_nil_at_the_first_nil_argument() {
@@ -303,6 +303,34 @@ mod tests {
             &mut TulispContext::new(),
             "(defun test (&optional c d) (if-let ((q c) d (w 10)) (+ q d w) 2)) (list (test) (test 2) (test 2 3)) ",
             "'(2 2 15)",
+        );
+    }
+
+    // A bare `nil` or `t` in the varlist is a symbol, so it names a
+    // variable, and binding it is an error. The expansions were
+    // checked against GNU Emacs 30.1.
+    #[test]
+    fn if_let_star_binds_a_bare_nil_or_t() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(macroexpand '(if-let* (a nil) 1 2))",
+            "'(let* ((a (and t a)) (nil (and a nil))) (if nil 1 2))",
+        );
+        eval_assert_equal(
+            ctx,
+            "(macroexpand '(if-let* (t) 1 2))",
+            "'(let* ((t (and t t))) (if t 1 2))",
+        );
+        eval_assert_equal(
+            ctx,
+            "(condition-case nil (if-let* (nil) 1 2) (error 'failed))",
+            "'failed",
+        );
+        eval_assert_error_line(
+            ctx,
+            "(when-let ((a 1) t) 3)",
+            "ERR TypeMismatch: Expected Symbol: Can't assign to t",
         );
     }
 
