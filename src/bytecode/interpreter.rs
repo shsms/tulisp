@@ -648,32 +648,13 @@ fn run_impl_inner(
                 let split_at = ctx.vm.stack.len() - args_count;
                 let mut args: Vec<TulispObject> = ctx.vm.stack.drain(split_at..).collect();
                 let func = ctx.vm.stack.pop().unwrap();
-                // Splice with Floyd's tortoise / hare so a circular
-                // final list errors instead of hanging the splice loop.
-                let mut slow = final_list.clone();
-                let mut fast = final_list.clone();
-                loop {
-                    for _ in 0..2 {
-                        if !fast.consp() {
-                            break;
-                        }
-                        args.push(fast.car()?);
-                        fast = fast.cdr()?;
-                    }
-                    if !fast.consp() {
-                        if !fast.null() {
-                            return Err(Error::type_mismatch(format!(
-                                "apply: last argument must be a proper list, got non-nil tail: {fast}"
-                            )));
-                        }
-                        break;
-                    }
-                    slow = slow.cdr()?;
-                    if slow.eq_ptr(&fast) {
-                        return Err(Error::out_of_range(
-                            "apply: last argument is a circular list".to_string(),
-                        ));
-                    }
+                let mut items = final_list.base_iter();
+                args.extend(items.by_ref());
+                let tail = items.tail()?;
+                if !tail.null() {
+                    return Err(Error::type_mismatch(format!(
+                        "apply: last argument must be a proper list, got non-nil tail: {tail}"
+                    )));
                 }
                 drop(instr_ref);
                 let result = funcall_inline(ctx, &func, args)?;
@@ -954,11 +935,11 @@ fn funcall_inline(
             drop(inner);
             // Rebuild an arg list TulispObject (quoted so the TW
             // side doesn't re-evaluate already-resolved values).
-            let list = TulispObject::nil();
+            let mut list = crate::cons::ListBuilder::new();
             for a in args {
-                list.push(TulispValue::Quote { value: a }.into_ref(None))?;
+                list.push(TulispValue::Quote { value: a }.into_ref(None));
             }
-            crate::eval::funcall::<crate::eval::Eval>(ctx, &resolved, &list)
+            crate::eval::funcall::<crate::eval::Eval>(ctx, &resolved, &list.build())
         }
         _ => Err(Error::undefined(format!("function is void: {}", resolved))),
     }
@@ -1028,7 +1009,7 @@ fn make_lambda_from_template(
 
     let mut instructions = template.instructions.clone();
     for insn in instructions.iter_mut() {
-        rewrite_instruction(insn, &mapping, &rewrite);
+        rewrite_instruction(insn, &mapping, &rewrite)?;
     }
 
     let rewrite_obj = |obj: &TulispObject| -> TulispObject {
@@ -1067,7 +1048,7 @@ fn rewrite_instruction(
     insn: &mut Instruction,
     mapping: &HashMap<usize, TulispObject>,
     rewrite: &impl Fn(&mut TulispObject),
-) {
+) -> Result<(), Error> {
     match insn {
         Instruction::Load(o)
         | Instruction::Store(o)
@@ -1083,14 +1064,15 @@ fn rewrite_instruction(
             // across all closures from this template, so we must not
             // mutate in place.
             if ast_contains_placeholder(o, mapping) => {
-                *o = rewrite_ast(o, mapping);
+                *o = rewrite_ast(o, mapping)?;
             }
         Instruction::MakeLambda(template) => {
-            let rebuilt = rewrite_template(template, mapping);
+            let rebuilt = rewrite_template(template, mapping)?;
             *template = crate::object::wrappers::generic::Shared::new(rebuilt);
         }
         _ => {}
     }
+    Ok(())
 }
 
 /// Quick check: does `obj` or any cons-cell descendant reference a
@@ -1101,56 +1083,46 @@ fn ast_contains_placeholder(obj: &TulispObject, mapping: &HashMap<usize, TulispO
         return true;
     }
     if obj.consp() {
-        let mut cur = obj.clone();
-        while cur.consp() {
-            let Ok(car) = cur.car() else { break };
+        let mut items = obj.base_iter();
+        for car in items.by_ref() {
             if ast_contains_placeholder(&car, mapping) {
                 return true;
             }
-            let Ok(next) = cur.cdr() else { break };
-            if !next.consp() {
-                if mapping.contains_key(&next.addr_as_usize()) {
-                    return true;
-                }
-                break;
-            }
-            cur = next;
         }
+        // A list that loops back has had all of its cells walked by
+        // the time the iterator notices, so its error means `false`.
+        return items
+            .tail()
+            .is_ok_and(|tail| mapping.contains_key(&tail.addr_as_usize()));
     }
     false
 }
 
 /// Deep-clone `obj`, substituting any placeholder reference with the
 /// mapped binding. Only descends through cons lists; quoted literals
-/// and other value kinds pass through unchanged.
-fn rewrite_ast(obj: &TulispObject, mapping: &HashMap<usize, TulispObject>) -> TulispObject {
+/// and other value kinds pass through unchanged. A list that loops
+/// back has no finite copy, so it is an error.
+fn rewrite_ast(
+    obj: &TulispObject,
+    mapping: &HashMap<usize, TulispObject>,
+) -> Result<TulispObject, Error> {
     if let Some(replacement) = mapping.get(&obj.addr_as_usize()) {
-        return replacement.clone();
+        return Ok(replacement.clone());
     }
     if obj.consp() {
         let span = obj.span();
         let mut builder = crate::cons::ListBuilder::new();
-        let mut cur = obj.clone();
-        loop {
-            let Ok(car) = cur.car() else { break };
-            builder.push(rewrite_ast(&car, mapping));
-            let Ok(next) = cur.cdr() else { break };
-            if next.null() {
-                break;
-            }
-            if !next.consp() {
-                let tail = mapping
-                    .get(&next.addr_as_usize())
-                    .cloned()
-                    .unwrap_or_else(|| next.clone());
-                let _ = builder.append(tail);
-                break;
-            }
-            cur = next;
+        let mut items = obj.base_iter();
+        for car in items.by_ref() {
+            builder.push(rewrite_ast(&car, mapping)?);
         }
-        return builder.build().with_span(span);
+        let tail = items.tail()?;
+        if !tail.null() {
+            builder.append(mapping.get(&tail.addr_as_usize()).cloned().unwrap_or(tail))?;
+        }
+        return Ok(builder.build().with_span(span));
     }
-    obj.clone()
+    Ok(obj.clone())
 }
 
 /// Clone `template` but with every `(orig, placeholder)` in `free_vars`
@@ -1161,7 +1133,7 @@ fn rewrite_ast(obj: &TulispObject, mapping: &HashMap<usize, TulispObject>) -> Tu
 fn rewrite_template(
     template: &LambdaTemplate,
     mapping: &HashMap<usize, TulispObject>,
-) -> LambdaTemplate {
+) -> Result<LambdaTemplate, Error> {
     let rewrite = |obj: &mut TulispObject| {
         if let Some(replacement) = mapping.get(&obj.addr_as_usize()) {
             *obj = replacement.clone();
@@ -1182,10 +1154,10 @@ fn rewrite_template(
 
     let mut new_instructions = template.instructions.clone();
     for insn in new_instructions.iter_mut() {
-        rewrite_instruction(insn, mapping, &rewrite);
+        rewrite_instruction(insn, mapping, &rewrite)?;
     }
 
-    LambdaTemplate {
+    Ok(LambdaTemplate {
         instructions: new_instructions,
         // `rewrite_instruction` swaps in-place; PCs are stable so
         // the inner template's trace ranges still apply.
@@ -1193,16 +1165,17 @@ fn rewrite_template(
         param_placeholders: template.param_placeholders.clone(),
         params: template.params.clone(),
         free_vars: new_free_vars,
-    }
+    })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::run;
+    use super::{ast_contains_placeholder, rewrite_ast, run};
     use crate::TulispContext;
     use crate::TulispObject;
     use crate::bytecode::{Bytecode, Instruction, Pos};
     use crate::test_utils::eval_assert_equal;
+    use std::collections::HashMap;
 
     #[test]
     fn a_host_call_runs_the_compiled_copy_of_a_named_defun() {
@@ -1422,5 +1395,23 @@ mod tests {
             "(defun cnt (n &rest r) (if (= n 0) r (cnt (- n 1)))) (cnt 2 1 2 3)",
             "nil",
         );
+    }
+
+    #[test]
+    fn the_placeholder_walkers_stop_at_a_circular_list() {
+        let mut ctx = TulispContext::new();
+        let placeholder = ctx.intern("p");
+        let mapping = HashMap::from([(placeholder.addr_as_usize(), TulispObject::from(9))]);
+        let without = ctx
+            .eval_string("(let ((l (list 1 2 3))) (setcdr (cddr l) l) l)")
+            .unwrap();
+        assert!(!ast_contains_placeholder(&without, &mapping));
+        // The placeholder sits past the point where the loop starts.
+        let with = ctx
+            .eval_string("(let ((l (list 1 2 3 4 5 6 7 8 9 'p))) (setcdr (last l) (cdr l)) l)")
+            .unwrap();
+        assert!(ast_contains_placeholder(&with, &mapping));
+        let err = rewrite_ast(&with, &mapping).unwrap_err();
+        assert_eq!(err.to_string(), "ERR OutOfRange: Circular list");
     }
 }

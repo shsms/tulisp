@@ -592,11 +592,11 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         let name = resolve_function(ctx, &name)?;
 
         let mut evaluated: Vec<TulispObject> = Vec::new();
-        let mut cur = rest;
-        while cur.consp() {
-            evaluated.push(ctx.eval(&cur.car()?)?);
-            cur = cur.cdr()?;
+        let mut arg_forms = rest.base_iter();
+        for arg in arg_forms.by_ref() {
+            evaluated.push(ctx.eval(&arg)?);
         }
+        arg_forms.take_error()?;
         let Some(final_list) = evaluated.pop() else {
             return Err(Error::missing_argument(
                 "apply requires at least 2 arguments".to_string(),
@@ -607,42 +607,24 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 "apply: last argument must be a list, got: {final_list}"
             )));
         }
-        // Splice with Floyd's tortoise / hare so a circular final
-        // list errors instead of hanging the splice loop.
-        let mut slow = final_list.clone();
-        let mut fast = final_list.clone();
-        loop {
-            for _ in 0..2 {
-                if !fast.consp() {
-                    break;
-                }
-                evaluated.push(fast.car()?);
-                fast = fast.cdr()?;
-            }
-            if !fast.consp() {
-                if !fast.null() {
-                    return Err(Error::type_mismatch(format!(
-                        "apply: last argument must be a proper list, got non-nil tail: {fast}"
-                    )));
-                }
-                break;
-            }
-            slow = slow.cdr()?;
-            if slow.eq_ptr(&fast) {
-                return Err(Error::out_of_range(
-                    "apply: last argument is a circular list".to_string(),
-                ));
-            }
+        let mut items = final_list.base_iter();
+        evaluated.extend(items.by_ref());
+        let tail = items.tail()?;
+        if !tail.null() {
+            return Err(Error::type_mismatch(format!(
+                "apply: last argument must be a proper list, got non-nil tail: {tail}"
+            )));
         }
 
         // Hand the spliced, already-evaluated args to `funcall` via a
         // quoted arg list — same trick the VM's `funcall_inline` uses
         // for Lambda/Func: wrap each value in `quote` so the inner
         // `Eval` pass treats it as a no-op.
-        let call_args = TulispObject::nil();
+        let mut call_args = crate::cons::ListBuilder::new();
         for arg in evaluated {
-            call_args.push(TulispValue::Quote { value: arg }.into_ref(None))?;
+            call_args.push(TulispValue::Quote { value: arg }.into_ref(None));
         }
+        let call_args = call_args.build();
 
         if name.inner_ref().0.is_function_value() {
             crate::eval::funcall::<Eval>(ctx, &name, &call_args)
@@ -928,6 +910,19 @@ mod tests {
     }
 
     #[test]
+    fn apply_rejects_a_circular_argument_list() {
+        let ctx = &mut TulispContext::new();
+        // `(apply '+ 1 2 1 2 ...)`, built at run time for `eval`.
+        eval_assert_error_line(
+            ctx,
+            "(let ((form (list 'apply ''+ 1 2)))
+               (setcdr (cdddr form) (cddr form))
+               (eval form))",
+            "ERR OutOfRange: Circular list",
+        );
+    }
+
+    #[test]
     fn apply_rejects_a_bad_last_argument() {
         let ctx = &mut TulispContext::new();
         eval_assert_error(
@@ -951,7 +946,7 @@ mod tests {
             (setcdr (cdr (cdr xs)) xs)
             (apply '+ xs)
         "#,
-            "ERR OutOfRange: apply: last argument is a circular list\n\
+            "ERR OutOfRange: Circular list\n\
              <eval_string>:4.13-4.25:  at (apply '+ xs)\n",
         );
         eval_assert_error(
