@@ -225,6 +225,9 @@ pub(crate) enum Instruction {
         body: Block,
         handlers: Shared<Vec<Handler>>,
     },
+    /// `(defvar SYM ...)`: pushes whether SYM is bound, so the value is
+    /// evaluated and stored only when it is not.
+    DefVar(TulispObject),
     /// Raises an error the compiler found, once it is reached: a form in
     /// a block that failed to compile (see `Compiler::in_block`), or a
     /// handler whose VAR is a constant.
@@ -366,6 +369,7 @@ impl Instruction {
             | Instruction::Call { .. }
             | Instruction::TailCall { .. }
             | Instruction::MakeLambda(..)
+            | Instruction::DefVar(..)
             | Instruction::Raise(..)
             | Instruction::Funcall { .. }
             | Instruction::Apply { .. }
@@ -510,6 +514,7 @@ impl std::fmt::Display for Instruction {
             Instruction::UnwindProtect { .. } => write!(f, "    unwind_protect"),
             Instruction::ConditionCase { .. } => write!(f, "    condition_case"),
             Instruction::Raise(err) => write!(f, "    raise {}", err),
+            Instruction::DefVar(sym) => write!(f, "    defvar {}", sym),
             Instruction::Funcall { args_count } => write!(f, "    funcall {}", args_count),
             Instruction::Apply { args_count } => write!(f, "    apply {}", args_count),
             Instruction::Ret => write!(f, "    ret"),

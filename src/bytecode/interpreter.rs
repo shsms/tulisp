@@ -726,6 +726,10 @@ fn run_impl_inner(
                 ctx.vm.stack.push(cleaned.and(result)?);
             }
             Instruction::Raise(err) => return Err((**err).clone()),
+            Instruction::DefVar(sym) => {
+                let bound = sym.boundp();
+                ctx.vm.stack.push(bound.into());
+            }
             Instruction::ConditionCase {
                 binds,
                 body,

@@ -115,6 +115,8 @@ impl VMCompilers {
             ("catch", errors::compile_fn_catch),
             ("unwind-protect", errors::compile_fn_unwind_protect),
             ("condition-case", errors::compile_fn_condition_case),
+            ("defvar", other_functions::compile_fn_defvar),
+            ("declare", other_functions::compile_fn_declare),
         }
         VMCompilers { functions }
     }

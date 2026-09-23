@@ -113,6 +113,17 @@ pub(crate) fn check_not_nil_or_t(name: &TulispObject) -> Result<(), Error> {
     Ok(())
 }
 
+/// Refuses a `defvar` name that is `nil`, `t` or not a symbol.
+pub(crate) fn check_defvar_name(name: &TulispObject) -> Result<(), Error> {
+    check_not_nil_or_t(name)?;
+    if !name.is_symbol_variant() {
+        return Err(Error::type_mismatch(
+            "defvar: first argument must be a symbol".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 /// Validate that `target` is a writable variable cell. Used by both
 /// the VM compiler (~setq~) and the TW ~setq~ defspecial so the two
 /// dispatch paths reject the same inputs with the same error shape,

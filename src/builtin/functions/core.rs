@@ -794,12 +794,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     ctx.defspecial("defvar", |ctx, args| {
         destruct_bind!((name &optional initval _docstring) = args);
-        crate::builtin::check_not_nil_or_t(&name)?;
-        if !name.is_symbol_variant() {
-            return Err(Error::type_mismatch(
-                "defvar: first argument must be a symbol".to_string(),
-            ));
-        }
+        crate::builtin::check_defvar_name(&name)?;
         // Flip the symbol's `special` flag so subsequent let/let* and
         // reference-rewrite paths treat it as dynamic (Emacs' behavior
         // under `lexical-binding: t`). Done before any initval eval so

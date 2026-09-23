@@ -10,6 +10,7 @@ use crate::{
             },
         },
     },
+    destruct_bind,
     eval::substitute_lexical,
     list,
     object::wrappers::generic::SharedMut,
@@ -421,6 +422,47 @@ pub(super) fn compile_fn_defmacro(
     })
 }
 
+/// `(defvar SYM [VALUE [DOC]])`. SYM is marked special when the form
+/// compiles, so a later `let` of SYM in the same program binds it
+/// dynamically.
+pub(super) fn compile_fn_defvar(
+    ctx: &mut TulispContext,
+    name: &TulispObject,
+    args: &TulispObject,
+) -> Result<Vec<Instruction>, Error> {
+    ctx.compile_1_arg_call(name, args, true, |ctx, sym, rest| {
+        destruct_bind!((&optional value _docstring) = rest);
+        crate::builtin::check_defvar_name(sym)?;
+        sym.set_special()?;
+        let keep_result = ctx.compiler.as_ref().unwrap().keep_result;
+        let bound = ctx.compiler.as_mut().unwrap().new_label();
+        let mut result = vec![
+            Instruction::DefVar(sym.clone()),
+            Instruction::JumpIfNotNil(Pos::Label(bound.clone())),
+        ];
+        result.append(&mut compile_expr_keep_result(ctx, &value)?);
+        result.push(Instruction::StorePop(sym.clone()));
+        result.push(Instruction::Label(bound));
+        if keep_result {
+            result.push(Instruction::Push(sym.clone()));
+        }
+        Ok(result)
+    })
+}
+
+/// `(declare ...)` does nothing; its value is nil.
+pub(super) fn compile_fn_declare(
+    ctx: &mut TulispContext,
+    _name: &TulispObject,
+    _args: &TulispObject,
+) -> Result<Vec<Instruction>, Error> {
+    if ctx.compiler.as_ref().unwrap().keep_result {
+        Ok(vec![Instruction::Push(TulispObject::nil())])
+    } else {
+        Ok(vec![])
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::TulispContext;
@@ -433,6 +475,60 @@ mod tests {
         assert!(l.contains("load_file") && l.contains("pop"), "{l}");
         let l = listing(ctx, r#"(load "file.lisp")"#);
         assert!(!l.contains("pop"), "{l}");
+    }
+
+    #[test]
+    fn defvar_and_declare_compile_in_the_vm() {
+        let ctx = &mut TulispContext::new();
+        let l = listing(ctx, "(defvar dv-listed 1) (declare (indent 1))");
+        assert!(
+            l.contains("defvar dv-listed") && !l.contains("rustcall"),
+            "{l}"
+        );
+        let l = listing(
+            ctx,
+            "(defun dv-f () (declare (indent 1)) (defvar dv-inner 1))",
+        );
+        assert!(
+            l.contains("defvar dv-inner") && !l.contains("rustcall"),
+            "{l}"
+        );
+        eval_assert_equal(ctx, "(list (declare (indent 1)))", "'(nil)");
+        eval_assert_equal(
+            ctx,
+            r#"(defun dv-doc () "doc" (declare (indent 1)) 5) (dv-doc)"#,
+            "5",
+        );
+        // With no VALUE, SYM is bound to nil, as before.
+        eval_assert_equal(ctx, "(defvar dv-none) dv-none", "nil");
+    }
+
+    // The parser runs every `defvar` in the source, so only a `defvar` a
+    // macro builds reaches the VM's value path. Each evaluator gets its
+    // own context, since a first run would leave SYM bound for the next.
+    #[test]
+    fn a_defvar_a_macro_builds_runs_in_the_vm() {
+        let program = "(defmacro dv-make (n v) (list 'defvar n v))
+                       (setq dv-count 0)
+                       (dv-make dv-made (progn (setq dv-count (1+ dv-count)) 3))
+                       (dv-make dv-made (progn (setq dv-count (1+ dv-count)) 4))
+                       (list dv-made dv-count)";
+        let tw = TulispContext::new().tw_eval_string(program).unwrap();
+        let vm = TulispContext::new().eval_string(program).unwrap();
+        assert_eq!(tw.to_string(), "(3 1)");
+        assert_eq!(vm.to_string(), "(3 1)");
+    }
+
+    #[test]
+    fn a_defvar_a_macro_builds_makes_a_later_let_dynamic() {
+        let program = "(defmacro dv-make (n v) (list 'defvar n v))
+                       (dv-make dv-qq 7)
+                       (defun dv-read-qq () dv-qq)
+                       (let ((dv-qq 9)) (dv-read-qq))";
+        let vm = TulispContext::new().eval_string(program).unwrap();
+        let tw = TulispContext::new().tw_eval_string(program).unwrap();
+        assert_eq!(vm.to_string(), "9");
+        assert_eq!(tw.to_string(), "9");
     }
 
     // The symbol holds the definition the compile made from the same
