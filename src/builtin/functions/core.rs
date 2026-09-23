@@ -9,7 +9,7 @@ use crate::eval::Eval;
 use crate::eval::EvalInto;
 use crate::eval::resolve_function;
 use crate::eval::substitute_lexical;
-use crate::eval::wrapped_operand;
+use crate::eval::{WrappedOperand, wrapped_operand};
 use crate::object::wrappers::generic::{Shared, SharedMut};
 use crate::value::{DefunParams, LexAllocator};
 use std::convert::TryInto;
@@ -459,15 +459,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                     _ => {
                         drop(inner_ref);
                         match wrapped_operand(&body, quote_depth) {
-                            Some(operand) => operand.map(|value, depth| {
-                                capture_variables_inner(
-                                    allocator,
-                                    captured_vars,
-                                    exclude,
-                                    value,
-                                    depth,
-                                )
-                            }),
+                            Some(operand) => {
+                                capture_operand(allocator, captured_vars, exclude, body, operand)
+                            }
                             None => Ok(body),
                         }
                     }
@@ -484,31 +478,70 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 return Ok(body);
             }
 
-            let span = body.span();
+            // Code is always rebuilt. Inside a backquote a list is
+            // data, and one that holds nothing to capture is kept as
+            // it is. (For a lambda with parameters,
+            // `substitute_lexical` still copies it.)
+            let mut changed = quote_depth == 0;
             let mut builder = crate::cons::ListBuilder::new();
             let mut items = body.base_iter();
             for car in items.by_ref() {
-                builder.push(capture_variables_inner(
+                let walked = capture_variables_inner(
                     allocator,
                     captured_vars,
                     exclude,
-                    car,
+                    car.clone(),
                     quote_depth,
-                )?);
+                )?;
+                changed |= !walked.eq_ptr(&car);
+                builder.push(walked);
             }
             // An improper-list tail, or the error of a list that
             // loops back.
             let tail = items.tail()?;
-            if !tail.null() {
-                builder.append(capture_variables_inner(
+            let new_tail = if tail.null() {
+                tail
+            } else {
+                let walked = capture_variables_inner(
                     allocator,
                     captured_vars,
                     exclude,
-                    tail,
+                    tail.clone(),
                     quote_depth,
-                )?)?;
+                )?;
+                changed |= !walked.eq_ptr(&tail);
+                walked
+            };
+            if !changed {
+                return Ok(body);
             }
-            Ok(builder.build().with_span(span))
+            if !new_tail.null() {
+                builder.append(new_tail)?;
+            }
+            Ok(builder.build().with_span(body.span()))
+        }
+
+        // Captures in `operand`, the operand of `obj`, and gives `obj`
+        // back when nothing in it changed.
+        fn capture_operand(
+            allocator: &Shared<LexAllocator>,
+            captured_vars: &mut Vec<(TulispObject, TulispObject)>,
+            exclude: &[TulispObject],
+            obj: TulispObject,
+            operand: WrappedOperand,
+        ) -> Result<TulispObject, Error> {
+            let walked = capture_variables_inner(
+                allocator,
+                captured_vars,
+                exclude,
+                operand.value.clone(),
+                operand.depth,
+            )?;
+            if walked.eq_ptr(&operand.value) {
+                Ok(obj)
+            } else {
+                Ok(operand.rewrap(walked))
+            }
         }
 
         let body = capture_variables(&ctx.lex_allocator, &mut vec![], &param_names, body)?;

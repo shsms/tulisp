@@ -582,7 +582,7 @@ pub(crate) fn defun_lambda(
     Ok(TulispValue::Lambda { params, body }.into_ref(None))
 }
 
-/// The `X` of a `` `X ``, `,X` or `,@X` that a walker
+/// The `X` of a `` `X ``, `,X`, `,@X` or `'X` that a walker
 /// looking for variables goes into, with the backquote depth to walk
 /// it at. See [`wrapped_operand`].
 pub(crate) struct WrappedOperand {
@@ -598,14 +598,21 @@ impl WrappedOperand {
         self,
         walk: impl FnOnce(TulispObject, u32) -> Result<TulispObject, Error>,
     ) -> Result<TulispObject, Error> {
-        Ok((self.wrap)(walk(self.value, self.depth)?).into_ref(self.span))
+        let walked = walk(self.value.clone(), self.depth)?;
+        Ok(self.rewrap(walked))
+    }
+
+    /// Wraps `value` as `X` was wrapped.
+    pub(crate) fn rewrap(&self, value: TulispObject) -> TulispObject {
+        (self.wrap)(value).into_ref(self.span)
     }
 }
 
 /// The operand of `obj` that may hold variables, when `obj` is at
 /// backquote depth `depth`, 0 being code. A backquote adds a level
-/// and `,` or `,@` takes one away. `None` when `obj` wraps nothing or
-/// wraps data.
+/// and `,` or `,@` takes one away. `'X` is data in code, but inside a
+/// backquote it is part of the template, and an unquote in it still
+/// runs. `None` when `obj` wraps nothing or wraps data.
 pub(crate) fn wrapped_operand(obj: &TulispObject, depth: u32) -> Option<WrappedOperand> {
     type Wrap = fn(TulispObject) -> TulispValue;
     let inner = obj.inner_ref();
@@ -619,6 +626,9 @@ pub(crate) fn wrapped_operand(obj: &TulispObject, depth: u32) -> Option<WrappedO
         TulispValue::Splice { value } => (value, depth.saturating_sub(1), |value| {
             TulispValue::Splice { value }
         }),
+        TulispValue::Quote { value } if depth > 0 => {
+            (value, depth, |value| TulispValue::Quote { value })
+        }
         TulispValue::Quote { .. }
         | TulispValue::Sharpquote { .. }
         | TulispValue::Nil
@@ -878,9 +888,10 @@ fn substitute_lexical_inner(
             }
             builder.build().with_span(span).with_ctxobj(ctxobj)
         }
-        // `'x` is a literal symbol (e.g. an alist key), not a variable
-        // use, and rewriting it to a `LexicalBinding` would corrupt the
-        // data. `wrapped_operand` says what to walk.
+        // Outside a backquote, `'x` is a literal symbol (e.g. an alist
+        // key), not a variable use, and rewriting it to a
+        // `LexicalBinding` would corrupt the data. `wrapped_operand`
+        // says what to walk.
         _ => {
             drop(inner_ref);
             match wrapped_operand(&body, quote_depth) {
@@ -1317,6 +1328,10 @@ mod tests {
         let ctx = &mut TulispContext::new();
         // Quote inside backquote: 'a stays literal, ,b is substituted.
         eval_assert_equal(ctx, "(let ((b 42)) `('a ,b))", "'('a 42)");
+        // An unquote under a quote runs too, as in Emacs.
+        eval_assert_equal(ctx, "(let ((x 1)) `(a ',x 'x))", "'(a '1 'x)");
+        eval_assert_equal(ctx, "(let ((x 1)) `(a '(b ,x)))", "'(a '(b 1))");
+        eval_assert_equal(ctx, "(defun f (x) `(a ',x)) (f 2)", "'(a '2)");
 
         // Regression: literal symbol in a backquote alist key position
         // must NOT be rewritten even when it shares a name with a
@@ -1353,6 +1368,54 @@ mod tests {
           'ok)
         "#,
             "'ok",
+        );
+    }
+
+    #[test]
+    fn a_closure_keeps_the_variables_of_its_backquote() {
+        let ctx = &mut TulispContext::new();
+        // A variable used only under a quote in the template is still
+        // captured, as in Emacs.
+        eval_assert_equal(
+            ctx,
+            "(let ((f (let ((x 2)) (lambda () `(a ',x))))) (funcall f))",
+            "'(a '2)",
+        );
+        eval_assert_equal(
+            ctx,
+            "(defun make-quoted (x) (lambda () `(a ',x))) (funcall (make-quoted 3))",
+            "'(a '3)",
+        );
+        eval_assert_equal(
+            ctx,
+            "(defun make-both (x) (lambda () `(a ,x ',x))) (funcall (make-both 3))",
+            "'(a 3 '3)",
+        );
+        eval_assert_equal(
+            ctx,
+            "(let (fs)
+               (dolist (k '(1 2))
+                 (setq fs (cons (lambda (al) `(assq ',k ',al)) fs)))
+               (mapcar (lambda (f) (funcall f 9)) fs))",
+            "'((assq '2 '9) (assq '1 '9))",
+        );
+    }
+
+    #[test]
+    fn a_closure_keeps_a_quote_outside_a_backquote_as_data() {
+        let ctx = &mut TulispContext::new();
+        // Outside a backquote, a quote is data, so the `'g` here is the
+        // symbol, which names the function, and not the variable.
+        ctx.eval_string("(defun g () 'global)").unwrap();
+        eval_assert_equal(
+            ctx,
+            "(let ((h (let ((g 'shadow)) (lambda () (funcall 'g))))) (funcall h))",
+            "'global",
+        );
+        eval_assert_equal(
+            ctx,
+            "(defun call-g (g) (funcall 'g)) (call-g 'shadow)",
+            "'global",
         );
     }
 
