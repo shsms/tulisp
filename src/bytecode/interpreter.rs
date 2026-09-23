@@ -114,13 +114,14 @@ pub struct Machine {
     functions: HashMap<usize, CompiledDefun>, // key: fn_name.addr_as_usize()
 }
 
-/// Pops two operands and gives whether `$cmp` holds for them. `$a` is
-/// the top of the stack and `$b` the one below it. The operands are
-/// dropped before an error from `$cmp` propagates.
+/// Pops two operands and gives whether `$cmp` holds for them. `$b` is
+/// the top of the stack and `$a` the one below it, so `$a` is the
+/// first argument, evaluated first. The operands are dropped before an
+/// error from `$cmp` propagates.
 macro_rules! pop_compare {
     ($ctx:ident, |$a:ident, $b:ident| $cmp:expr) => {{
         let minus2 = $ctx.vm.stack.len() - 2;
-        let [ref $b, ref $a] = $ctx.vm.stack[minus2..] else {
+        let [ref $a, ref $b] = $ctx.vm.stack[minus2..] else {
             unreachable!()
         };
         let cmp: Result<bool, Error> = $cmp;

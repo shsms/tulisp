@@ -18,37 +18,25 @@ fn compile_fn_compare(
             "Comparison requires at least 1 argument".to_string(),
         ));
     }
-    if !keep_result {
-        // Only the side effects are wanted.
-        for arg in &args {
-            result.append(&mut compile_expr(ctx, arg)?);
-        }
-        return Ok(result);
-    }
-    if args.len() == 1 {
-        // A single-arg comparison is vacuously true (Emacs: `(> 5)`
-        // => t). Compile the arg for its side effects, then drop its
-        // value and push t.
-        result.append(&mut compile_expr(ctx, &args[0])?);
-        result.push(Instruction::Pop);
-        result.push(Instruction::Push(TulispObject::t()));
-        return Ok(result);
-    }
-    if args.len() == 2 {
-        result.append(&mut compile_expr(ctx, &args[1])?);
-        result.append(&mut compile_expr(ctx, &args[0])?);
-        result.push(instruction);
-        return Ok(result);
-    }
-    // A chain: every argument is evaluated, left to right, then one
-    // instruction compares each with the next.
     for arg in &args {
         result.append(&mut compile_expr(ctx, arg)?);
     }
-    result.push(Instruction::CompareChain {
-        comparison,
-        count: args.len(),
-    });
+    if !keep_result {
+        // Only the side effects are wanted.
+        return Ok(result);
+    }
+    match args.len() {
+        // A single-arg comparison is vacuously true (Emacs: `(> 5)`
+        // => t).
+        1 => {
+            result.push(Instruction::Pop);
+            result.push(Instruction::Push(TulispObject::t()));
+        }
+        2 => result.push(instruction),
+        // A chain: one instruction compares each argument with the
+        // next.
+        count => result.push(Instruction::CompareChain { comparison, count }),
+    }
     Ok(result)
 }
 
@@ -90,8 +78,8 @@ pub(super) fn compile_fn_eq(
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
     ctx.compile_2_arg_call(name, args, false, |ctx, arg1, arg2, _| {
-        let mut result = compile_expr(ctx, arg2)?;
-        result.append(&mut compile_expr(ctx, arg1)?);
+        let mut result = compile_expr(ctx, arg1)?;
+        result.append(&mut compile_expr(ctx, arg2)?);
         if ctx.compiler.as_ref().unwrap().keep_result {
             result.push(Instruction::Eq);
         }
@@ -105,8 +93,8 @@ pub(super) fn compile_fn_equal(
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
     ctx.compile_2_arg_call(name, args, false, |ctx, arg1, arg2, _| {
-        let mut result = compile_expr(ctx, arg2)?;
-        result.append(&mut compile_expr(ctx, arg1)?);
+        let mut result = compile_expr(ctx, arg1)?;
+        result.append(&mut compile_expr(ctx, arg2)?);
         if ctx.compiler.as_ref().unwrap().keep_result {
             result.push(Instruction::Equal);
         }
@@ -118,6 +106,37 @@ pub(super) fn compile_fn_equal(
 mod tests {
     use crate::TulispObject;
     use crate::test_utils::{eval_assert_equal, eval_assert_error, listing};
+
+    /// A context where `(p v)` returns `v` and adds it to `seen`.
+    fn ctx_with_p() -> crate::TulispContext {
+        let mut ctx = crate::TulispContext::new();
+        ctx.eval_string("(defun p (v) (setq seen (cons v seen)) v)")
+            .unwrap();
+        ctx
+    }
+
+    /// Evaluates `form` and checks both its value and the order of
+    /// the `p` calls in it.
+    #[track_caller]
+    fn assert_order(ctx: &mut crate::TulispContext, form: &str, value: &str, order: &str) {
+        let program = format!("(progn (setq seen nil) (list {form} (reverse seen)))");
+        eval_assert_equal(ctx, &program, &format!("'({value} {order})"));
+    }
+
+    // Emacs 30.1 gives the same values and orders for every form here.
+    #[test]
+    fn two_arguments_evaluate_left_to_right_as_a_value() {
+        let ctx = &mut ctx_with_p();
+        assert_order(ctx, "(< (p 1) (p 2))", "t", "(1 2)");
+        assert_order(ctx, "(> (p 1) (p 2))", "nil", "(1 2)");
+        assert_order(ctx, "(<= (p 2) (p 1))", "nil", "(2 1)");
+        assert_order(ctx, "(>= (p 2) (p 1))", "t", "(2 1)");
+        assert_order(ctx, "(eq (p 'a) (p 'b))", "nil", "(a b)");
+        assert_order(ctx, "(equal (p 1) (p 2))", "nil", "(1 2)");
+        // Only the side effects are kept.
+        assert_order(ctx, "(progn (< (p 1) (p 2)) 0)", "0", "(1 2)");
+        assert_order(ctx, "(progn (eq (p 1) (p 2)) 0)", "0", "(1 2)");
+    }
 
     #[test]
     fn test_comparison_of_numbers() {
@@ -355,8 +374,8 @@ mod tests {
         assert_eq!(
             bytecode.to_string(),
             r#"
-    push 10                                # 0
-    push 15                                # 1
+    push 15                                # 0
+    push 10                                # 1
     cgt                                    # 2"#
         );
         let output = ctx.run_bytecode(bytecode).unwrap();
@@ -448,8 +467,8 @@ mod tests {
         assert_eq!(
             bytecode.to_string(),
             r#"
-    push b                                 # 0
-    push a                                 # 1
+    push a                                 # 0
+    push b                                 # 1
     ceq                                    # 2"#
         );
         let output = ctx.run_bytecode(bytecode).unwrap();
@@ -480,8 +499,8 @@ mod tests {
             bytecode.to_string(),
             r#"
     push w                                 # 0
-    push w                                 # 1
-    store a                                # 2
+    store a                                # 1
+    push w                                 # 2
     ceq                                    # 3"#
         );
 
@@ -515,8 +534,8 @@ mod tests {
         assert_eq!(
             bytecode.to_string(),
             r#"
-    push 6                                 # 0
-    push 5                                 # 1
+    push 5                                 # 0
+    push 6                                 # 1
     equal                                  # 2"#
         );
         let output = ctx.run_bytecode(bytecode).unwrap();
@@ -546,8 +565,8 @@ mod tests {
             bytecode.to_string(),
             r#"
     push 5                                 # 0
-    push 5                                 # 1
-    store a                                # 2
+    store a                                # 1
+    push 5                                 # 2
     equal                                  # 3"#
         );
 

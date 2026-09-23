@@ -283,8 +283,8 @@ pub(super) fn compile_fn_dotimes(
         let loop_end = ctx.compiler.as_mut().unwrap().new_label();
 
         result.push(Instruction::Label(loop_start.clone()));
-        result.push(Instruction::Load(limit_bind.clone()));
         result.push(Instruction::Load(counter_bind.clone()));
+        result.push(Instruction::Load(limit_bind.clone()));
         result.push(Instruction::Lt);
         push_jump_if_nil(&mut result, Pos::Label(loop_end.clone()));
 

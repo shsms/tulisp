@@ -57,6 +57,8 @@ pub(crate) enum Cxr {
     Cddddr,
 }
 
+/// An arithmetic [`BinaryOp`](Instruction::BinaryOp). It pops two
+/// values, and the top one is its first operand.
 #[derive(Clone, Copy)]
 pub(crate) enum BinaryOp {
     Add,
@@ -114,7 +116,10 @@ pub(crate) enum Instruction {
     LoadFile,
     PrintPop,
     Print,
-    // comparison
+    // comparison: pop two values and push whether the lower one
+    // compares to the top one as named. `(< a b)` pushes `a`, then
+    // `b`, so its arguments run left to right. The fused jumps below
+    // read their operands the same way.
     Equal,
     Eq,
     Lt,
