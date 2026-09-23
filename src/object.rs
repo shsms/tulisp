@@ -605,6 +605,7 @@ impl TulispObject {
         }
         let mut builder = cons::ListBuilder::new();
         let mut val = self.clone(); // TODO: possible CoW optimization here
+        let mut cycle = cons::CycleCheck::new();
         loop {
             let (first, rest) = (val.car()?, val.cdr()?);
             let first = if !first.consp() {
@@ -620,6 +621,7 @@ impl TulispObject {
                 builder.append(rest)?;
                 break;
             }
+            cycle.step(&rest)?;
             val = rest;
         }
         Ok(builder
@@ -1023,6 +1025,16 @@ mod tests {
         let five = TulispObject::from(5);
         let err = five.convert::<Mode>(&mut ctx).unwrap_err();
         assert_eq!(err.desc(), param_err.desc());
+    }
+
+    #[test]
+    fn a_deep_copy_of_a_circular_list_is_an_error() {
+        let mut ctx = TulispContext::new();
+        let list = ctx
+            .eval_string("(let ((l (list 1 2 3))) (setcdr (cddr l) l) l)")
+            .unwrap();
+        let err = list.deep_copy().unwrap_err();
+        assert_eq!(err.to_string(), "ERR OutOfRange: Circular list");
     }
 
     #[test]

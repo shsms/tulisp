@@ -189,16 +189,7 @@ impl ListBuilder {
                     .as_list_cons()
                     .unwrap_or_else(|| Cons::new(val.clone(), TulispObject::nil()));
                 self.head.assign(TulispValue::List { cons, ctxobj: None });
-                let mut cur = self.head.clone();
-                loop {
-                    let cdr = cur.cdr()?;
-                    if !cdr.consp() {
-                        self.last_cons = Some(cur);
-                        self.tail = cdr;
-                        break;
-                    }
-                    cur = cdr;
-                }
+                self.walk_to_end(self.head.clone())?;
             }
             Some(last) => {
                 // Non-empty: mirrors `Cons::append` — set last's cdr
@@ -221,19 +212,19 @@ impl ListBuilder {
                     self.last_cons = Some(last);
                     self.tail = copy_clone;
                 } else {
-                    let mut cur = copy_clone;
-                    loop {
-                        let cdr = cur.cdr()?;
-                        if !cdr.consp() {
-                            self.last_cons = Some(cur);
-                            self.tail = cdr;
-                            break;
-                        }
-                        cur = cdr;
-                    }
+                    self.walk_to_end(copy_clone)?;
                 }
             }
         }
+        Ok(())
+    }
+
+    /// Points `last_cons` and `tail` at the end of the chain that
+    /// starts at the cons `cur`.
+    fn walk_to_end(&mut self, cur: TulispObject) -> Result<(), Error> {
+        let last = last_cons(cur)?;
+        self.tail = last.cdr()?;
+        self.last_cons = Some(last);
         Ok(())
     }
 
@@ -305,6 +296,20 @@ impl CycleCheck {
 impl Default for CycleCheck {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// The last cons of the chain that starts at the cons `cur`. A chain
+/// that loops back is an error.
+pub(crate) fn last_cons(mut cur: TulispObject) -> Result<TulispObject, Error> {
+    let mut cycle = CycleCheck::new();
+    loop {
+        let cdr = cur.cdr()?;
+        if !cdr.consp() {
+            return Ok(cur);
+        }
+        cycle.step(&cdr)?;
+        cur = cdr;
     }
 }
 
@@ -443,7 +448,8 @@ impl<T: 'static + std::convert::TryFrom<TulispObject>> Iterator for Iter<T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::TulispContext;
+    use super::ListBuilder;
+    use crate::{TulispContext, TulispObject};
 
     #[test]
     fn a_typed_iterator_ends_an_improper_list_with_its_error() {
@@ -513,5 +519,34 @@ mod tests {
         let mut iter = list.base_iter();
         assert_eq!(iter.by_ref().count(), 9);
         assert!(iter.take_error().is_ok());
+    }
+
+    fn circular(ctx: &mut TulispContext) -> TulispObject {
+        ctx.eval_string("(let ((l (list 1 2 3))) (setcdr (cddr l) l) l)")
+            .unwrap()
+    }
+
+    #[test]
+    fn a_list_builder_rejects_a_circular_list() {
+        let ctx = &mut TulispContext::new();
+        // An empty builder takes the list's first cell as its own.
+        let mut builder = ListBuilder::new();
+        let err = builder.append(circular(ctx)).unwrap_err();
+        assert_eq!(err.to_string(), "ERR OutOfRange: Circular list");
+        // A non-empty one copies the list.
+        let mut builder = ListBuilder::new();
+        builder.push(0.into());
+        let err = builder.append(circular(ctx)).unwrap_err();
+        assert_eq!(err.to_string(), "ERR OutOfRange: Circular list");
+        // A long proper list is no error.
+        let mut builder = ListBuilder::new();
+        builder.push(0.into());
+        let long = ctx
+            .eval_string(
+                "(let ((l nil) (i 0)) (while (< i 100) (setq l (cons i l)) (setq i (1+ i))) l)",
+            )
+            .unwrap();
+        builder.append(long).unwrap();
+        assert_eq!(crate::lists::length(&builder.build()).unwrap(), 101);
     }
 }
