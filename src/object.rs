@@ -383,6 +383,31 @@ impl TulispObject {
         self.as_any().ok().and_then(|any| any.downcast::<T>().ok())
     }
 
+    /// Reads this value as a `T`, through the same
+    /// [`TulispConvertible`](crate::TulispConvertible) conversion a `defun`
+    /// parameter of type `T` uses: a primitive, a `Vec`, a tuple, an
+    /// `Option`, an [`AsList!`](macro@crate::AsList) struct, an
+    /// [`AsSymbol!`](macro@crate::AsSymbol) enum or a host value.
+    ///
+    /// ```rust
+    /// # use tulisp::{Error, TulispContext};
+    /// # fn main() -> Result<(), Error> {
+    /// let mut ctx = TulispContext::new();
+    /// let pair: (i64, String) = ctx.eval_string(r#"'(1 "a")"#)?.convert(&mut ctx)?;
+    /// assert_eq!(pair, (1, "a".to_string()));
+    /// let plus = ctx.intern("+");
+    /// let sum: f64 = ctx.funcall(&plus, (1.5, 2.0))?.convert(&mut ctx)?;
+    /// assert_eq!(sum, 3.5);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn convert<T: crate::TulispConvertible>(
+        &self,
+        ctx: &mut crate::TulispContext,
+    ) -> Result<T, Error> {
+        T::from_tulisp(ctx, self)
+    }
+
     // extractors end
 
     // predicates begin
@@ -913,6 +938,52 @@ impl TulispObject {
 #[cfg(test)]
 mod tests {
     use crate::{Error, TulispContext, TulispConvertible, TulispObject};
+
+    crate::AsList! {
+        #[derive(Debug, PartialEq)]
+        struct Endpoint {
+            host: String,
+            port: i64 {= 80},
+        }
+    }
+
+    crate::AsSymbol! {
+        #[derive(Debug, PartialEq)]
+        enum Mode { Fast<"fast">, Careful<"careful"> }
+    }
+
+    #[test]
+    fn convert_reads_composite_types() {
+        let mut ctx = TulispContext::new();
+        let pair: (Mode, bool) = ctx
+            .eval_string("'(careful t)")
+            .unwrap()
+            .convert(&mut ctx)
+            .unwrap();
+        assert_eq!(pair, (Mode::Careful, true));
+        let endpoint: Endpoint = ctx
+            .eval_string(r#"'(:host "h")"#)
+            .unwrap()
+            .convert(&mut ctx)
+            .unwrap();
+        assert_eq!(
+            endpoint,
+            Endpoint {
+                host: "h".to_string(),
+                port: 80
+            }
+        );
+    }
+
+    #[test]
+    fn convert_reports_a_wrong_type_as_a_defun_parameter_would() {
+        let mut ctx = TulispContext::new();
+        ctx.defun("takes-mode", |_: Mode| ());
+        let param_err = ctx.eval_string("(takes-mode 5)").unwrap_err();
+        let five = TulispObject::from(5);
+        let err = five.convert::<Mode>(&mut ctx).unwrap_err();
+        assert_eq!(err.desc(), param_err.desc());
+    }
 
     #[test]
     fn a_vec_from_a_dotted_or_circular_list_or_an_atom_is_an_error() {

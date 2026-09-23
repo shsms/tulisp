@@ -25,13 +25,13 @@ use crate::{Error, Number, Shared, TulispAny, TulispContext, TulispObject, Tulis
 /// | `T: TulispAny`          | an opaque host value, by clone                                     |
 /// | `Shared<T>`             | an opaque host value, by reference                                 |
 ///
-/// A value already in hand, with no context around, converts through the
-/// `TryFrom` impls on [`TulispObject`] instead: `i64`, `f64`, `String`,
-/// `bool` and `Vec<T>` by value and by reference, `Number` by value only;
-/// `Option<T>` has no `TryFrom`. [`TulispObject::downcast`] recovers a
-/// host value. A defun parameter or return always goes through this
-/// trait, and for the types both cover the two paths reject the same
-/// shapes.
+/// To read a value out of an evaluation, use [`TulispObject::convert`], which
+/// goes through this trait, so every value type a `defun` parameter accepts can
+/// be read the same way. With no context around, the primitives also convert
+/// through the `TryFrom` impls on [`TulispObject`]: `i64`, `f64`, `String`,
+/// `bool` and `Vec<T>` by value and by reference, `Number` by value only. For
+/// the types both cover, `try_into()` and `convert` accept and reject the same
+/// values. [`TulispObject::downcast`] recovers a host value.
 ///
 /// # Implementing for custom types
 ///

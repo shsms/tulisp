@@ -21,7 +21,7 @@ fn run(ctx: &mut TulispContext) -> Result<(), Error> {
         (a + b).round() as i64
     });
 
-    let result: i64 = ctx.eval_string("(add-round 10.2 20.0)")?.try_into()?;
+    let result: i64 = ctx.eval_string("(add-round 10.2 20.0)")?.convert(ctx)?;
     assert_eq!(result, 30);
     Ok(())
 }
