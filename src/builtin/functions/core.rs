@@ -799,6 +799,10 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     predicate_function!(boundp);
     predicate_function!(keywordp);
     ctx.defun("atom", |arg: TulispObject| -> bool { !arg.consp() });
+    ctx.defun(
+        "functionp",
+        |ctx: &mut TulispContext, arg: TulispObject| -> bool { arg.functionp(ctx) },
+    );
     // predicates end
 
     ctx.defspecial("declare", |_ctx, _args| {
@@ -829,8 +833,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 #[cfg(test)]
 mod tests {
     use crate::TulispContext;
+    use crate::TulispObject;
     use crate::test_utils::{
-        eval_assert, eval_assert_equal, eval_assert_error, eval_assert_error_line,
+        eval_assert, eval_assert_equal, eval_assert_error, eval_assert_error_line, eval_assert_not,
     };
 
     #[test]
@@ -1096,5 +1101,39 @@ mod tests {
                      (stringp 1))"#,
             "'(t t nil nil nil)",
         );
+    }
+
+    #[test]
+    fn functionp_accepts_only_functions() {
+        let ctx = &mut TulispContext::new();
+        ctx.defun("rust-identity", |x: TulispObject| x);
+        ctx.defspecial("rust-special", |_ctx, _args| Ok(TulispObject::nil()));
+        eval_assert_equal(
+            ctx,
+            "(defun lisp-identity (x) x)
+             (defmacro lisp-macro (x) x)
+             (list (functionp 'lisp-identity) (functionp #'lisp-identity)
+                   (functionp 'rust-identity) (functionp 'car)
+                   (functionp (lambda (x) x)) (functionp '(lambda (x) x))
+                   (let ((y 1)) (functionp (lambda (x) (+ x y)))))",
+            "'(t t t t t t t)",
+        );
+        eval_assert_equal(
+            ctx,
+            r#"(list (functionp 'if) (functionp 'when) (functionp 'lisp-macro)
+                     (functionp 'rust-special) (functionp 'no-such-function)
+                     (functionp nil) (functionp t) (functionp :a)
+                     (functionp 1) (functionp "car") (functionp '(1 2)))"#,
+            "'(nil nil nil nil nil nil nil nil nil nil nil)",
+        );
+        // Binding `car` with `let` doesn't hide its function.
+        eval_assert(ctx, "(let ((car 1)) (functionp 'car))");
+        // Differs from Emacs, which gives t: `apply` and `funcall` are
+        // special forms here, so they look like `if`.
+        eval_assert_not(ctx, "(or (functionp 'apply) (functionp 'funcall))");
+        // Differs from Emacs, which gives nil: a symbol has one value
+        // slot here, shared by variables and functions, so a variable
+        // holding a function names that function.
+        eval_assert(ctx, "(setq fn-var (lambda (x) x)) (functionp 'fn-var)");
     }
 }

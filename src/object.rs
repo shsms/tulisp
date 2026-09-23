@@ -443,6 +443,31 @@ impl TulispObject {
 
     predicate_fn!(pub, null, "Returns True if `self` is `nil`.");
     predicate_fn!(pub, is_truthy, "Returns True if `self` is not `nil`.");
+
+    /// Returns True if `self` can be called like a function: a function
+    /// value, a `(lambda ...)` list, or a symbol whose value is a function
+    /// value. Special forms and macros are not functions, as in Emacs.
+    /// `apply` and `funcall` are special forms here, so this is false for
+    /// them, where Emacs says true.
+    pub fn functionp(&self, ctx: &crate::TulispContext) -> bool {
+        if self.consp() {
+            return crate::eval::is_lambda_list(ctx, self);
+        }
+        let symbol = match &self.inner_ref().0 {
+            // A symbol that names a lexical variable still names the
+            // same function: the lexical value doesn't hide it.
+            TulispValue::LexicalBinding { binding } => binding.symbol().clone(),
+            TulispValue::Symbol { .. } => self.clone(),
+            other => return other.is_function_value(),
+        };
+        // An unbound symbol names no function.
+        if !symbol.boundp() {
+            return false;
+        }
+        symbol
+            .get()
+            .is_ok_and(|value| value.inner_ref().0.is_function_value())
+    }
     // predicates end
 }
 
@@ -1111,6 +1136,19 @@ mod tests {
         .join()
         .expect("thread panicked")?;
         assert!(TulispObject::from(true).span().is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn functionp_looks_through_a_lexical_binding_to_its_symbol() -> Result<(), Error> {
+        // A symbol reaching `functionp` as a lexical binding names the
+        // function of its symbol, not its lexical value.
+        let ctx = &mut TulispContext::new();
+        let car = ctx.intern("car");
+        let lex = TulispObject::lexical_binding(ctx.lex_allocator.clone(), car);
+        lex.set_scope(TulispObject::from(1))?;
+        assert!(lex.functionp(ctx));
+        lex.unset()?;
         Ok(())
     }
 
