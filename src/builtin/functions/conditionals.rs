@@ -184,7 +184,7 @@ fn build_bindings(ctx: &mut TulispContext, bindings: &TulispObject) -> Result<Tu
 #[cfg(test)]
 mod tests {
     use crate::TulispContext;
-    use crate::test_utils::eval_assert_equal;
+    use crate::test_utils::{eval_assert_equal, eval_assert_prints_as};
 
     #[test]
     fn and_returns_nil_at_the_first_nil_argument() {
@@ -253,5 +253,98 @@ mod tests {
         eval_assert_equal(ctx, "(or (> 10 5) (< 10 20))", "t");
         eval_assert_equal(ctx, "(or (> 10 5) (> 10 20))", "t");
         eval_assert_equal(ctx, "(or (< 10 5) (> 10 20))", "nil");
+    }
+
+    // A binding spec with no variable name, like `(c)`, is bound to an
+    // uninterned `s`, so the expansions are compared by their printed
+    // form.
+
+    #[test]
+    fn if_let_binds_each_spec_in_turn() {
+        // A fresh context for each: on the VM, redefining `test` with a
+        // different arity in the same context fails with "Too few
+        // arguments".
+        eval_assert_equal(
+            &mut TulispContext::new(),
+            "(defun test (val) (if-let (a val) (+ a 10))) (test nil)",
+            "nil",
+        );
+        eval_assert_equal(
+            &mut TulispContext::new(),
+            "(defun test (val) (if-let (a val) (+ a 10))) (test 10)",
+            "20",
+        );
+        eval_assert_prints_as(
+            &mut TulispContext::new(),
+            "(macroexpand '(if-let (c) (+ c 10) 2))",
+            "'(let* ((s (and t c))) (if s (+ c 10) 2))",
+        );
+        eval_assert_equal(
+            &mut TulispContext::new(),
+            "(defun test (&optional c) (if-let (c) (+ c 10) 2)) (list (test) (test 2))",
+            "'(2 12)",
+        );
+        eval_assert_equal(
+            &mut TulispContext::new(),
+            "(defun test (&optional c) (if-let (q c) (+ q 10) 2)) (list (test) (test 2))",
+            "'(2 12)",
+        );
+        eval_assert_equal(
+            &mut TulispContext::new(),
+            "(defun test (&optional c) (if-let ((q c)) (+ q 10) 2)) (list (test) (test 2))",
+            "'(2 12)",
+        );
+        eval_assert_equal(
+            &mut TulispContext::new(),
+            "(defun test (&optional c d) (if-let ((q c) d) (+ q d 10) 2)) (list (test) (test 2) (test 2 3)) ",
+            "'(2 2 15)",
+        );
+        eval_assert_equal(
+            &mut TulispContext::new(),
+            "(defun test (&optional c d) (if-let ((q c) d (w 10)) (+ q d w) 2)) (list (test) (test 2) (test 2 3)) ",
+            "'(2 2 15)",
+        );
+    }
+
+    #[test]
+    fn when_let_expands_to_if_let_with_a_progn() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_prints_as(
+            ctx,
+            "(macroexpand '(when-let (c) (+ c 10)))",
+            "'(let* ((s (and t c))) (if s (+ c 10) nil))",
+        );
+        eval_assert_prints_as(
+            ctx,
+            "(macroexpand '(when-let (c) (+ c 10) 2))",
+            "'(let* ((s (and t c))) (if s (progn (+ c 10) 2) nil))",
+        );
+        eval_assert_prints_as(
+            ctx,
+            "(macroexpand '(when-let ((q c) d (w 10)) 2 (+ c d w)))",
+            r#"'
+        (let* ((q (and t c))
+               (d (and q d))
+               (w (and d 10)))
+          (if w
+              (progn 2 (+ c d w))
+            nil))
+        "#,
+        );
+    }
+
+    #[test]
+    fn while_let_loops_while_the_spec_binds() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_prints_as(
+            ctx,
+            "(macroexpand '(while-let (c) (+ c 10)))",
+            "'(while (let* ((s (and t c))) (if s (progn (+ c 10) t) nil)))",
+        );
+        eval_assert_equal(
+            ctx,
+            "(let ((ll '(1 2 3)) (vv 0)) (while-let (x (car ll))  (setq ll (cdr ll)) (setq vv (+ vv x))) vv)",
+            "'6",
+        );
     }
 }

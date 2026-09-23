@@ -125,6 +125,18 @@ mod test_utils {
         }
     }
 
+    /// Like `eval_assert_equal`, but compares the printed forms, for
+    /// results that hold uninterned symbols, which are `equal` only
+    /// to themselves.
+    #[track_caller]
+    pub(crate) fn eval_assert_prints_as(ctx: &mut crate::TulispContext, a: &str, b: &str) {
+        for kind in [EvalKind::Tw, EvalKind::Vm] {
+            let av = must_eval_string(ctx, kind, a).to_string();
+            let bv = must_eval_string(ctx, kind, b).to_string();
+            assert_eq!(av, bv, "[{}] {}", kind.name(), a);
+        }
+    }
+
     #[track_caller]
     pub(crate) fn eval_assert(ctx: &mut crate::TulispContext, a: &str) {
         for kind in [EvalKind::Tw, EvalKind::Vm] {
