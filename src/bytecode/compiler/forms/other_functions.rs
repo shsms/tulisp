@@ -274,7 +274,7 @@ pub(super) fn compile_fn_defun(
         // The tree-walker's lambda for this same form, which `run`
         // installs on the symbol when it loads this compiled copy. A
         // constant name, which a macro can produce, gets none.
-        if defun_name.symbolp() && !defun_name.keywordp() {
+        if defun_name.is_symbol_variant() && !defun_name.keywordp() {
             source = Some(crate::eval::defun_lambda(
                 ctx,
                 defun_name,

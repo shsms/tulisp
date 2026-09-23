@@ -202,11 +202,12 @@ fn alist_pairs_untraced(
 }
 
 /// The element of the list `value` that decides its shape: the first
-/// that is a cons (an alist) or a symbol (a plist), if any. An
-/// improper list with neither is the list walk's error.
+/// that is a cons (an alist) or a symbol other than nil or t (a
+/// plist), if any. An improper list with neither is the list walk's
+/// error.
 #[doc(hidden)]
 pub fn first_cons_or_symbol(value: &TulispObject) -> Result<Option<TulispObject>, Error> {
-    let decides = |item: &TulispObject| item.consp() || item.symbolp();
+    let decides = |item: &TulispObject| item.consp() || item.is_symbol_variant();
     let car = value.car()?;
     if decides(&car) {
         return Ok(Some(car));

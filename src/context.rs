@@ -666,7 +666,7 @@ impl TulispContext {
     /// holds now, and the resolved function otherwise.
     fn resolve_for_call(&mut self, func: &TulispObject) -> Result<TulispObject, Error> {
         let function = resolve_function(self, func)?;
-        if func.symbolp()
+        if func.is_symbol_variant()
             && let Some(compiled) = self.vm.compiled_copy(func, &function)
         {
             return Ok(TulispValue::CompiledDefun { value: compiled }.into_ref(None));

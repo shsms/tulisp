@@ -1268,6 +1268,14 @@ impl TulispValue {
     }
 
     #[inline(always)]
+    pub(crate) fn is_symbol_variant(&self) -> bool {
+        matches!(
+            self,
+            TulispValue::Symbol { .. } | TulispValue::LexicalBinding { .. }
+        )
+    }
+
+    #[inline(always)]
     pub(crate) fn as_string(&self) -> Result<String, Error> {
         match self {
             TulispValue::String { value, .. } => Ok(value.to_owned()),

@@ -53,7 +53,7 @@ pub(super) fn compile_fn_let_star(
         let mut mappings: Vec<(TulispObject, TulispObject)> = Vec::new();
         let mut varitems = varlist.base_iter();
         for varitem in varitems.by_ref() {
-            let (name, value_expr): (TulispObject, Option<TulispObject>) = if varitem.symbolp() {
+            let (name, value_expr) = if varitem.is_symbol_variant() {
                 (varitem.clone(), None)
             } else if varitem.consp() {
                 let varitem_clone = varitem.clone();
@@ -65,7 +65,7 @@ pub(super) fn compile_fn_let_star(
                     )
                     .with_trace(varitem));
                 }
-                if !name.symbolp() {
+                if !name.is_symbol_variant() {
                     return Err(Error::new(
                         ErrorKind::TypeMismatch,
                         format!("Expected Symbol: Can't assign to {}", name),

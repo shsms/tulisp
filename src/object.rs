@@ -481,6 +481,13 @@ impl TulispObject {
         self.rc.borrow().0.is_lexically_bound()
     }
 
+    /// True for any symbol but `nil` and `t`: a `Symbol` value,
+    /// keywords included, or a `LexicalBinding`.
+    #[inline(always)]
+    pub(crate) fn is_symbol_variant(&self) -> bool {
+        self.rc.borrow().0.is_symbol_variant()
+    }
+
     #[inline(always)]
     pub(crate) fn eq_ptr(&self, other: &TulispObject) -> bool {
         self.rc.ptr_eq(&other.rc)
@@ -555,7 +562,7 @@ impl TulispObject {
 
     #[doc(hidden)]
     pub fn deep_copy(&self) -> Result<TulispObject, Error> {
-        if self.symbolp() {
+        if self.is_symbol_variant() {
             return Ok(self.clone());
         }
         if !self.consp() {

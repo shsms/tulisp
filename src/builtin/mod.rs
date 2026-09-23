@@ -105,7 +105,7 @@ use crate::{Error, TulispObject};
 /// dispatch paths reject the same inputs with the same error shape,
 /// at compile time, before any value expression evaluates.
 pub(crate) fn check_settable_target(target: &TulispObject) -> Result<(), Error> {
-    if !target.symbolp() {
+    if !target.is_symbol_variant() {
         return Err(
             Error::type_mismatch(format!("Expected Symbol: Can't assign to {}", target))
                 .with_trace(target.clone()),

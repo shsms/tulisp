@@ -185,7 +185,7 @@ pub(super) fn compile_fn_dolist(
         }
         let spec = spec.clone();
         destruct_bind!((var list &optional result_expr) = spec);
-        if !var.symbolp() {
+        if !var.is_symbol_variant() {
             return Err(Error::new(
                 ErrorKind::TypeMismatch,
                 "dolist: var must be a symbol".to_string(),
@@ -259,7 +259,7 @@ pub(super) fn compile_fn_dotimes(
         }
         let spec = spec.clone();
         destruct_bind!((var count &optional result_expr) = spec);
-        if !var.symbolp() {
+        if !var.is_symbol_variant() {
             return Err(Error::new(
                 ErrorKind::TypeMismatch,
                 "dotimes: var must be a symbol".to_string(),

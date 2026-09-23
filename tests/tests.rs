@@ -3236,8 +3236,8 @@ fn test_symbol_creation() -> Result<(), Error> {
 /// car (a cond predicate, an IIFE head, a let binding init) got
 /// *evaluated* at parse time — side effects fired before the
 /// surrounding form was ever called. Now the cache is gated on
-/// `car.symbolp()`; list cars rebuild the callable at runtime
-/// instead.
+/// the car being a symbol other than nil or t; list cars rebuild
+/// the callable at runtime instead.
 /// Emacs Lisp keeps function bindings and value bindings in separate
 /// namespaces. A `(let ((f x))` introduces a *value* binding on `f`;
 /// `(funcall 'f)` resolves the *function* binding (because the

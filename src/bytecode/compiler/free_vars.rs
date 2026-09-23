@@ -118,11 +118,11 @@ fn visit_let(
     destruct_bind!((_let varlist &rest body) = form);
     let mut bound: Vec<TulispObject> = Vec::new();
     for item in varlist.base_iter() {
-        if item.symbolp() {
+        if item.is_symbol_variant() {
             bound.push(item);
         } else if item.consp() {
             let name = item.car()?;
-            if name.symbolp() {
+            if name.is_symbol_variant() {
                 bound.push(name.clone());
             }
             // The initializer expression — evaluated in the enclosing
@@ -149,7 +149,7 @@ fn visit_lambda(
     destruct_bind!((_lambda params &rest body) = form);
     let mut bound: Vec<TulispObject> = Vec::new();
     for p in params.base_iter() {
-        if p.symbolp() {
+        if p.is_symbol_variant() {
             // Skip &optional / &rest markers (they're keyword-ish
             // symbols starting with `&`; their names aren't bindings).
             let name = p.as_symbol().unwrap_or_default();
@@ -180,7 +180,7 @@ fn visit_dolist_dotimes(
         }
         let var = spec.car()?;
         let mut bound = Vec::new();
-        if var.symbolp() {
+        if var.is_symbol_variant() {
             bound.push(var);
         }
         scopes.push(bound);

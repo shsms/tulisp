@@ -305,14 +305,14 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         let mut dynamic_guard = DynamicScopeGuard { names: Vec::new() };
         let mut varitems = varlist.base_iter();
         for varitem in varitems.by_ref() {
-            let (name, initial) = if varitem.symbolp() {
+            let (name, initial) = if varitem.is_symbol_variant() {
                 (varitem, TulispObject::nil())
             } else if varitem.consp() {
                 destruct_bind!((&optional name value &rest rest) = varitem);
                 if name.null() {
                     return Err(Error::syntax_error("let varitem requires name".to_string()));
                 }
-                if !name.symbolp() {
+                if !name.is_symbol_variant() {
                     return Err(Error::type_mismatch(format!(
                         "Expected Symbol: Can't assign to {name}"
                     )));
@@ -817,7 +817,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     ctx.defspecial("defvar", |ctx, args| {
         destruct_bind!((name &optional initval _docstring) = args);
-        if !name.symbolp() {
+        if !name.is_symbol_variant() {
             return Err(Error::type_mismatch(
                 "defvar: first argument must be a symbol".to_string(),
             ));

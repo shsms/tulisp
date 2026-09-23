@@ -521,7 +521,7 @@ fn recursive_update_ctxobj(ctx: &mut TulispContext, body: &TulispObject) -> Resu
         return Ok(());
     }
     let name = body.car()?;
-    if name.symbolp() && body.ctxobj().is_none() {
+    if name.is_symbol_variant() && body.ctxobj().is_none() {
         let ctxobj = ctx.eval(&name).ok();
         body.with_ctxobj(ctxobj);
     }
@@ -656,7 +656,7 @@ impl Parser<'_, '_> {
             // surrounding form actually runs. Symbol cars are the
             // only static-resolvable case anyway; for list cars the
             // runtime path rebuilds the callable on every call.
-            if name.symbolp() {
+            if name.is_symbol_variant() {
                 let ctxobj = self.ctx.eval(&name).ok();
                 inner.with_ctxobj(ctxobj);
             }

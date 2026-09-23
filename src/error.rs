@@ -111,7 +111,7 @@ impl std::fmt::Display for Error {
             write!(f, "ERR {}: {}", self.kind, self.desc)?;
         }
         for span_obj in &self.backtrace {
-            if span_obj.numberp() || span_obj.symbolp() || span_obj.stringp() {
+            if span_obj.numberp() || span_obj.is_symbol_variant() || span_obj.stringp() {
                 continue;
             }
             let prefix = if let Some(span) = span_obj.span() {
@@ -182,7 +182,7 @@ impl Error {
             if prefix.is_empty() {
                 continue;
             }
-            if span.numberp() || span.symbolp() || span.stringp() {
+            if span.numberp() || span.is_symbol_variant() || span.stringp() {
                 continue;
             }
             let string = span.to_string().replace("\n", "\\n");

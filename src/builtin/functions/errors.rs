@@ -65,7 +65,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     // and propagate through condition-case unchanged.
     ctx.defspecial("condition-case", |ctx, args| {
         destruct_bind!((var protected_form &rest handlers) = args);
-        if !var.symbolp() && !var.null() {
+        if !var.is_symbol_variant() && !var.null() {
             return Err(Error::type_mismatch(format!(
                 "condition-case: VAR must be a symbol or nil, got: {var}"
             )));
@@ -127,12 +127,12 @@ fn error_kind_symbol(kind: &ErrorKind) -> Option<&'static str> {
 /// symbol or a list of symbols; `error` matches any non-throw kind.
 fn condition_matches(cond: &TulispObject, kind_sym: &str) -> Result<bool, Error> {
     let symbol_matches = |s: &str| s == "error" || s == kind_sym;
-    if cond.symbolp() {
+    if cond.is_symbol_variant() {
         return Ok(symbol_matches(&cond.as_symbol()?));
     }
     if cond.consp() {
         for c in cond.base_iter() {
-            if c.symbolp() && symbol_matches(&c.as_symbol()?) {
+            if c.is_symbol_variant() && symbol_matches(&c.as_symbol()?) {
                 return Ok(true);
             }
         }
