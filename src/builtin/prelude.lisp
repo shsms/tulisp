@@ -12,8 +12,13 @@
 ;;; dispatch stays inside the VM's dispatch loop, instead of each
 ;;; element bouncing out through `eval::funcall` and re-entering the
 ;;; interpreter via `bytecode::run_lambda`.
+;;;
+;;; `dolist` runs forever on a list that loops back, as in Emacs, so
+;;; the functions below that walk all of SEQ first call `length`,
+;;; which signals an error for such a list, as Emacs's `mapcar` does.
 
 (defun seq-map (func seq)
+  (length seq)
   (let ((out nil))
     (dolist (item seq)
       (setq out (cons (funcall func item) out)))
@@ -22,6 +27,7 @@
 (defun mapcar (func seq) (seq-map func seq))
 
 (defun seq-filter (func seq)
+  (length seq)
   (let ((out nil))
     (dolist (item seq)
       (when (funcall func item)
@@ -29,12 +35,14 @@
     (reverse out)))
 
 (defun seq-reduce (func seq initial)
+  (length seq)
   (let ((acc initial))
     (dolist (item seq)
       (setq acc (funcall func acc item)))
     acc))
 
 (defun seq-find (func seq &optional default)
+  (length seq)
   (let ((hit nil) (found nil))
     (dolist (item seq)
       (when (and (not found) (funcall func item))
@@ -71,6 +79,7 @@
   ;; Simple insertion sort — O(n^2), fine for typical Lisp-side use.
   ;; `pred` is called as `(pred a b)` and returns non-nil when `a`
   ;; should sort before `b`, matching Emacs' `sort` contract.
+  (length seq)
   (let ((out nil))
     (dolist (item seq)
       (let ((inserted nil) (new nil))

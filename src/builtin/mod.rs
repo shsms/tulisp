@@ -30,15 +30,19 @@ differences from Emacs are called out inline.
 
 - **Construction**: `cons`, `list`, `append`.
 - **Access**: `car`, `cdr`, every `c[ad]+r` form up to four `a`/`d`s,
-  `nth`, `nthcdr`, `last` (errors on circular lists).
+  `nth`, `nthcdr`, `last`.
 - **Modification**: `setcar`, `setcdr`.
-- **Length / membership**: `length` (also for strings; cycle-safe),
+- **Length / membership**: `length` (also for strings),
   `memq`, `memql`, `member`.
 - **Sequence operations**: `reverse`, `sort`, `mapcar`, `mapconcat`,
   `string-join`, `seq-map`, `seq-filter`, `seq-reduce`, `seq-find`,
   `seq-take`, `seq-drop`.
 - **Alists**: `assoc`, `alist-get`.
 - **Plists**: `plist-get`.
+
+A list function that must walk a whole list signals a `Circular list`
+error when the list's cdrs loop back to an earlier cell. Unlike Emacs,
+`last`, `plist-get` and `seq-drop` also do so.
 
 Tulisp has no vector type — sequence functions are list-only.
 
@@ -123,7 +127,7 @@ pub(crate) fn check_settable_target(target: &TulispObject) -> Result<(), Error> 
 #[cfg(test)]
 mod tests {
     use crate::TulispContext;
-    use crate::test_utils::{eval_assert_equal, eval_assert_error};
+    use crate::test_utils::{eval_assert_equal, eval_assert_error, eval_assert_error_line};
 
     #[test]
     fn mapcar_maps_a_list() {
@@ -177,6 +181,26 @@ mod tests {
     }
 
     #[test]
+    fn prelude_list_functions_reject_a_circular_list() {
+        let ctx = &mut TulispContext::new();
+        for call in [
+            "(mapcar '1+ l)",
+            "(seq-map '1+ l)",
+            "(seq-filter 'numberp l)",
+            "(seq-reduce '+ l 0)",
+            "(seq-find 'stringp l)",
+            "(mapconcat 'prin1-to-string l)",
+            "(sort l '<)",
+        ] {
+            eval_assert_error_line(
+                ctx,
+                &format!("(let ((l (list 1 2 3))) (setcdr (cddr l) l) {call})"),
+                "ERR OutOfRange: Circular list",
+            );
+        }
+    }
+
+    #[test]
     fn sort_orders_by_the_predicate() {
         let ctx = &mut TulispContext::new();
         eval_assert_equal(ctx, "(sort '(20 10 30 15 45) '<)", "'(10 15 20 30 45)");
@@ -195,13 +219,13 @@ mod tests {
             r#"(sort '("sort" "hello" "a" "world") '>)"#,
             &format!(
                 r#"ERR TypeMismatch: Expected number, got: "hello"
-{0}:78.35-78.55:  at (funcall pred item x)
-{0}:78.15-78.56:  at (and (not inserted) (funcall pred item x))
-{0}:78.11-82.36:  at (if (and (not inserted) (funcall pred item x)) (progn (setq new (cons item new))...
-{0}:77.9-82.37:  at (dolist (x out) (if (and (not inserted) (funcall pred item x)) (progn (setq new ...
-{0}:76.7-85.33:  at (let ((inserted nil) (new nil)) (dolist (x out) (if (and (not inserted) (funcall...
-{0}:75.5-85.34:  at (dolist (item seq) (let ((inserted nil) (new nil)) (dolist (x out) (if (and (not...
-{0}:74.3-86.8:  at (let ((out nil)) (dolist (item seq) (let ((inserted nil) (new nil)) (dolist (x o...
+{0}:87.35-87.55:  at (funcall pred item x)
+{0}:87.15-87.56:  at (and (not inserted) (funcall pred item x))
+{0}:87.11-91.36:  at (if (and (not inserted) (funcall pred item x)) (progn (setq new (cons item new))...
+{0}:86.9-91.37:  at (dolist (x out) (if (and (not inserted) (funcall pred item x)) (progn (setq new ...
+{0}:85.7-94.33:  at (let ((inserted nil) (new nil)) (dolist (x out) (if (and (not inserted) (funcall...
+{0}:84.5-94.34:  at (dolist (item seq) (let ((inserted nil) (new nil)) (dolist (x out) (if (and (not...
+{0}:83.3-95.8:  at (let ((out nil)) (dolist (item seq) (let ((inserted nil) (new nil)) (dolist (x o...
 <eval_string>:1.1-1.39:  at (sort '("sort" "hello" "a" "world") '>)
 "#,
                 prelude
@@ -225,13 +249,13 @@ mod tests {
             "(sort '(20 10 30 15 45) '<<)",
             &format!(
                 r#"ERR Uninitialized: Variable definition is void: <<
-{0}:78.35-78.55:  at (funcall pred item x)
-{0}:78.15-78.56:  at (and (not inserted) (funcall pred item x))
-{0}:78.11-82.36:  at (if (and (not inserted) (funcall pred item x)) (progn (setq new (cons item new))...
-{0}:77.9-82.37:  at (dolist (x out) (if (and (not inserted) (funcall pred item x)) (progn (setq new ...
-{0}:76.7-85.33:  at (let ((inserted nil) (new nil)) (dolist (x out) (if (and (not inserted) (funcall...
-{0}:75.5-85.34:  at (dolist (item seq) (let ((inserted nil) (new nil)) (dolist (x out) (if (and (not...
-{0}:74.3-86.8:  at (let ((out nil)) (dolist (item seq) (let ((inserted nil) (new nil)) (dolist (x o...
+{0}:87.35-87.55:  at (funcall pred item x)
+{0}:87.15-87.56:  at (and (not inserted) (funcall pred item x))
+{0}:87.11-91.36:  at (if (and (not inserted) (funcall pred item x)) (progn (setq new (cons item new))...
+{0}:86.9-91.37:  at (dolist (x out) (if (and (not inserted) (funcall pred item x)) (progn (setq new ...
+{0}:85.7-94.33:  at (let ((inserted nil) (new nil)) (dolist (x out) (if (and (not inserted) (funcall...
+{0}:84.5-94.34:  at (dolist (item seq) (let ((inserted nil) (new nil)) (dolist (x out) (if (and (not...
+{0}:83.3-95.8:  at (let ((out nil)) (dolist (item seq) (let ((inserted nil) (new nil)) (dolist (x o...
 <eval_string>:1.1-1.28:  at (sort '(20 10 30 15 45) '<<)
 "#,
                 prelude
