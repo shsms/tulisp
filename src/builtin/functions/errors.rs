@@ -65,6 +65,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 "condition-case: VAR must be a symbol, got: {var}"
             )));
         }
+        let handlers = parse_handlers(&handlers)?;
         let err = match ctx.eval(&protected_form) {
             Ok(v) => return Ok(v),
             Err(e) => e,
@@ -73,8 +74,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             Some(s) => s,
             None => return Err(err), // Throw — not caught here.
         };
-        for handler in handlers.base_iter() {
-            destruct_bind!((cond &rest body) = handler);
+        for (cond, body) in handlers {
             if !condition_matches(&cond, kind_sym)? {
                 continue;
             }
@@ -152,6 +152,34 @@ pub(crate) fn catch_throw(err: Error, tag: &TulispObject) -> Result<TulispObject
         return obj.cdr();
     }
     Err(err)
+}
+
+/// The `(condition, body-forms)` pairs of `condition-case` HANDLERS.
+/// A `nil` handler is skipped. A handler that is not a list, or whose
+/// condition is neither a symbol nor a list, is refused, as in Emacs.
+pub(crate) fn parse_handlers(
+    handlers: &TulispObject,
+) -> Result<Vec<(TulispObject, TulispObject)>, Error> {
+    let mut parsed = Vec::new();
+    let mut items = handlers.base_iter();
+    for handler in items.by_ref() {
+        if handler.null() {
+            continue;
+        }
+        let condition = if handler.consp() {
+            Some(handler.car()?)
+        } else {
+            None
+        };
+        let Some(condition) = condition.filter(|c| c.symbolp() || c.listp()) else {
+            return Err(Error::lisp_error(format!(
+                "Invalid condition handler: {handler}"
+            )));
+        };
+        parsed.push((condition, handler.cdr()?));
+    }
+    items.take_error()?;
+    Ok(parsed)
 }
 
 #[cfg(test)]
@@ -281,6 +309,36 @@ mod tests {
         );
         eval_assert_error_line(ctx, r#"(catch (error "t") 1)"#, "ERR LispError: t");
         eval_assert_equal(ctx, "(catch 'a)", "nil");
+    }
+
+    #[test]
+    fn a_malformed_condition_handler_is_refused_up_front() {
+        let ctx = &mut TulispContext::new();
+        for (form, handler) in [
+            ("(condition-case e 1 foo)", "foo"),
+            (r#"(condition-case e 1 ("s" 2))"#, r#"("s" 2)"#),
+            ("(condition-case e 1 (7 2))", "(7 2)"),
+        ] {
+            eval_assert_error_line(
+                ctx,
+                form,
+                &format!("ERR LispError: Invalid condition handler: {handler}"),
+            );
+        }
+        // A nil handler is skipped, and a list condition may hold
+        // anything, as in Emacs.
+        eval_assert_equal(ctx, "(condition-case e 1 ())", "1");
+        eval_assert_equal(
+            ctx,
+            r#"(condition-case e (error "x") ((error "s") 2))"#,
+            "2",
+        );
+        // A missing BODYFORM is an arity error.
+        eval_assert_error_line(
+            ctx,
+            "(condition-case e)",
+            "ERR ArityMismatch: Too few arguments",
+        );
     }
 
     #[test]
