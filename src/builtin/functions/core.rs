@@ -808,6 +808,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     predicate_function!(symbolp);
     predicate_function!(boundp);
     predicate_function!(keywordp);
+    ctx.defun("atom", |arg: TulispObject| -> bool { !arg.consp() });
     // predicates end
 
     ctx.defspecial("declare", |_ctx, _args| {
@@ -1018,6 +1019,35 @@ mod tests {
         );
     }
 
+    // Expected values below were checked against GNU Emacs 30.1.
+
+    #[test]
+    fn symbol_predicates() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            r#"(list (symbolp nil) (symbolp t) (symbolp :a) (symbolp 'a)
+                     (symbolp "a") (symbolp 1) (symbolp '(a)))"#,
+            "'(t t t t nil nil nil)",
+        );
+        // A predicate looks at the value of a lexical variable.
+        eval_assert_equal(
+            ctx,
+            "(let ((x 'y) (z 1)) (list (symbolp 'z) (symbolp x) (symbolp z)))",
+            "'(t t nil)",
+        );
+        eval_assert_equal(
+            ctx,
+            r#"(list (keywordp nil) (keywordp t) (keywordp :a) (keywordp 'a)
+                     (keywordp ":a") (keywordp (intern ":a")))"#,
+            "'(nil nil t nil nil t)",
+        );
+        // Differs from Emacs, which gives nil: only interned symbols
+        // are keywords there, but here any symbol whose name starts
+        // with a colon is one.
+        eval_assert(ctx, r#"(keywordp (make-symbol ":a"))"#);
+    }
+
     #[test]
     fn symbol_value_of_nil_t_and_keywords_is_themselves() {
         let ctx = &mut TulispContext::new();
@@ -1032,6 +1062,49 @@ mod tests {
             ctx,
             "(symbol-value 1)",
             "ERR TypeMismatch: symbol-value: expected a symbol, got 1",
+        );
+    }
+
+    #[test]
+    fn list_predicates() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            r#"(list (listp nil) (listp t) (listp '(1)) (listp (cons 1 2))
+                     (listp 1) (listp "a") (listp 'a) (listp '(quote a)))"#,
+            "'(t nil t t nil nil nil t)",
+        );
+        eval_assert_equal(
+            ctx,
+            r#"(list (atom nil) (atom t) (atom 1) (atom "a") (atom 'a)
+                     (atom '(1)) (atom (cons 1 2)))"#,
+            "'(t t t t t nil nil)",
+        );
+        // Differs from Emacs, where ''a is the list (quote a): the
+        // reader here keeps a nested quote as a quote value, not a
+        // cons, so it is an atom.
+        eval_assert_equal(
+            ctx,
+            "(list (consp ''a) (listp ''a) (atom ''a))",
+            "'(nil nil t)",
+        );
+    }
+
+    #[test]
+    fn number_and_string_predicates() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            r#"(list (numberp 1) (numberp 1.5) (numberp "1") (numberp nil)
+                     (integerp 1) (integerp 1.0) (integerp 'a)
+                     (floatp 1.0) (floatp 1) (floatp 1.0e+INF) (floatp 0.0e+NaN))"#,
+            "'(t t nil nil t nil nil t nil t t)",
+        );
+        eval_assert_equal(
+            ctx,
+            r#"(list (stringp "") (stringp "a") (stringp 'a) (stringp nil)
+                     (stringp 1))"#,
+            "'(t t nil nil nil)",
         );
     }
 }

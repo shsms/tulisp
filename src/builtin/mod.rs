@@ -71,7 +71,7 @@ Tail-call optimisation is applied to recursive functions automatically.
 
 # Predicates
 
-- **Types**: `consp`, `listp`, `floatp`, `integerp`, `numberp`,
+- **Types**: `atom`, `consp`, `listp`, `floatp`, `integerp`, `numberp`,
   `stringp`, `symbolp`, `keywordp`, `boundp`, `null`.
 - **Equality**: `eq`, `equal`, `eql`.
 
