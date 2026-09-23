@@ -273,8 +273,10 @@ pub(crate) fn compile_progn_keep_result(
 
 /// Compile a backquoted form at quasi-quote `depth` (1 inside the
 /// outer `\``, bumped by inner `\``, decremented by `,` / `,@`).
-/// At depth 1 unquote/splice expressions are evaluated and their
-/// values become list elements (or, for splice, multiple elements).
+/// At depth 1 unquote/splice expressions are evaluated: a `,X`
+/// element becomes the value of `X`, and a `,@X` element splices in
+/// the elements of that value. A lone `,X` or `,@X` template is the
+/// value of `X` itself.
 /// At depth > 1 they're treated as data: the inner expression is
 /// compiled at `depth - 1` and the result is wrapped back in a
 /// `Backquote` / `Unquote` / `Splice` cell with the matching `Wrap*`
@@ -310,10 +312,8 @@ fn compile_back_quote(
         }
         (TulispValue::Splice { value }, _) => {
             if depth == 1 {
-                return Err(Error::new(
-                    crate::ErrorKind::SyntaxError,
-                    "Splice must be within a backquoted list.".to_string(),
-                ));
+                // A whole template `,@x` is the value of `x`.
+                return compile_expr(ctx, value).map_err(|e| e.with_trace(value.clone()));
             }
             let mut v = compile_back_quote_operand(ctx, value, depth - 1, true)?;
             v.push(Instruction::WrapSplice);

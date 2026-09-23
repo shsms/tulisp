@@ -330,12 +330,12 @@ fn eval_back_quote(
             .into_ref(span.or(inner_span)));
         } else if let TulispValue::Splice { value } = &inner.0 {
             if depth == 1 {
+                // A whole template `,@x` is the value of `x`, shared as
+                // the last argument of `append` is.
                 let v = value.clone();
                 drop(inner);
                 return ctx
                     .eval(&v)
-                    .map_err(|e| e.with_trace(vv.clone()))?
-                    .deep_copy()
                     .map_err(|e| e.with_trace(vv.clone()))
                     .map(|val| val.with_span(v.span()));
             }
@@ -1375,6 +1375,14 @@ mod tests {
         eval_assert_equal(ctx, "(let ((y 0)) `(a ,@(setq y (list 2))) y)", "'(2)");
         eval_assert_equal(ctx, "(let ((y 0)) `(a . ,(setq y 3)) y)", "3");
         eval_assert_equal(ctx, "(defun f (y) `(,(setq y 4)) y) (f 0)", "4");
+    }
+
+    #[test]
+    fn backquote_of_a_lone_splice_is_its_value() {
+        let ctx = &mut TulispContext::new();
+        eval_assert(ctx, "(let ((x (list 1 2))) (eq `,@x x))");
+        eval_assert_equal(ctx, "`,@5", "5");
+        eval_assert_equal(ctx, "(let ((x 1)) `(a `,@,x))", "'(a `,@1)");
     }
 
     #[test]
