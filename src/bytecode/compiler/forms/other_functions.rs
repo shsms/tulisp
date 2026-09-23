@@ -399,6 +399,10 @@ pub(super) fn compile_fn_load_file(
     ctx.compile_1_arg_call(_name, args, true, |ctx, arg, _| {
         let mut result = compile_expr_keep_result(ctx, arg)?;
         result.push(Instruction::LoadFile);
+        // `LoadFile` always pushes the loaded file's value.
+        if !ctx.compiler.as_ref().unwrap().keep_result {
+            result.push(Instruction::Pop);
+        }
         Ok(result)
     })
 }
@@ -420,7 +424,16 @@ pub(super) fn compile_fn_defmacro(
 #[cfg(test)]
 mod tests {
     use crate::TulispContext;
-    use crate::test_utils::eval_assert_equal;
+    use crate::test_utils::{eval_assert_equal, listing};
+
+    #[test]
+    fn an_unused_load_drops_the_loaded_value() {
+        let ctx = &mut TulispContext::new();
+        let l = listing(ctx, r#"(load "file.lisp") 1"#);
+        assert!(l.contains("load_file") && l.contains("pop"), "{l}");
+        let l = listing(ctx, r#"(load "file.lisp")"#);
+        assert!(!l.contains("pop"), "{l}");
+    }
 
     // The symbol holds the definition the compile made from the same
     // form: a quoted `defun` later in the program does not replace it,
