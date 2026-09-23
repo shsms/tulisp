@@ -210,6 +210,14 @@ pub(crate) fn eval_defmacro(
     eval_function::<DummyEval>(ctx, params, body, args)
 }
 
+/// Whether `obj` is a `(lambda ...)` list.
+pub(crate) fn is_lambda_list(ctx: &TulispContext, obj: &TulispObject) -> bool {
+    obj.consp()
+        && obj
+            .car_and_then(|car| Ok(car.eq(&ctx.keywords.lambda)))
+            .unwrap_or(false)
+}
+
 /// Turn the evaluated first argument of `funcall` / `apply` into
 /// the function to call. A symbol resolves to the function bound to
 /// it, one lookup as in Emacs. A `(lambda ...)` list is built into a
@@ -220,9 +228,7 @@ pub(crate) fn resolve_function(
     ctx: &mut TulispContext,
     func: &TulispObject,
 ) -> Result<TulispObject, Error> {
-    let is_lambda_list =
-        func.consp() && func.car_and_then(|car| Ok(car.eq(&ctx.keywords.lambda)))?;
-    let resolved = if func.symbolp() || is_lambda_list {
+    let resolved = if func.symbolp() || is_lambda_list(ctx, func) {
         ctx.eval(func)?
     } else {
         func.clone()

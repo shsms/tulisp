@@ -228,7 +228,7 @@ pub(super) fn compile_fn_defun_call(
 ) -> Result<Vec<Instruction>, Error> {
     let mut result = vec![];
     let mut args_count = 0;
-    if name.consp() && name.car_and_then(|name| Ok(name.eq(&ctx.keywords.lambda)))? {
+    if crate::eval::is_lambda_list(ctx, name) {
         compile_fn_defun(ctx, &name.car()?, &list!(name.clone() ,@name.cdr()?)?)?;
     }
 

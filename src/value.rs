@@ -858,6 +858,17 @@ impl std::fmt::Display for TulispValue {
 }
 
 impl TulispValue {
+    /// Whether this is a function value: a `Defun`, `Lambda` or
+    /// `CompiledDefun`. Symbols and `(lambda ...)` lists are not.
+    pub(crate) fn is_function_value(&self) -> bool {
+        matches!(
+            self,
+            TulispValue::Defun { .. }
+                | TulispValue::Lambda { .. }
+                | TulispValue::CompiledDefun { .. }
+        )
+    }
+
     #[inline(always)]
     pub(crate) fn symbol(name: String, constant: bool) -> TulispValue {
         TulispValue::Symbol {

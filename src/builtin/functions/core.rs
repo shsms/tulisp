@@ -647,12 +647,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             call_args.push(TulispValue::Quote { value: arg }.into_ref(None))?;
         }
 
-        if matches!(
-            &name.inner_ref().0,
-            TulispValue::Lambda { .. }
-                | TulispValue::Defun { .. }
-                | TulispValue::CompiledDefun { .. }
-        ) {
+        if name.inner_ref().0.is_function_value() {
             crate::eval::funcall::<Eval>(ctx, &name, &call_args)
         } else {
             crate::eval::funcall::<DummyEval>(ctx, &name, &call_args)
@@ -668,12 +663,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         // list is evaluated before dispatch. Func-style defspecials
         // are the only callers that want the raw, unevaluated arg
         // list — those keep the `DummyEval` path.
-        if matches!(
-            &name.inner_ref().0,
-            TulispValue::Lambda { .. }
-                | TulispValue::Defun { .. }
-                | TulispValue::CompiledDefun { .. }
-        ) {
+        if name.inner_ref().0.is_function_value() {
             crate::eval::funcall::<Eval>(ctx, &name, &rest)
         } else {
             crate::eval::funcall::<DummyEval>(ctx, &name, &rest)
