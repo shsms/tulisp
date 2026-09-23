@@ -9,6 +9,7 @@ use crate::eval::Eval;
 use crate::eval::EvalInto;
 use crate::eval::resolve_function;
 use crate::eval::substitute_lexical;
+use crate::eval::wrapped_operand;
 use crate::object::wrappers::generic::{Shared, SharedMut};
 use crate::value::{DefunParams, LexAllocator};
 use std::convert::TryInto;
@@ -434,10 +435,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             capture_variables_inner(allocator, captured_vars, exclude, body, 0)
         }
 
-        // `quote_depth` tracks quasi-quote nesting: 0 = code context
-        // (substitute/capture vars); >0 = inside a backquote (data
-        // context — literal symbols are not var references). Unquote /
-        // splice decrement it (back to code), backquote increments.
+        // `quote_depth` is the backquote depth: 0 in code, where a
+        // symbol is a variable, and more inside a backquote, where it
+        // is data. `wrapped_operand` says how it changes.
         fn capture_variables_inner(
             allocator: &Shared<LexAllocator>,
             captured_vars: &mut Vec<(TulispObject, TulispObject)>,
@@ -456,52 +456,20 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                             capture_symbol(allocator, captured_vars, exclude, body)
                         }
                     }
-                    TulispValue::Backquote { value } => Ok(TulispValue::Backquote {
-                        value: capture_variables_inner(
-                            allocator,
-                            captured_vars,
-                            exclude,
-                            value.clone(),
-                            quote_depth + 1,
-                        )?,
-                    }
-                    .into_ref(body.span())),
-                    TulispValue::Unquote { value } => Ok(TulispValue::Unquote {
-                        value: capture_variables_inner(
-                            allocator,
-                            captured_vars,
-                            exclude,
-                            value.clone(),
-                            quote_depth.saturating_sub(1),
-                        )?,
-                    }
-                    .into_ref(body.span())),
-                    TulispValue::Splice { value } => Ok(TulispValue::Splice {
-                        value: capture_variables_inner(
-                            allocator,
-                            captured_vars,
-                            exclude,
-                            value.clone(),
-                            quote_depth.saturating_sub(1),
-                        )?,
-                    }
-                    .into_ref(body.span())),
-                    TulispValue::Sharpquote { value } if quote_depth == 0 => {
-                        Ok(TulispValue::Sharpquote {
-                            value: capture_variables_inner(
-                                allocator,
-                                captured_vars,
-                                exclude,
-                                value.clone(),
-                                quote_depth,
-                            )?,
-                        }
-                        .into_ref(body.span()))
-                    }
-                    // `Quote` is always data — don't descend.
                     _ => {
                         drop(inner_ref);
-                        Ok(body)
+                        match wrapped_operand(&body, quote_depth) {
+                            Some(operand) => operand.map(|value, depth| {
+                                capture_variables_inner(
+                                    allocator,
+                                    captured_vars,
+                                    exclude,
+                                    value,
+                                    depth,
+                                )
+                            }),
+                            None => Ok(body),
+                        }
                     }
                 };
             }

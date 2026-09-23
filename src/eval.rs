@@ -582,6 +582,69 @@ pub(crate) fn defun_lambda(
     Ok(TulispValue::Lambda { params, body }.into_ref(None))
 }
 
+/// The `X` of a `` `X ``, `,X` or `,@X` that a walker
+/// looking for variables goes into, with the backquote depth to walk
+/// it at. See [`wrapped_operand`].
+pub(crate) struct WrappedOperand {
+    pub(crate) value: TulispObject,
+    pub(crate) depth: u32,
+    wrap: fn(TulispObject) -> TulispValue,
+    span: Option<crate::object::Span>,
+}
+
+impl WrappedOperand {
+    /// Walks `X` with `walk`, and wraps the result as `X` was wrapped.
+    pub(crate) fn map(
+        self,
+        walk: impl FnOnce(TulispObject, u32) -> Result<TulispObject, Error>,
+    ) -> Result<TulispObject, Error> {
+        Ok((self.wrap)(walk(self.value, self.depth)?).into_ref(self.span))
+    }
+}
+
+/// The operand of `obj` that may hold variables, when `obj` is at
+/// backquote depth `depth`, 0 being code. A backquote adds a level
+/// and `,` or `,@` takes one away. `None` when `obj` wraps nothing or
+/// wraps data.
+pub(crate) fn wrapped_operand(obj: &TulispObject, depth: u32) -> Option<WrappedOperand> {
+    type Wrap = fn(TulispObject) -> TulispValue;
+    let inner = obj.inner_ref();
+    let (value, depth, wrap): (&TulispObject, u32, Wrap) = match &inner.0 {
+        TulispValue::Backquote { value } => {
+            (value, depth + 1, |value| TulispValue::Backquote { value })
+        }
+        TulispValue::Unquote { value } => (value, depth.saturating_sub(1), |value| {
+            TulispValue::Unquote { value }
+        }),
+        TulispValue::Splice { value } => (value, depth.saturating_sub(1), |value| {
+            TulispValue::Splice { value }
+        }),
+        TulispValue::Quote { .. }
+        | TulispValue::Sharpquote { .. }
+        | TulispValue::Nil
+        | TulispValue::T
+        | TulispValue::Symbol { .. }
+        | TulispValue::LexicalBinding { .. }
+        | TulispValue::Number { .. }
+        | TulispValue::String { .. }
+        | TulispValue::List { .. }
+        | TulispValue::Any(_)
+        | TulispValue::Func(_)
+        | TulispValue::Defun { .. }
+        | TulispValue::Macro(_)
+        | TulispValue::Defmacro { .. }
+        | TulispValue::Lambda { .. }
+        | TulispValue::CompiledDefun { .. }
+        | TulispValue::Bounce => return None,
+    };
+    Some(WrappedOperand {
+        value: value.clone(),
+        depth,
+        wrap,
+        span: obj.span(),
+    })
+}
+
 /// Walk `body` and replace each occurrence of a symbol listed in
 /// `mappings` with its mapped replacement (typically a freshly-created
 /// `LexicalBinding`). Only substitutes at code positions — literals
@@ -815,38 +878,17 @@ fn substitute_lexical_inner(
             }
             builder.build().with_span(span).with_ctxobj(ctxobj)
         }
-        TulispValue::Backquote { value } => TulispValue::Backquote {
-            value: substitute_lexical_inner(value.clone(), mappings, quote_depth + 1)?,
-        }
-        .into_ref(span),
-        TulispValue::Unquote { value } => TulispValue::Unquote {
-            value: substitute_lexical_inner(
-                value.clone(),
-                mappings,
-                quote_depth.saturating_sub(1),
-            )?,
-        }
-        .into_ref(span),
-        TulispValue::Splice { value } => TulispValue::Splice {
-            value: substitute_lexical_inner(
-                value.clone(),
-                mappings,
-                quote_depth.saturating_sub(1),
-            )?,
-        }
-        .into_ref(span),
-        TulispValue::Sharpquote { value } if quote_depth == 0 => TulispValue::Sharpquote {
-            value: substitute_lexical_inner(value.clone(), mappings, quote_depth)?,
-        }
-        .into_ref(span),
-        // `Quote` intentionally does NOT descend — `'x` is a literal
-        // symbol reference (e.g. an alist key), not a variable use.
-        // Rewriting it to a `LexicalBinding` would corrupt data
-        // literals. Inside a backquote (quote_depth > 0) Sharpquote
-        // also stays literal.
+        // `'x` is a literal symbol (e.g. an alist key), not a variable
+        // use, and rewriting it to a `LexicalBinding` would corrupt the
+        // data. `wrapped_operand` says what to walk.
         _ => {
             drop(inner_ref);
-            body
+            match wrapped_operand(&body, quote_depth) {
+                Some(operand) => {
+                    operand.map(|value, depth| substitute_lexical_inner(value, mappings, depth))?
+                }
+                None => body,
+            }
         }
     };
     Ok(res)

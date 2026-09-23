@@ -1,4 +1,4 @@
-use crate::{Error, TulispObject, TulispValue, destruct_bind};
+use crate::{Error, TulispObject, TulispValue, destruct_bind, eval::wrapped_operand};
 
 /// Classify symbol references in a lambda body.
 ///
@@ -56,22 +56,13 @@ fn visit(
                 Ok(())
             }
             TulispValue::Symbol { .. } => Ok(()),
-            TulispValue::Backquote { value } => {
-                let v = value.clone();
+            _ => {
                 drop(inner);
-                visit(&v, free, scopes, quote_depth + 1)
+                match wrapped_operand(obj, quote_depth) {
+                    Some(operand) => visit(&operand.value, free, scopes, operand.depth),
+                    None => Ok(()),
+                }
             }
-            TulispValue::Unquote { value } | TulispValue::Splice { value } => {
-                let v = value.clone();
-                drop(inner);
-                visit(&v, free, scopes, quote_depth.saturating_sub(1))
-            }
-            TulispValue::Sharpquote { value } if quote_depth == 0 => {
-                let v = value.clone();
-                drop(inner);
-                visit(&v, free, scopes, quote_depth)
-            }
-            _ => Ok(()),
         };
     }
 
