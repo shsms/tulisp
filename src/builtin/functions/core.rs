@@ -998,4 +998,21 @@ mod tests {
             "42",
         );
     }
+
+    #[test]
+    fn consp_is_true_only_for_a_cons() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(consp '(20))", "t");
+        eval_assert_equal(ctx, "(consp '20)", "nil");
+    }
+
+    #[test]
+    fn keywordp_is_true_only_for_a_keyword() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(list (keywordp :a) (keywordp ':abcd) (keywordp 'abcd) (keywordp nil))",
+            "'(t t nil nil)",
+        );
+    }
 }

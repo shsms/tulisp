@@ -822,16 +822,6 @@ fn test_lists() -> Result<(), Error> {
     }
 
     tulisp_assert! {
-        program: "(consp '(20))",
-        result: "t",
-    }
-
-    tulisp_assert! {
-        program: "(consp '20)",
-        result: "nil",
-    }
-
-    tulisp_assert! {
         program: r##"(let ((res 0)) (dolist (vv '(20 30 50 33) res) (setq res (+ res vv))))"##,
         result: "133",
     }
@@ -3265,15 +3255,6 @@ fn test_hash_table() -> Result<(), Error> {
         result: "'(nil 20)",
     }
 
-    Ok(())
-}
-
-#[test]
-fn test_predicates() -> Result<(), Error> {
-    tulisp_assert! {
-        program: "(list (keywordp :a) (keywordp ':abcd) (keywordp 'abcd) (keywordp nil))",
-        result: "'(t t nil nil)"
-    }
     Ok(())
 }
 
