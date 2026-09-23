@@ -721,9 +721,9 @@ fn walk_tail_substitute(
     Ok(builder.build().with_span(span).with_ctxobj(ctxobj))
 }
 
-/// If `name` is a binding-introducing form (lambda, let, let*),
-/// substitute the value/body positions while leaving the binder names
-/// alone, and return the rewritten form.
+/// If `name` is a binding-introducing form (lambda, let, let*,
+/// condition-case), substitute the value/body positions while leaving
+/// the binder names alone, and return the rewritten form.
 /// Returns `Ok(None)` for anything else — the caller falls back to
 /// the default element-by-element walk.
 fn substitute_binding_form(
@@ -797,6 +797,32 @@ fn substitute_binding_form(
                     .with_span(body_span)
                     .with_ctxobj(body_ctxobj),
             ))
+        }
+        // (condition-case VAR BODYFORM HANDLERS...)
+        // Leave VAR and each handler's condition alone; substitute
+        // BODYFORM and the handler bodies.
+        "condition-case" => {
+            let span = body.span();
+            let ctxobj = body.ctxobj();
+            let mut builder = crate::cons::ListBuilder::new();
+            let mut items = body.base_iter();
+            for (index, item) in items.by_ref().enumerate() {
+                let item = if index < 2 {
+                    item
+                } else if index == 2 {
+                    substitute_lexical_inner(item, mappings, quote_depth)?
+                } else if item.consp() {
+                    walk_tail_substitute(item, 1, mappings, quote_depth)?
+                } else {
+                    item
+                };
+                builder.push(item);
+            }
+            let tail = items.tail()?;
+            if !tail.null() {
+                builder.append(tail)?;
+            }
+            Ok(Some(builder.build().with_span(span).with_ctxobj(ctxobj)))
         }
         _ => Ok(None),
     }

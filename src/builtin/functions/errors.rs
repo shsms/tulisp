@@ -1,4 +1,7 @@
-use crate::{Error, ErrorKind, TulispContext, TulispObject, TulispValue, destruct_bind};
+use crate::{
+    Error, ErrorKind, TulispContext, TulispObject, TulispValue, destruct_bind,
+    eval::substitute_lexical, object::wrappers::generic::SharedMut,
+};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defun("error", |msg: String| -> Result<TulispObject, Error> {
@@ -37,72 +40,57 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     });
 
     // `(condition-case VAR PROTECTED-FORM HANDLER...)` runs
-    // PROTECTED-FORM; on error, walks HANDLERs looking for one whose
-    // CONDITION matches. Each HANDLER is `(CONDITION BODY...)` where
-    // CONDITION is either a single symbol or a list of symbols.
+    // PROTECTED-FORM; on an error, it runs the first HANDLER whose
+    // CONDITION matches. Each HANDLER is `(CONDITION BODY...)`, where
+    // CONDITION is a symbol or a list of symbols; `error` and `t` match
+    // every error. A `throw` is never caught.
     //
-    // Tulisp's `ErrorKind` flattens to one canonical symbol per
-    // variant — see `error_kind_symbol` below — and `error` matches
-    // any non-throw kind (the common catch-all). The hierarchy Emacs
-    // uses (e.g. `arith-error` ⊂ `error`) is not modeled beyond that
-    // single fallthrough; richer matching can come later if needed.
-    //
-    // VAR is dynamically bound to `(error-symbol . message)` for the
-    // handler body — same shape as Emacs (which uses
-    // `(error-symbol DATA...)`, with the data list shape varying per
-    // condition; we store the rendered message string instead). VAR
-    // can also be `nil` to skip the binding. A `t` or a keyword VAR is
-    // a constant, which a handler fails to bind. That is Tulisp's
-    // rule, as in Emacs under dynamic binding; under lexical binding,
-    // Emacs binds it.
-    //
-    // `Throw` errors aren't caught here — they're for `catch`/`throw`
-    // and propagate through condition-case unchanged.
+    // VAR holds `(error-symbol . message)` in the handler body. It is
+    // bound lexically, like a `let` variable, or dynamically when it is
+    // special. A `nil` VAR binds nothing; `t` or a keyword fails when a
+    // handler binds it.
     ctx.defspecial("condition-case", |ctx, args| {
         destruct_bind!((var protected_form &rest handlers) = args);
-        if !var.symbolp() {
-            return Err(Error::type_mismatch(format!(
-                "condition-case: VAR must be a symbol, got: {var}"
-            )));
-        }
+        check_condition_case_var(&var)?;
         let handlers = parse_handlers(&handlers)?;
         let err = match ctx.eval(&protected_form) {
-            Ok(v) => return Ok(v),
-            Err(e) => e,
+            Ok(value) => return Ok(value),
+            Err(err) => err,
         };
-        let kind_sym = match error_kind_symbol(err.kind_ref()) {
-            Some(s) => s,
-            None => return Err(err), // Throw — not caught here.
+        let Some(kind_sym) = error_symbol(&err) else {
+            return Err(err);
         };
-        for (cond, body) in handlers {
-            if !condition_matches(&cond, kind_sym)? {
+        for (condition, body) in handlers {
+            if !condition_matches(&condition, kind_sym)? {
                 continue;
             }
-            // Bind VAR for the handler body. Use `set_scope` so any
-            // existing binding stacks; `unset` on the way out
-            // restores it. Match Emacs' "VAR is dynamic-bound for
-            // the handler" semantics.
-            let bind_var = !var.null();
-            if bind_var {
-                let err_data =
-                    TulispObject::cons(ctx.intern(kind_sym), TulispObject::from(err.desc()));
-                var.set_scope(err_data)?;
+            if var.null() {
+                return ctx.eval_progn(&body);
             }
-            let result = ctx.eval_progn(&body);
-            if bind_var {
+            crate::builtin::check_settable_target(&var)?;
+            let data = error_data(ctx, kind_sym, &err);
+            if var.is_special() {
+                var.set_scope(data)?;
+                let result = ctx.eval_progn(&body);
                 let _ = var.unset();
+                return result;
             }
-            return result;
+            let lex = TulispObject::lexical_binding_captured(
+                ctx.lex_allocator.clone(),
+                var.clone(),
+                SharedMut::new(data),
+            );
+            let body = substitute_lexical(body, &[(var.clone(), lex)])?;
+            return ctx.eval_progn(&body);
         }
         Err(err)
     });
 }
 
-/// Map `ErrorKind` to the canonical Emacs error symbol. Returns
-/// `None` for `Throw`, which `condition-case` deliberately doesn't
-/// catch — those route to `catch`/`throw`.
-fn error_kind_symbol(kind: &ErrorKind) -> Option<&'static str> {
-    Some(match kind {
+/// The Emacs error symbol `condition-case` matches ERR against, or
+/// `None` for a `throw`, which `condition-case` never catches.
+pub(crate) fn error_symbol(err: &Error) -> Option<&'static str> {
+    Some(match err.kind_ref() {
         ErrorKind::TypeMismatch | ErrorKind::InvalidArgument => "wrong-type-argument",
         ErrorKind::OutOfRange => "args-out-of-range",
         ErrorKind::ArithError => "arith-error",
@@ -121,7 +109,7 @@ fn error_kind_symbol(kind: &ErrorKind) -> Option<&'static str> {
 /// Does CONDITION match `kind_sym`? CONDITION is either a single
 /// symbol or a list of symbols; `error` or `t` matches any non-throw
 /// kind.
-fn condition_matches(cond: &TulispObject, kind_sym: &str) -> Result<bool, Error> {
+pub(crate) fn condition_matches(cond: &TulispObject, kind_sym: &str) -> Result<bool, Error> {
     let matches_one = |c: &TulispObject| -> Result<bool, Error> {
         if matches!(c.inner_ref().0, TulispValue::T) {
             return Ok(true);
@@ -152,6 +140,21 @@ pub(crate) fn catch_throw(err: Error, tag: &TulispObject) -> Result<TulispObject
         return obj.cdr();
     }
     Err(err)
+}
+
+/// Refuses a `condition-case` VAR that is not a symbol.
+pub(crate) fn check_condition_case_var(var: &TulispObject) -> Result<(), Error> {
+    if !var.symbolp() {
+        return Err(Error::type_mismatch(format!(
+            "condition-case: VAR must be a symbol, got: {var}"
+        )));
+    }
+    Ok(())
+}
+
+/// The value a handler's VAR holds: `(error-symbol . message)`.
+pub(crate) fn error_data(ctx: &mut TulispContext, kind_sym: &str, err: &Error) -> TulispObject {
+    TulispObject::cons(ctx.intern(kind_sym), TulispObject::from(err.desc()))
 }
 
 /// The `(condition, body-forms)` pairs of `condition-case` HANDLERS.
@@ -309,6 +312,60 @@ mod tests {
         );
         eval_assert_error_line(ctx, r#"(catch (error "t") 1)"#, "ERR LispError: t");
         eval_assert_equal(ctx, "(catch 'a)", "nil");
+    }
+
+    #[test]
+    fn condition_case_binds_its_variable_lexically() {
+        let ctx = &mut TulispContext::new();
+        // An outer variable of the same name keeps its value.
+        eval_assert_equal(
+            ctx,
+            r#"(let ((e 5)) (list (condition-case e (error "a") (error (setq e 9) e)) e))"#,
+            "'(9 5)",
+        );
+        eval_assert_equal(
+            ctx,
+            r#"(defun cc-param (e)
+                 (list (condition-case e (error "a") (error (setq e 9) e)) e))
+               (cc-param 5)"#,
+            "'(9 5)",
+        );
+        eval_assert_equal(
+            ctx,
+            r#"(let* ((e 5)) (list (condition-case e (error "a") (error (setq e 9) e)) e))"#,
+            "'(9 5)",
+        );
+        eval_assert_equal(
+            ctx,
+            r#"(funcall (lambda (e) (list (condition-case e (error "a") (error (setq e 9) e)) e)) 5)"#,
+            "'(9 5)",
+        );
+        // A closure made in a handler keeps the variable.
+        eval_assert_equal(
+            ctx,
+            r#"(funcall (condition-case e (error "boom") (error (lambda () e))))"#,
+            r#"'(error . "boom")"#,
+        );
+        // A function the handler calls does not see it.
+        eval_assert_error_line(
+            ctx,
+            r#"(defun cc-reads-e () e)
+               (condition-case e (error "a") (error (cc-reads-e)))"#,
+            "ERR Uninitialized: Variable definition is void: e",
+        );
+    }
+
+    #[test]
+    fn a_special_condition_case_variable_is_bound_dynamically() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            r#"(defvar cc-special 1)
+               (defun cc-read () cc-special)
+               (list (condition-case cc-special (error "a") (error (cc-read)))
+                     cc-special)"#,
+            r#"'((error . "a") 1)"#,
+        );
     }
 
     #[test]
