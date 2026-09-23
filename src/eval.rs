@@ -1179,6 +1179,17 @@ mod tests {
             "(let ((x (list 1 2))) (format \"%S\" `(a . ,@x)))",
             "\"(a . ,@x)\"",
         );
+        // A quote or a backquote in the dotted tail is walked like the
+        // rest of the template. Emacs reads `(a . '(b ,x))` as
+        // `(a quote (b ,x))`; here the tail stays one quote value.
+        eval_assert_equal(ctx, "(let ((x 1)) `(a . '(b ,x)))", "'(a . '(b 1))");
+        eval_assert_equal(ctx, "(let ((x 1)) `(a . ',x))", "'(a . '1)");
+        eval_assert_equal(ctx, "(let ((x 1)) `(a . `(b ,,x)))", "'(a . `(b ,1))");
+        eval_assert_equal(
+            ctx,
+            "(let ((x 1)) `(a `(b . `(c ,,,x ,,x))))",
+            "'(a `(b . `(c ,,1 ,,x)))",
+        );
         // A dotted unquote shares the value as the tail, as in Emacs,
         // so it may loop.
         eval_assert(
@@ -1398,6 +1409,11 @@ mod tests {
                  (setq fs (cons (lambda (al) `(assq ',k ',al)) fs)))
                (mapcar (lambda (f) (funcall f 9)) fs))",
             "'((assq '2 '9) (assq '1 '9))",
+        );
+        eval_assert_equal(
+            ctx,
+            "(let ((f (let ((x 3)) (lambda () `(a . '(b ,x)))))) (funcall f))",
+            "'(a . '(b 3))",
         );
     }
 

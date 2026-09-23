@@ -382,15 +382,12 @@ fn compile_back_quote(
             pieces += 1;
         }
     } else {
-        if let (TulispValue::Unquote { value }, _) = &*rest.inner_ref() {
-            if depth == 1 {
-                result.append(&mut compile_expr(ctx, value)?);
-            } else {
-                result.append(&mut compile_back_quote(ctx, value, depth - 1)?);
-                result.push(Instruction::WrapUnquote);
-            }
-        } else {
+        if depth == 1 && matches!(&*rest.inner_ref(), (TulispValue::Splice { .. }, _)) {
+            // A `,@` in the dotted tail, `(a . ,@x)`, splices nothing
+            // and stays as data.
             result.push(Instruction::Push(rest.clone()));
+        } else {
+            result.append(&mut compile_back_quote(ctx, &rest, depth)?);
         }
         // Cons each element since the last splice onto the tail.
         result.extend(std::iter::repeat_n(Instruction::Cons, items));
