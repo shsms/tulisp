@@ -458,7 +458,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                     }
                     _ => {
                         drop(inner_ref);
-                        match wrapped_operand(&body, quote_depth) {
+                        match wrapped_operand(&body, quote_depth, false) {
                             Some(operand) => {
                                 capture_operand(allocator, captured_vars, exclude, body, operand)
                             }
@@ -502,13 +502,18 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             let new_tail = if tail.null() {
                 tail
             } else {
-                let walked = capture_variables_inner(
-                    allocator,
-                    captured_vars,
-                    exclude,
-                    tail.clone(),
-                    quote_depth,
-                )?;
+                let walked = match wrapped_operand(&tail, quote_depth, true) {
+                    Some(operand) => {
+                        capture_operand(allocator, captured_vars, exclude, tail.clone(), operand)?
+                    }
+                    None => capture_variables_inner(
+                        allocator,
+                        captured_vars,
+                        exclude,
+                        tail.clone(),
+                        quote_depth,
+                    )?,
+                };
                 changed |= !walked.eq_ptr(&tail);
                 walked
             };

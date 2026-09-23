@@ -296,7 +296,10 @@ pub(crate) fn eval_form<E: Evaluator>(
 /// the outer `\`X` enters at depth 1, each inner `\`Y` bumps it,
 /// and each `,Z` / `,@Z` decrements. An unquote/splice only
 /// triggers evaluation when `depth == 1`; at deeper levels it is
-/// preserved as data with its content walked at `depth - 1`.
+/// preserved as data with its content walked at `depth - 1`. A `,@Z`
+/// in a dotted tail, `(a . ,@Z)`, is data at every depth, because
+/// Emacs reads it as `(a \,@ Z)`: it stays, and `Z` is walked at the
+/// depth of the list.
 /// Matches Emacs' nested-backquote semantics: `\`(a \`(b ,,x ,y) c)`
 /// with `x = 1` evaluates `,,x` at the outer level (depth 1 after
 /// two commas) and leaves the single-comma `,y` for the inner
@@ -428,11 +431,13 @@ fn eval_back_quote(
             let walked = eval_back_quote_operand(ctx, value, depth - 1, true)?;
             Some(TulispValue::Unquote { value: walked }.into_ref(rest.span().or(inner_span)))
         }
-    } else if depth == 1 && matches!(&rest.inner_ref().0, TulispValue::Splice { .. }) {
-        // A `,@` in the dotted tail, `(a . ,@x)`, splices nothing and
-        // stays as data, as in the VM. Emacs reads it as `(a \,@ x)`,
-        // a list with the `\,@` symbol in it, and does the same.
-        Some(rest.clone())
+    } else if let TulispValue::Splice { value } = &rest.inner_ref().0 {
+        // Emacs reads `(a . ,@x)` as `(a \,@ x)`, a list with the `\,@`
+        // symbol in it. So the `,@` splices nothing and stays, and `x`
+        // is walked at the same depth as `a`.
+        let inner_span = value.span();
+        let walked = eval_back_quote_operand(ctx, value, depth, true)?;
+        Some(TulispValue::Splice { value: walked }.into_ref(rest.span().or(inner_span)))
     } else {
         Some(eval_back_quote(ctx, rest.clone(), depth)?)
     };
@@ -639,7 +644,15 @@ impl WrappedOperand {
 /// and `,` or `,@` takes one away. `'X` is data in code, but inside a
 /// backquote it is part of the template, and an unquote in it still
 /// runs. `None` when `obj` wraps nothing or wraps data.
-pub(crate) fn wrapped_operand(obj: &TulispObject, depth: u32) -> Option<WrappedOperand> {
+///
+/// `in_tail` is for the dotted tail of a list. Emacs reads
+/// `(a . ,@X)` as `(a \,@ X)`, so inside a backquote that `X` is at
+/// the depth of `a`.
+pub(crate) fn wrapped_operand(
+    obj: &TulispObject,
+    depth: u32,
+    in_tail: bool,
+) -> Option<WrappedOperand> {
     type Wrap = fn(TulispObject) -> TulispValue;
     let inner = obj.inner_ref();
     let (value, depth, wrap): (&TulispObject, u32, Wrap) = match &inner.0 {
@@ -649,6 +662,9 @@ pub(crate) fn wrapped_operand(obj: &TulispObject, depth: u32) -> Option<WrappedO
         TulispValue::Unquote { value } => (value, depth.saturating_sub(1), |value| {
             TulispValue::Unquote { value }
         }),
+        TulispValue::Splice { value } if in_tail && depth > 0 => {
+            (value, depth, |value| TulispValue::Splice { value })
+        }
         TulispValue::Splice { value } => (value, depth.saturating_sub(1), |value| {
             TulispValue::Splice { value }
         }),
@@ -910,7 +926,12 @@ fn substitute_lexical_inner(
             }
             let tail = items.tail()?;
             if !tail.null() {
-                builder.append(substitute_lexical_inner(tail, mappings, quote_depth)?)?;
+                let new_tail = match wrapped_operand(&tail, quote_depth, true) {
+                    Some(operand) => operand
+                        .map(|value, depth| substitute_lexical_inner(value, mappings, depth))?,
+                    None => substitute_lexical_inner(tail, mappings, quote_depth)?,
+                };
+                builder.append(new_tail)?;
             }
             builder.build().with_span(span).with_ctxobj(ctxobj)
         }
@@ -920,7 +941,7 @@ fn substitute_lexical_inner(
         // says what to walk.
         _ => {
             drop(inner_ref);
-            match wrapped_operand(&body, quote_depth) {
+            match wrapped_operand(&body, quote_depth, false) {
                 Some(operand) => {
                     operand.map(|value, depth| substitute_lexical_inner(value, mappings, depth))?
                 }
@@ -1256,6 +1277,23 @@ mod tests {
             "(let ((x (list 1 2))) (format \"%S\" `(a . ,@x)))",
             "\"(a . ,@x)\"",
         );
+        // What follows it is walked at the same depth as `a`: Emacs
+        // gives `(a \,@ 1)` for the first, where the tail here is one
+        // splice value, `,@1`, that prints as `(a . ,@1)`.
+        eval_assert_equal(ctx, "(let ((x 1)) `(a . ,@,x))", "'(a . ,@1)");
+        // The splice of an empty list keeps its `,@`, as Emacs's
+        // `(\,@)` does.
+        eval_assert_equal(ctx, "`(a . ,@,@nil)", "'(a . ,@nil)");
+        eval_assert_equal(ctx, "(let ((x 1)) `(a . ,@(b ,x)))", "'(a . ,@(b 1))");
+        // The inner `,b` belongs to the inner backquote, not the `let`.
+        eval_assert_equal(
+            ctx,
+            "(setq b 7) (let ((r (let ((b 1)) `(a `(c . ,@(d ,b)))))) (eval (cadr r)))",
+            "'(c . ,@(d 7))",
+        );
+        eval_assert_equal(ctx, "(let ((x 1)) `(a `(b . ,@,x)))", "'(a `(b . ,@,x))");
+        eval_assert_equal(ctx, "(let ((x 1)) `(a `(b . ,@,,x)))", "'(a `(b . ,@,1))");
+        eval_assert_equal(ctx, "(let ((x (list 'y))) `(a . ,@,@x))", "'(a . ,@y)");
         // A quote or a backquote in the dotted tail is walked like the
         // rest of the template. Emacs reads `(a . '(b ,x))` as
         // `(a quote (b ,x))`; here the tail stays one quote value.
@@ -1491,6 +1529,13 @@ mod tests {
             ctx,
             "(let ((f (let ((x 3)) (lambda () `(a . '(b ,x)))))) (funcall f))",
             "'(a . '(b 3))",
+        );
+        // Emacs gives `(a \,@ (let ((x 1)) 3))`, where the tail here is
+        // one splice value.
+        eval_assert_equal(
+            ctx,
+            "(let ((f (let ((x 3)) (lambda () `(a . ,@(let ((x 1)) ,x)))))) (funcall f))",
+            "'(a . ,@(let ((x 1)) 3))",
         );
     }
 

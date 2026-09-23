@@ -250,7 +250,8 @@ pub(crate) enum Instruction {
     /// the outer level.
     WrapUnquote,
     /// Pop one value and push it wrapped in `TulispValue::Splice`.
-    /// Same as `WrapUnquote` but for `,@X` at quasi-quote depth ≥ 2.
+    /// Same as `WrapUnquote` but for `,@X` at quasi-quote depth ≥ 2,
+    /// and for a `,@X` in a dotted tail at any depth.
     WrapSplice,
     /// Pop a list of one element and push that element, or with
     /// `empty_is_nil`, pop an empty list and push nil. Emitted before

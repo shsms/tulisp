@@ -58,7 +58,7 @@ fn visit(
             TulispValue::Symbol { .. } => Ok(()),
             _ => {
                 drop(inner);
-                match wrapped_operand(obj, quote_depth) {
+                match wrapped_operand(obj, quote_depth, false) {
                     Some(operand) => visit(&operand.value, free, scopes, operand.depth),
                     None => Ok(()),
                 }
@@ -96,7 +96,11 @@ fn visit(
     for item in items.by_ref() {
         visit(&item, free, scopes, quote_depth)?;
     }
-    visit(&items.tail()?, free, scopes, quote_depth)
+    let tail = items.tail()?;
+    match wrapped_operand(&tail, quote_depth, true) {
+        Some(operand) => visit(&operand.value, free, scopes, operand.depth),
+        None => visit(&tail, free, scopes, quote_depth),
+    }
 }
 
 fn visit_let(

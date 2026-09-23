@@ -278,7 +278,10 @@ pub(crate) fn compile_progn_keep_result(
 /// At depth > 1 they're treated as data: the inner expression is
 /// compiled at `depth - 1` and the result is wrapped back in a
 /// `Backquote` / `Unquote` / `Splice` cell with the matching `Wrap*`
-/// instruction. This native compilation matches Emacs' nested
+/// instruction. A `,@X` in a dotted tail, `(a . ,@X)`, is data at
+/// every depth, because Emacs reads it as `(a \,@ X)`: it stays, and
+/// `X` is compiled at the depth of the list.
+/// This native compilation matches Emacs' nested
 /// backquote semantics — `\`(a \`(b ,,x ,y) c)` with `x = 1`
 /// produces `(a \`(b ,1 ,y) c)` — without falling back to a TW
 /// runtime helper that would re-borrow `ctx.vm` on `CompiledDefun`
@@ -392,10 +395,11 @@ fn compile_back_quote(
             pieces += 1;
         }
     } else {
-        if depth == 1 && matches!(&*rest.inner_ref(), (TulispValue::Splice { .. }, _)) {
+        if let (TulispValue::Splice { value }, _) = &*rest.inner_ref() {
             // A `,@` in the dotted tail, `(a . ,@x)`, splices nothing
-            // and stays as data.
-            result.push(Instruction::Push(rest.clone()));
+            // and stays, and `x` is walked at the same depth as `a`.
+            result.append(&mut compile_back_quote_operand(ctx, value, depth, true)?);
+            result.push(Instruction::WrapSplice);
         } else {
             result.append(&mut compile_back_quote(ctx, &rest, depth)?);
         }
