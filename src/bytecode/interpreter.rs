@@ -206,6 +206,13 @@ impl<'a> RunGuard<'a> {
     /// This run's value, or nil when it left none above the caller's
     /// stack.
     fn take_value(&mut self) -> TulispObject {
+        // A run leaves at most its own value; anything more is a value
+        // some instruction failed to pop.
+        debug_assert!(
+            self.ctx.vm.stack.len() <= self.stack_base + 1,
+            "a run left {} values",
+            self.ctx.vm.stack.len() - self.stack_base
+        );
         if self.ctx.vm.stack.len() > self.stack_base {
             self.ctx.vm.stack.pop().unwrap_or_else(TulispObject::nil)
         } else {
