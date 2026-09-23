@@ -1,6 +1,6 @@
 use super::{
-    Instruction, LambdaTemplate, bytecode::Bytecode, bytecode::CompiledDefun, bytecode::TraceRange,
-    compiler::VMDefunParams,
+    Block, Instruction, LambdaTemplate, bytecode::Bytecode, bytecode::CompiledDefun,
+    bytecode::TraceRange, compiler::VMDefunParams,
 };
 use crate::{
     Error, Number, TulispContext, TulispObject, TulispValue, bytecode::Pos,
@@ -282,6 +282,31 @@ pub(crate) fn run_lambda(
     // The body ended in `Ret` with exactly its value on the stack.
     debug_assert_eq!(guard.ctx.vm.stack.len(), guard.stack_base + 1);
 
+    Ok(guard.take_value())
+}
+
+/// Runs BLOCK and returns its value. ARG, if given, is pushed first for
+/// the block's first instruction to take. On an error the stack is cut
+/// back to where it was, and the block's scope guard undoes its
+/// bindings.
+pub(crate) fn run_block(
+    ctx: &mut TulispContext,
+    block: &Block,
+    arg: Option<TulispObject>,
+) -> Result<TulispObject, Error> {
+    debug_assert_eq!(block.takes_arg, arg.is_some(), "a block's argument");
+    let mut guard = RunGuard::new(ctx);
+    guard.ctx.vm.stack.extend(arg);
+    let tail = run_impl(
+        guard.ctx,
+        &block.instructions,
+        block.trace_ranges.as_slice(),
+    )?;
+    if tail.is_some() {
+        return Err(Error::lisp_error(
+            "internal: tail call inside a protected body",
+        ));
+    }
     Ok(guard.take_value())
 }
 
@@ -632,6 +657,16 @@ fn run_impl_inner(
             Instruction::MakeLambda(template) => {
                 let closure = make_lambda_from_template(ctx, template)?;
                 ctx.vm.stack.push(closure);
+            }
+            Instruction::Catch { body } => {
+                let tag = ctx.vm.stack.pop().unwrap();
+                // Release the program: a recursive function re-enters it.
+                let body = body.clone();
+                drop(instr_ref);
+                let result = run_block(ctx, &body, None)
+                    .or_else(|err| crate::builtin::functions::errors::catch_throw(err, &tag));
+                instr_ref = program.borrow_mut();
+                ctx.vm.stack.push(result?);
             }
             Instruction::Funcall { args_count } => {
                 let args_count = *args_count;
@@ -997,10 +1032,7 @@ fn make_lambda_from_template(
         }
     };
 
-    let mut instructions = template.instructions.clone();
-    for insn in instructions.iter_mut() {
-        rewrite_instruction(insn, &mapping, &rewrite)?;
-    }
+    let instructions = rewrite_instructions(&template.instructions, &mapping, &rewrite)?;
 
     let rewrite_obj = |obj: &TulispObject| -> TulispObject {
         mapping
@@ -1060,9 +1092,43 @@ fn rewrite_instruction(
             let rebuilt = rewrite_template(template, mapping)?;
             *template = crate::object::wrappers::generic::Shared::new(rebuilt);
         }
-        _ => {}
+        Instruction::Catch { body } => *body = rewrite_block(body, mapping, rewrite)?,
+        _ => debug_assert!(!insn.holds_blocks(), "a block {insn} holds is not rewritten"),
     }
     Ok(())
+}
+
+/// A copy of BLOCK with the closure's bindings swapped in. The block's
+/// handles are shared with the template, so it is copied, never edited
+/// in place: an in-place edit would give every later closure the first
+/// closure's bindings.
+fn rewrite_block(
+    block: &Block,
+    mapping: &HashMap<usize, TulispObject>,
+    rewrite: &impl Fn(&mut TulispObject),
+) -> Result<Block, Error> {
+    Ok(Block {
+        instructions: SharedMut::new(rewrite_instructions(
+            &block.instructions.borrow(),
+            mapping,
+            rewrite,
+        )?),
+        trace_ranges: block.trace_ranges.clone(),
+        takes_arg: block.takes_arg,
+    })
+}
+
+/// A copy of INSTRUCTIONS with the closure's bindings swapped in.
+fn rewrite_instructions(
+    instructions: &[Instruction],
+    mapping: &HashMap<usize, TulispObject>,
+    rewrite: &impl Fn(&mut TulispObject),
+) -> Result<Vec<Instruction>, Error> {
+    let mut rewritten = instructions.to_vec();
+    for insn in rewritten.iter_mut() {
+        rewrite_instruction(insn, mapping, rewrite)?;
+    }
+    Ok(rewritten)
 }
 
 /// Quick check: does `obj` or any cons-cell descendant reference a
@@ -1142,10 +1208,7 @@ fn rewrite_template(
         })
         .collect();
 
-    let mut new_instructions = template.instructions.clone();
-    for insn in new_instructions.iter_mut() {
-        rewrite_instruction(insn, mapping, &rewrite)?;
-    }
+    let new_instructions = rewrite_instructions(&template.instructions, mapping, &rewrite)?;
 
     Ok(LambdaTemplate {
         instructions: new_instructions,

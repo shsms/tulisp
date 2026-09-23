@@ -3,6 +3,7 @@ use crate::{
     object::wrappers::{DefunFn, TulispFn, generic::Shared},
 };
 
+use super::block::Block;
 use super::bytecode::CompiledDefun;
 use super::lambda_template::LambdaTemplate;
 
@@ -203,6 +204,11 @@ pub(crate) enum Instruction {
     /// bindings, and push the resulting closure (as a
     /// `TulispValue::CompiledDefun`) on the stack.
     MakeLambda(Shared<LambdaTemplate>),
+    /// `(catch TAG BODY...)`: pops the tag, runs BODY, and pushes its
+    /// value, or the value of a `throw` to the tag.
+    Catch {
+        body: Block,
+    },
     /// Inline `(funcall fn arg1 …)` dispatch. The function value is
     /// pushed first, then each arg, in source order (so at execution
     /// the top of stack is the last arg, `args_count + 1` below it is
@@ -289,6 +295,84 @@ macro_rules! jump_pos {
 }
 
 impl Instruction {
+    /// Whether this instruction runs blocks. Every variant is named, so
+    /// a new one must say.
+    pub(crate) fn holds_blocks(&self) -> bool {
+        match self {
+            Instruction::Catch { .. } => true,
+            Instruction::Push(..)
+            | Instruction::Pop
+            | Instruction::Set
+            | Instruction::SetPop
+            | Instruction::StorePop(..)
+            | Instruction::Store(..)
+            | Instruction::Load(..)
+            | Instruction::BeginScope(..)
+            | Instruction::EndScope(..)
+            | Instruction::BinaryOp(..)
+            | Instruction::LoadFile
+            | Instruction::PrintPop
+            | Instruction::Print
+            | Instruction::Equal
+            | Instruction::Eq
+            | Instruction::Lt
+            | Instruction::LtEq
+            | Instruction::Gt
+            | Instruction::GtEq
+            | Instruction::Null
+            | Instruction::JumpIfNil(..)
+            | Instruction::JumpIfNotNil(..)
+            | Instruction::JumpIfNilElsePop(..)
+            | Instruction::JumpIfNotNilElsePop(..)
+            | Instruction::JumpIfNeq(..)
+            | Instruction::JumpIfEq(..)
+            | Instruction::JumpIfEqual(..)
+            | Instruction::JumpIfNotEqual(..)
+            | Instruction::JumpIfLt(..)
+            | Instruction::JumpIfLtEq(..)
+            | Instruction::JumpIfGt(..)
+            | Instruction::JumpIfGtEq(..)
+            | Instruction::JumpIfNotLt(..)
+            | Instruction::JumpIfNotLtEq(..)
+            | Instruction::JumpIfNotGt(..)
+            | Instruction::JumpIfNotGtEq(..)
+            | Instruction::Jump(..)
+            | Instruction::CompareChain { .. }
+            | Instruction::Label(..)
+            | Instruction::RustCall { .. }
+            | Instruction::RustCallTyped { .. }
+            | Instruction::Call { .. }
+            | Instruction::TailCall { .. }
+            | Instruction::MakeLambda(..)
+            | Instruction::Funcall { .. }
+            | Instruction::Apply { .. }
+            | Instruction::Ret
+            | Instruction::PushTrace(..)
+            | Instruction::PopTrace
+            | Instruction::Cons
+            | Instruction::List(..)
+            | Instruction::Append(..)
+            | Instruction::Cxr(..)
+            | Instruction::PlistGet
+            | Instruction::Quote
+            | Instruction::WrapBackquote
+            | Instruction::WrapUnquote
+            | Instruction::WrapSplice
+            | Instruction::SoleElement { .. } => false,
+        }
+    }
+
+    /// The blocks this instruction runs, each with a name, for listings.
+    pub(crate) fn blocks(&self) -> Vec<(String, Block)> {
+        match self {
+            Instruction::Catch { body } => vec![("body".to_string(), body.clone())],
+            _ => {
+                debug_assert!(!self.holds_blocks(), "{self} holds blocks it does not list");
+                Vec::new()
+            }
+        }
+    }
+
     /// The target of a jump; `None` for anything else.
     pub(crate) fn pos(&self) -> Option<&Pos> {
         jump_pos!(self)
@@ -385,6 +469,7 @@ impl std::fmt::Display for Instruction {
             Instruction::Call { name, .. } => write!(f, "    call {}", name),
             Instruction::TailCall { name, .. } => write!(f, "    tcall {}", name),
             Instruction::MakeLambda(_) => write!(f, "    make_lambda"),
+            Instruction::Catch { .. } => write!(f, "    catch"),
             Instruction::Funcall { args_count } => write!(f, "    funcall {}", args_count),
             Instruction::Apply { args_count } => write!(f, "    apply {}", args_count),
             Instruction::Ret => write!(f, "    ret"),

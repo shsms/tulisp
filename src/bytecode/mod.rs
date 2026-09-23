@@ -9,6 +9,9 @@ mod lambda_template;
 #[allow(unused_imports)]
 pub(crate) use lambda_template::LambdaTemplate;
 
+mod block;
+pub(crate) use block::Block;
+
 mod interpreter;
 pub(crate) use interpreter::{Machine, run, run_lambda};
 

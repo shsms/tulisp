@@ -61,17 +61,31 @@ impl Default for Bytecode {
 
 impl fmt::Display for Bytecode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for (i, instr) in self.global.borrow().iter().enumerate() {
-            write!(f, "\n{:<40}   # {}", instr.to_string(), i)?;
-        }
+        write_instructions(f, &self.global.borrow(), 0)?;
         for (key, func) in &self.functions {
             write!(f, "\n\n{} (#{}):", func.name, key)?;
-            for (i, instr) in func.instructions.borrow().iter().enumerate() {
-                write!(f, "\n{:<40}   # {}", instr.to_string(), i)?;
-            }
+            write_instructions(f, &func.instructions.borrow(), 0)?;
         }
         Ok(())
     }
+}
+
+/// One line per instruction, with each block an instruction runs
+/// listed under it, indented by 4 more.
+fn write_instructions(
+    f: &mut fmt::Formatter<'_>,
+    instructions: &[Instruction],
+    indent: usize,
+) -> fmt::Result {
+    let pad = " ".repeat(indent);
+    for (i, instr) in instructions.iter().enumerate() {
+        write!(f, "\n{pad}{:<40}   # {}", instr.to_string(), i)?;
+        for (name, block) in instr.blocks() {
+            write!(f, "\n{pad}  {name}:")?;
+            write_instructions(f, &block.instructions.borrow(), indent + 4)?;
+        }
+    }
+    Ok(())
 }
 
 /// Turns compiled instructions into runnable ones. Every

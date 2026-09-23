@@ -10,6 +10,7 @@ mod arithmetic_operations;
 mod common;
 mod comparison_of_numbers;
 mod conditionals;
+mod errors;
 mod lambda;
 mod list_elements;
 mod other_functions;
@@ -110,6 +111,8 @@ impl VMCompilers {
             ("not", conditionals::compile_fn_not),
             ("null", conditionals::compile_fn_not),
             ("defmacro", other_functions::compile_fn_defmacro),
+            // non-local exits
+            ("catch", errors::compile_fn_catch),
         }
         VMCompilers { functions }
     }

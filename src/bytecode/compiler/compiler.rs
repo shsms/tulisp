@@ -271,6 +271,29 @@ pub(crate) fn compile_progn_keep_result(
     ret
 }
 
+/// Compiles FORMS as a block whose value is kept. With BINDING, the
+/// block first binds it to the value its runner pushes, and unbinds it
+/// at the end. Forms in a block are never in tail position, so the
+/// enclosing `let` scopes are hidden while it compiles.
+pub(crate) fn compile_block(
+    ctx: &mut TulispContext,
+    forms: &TulispObject,
+    binding: Option<&TulispObject>,
+) -> Result<crate::bytecode::Block, Error> {
+    let scopes = std::mem::take(&mut ctx.compiler.as_mut().unwrap().active_let_scopes);
+    let compiled = compile_progn_keep_result(ctx, forms);
+    ctx.compiler.as_mut().unwrap().active_let_scopes = scopes;
+    let mut instructions = Vec::new();
+    if let Some(binding) = binding {
+        instructions.push(Instruction::BeginScope(binding.clone()));
+    }
+    instructions.append(&mut compiled?);
+    if let Some(binding) = binding {
+        instructions.push(Instruction::EndScope(binding.clone()));
+    }
+    crate::bytecode::Block::new(instructions, binding.is_some())
+}
+
 /// Compile a backquoted form at quasi-quote `depth` (1 inside the
 /// outer `\``, bumped by inner `\``, decremented by `,` / `,@`).
 /// At depth 1 unquote/splice expressions are evaluated: a `,X`
