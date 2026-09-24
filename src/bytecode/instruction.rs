@@ -197,7 +197,8 @@ pub(crate) enum Instruction {
     },
     TailCall {
         name: TulispObject,
-        /// See `RustCall::form`.
+        /// The marked call, `(Bounce name args…)`, for the error trace;
+        /// it prints as `(name args…)`. See `RustCall::form`.
         form: TulispObject,
         args_count: usize,
         /// The function the call last reached, with the machine's

@@ -570,20 +570,12 @@ pub(crate) fn compile_expr(
             // nothing for them on the happy path; on the error
             // path, `run_impl` looks up which ranges contain the
             // failing PC and applies their forms via `with_trace`.
-            // A marked tail call is traced as the call, without its
-            // marker.
-            let trace_form = if expr.car()?.is_bounce() {
-                expr.cdr()?.with_span(expr.span())
-            } else {
-                expr.clone()
-            };
-            let mut inner =
-                compile_form(ctx, expr).map_err(|err| err.with_trace(trace_form.clone()))?;
+            let mut inner = compile_form(ctx, expr).map_err(|err| err.with_trace(expr.clone()))?;
             if inner.is_empty() {
                 return Ok(inner);
             }
             let mut wrapped = Vec::with_capacity(inner.len() + 2);
-            wrapped.push(Instruction::PushTrace(trace_form));
+            wrapped.push(Instruction::PushTrace(expr.clone()));
             wrapped.append(&mut inner);
             wrapped.push(Instruction::PopTrace);
             Ok(wrapped)

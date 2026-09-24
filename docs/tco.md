@@ -17,8 +17,8 @@ The compiler rewrites a function body before it compiles it:
 `compile_form` compiles a form headed by the marker into a jump, a
 `TailCall` or an ordinary call, so the marker is never called as a
 function. The marker is not a symbol, so no function or variable of the
-program can shadow it. The trace entry of a tail call shows the call as
-written, without the marker.
+program can shadow it. A marked call prints as the call, so an error
+trace shows it as written, in its own entry and in the forms around it.
 
 ## Which tail calls are marked
 
@@ -85,6 +85,8 @@ function".
     inside a `let` that binds a special variable keeps that binding.
   - `a_tail_call_arity_error_traces_the_call_once`: the trace of a
     tail call shows the call once, without the marker.
+  - `a_trace_shows_no_tail_call_marker`: the forms around a tail
+    call also show it without the marker.
 - `src/bytecode/compiler/compiler.rs`:
   `defuns_in_a_top_level_progn_tail_call_each_other`,
   `defuns_a_macro_produces_tail_call_each_other` and

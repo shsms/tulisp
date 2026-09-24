@@ -601,8 +601,15 @@ impl PartialEq for TulispValue {
 /// Formats a list without recursing down its cdr. An improper tail
 /// prints as ` . tail`. A circular list ends with ` ...` after a few
 /// rounds of the cycle, where the iterator notices it, instead of
-/// never ending.
+/// never ending. A tail call `mark_tail_calls` marked, `(Bounce f
+/// args...)`, prints as the call, as it was written.
 fn fmt_list(vv: TulispObject, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    if let Ok(head) = vv.car()
+        && head.is_bounce()
+        && let Ok(call) = vv.cdr()
+    {
+        return fmt_list(call, f);
+    }
     f.write_char('(')?;
     let mut iter = vv.base_iter();
     let mut add_space = false;

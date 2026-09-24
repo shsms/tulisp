@@ -159,9 +159,10 @@ pub(super) fn compile_fn_defun_bounce_call(
         push_active_scope_endscopes(ctx, &mut result);
         result.push(Instruction::TailCall {
             name: name.clone(),
-            // The call without its marker, at the span of the source
-            // call (see `mark_tail_calls`'s `with_span(span)` call).
-            form: args.cdr()?.with_span(args.span()),
+            // The marked call, at the span of the source call (see
+            // `mark_tail_calls`'s `with_span(span)` call); it prints
+            // as the call.
+            form: args.clone(),
             args_count,
             function: None,
             optional_count: 0,
@@ -1090,6 +1091,31 @@ mod tests {
         ] {
             eval_assert_equal_fresh(program, expected);
         }
+    }
+
+    // A form around a tail call shows the call as it was written in an
+    // error trace, not the marker `mark_tail_calls` puts on it.
+    #[test]
+    fn a_trace_shows_no_tail_call_marker() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_error(
+            ctx,
+            "(defun f (n) (if (= n 0) (car 5) (progn (f (- n 1))))) (f 1)",
+            "ERR TypeMismatch: Expected list, got: 5
+<eval_string>:1.26-1.32:  at (car 5)
+<eval_string>:1.14-1.53:  at (if (= n 0) (car 5) (progn (f (- n 1))))
+<eval_string>:1.56-1.60:  at (f 1)
+",
+        );
+        eval_assert_error(
+            ctx,
+            "(defun g (a) a) (defun h (c) (if c 1 (g 1 2)))",
+            "ERR ArityMismatch: Too many arguments: tail call to g takes 1 argument, got 2
+<eval_string>:1.38-1.44:  at (g 1 2)
+<eval_string>:1.30-1.45:  at (if c 1 (g 1 2))
+<eval_string>:1.17-1.46:  at (defun h (c) (if c 1 (g 1 2)))
+",
+        );
     }
 
     // A tail call inside a `let` that binds a special variable still
