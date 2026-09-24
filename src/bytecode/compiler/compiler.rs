@@ -631,6 +631,67 @@ mod tests {
     use crate::TulispContext;
     use crate::test_utils::listing;
 
+    /// PROGRAM's value, or the first line of its error, from the VM on
+    /// a fresh context.
+    fn vm_result(program: &str) -> String {
+        let ctx = &mut TulispContext::new();
+        match ctx.eval_string(program) {
+            Ok(value) => value.to_string(),
+            Err(e) => e.format(ctx).lines().next().unwrap_or("").to_string(),
+        }
+    }
+
+    // Definitions take effect as the compiler reaches them, in source
+    // order, and the program runs once it has compiled. The
+    // tree-walker, which defines things as it runs them, differs, so
+    // this is the VM alone.
+    #[test]
+    fn definitions_take_effect_as_they_compile() {
+        for (program, expected) in [
+            (
+                "(defun early () (later 2)) (defun later (x) (* x 10)) (early)",
+                "20",
+            ),
+            ("(defvar dv-x (dv-f)) (defun dv-f () 5) dv-x", "5"),
+            (
+                "(defun uses-m () (m2)) (defmacro m2 () 1) (uses-m)",
+                "ERR InvalidArgument: invalid function: m2",
+            ),
+            (
+                "(defun rd () dvx) (defun lf () (let ((dvx 1)) (rd))) (defvar dvx 9) (lf)",
+                "9",
+            ),
+            (
+                "(defvar mv 3) (defmacro rm () mv) (rm)",
+                "ERR Uninitialized: Variable definition is void: mv",
+            ),
+            (
+                "(defun r () 1) (setq a (r)) (defun r () 2) (list a (r))",
+                "(2 2)",
+            ),
+            // Unlike in Emacs, a defun in code that never runs is
+            // defined: it takes effect when it compiles.
+            ("(when nil (defun nd () 1)) (nd)", "1"),
+        ] {
+            assert_eq!(vm_result(program), expected, "{program}");
+        }
+        // A program that fails to compile keeps the defuns compiled
+        // before the failure, one a macro produced too.
+        let ctx = &mut TulispContext::new();
+        assert!(
+            ctx.eval_string(
+                "(defun kept () 1) (defmacro mk-kept () '(defun kept2 () 2)) (mk-kept) (car)"
+            )
+            .is_err()
+        );
+        assert_eq!(
+            ctx.eval_string("(list (kept) (kept2))")
+                .unwrap()
+                .to_string(),
+            "(1 2)"
+        );
+    }
+
     // The `defun`s in a `progn` a macro produced are registered before
     // any of them compiles, as in a literal one.
     #[test]
