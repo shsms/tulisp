@@ -655,15 +655,16 @@ fn macroexpand_operand(
 
 /// Runs F on each top-level form of FORMS, in order. Each form's macros
 /// are expanded just before, by the macros defined so far. A form that
-/// expands to a `progn` is entered, and its forms are handled one at a
-/// time. F's flag is true for the form whose value is the program's;
-/// for a last `progn` with no forms, F gets nil.
+/// expands to a `progn` is entered: ON_PROGN gets its forms, then they
+/// are handled one at a time. F's flag is true for the form whose value is
+/// the program's; for a last `progn` with no forms, F gets nil.
 pub(crate) fn for_each_top_level_form(
     ctx: &mut TulispContext,
     forms: &TulispObject,
     f: &mut dyn FnMut(&mut TulispContext, &TulispObject, bool) -> Result<(), Error>,
+    on_progn: &mut dyn FnMut(&mut TulispContext, &TulispObject),
 ) -> Result<(), Error> {
-    walk_top_level_forms(ctx, forms, true, 0, None, f)
+    walk_top_level_forms(ctx, forms, true, 0, None, f, on_progn)
 }
 
 /// The walk of [`for_each_top_level_form`]. LAST says whether FORMS
@@ -679,6 +680,7 @@ fn walk_top_level_forms(
     depth: u32,
     call: Option<&TulispObject>,
     f: &mut dyn FnMut(&mut TulispContext, &TulispObject, bool) -> Result<(), Error>,
+    on_progn: &mut dyn FnMut(&mut TulispContext, &TulispObject),
 ) -> Result<(), Error> {
     if last && forms.null() {
         return f(ctx, &TulispObject::nil(), true);
@@ -717,7 +719,8 @@ fn walk_top_level_forms(
             if depth > limit {
                 return Err(nesting_exceeded(limit).with_trace(site));
             }
-            walk_top_level_forms(ctx, &body, is_last, depth, Some(&site), f)?;
+            on_progn(ctx, &body);
+            walk_top_level_forms(ctx, &body, is_last, depth, Some(&site), f, on_progn)?;
         } else {
             let mut expanded = macroexpand(ctx, expanded).map_err(at_site)?;
             // An atom from a `progn` runs in a `progn` that has the site's

@@ -870,10 +870,15 @@ impl TulispContext {
             false,
         )?;
         let mut value = TulispObject::nil();
-        crate::eval::for_each_top_level_form(self, &vv, &mut |ctx, form, _| {
-            value = crate::eval::tw_eval(ctx, form)?;
-            Ok(())
-        })?;
+        crate::eval::for_each_top_level_form(
+            self,
+            &vv,
+            &mut |ctx, form, _| {
+                value = crate::eval::tw_eval(ctx, form)?;
+                Ok(())
+            },
+            &mut |_, _| {},
+        )?;
         Ok(value)
     }
 

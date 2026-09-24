@@ -136,14 +136,19 @@ fn compile_program(ctx: &mut TulispContext, value: &TulispObject) -> Result<Byte
     pre_register_defun_arities(ctx, value);
     let keep_result = ctx.compiler.as_ref().unwrap().keep_result;
     let mut output = vec![];
-    crate::eval::for_each_top_level_form(ctx, value, &mut |ctx, form, last| {
-        output.append(&mut compile_expr_with_keep_result(
-            ctx,
-            form,
-            last && keep_result,
-        )?);
-        Ok(())
-    })?;
+    crate::eval::for_each_top_level_form(
+        ctx,
+        value,
+        &mut |ctx, form, last| {
+            output.append(&mut compile_expr_with_keep_result(
+                ctx,
+                form,
+                last && keep_result,
+            )?);
+            Ok(())
+        },
+        &mut pre_register_defun_arities,
+    )?;
     // Assemble the global instruction stream. Per-function bodies
     // were already assembled at their `CompiledDefun` boundary
     // inside `compile_fn_defun`.
@@ -215,9 +220,10 @@ pub fn compile_progn(
 }
 
 /// Walk a progn-shaped form list and pre-populate `defun_args` with
-/// arity entries for every top-level `(defun NAME (PARAMS) …)` it
-/// contains. Used so `mark_tail_calls` can identify mutual-recursion
-/// targets even before their own `compile_fn_defun` runs.
+/// arity entries for every `(defun NAME (PARAMS) …)` it contains, at
+/// its top level or in a `progn` there. Used so `mark_tail_calls` can
+/// identify mutual-recursion targets even before their own
+/// `compile_fn_defun` runs.
 ///
 /// Only required/optional/rest **lengths** are consulted by
 /// `mark_tail_calls` and `compile_fn_defun_bounce_call`'s non-self
@@ -236,6 +242,12 @@ fn try_pre_register_one(ctx: &mut TulispContext, expr: &TulispObject) {
         return;
     }
     let Ok(head) = expr.car() else { return };
+    if head.eq(&ctx.keywords.progn) {
+        if let Ok(body) = expr.cdr() {
+            pre_register_defun_arities(ctx, &body);
+        }
+        return;
+    }
     let Ok(head_sym) = head.as_symbol() else {
         return;
     };
@@ -617,6 +629,48 @@ pub(crate) fn compile_expr(
 #[cfg(test)]
 mod tests {
     use crate::TulispContext;
+    use crate::test_utils::listing;
+
+    // The `defun`s in a `progn` a macro produced are registered before
+    // any of them compiles, as in a literal one.
+    #[test]
+    fn defuns_a_macro_produces_tail_call_each_other() {
+        let ctx = &mut TulispContext::new();
+        let l = listing(
+            ctx,
+            "(defmacro defpair ()
+               '(progn (defun pe (n) (if (= n 0) t (po (- n 1))))
+                       (defun po (n) (if (= n 0) nil (pe (- n 1))))))
+             (defpair)",
+        );
+        assert!(l.contains("tcall po") && l.contains("tcall pe"), "{l}");
+    }
+
+    // A `defun` can tail-call one in a later top-level `progn`: the
+    // program's pre-registration goes into the `progn`.
+    #[test]
+    fn a_defun_tail_calls_one_in_a_later_progn() {
+        let ctx = &mut TulispContext::new();
+        let l = listing(
+            ctx,
+            "(defun pa (n) (if (= n 0) t (pb (- n 1))))
+             (progn (defun pb (n) (pa n)))",
+        );
+        assert!(l.contains("tcall pb"), "{l}");
+    }
+
+    // Two `defun`s in a literal top-level `progn` are registered before
+    // either compiles, so their calls to each other are tail calls.
+    #[test]
+    fn defuns_in_a_top_level_progn_tail_call_each_other() {
+        let ctx = &mut TulispContext::new();
+        let l = listing(
+            ctx,
+            "(progn (defun pe (n) (if (= n 0) t (po (- n 1))))
+                    (defun po (n) (if (= n 0) nil (pe (- n 1)))))",
+        );
+        assert!(l.contains("tcall po") && l.contains("tcall pe"), "{l}");
+    }
 
     // A form that fails to compile must not leave `keep_result`
     // false, or every later program would evaluate to nil. The
