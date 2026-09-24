@@ -354,24 +354,28 @@ mod tests {
         );
     }
 
+    // A form that fails to compile refuses the whole program, inside a
+    // protected body too. A form built at run time and given to `eval`
+    // fails inside that call, where a handler catches it.
     #[test]
-    fn a_form_that_fails_to_compile_raises_its_error_when_reached() {
+    fn a_form_that_fails_to_compile_refuses_the_program() {
         let ctx = &mut TulispContext::new();
-        // A handler catches it, as when the tree-walker ran the body.
-        eval_assert_equal(
+        eval_assert_error_line(
             ctx,
             "(condition-case e (cons 1 2 3) (wrong-number-of-arguments 'caught))",
-            "'caught",
+            "ERR ArityMismatch: Too many arguments",
         );
-        // The forms before it still run, and a cleanup still runs.
-        eval_assert_equal(
+        // None of the program runs, not even the forms before it.
+        eval_assert_error_line(
             ctx,
-            "(setq log nil)
-             (condition-case nil
-                 (unwind-protect (progn (setq log (cons 'before log)) (cons 1))
-                   (setq log (cons 'cleanup log)))
-               (error log))",
-            "'(cleanup before)",
+            "(setq ran t) (catch 'a (lambda () (cons 1)))",
+            "ERR ArityMismatch: Too few arguments",
+        );
+        eval_assert_equal(ctx, "(condition-case nil ran (error 'unbound))", "'unbound");
+        eval_assert_error_line(
+            ctx,
+            "(catch 'a (defun f () (cons 1 2 3)))",
+            "ERR ArityMismatch: Too many arguments",
         );
         eval_assert_error(
             ctx,
@@ -380,6 +384,11 @@ mod tests {
 <eval_string>:1.11-1.22:  at (cons 1 2 3)
 <eval_string>:1.1-1.23:  at (catch 'a (cons 1 2 3))
 ",
+        );
+        eval_assert_equal(
+            ctx,
+            "(condition-case nil (eval '(cons 1 2 3)) (error 'caught))",
+            "'caught",
         );
     }
 

@@ -193,17 +193,17 @@ mod tests {
         // `wrong-type-argument`.
         eval_assert_equal(
             &mut ctx,
-            "(condition-case e (cons 1 2 3) (wrong-number-of-arguments 'caught))",
+            "(condition-case e (funcall 'cons 1 2 3) (wrong-number-of-arguments 'caught))",
             "'caught",
         );
         eval_assert_equal(
             &mut ctx,
-            "(condition-case e (cons 1) (wrong-number-of-arguments 'caught))",
+            "(condition-case e (funcall 'cons 1) (wrong-number-of-arguments 'caught))",
             "'caught",
         );
         eval_assert_equal(
             &mut ctx,
-            "(condition-case e (cons 1 2 3) (wrong-type-argument 'wrong) (error 'other))",
+            "(condition-case e (funcall 'cons 1 2 3) (wrong-type-argument 'wrong) (error 'other))",
             "'other",
         );
         // List-of-symbols condition matches if any member matches.
@@ -372,7 +372,7 @@ mod tests {
             (r#"(aset "ab" 9 ?x)"#, "args-out-of-range"),
             ("(/ 1 0)", "arith-error"),
             (r#"(error "x")"#, "error"),
-            ("(cons 1)", "wrong-number-of-arguments"),
+            ("(funcall 'cons 1)", "wrong-number-of-arguments"),
             ("cc-undefined-variable", "void-variable"),
             ("(cc-undefined-function)", "void-variable"),
             ("(funcall 5)", "void-function"),

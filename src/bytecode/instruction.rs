@@ -236,9 +236,8 @@ pub(crate) enum Instruction {
     /// `(defvar SYM ...)`: pushes whether SYM is bound, so the value is
     /// evaluated and stored only when it is not.
     DefVar(TulispObject),
-    /// Raises an error the compiler found, once it is reached: a form in
-    /// a block that failed to compile (see `Compiler::in_block`), or a
-    /// handler whose VAR is a constant.
+    /// Raises an error the compiler found, once it is reached: a
+    /// `condition-case` handler whose VAR is a constant.
     Raise(Box<crate::Error>),
     /// Inline `(funcall fn arg1 …)` dispatch. The function value is
     /// pushed first, then each arg, in source order (so at execution

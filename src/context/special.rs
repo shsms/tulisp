@@ -439,11 +439,16 @@ mod tests {
         eval_assert_equal(ctx, program, "'done");
     }
 
-    // A compile error inside a form is raised only when the form runs.
+    // A compile error inside a form refuses the program, also in a
+    // form the special form never runs.
     #[test]
-    fn a_compile_error_in_a_form_is_raised_when_it_runs() {
+    fn a_compile_error_in_a_form_refuses_the_program() {
         let ctx = &mut with_forms();
-        eval_assert_equal(ctx, "(progn (never (if)) 'fine)", "'fine");
+        eval_assert_error_line(
+            ctx,
+            "(progn (never (if)) 'fine)",
+            "ERR ArityMismatch: Too few arguments",
+        );
         assert!(ctx.eval_string("(twice (if))").is_err());
     }
 

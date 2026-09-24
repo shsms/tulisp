@@ -43,11 +43,6 @@ pub(crate) struct Compiler {
     /// permanently. Saved/restored at lambda + defun boundaries so
     /// nested function bodies start fresh.
     pub active_let_scopes: Vec<TulispObject>,
-    /// Set while a block compiles. A form in a block that fails to
-    /// compile becomes a `Raise` of its error, so the error happens when
-    /// the form is reached, where a handler around the block can catch
-    /// it, as when the tree-walker runs the body.
-    pub in_block: bool,
     /// The names, by address, that the compile in progress defined or
     /// redefined in `bytecode.functions`.
     pub added_functions: Vec<usize>,
@@ -66,7 +61,6 @@ impl Compiler {
             keep_result: true,
             current_defun: None,
             active_let_scopes: Vec::new(),
-            in_block: false,
             added_functions: Vec::new(),
             unbound_calls: 0,
             label_counter: 0,
@@ -87,7 +81,6 @@ impl Compiler {
     fn take_state(&mut self, keep_result: bool) -> CompileState {
         CompileState {
             keep_result: std::mem::replace(&mut self.keep_result, keep_result),
-            in_block: std::mem::replace(&mut self.in_block, false),
             current_defun: self.current_defun.take(),
             active_let_scopes: std::mem::take(&mut self.active_let_scopes),
             added_functions: std::mem::take(&mut self.added_functions),
@@ -96,7 +89,6 @@ impl Compiler {
 
     fn restore_state(&mut self, state: CompileState) {
         self.keep_result = state.keep_result;
-        self.in_block = state.in_block;
         self.current_defun = state.current_defun;
         self.active_let_scopes = state.active_let_scopes;
         self.added_functions = state.added_functions;
@@ -106,7 +98,6 @@ impl Compiler {
 /// The part of the compiler's state that belongs to one compile.
 struct CompileState {
     keep_result: bool,
-    in_block: bool,
     current_defun: Option<TulispObject>,
     active_let_scopes: Vec<TulispObject>,
     added_functions: Vec<usize>,
@@ -355,11 +346,9 @@ pub(crate) fn compile_block(
 ) -> Result<crate::bytecode::Block, Error> {
     let compiler = ctx.compiler.as_mut().unwrap();
     let scopes = std::mem::take(&mut compiler.active_let_scopes);
-    let in_block = std::mem::replace(&mut compiler.in_block, true);
     let compiled = compile_progn_keep_result(ctx, forms);
     let compiler = ctx.compiler.as_mut().unwrap();
     compiler.active_let_scopes = scopes;
-    compiler.in_block = in_block;
     let mut instructions = Vec::new();
     if let Some(binding) = binding {
         instructions.push(Instruction::BeginScope(binding.clone()));
@@ -587,14 +576,7 @@ pub(crate) fn compile_expr(
             // path, `run_impl` looks up which ranges contain the
             // failing PC and applies their forms via `with_trace`.
             // Same shape TW's `eval_basic` produces.
-            let mut inner = match compile_form(ctx, expr) {
-                Ok(code) => code,
-                // The trace markers around the `Raise` add this form.
-                Err(err) if ctx.compiler.as_ref().unwrap().in_block => {
-                    vec![Instruction::Raise(Box::new(err))]
-                }
-                Err(err) => return Err(err.with_trace(expr.clone())),
-            };
+            let mut inner = compile_form(ctx, expr).map_err(|err| err.with_trace(expr.clone()))?;
             if inner.is_empty() {
                 return Ok(inner);
             }
