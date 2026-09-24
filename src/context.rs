@@ -399,7 +399,8 @@ impl TulispContext {
     /// `ctx.eval(&arg)` declares each argument instead: a typed
     /// parameter to have it evaluated, or a `Form` / `Rest<Form>` to
     /// get it unevaluated, and calls `form.eval(ctx)` where it called
-    /// `ctx.eval(&arg)`. For code transformation, use
+    /// `ctx.eval(&arg)`. `destruct_eval_bind!` is gone: use typed
+    /// parameters. For code transformation, use
     /// [`defmacro`](Self::defmacro), which keeps raw arguments.
     ///
     /// A single `TulispObject` parameter is one evaluated argument, not

@@ -168,62 +168,6 @@ macro_rules! destruct_bind {
     };
 }
 
-#[macro_export]
-macro_rules! destruct_eval_bind {
-    (@reqr $ctx:ident, $vv:ident, $var:ident) => {
-        if !$vv.consp() {
-            return Err($crate::Error::too_few_arguments());
-        }
-        let $var = $vv.car_and_then(|__x| $ctx.eval(__x))?;
-        let $vv = $vv.cdr()?;
-    };
-    (@reqr $ctx:ident, $vv:ident, $var:ident $($vars:tt)+) => {
-        $crate::destruct_eval_bind!(@reqr $ctx, $vv, $var);
-        $crate::destruct_eval_bind!(@reqr $ctx, $vv, $($vars)+);
-    };
-    (@reqr $ctx:ident, $vv:ident,) => {};
-    (@no-rest $ctx:ident, $vv:ident) => {
-        if !$vv.null() {
-            return Err($crate::Error::too_many_arguments());
-        }
-    };
-    (@rest $ctx:ident, $rest:ident $vv:ident) => {
-        let $rest = $ctx.eval_each(&$vv)?;
-    };
-    (@optvar $ctx:ident, $vv:ident, $var:ident) => {
-        let ($var, $vv) = if !$vv.null() {
-            ($vv.car_and_then(|__x| $ctx.eval(__x))?, $vv.cdr()?)
-        } else {
-            ($crate::TulispObject::nil(), $crate::TulispObject::nil())
-        };
-    };
-    (@optvar $ctx:ident, $vv:ident, $var:ident $($vars:ident)+) => {
-        $crate::destruct_eval_bind!(@optvar $ctx, $vv, $var);
-        $crate::destruct_eval_bind!(@optvar $ctx, $vv, $($vars)+)
-    };
-    (@impl $ctx:ident, ($($vars:ident)+) = $vv:ident) => {
-        $crate::destruct_eval_bind!(@reqr $ctx, $vv, $($vars)+);
-        $crate::destruct_eval_bind!(@no-rest $ctx, $vv);
-    };
-    (@impl $ctx:ident, ($($vars:ident)* &optional $($optvars:ident)+) = $vv:ident) => {
-	$crate::destruct_eval_bind!(@reqr $ctx, $vv, $($vars)*);
-        $crate::destruct_eval_bind!(@optvar $ctx, $vv, $($optvars)+);
-        $crate::destruct_eval_bind!(@no-rest $ctx, $vv);
-    };
-    (@impl $ctx:ident, ($($vars:ident)* &rest $rest:ident) = $vv:ident) => {
-	$crate::destruct_eval_bind!(@reqr $ctx, $vv, $($vars)*);
-        $crate::destruct_eval_bind!(@rest $ctx, $rest $vv);
-    };
-    (@impl $ctx:ident, ($($vars:ident)* &optional $($optvars:ident)+ &rest $rest:ident) = $vv:ident) => {
-	$crate::destruct_eval_bind!(@reqr $ctx, $vv, $($vars)*);
-        $crate::destruct_eval_bind!(@optvar $ctx, $vv, $($optvars)+);
-        $crate::destruct_eval_bind!(@rest $ctx, $rest $vv);
-    };
-    ($ctx:ident, ($($rest:tt)*) = $vv:ident) => {
-        $crate::destruct_eval_bind!(@impl $ctx, ($($rest)*) = $vv);
-    };
-}
-
 /**
 Creates a struct that holds interned symbols.
 
@@ -306,9 +250,9 @@ mod tests {
         const ret: &str = "";
         const x: &str = "";
 
-        pub fn second(ctx: &mut TulispContext) -> Result<TulispObject, Error> {
+        pub fn second(_ctx: &mut TulispContext) -> Result<TulispObject, Error> {
             let args = crate::list!(,TulispObject::from(1) ,TulispObject::from(2))?;
-            crate::destruct_eval_bind!(ctx, (a b) = args);
+            crate::destruct_bind!((a b) = args);
             let _ = a;
             Ok(b)
         }
