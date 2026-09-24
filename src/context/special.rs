@@ -249,6 +249,15 @@ mod tests {
     use crate::ParamKind;
     use crate::test_utils::{eval_assert_equal, eval_assert_error_line, eval_assert_not};
     use crate::{Error, Form, Rest, TulispContext, TulispObject};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    fn vm(ctx: &mut TulispContext, program: &str) -> String {
+        match ctx.eval_string(program) {
+            Ok(value) => value.to_string(),
+            Err(err) => err.format(ctx),
+        }
+    }
 
     fn with_forms() -> TulispContext {
         let mut ctx = TulispContext::new();
@@ -341,10 +350,116 @@ mod tests {
     }
 
     #[test]
+    fn a_form_source_holds_the_call_variables() {
+        let ctx = &mut with_forms();
+        eval_assert_equal(ctx, "(source-of (+ 1 2))", "'(+ 1 2)");
+        eval_assert_equal(ctx, "(let ((x 5)) (eval-source x))", "5");
+        let program = "(defun make-source (x) (lambda () (eval-source x)))
+                       (list (funcall (make-source 1)) (funcall (make-source 2)))";
+        eval_assert_equal(ctx, program, "'(1 2)");
+    }
+
+    // The closure's own code after the forms runs when they error or
+    // throw.
+    #[test]
+    fn teardown_runs_after_an_error_or_a_throw() {
+        let ctx = &mut with_forms();
+        let cleanups = Arc::new(AtomicUsize::new(0));
+        let seen = cleanups.clone();
+        ctx.defspecial_typed(
+            "with-cleanup",
+            move |ctx: &mut TulispContext, body: Rest<Form>| -> Result<TulispObject, Error> {
+                let result = body.eval_progn(ctx);
+                seen.fetch_add(1, Ordering::Relaxed);
+                result
+            },
+        );
+        let program = "(list (condition-case nil (with-cleanup (error \"boom\")) (error 'caught))
+                             (catch 'tag (with-cleanup (throw 'tag 1))))";
+        eval_assert_equal(ctx, program, "'(caught 1)");
+        assert_eq!(cleanups.load(Ordering::Relaxed), 4);
+    }
+
+    // An error leaving a form does not disturb the values the outer
+    // run has on its stack.
+    #[test]
+    fn an_error_in_a_form_leaves_the_outer_stack_intact() {
+        let ctx = &mut with_forms();
+        let program = "(list 1 (condition-case nil (my-progn (list 7 (car 5))) (error 'caught)) 3)";
+        eval_assert_equal(ctx, program, "'(1 caught 3)");
+    }
+
+    #[test]
+    fn a_form_kept_past_its_call_is_an_error() {
+        let ctx = &mut with_forms();
+        let kept: Arc<Mutex<Option<Form>>> = Arc::default();
+        let store = kept.clone();
+        ctx.defspecial_typed("keep-form", move |form: Form| {
+            *store.lock().unwrap() = Some(form);
+        });
+        ctx.defun(
+            "run-kept",
+            move |ctx: &mut TulispContext| -> Result<TulispObject, Error> {
+                let form = kept.lock().unwrap().clone().unwrap();
+                form.eval(ctx)
+            },
+        );
+        let program = "(let ((x 1)) (keep-form (+ x 1))) (run-kept)";
+        for result in [ctx.eval_string(program), ctx.tw_eval_string(program)] {
+            let got = result.unwrap_err().format(ctx);
+            assert!(
+                got.contains("a form ran after its special form returned"),
+                "{got}"
+            );
+        }
+    }
+
+    #[test]
+    fn closures_in_and_around_forms() {
+        let ctx = &mut with_forms();
+        eval_assert_equal(ctx, "(let ((y 3)) (funcall (my-progn (lambda () y))))", "3");
+        let program = "(defun make (x) (lambda () (my-progn x)))
+                       (let ((a (make 1)) (b (make 2))) (list (funcall a) (funcall b)))";
+        eval_assert_equal(ctx, program, "'(1 2)");
+    }
+
+    #[test]
+    fn recursion_through_a_form() {
+        let ctx = &mut with_forms();
+        let program = "(defun count-down (n)
+                         (my-progn (if (= n 0) 'done (count-down (- n 1)))))
+                       (count-down 5)";
+        eval_assert_equal(ctx, program, "'done");
+    }
+
+    // A compile error inside a form is raised only when the form runs.
+    #[test]
+    fn a_compile_error_in_a_form_is_raised_when_it_runs() {
+        let ctx = &mut with_forms();
+        eval_assert_equal(ctx, "(progn (never (if)) 'fine)", "'fine");
+        for result in [
+            ctx.eval_string("(twice (if))"),
+            ctx.tw_eval_string("(twice (if))"),
+        ] {
+            assert!(result.is_err());
+        }
+    }
+
+    #[test]
     fn arity_is_checked_where_the_form_is_used() {
         let ctx = &mut with_forms();
         eval_assert_error_line(ctx, "(twice)", "ERR ArityMismatch: Too few arguments");
         eval_assert_error_line(ctx, "(twice 1 2)", "ERR ArityMismatch: Too many arguments");
+    }
+
+    // A special form defined after the code that calls it compiled is
+    // reached through the call fallback, which refuses it.
+    #[test]
+    fn a_special_form_defined_late_is_an_error() {
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string("(defun g () (late-form 1))").unwrap();
+        ctx.defspecial_typed("late-form", |form: Form| form.source().clone());
+        assert!(vm(ctx, "(g)").contains("invalid function: late-form"));
     }
 
     #[test]
