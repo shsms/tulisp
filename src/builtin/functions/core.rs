@@ -24,21 +24,31 @@ use std::convert::TryInto;
 // before.
 
 /// Defines the macro a `(defmacro NAME PARAMS [DOC] BODY...)` form's
-/// ARGS describe, and returns NAME.
+/// ARGS describe, and returns NAME. The parameter list is checked now;
+/// the body compiles at the first expansion.
 pub(crate) fn define_macro(
     ctx: &mut TulispContext,
     args: &TulispObject,
 ) -> Result<TulispObject, Error> {
-    destruct_bind!((name params &rest rest) = args);
-    let body = if rest.car()?.as_string().is_ok() {
-        rest.cdr()?
+    destruct_bind!((name params &rest body) = args);
+    let _: DefunParams = params.clone().try_into()?;
+    // The VM refuses a lambda with no body; an empty macro gives nil.
+    let body = if body.null() {
+        TulispObject::cons(TulispObject::nil(), TulispObject::nil())
     } else {
-        rest
+        body
     };
-    let raw_params: DefunParams = params.try_into()?;
-    let (params, mappings) = raw_params.bind_as_lexical(&ctx.lex_allocator);
-    let body = substitute_lexical(body, &mappings)?;
-    name.set_global(TulispValue::Defmacro { params, body }.into_ref(None))?;
+    let lambda = TulispObject::cons(
+        ctx.keywords.lambda.clone(),
+        TulispObject::cons(params, body),
+    );
+    name.set_global(
+        TulispValue::Defmacro {
+            lambda,
+            compiled: SharedMut::new(None),
+        }
+        .into_ref(None),
+    )?;
     Ok(name)
 }
 

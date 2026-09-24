@@ -204,6 +204,11 @@ pub(super) fn compile_form(
         }
     }
 
+    // A call to a symbol with no value yet. A lexical binding, such as
+    // a local function, has no value while compiling and is not counted.
+    if matches!(name.inner_ref().0, TulispValue::Symbol { .. }) && name.get().is_err() {
+        ctx.compiler.as_mut().unwrap().unbound_calls += 1;
+    }
     other_functions::compile_fn_defun_call(ctx, &name, &args)
 }
 

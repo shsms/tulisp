@@ -3,6 +3,7 @@ pub(crate) use eval_into::EvalInto;
 
 use std::borrow::Cow;
 
+use crate::object::wrappers::generic::SharedMut;
 use crate::value::DefunArity;
 use crate::{
     TulispObject, TulispValue,
@@ -141,7 +142,7 @@ fn eval_function<E: Evaluator>(
     args: &TulispObject,
 ) -> Result<TulispObject, Error> {
     let vals = eval_args_with_rest_list::<E>(ctx, params, args)?;
-    // Params are pre-rewritten at defun/lambda/defmacro creation to
+    // Params are pre-rewritten at defun/lambda creation to
     // carry a shared `LexicalBinding`; here we just push the arg values
     // onto each binding's thread-local stack, run the body, and pop.
     // Concurrent callers use independent stacks. Function parameters
@@ -201,16 +202,6 @@ fn eval_lambda<E: Evaluator>(
         };
     }
     Ok(result)
-}
-
-#[inline(always)]
-pub(crate) fn eval_defmacro(
-    ctx: &mut TulispContext,
-    params: &DefunParams,
-    body: &TulispObject,
-    args: &TulispObject,
-) -> Result<TulispObject, Error> {
-    eval_function::<DummyEval>(ctx, params, body, args)
 }
 
 /// Whether `obj` is a `(lambda ...)` list.
@@ -597,19 +588,27 @@ fn macroexpand_depth(
     let exp_car = expr.car()?;
     let value = match exp_car.get() {
         Ok(val) => val,
-        Err(_) => exp_car,
+        Err(_) => exp_car.clone(),
     };
-    let x = match &value.inner_ref().0 {
+    let inner = value.inner_ref();
+    let x = match &inner.0 {
         TulispValue::Macro(func) => {
+            let func = func.clone();
+            drop(inner);
             let expansion = func(ctx, &expr.cdr()?).map_err(|e| e.with_trace(inp))?;
             with_call_span(macroexpand_depth(ctx, expansion, depth + 1)?, &expr)
         }
-        TulispValue::Defmacro { params, body } => {
-            let expansion =
-                eval_defmacro(ctx, params, body, &expr.cdr()?).map_err(|e| e.with_trace(inp))?;
+        TulispValue::Defmacro { lambda, compiled } => {
+            let (lambda, compiled) = (lambda.clone(), compiled.clone());
+            drop(inner);
+            let expansion = expand_lisp_macro(ctx, &exp_car, &lambda, &compiled, &expr.cdr()?)
+                .map_err(|e| e.with_trace(inp))?;
             with_call_span(macroexpand_depth(ctx, expansion, depth + 1)?, &expr)
         }
-        _ => expr,
+        _ => {
+            drop(inner);
+            expr
+        }
     };
 
     if x.consp() {
@@ -627,6 +626,44 @@ fn macroexpand_depth(
     } else {
         Ok(x)
     }
+}
+
+/// Expands a call to a macro defined in Lisp: runs its body, compiled
+/// to a VM lambda on first use, on ARGS, the call's argument forms.
+/// The compiled lambda is kept once a call to it succeeded, unless its
+/// compile met a call to a name with no value yet.
+fn expand_lisp_macro(
+    ctx: &mut TulispContext,
+    name: &TulispObject,
+    lambda: &TulispObject,
+    compiled: &SharedMut<Option<TulispObject>>,
+    args: &TulispObject,
+) -> Result<TulispObject, Error> {
+    let cached = compiled.borrow().clone();
+    if let Some(function) = cached {
+        return funcall::<DummyEval>(ctx, &function, args);
+    }
+    let (function, complete) = compile_macro_body(ctx, name, lambda, compiled)?;
+    let expansion = funcall::<DummyEval>(ctx, &function, args)?;
+    if complete {
+        *compiled.borrow_mut() = Some(function);
+    }
+    Ok(expansion)
+}
+
+/// Compiles a macro's `(lambda PARAMS . BODY)` form in the VM. The flag
+/// is false when the body calls a name with no value yet: a macro
+/// defined later would then expand there, so the body is not kept.
+fn compile_macro_body(
+    ctx: &mut TulispContext,
+    _name: &TulispObject,
+    lambda: &TulispObject,
+    _compiled: &SharedMut<Option<TulispObject>>,
+) -> Result<(TulispObject, bool), Error> {
+    let before = ctx.compiler.as_ref().unwrap().unbound_calls;
+    let function = ctx.eval(lambda)?;
+    let complete = ctx.compiler.as_ref().unwrap().unbound_calls == before;
+    Ok((function, complete))
 }
 
 /// Gives a fully expanded list the span of the macro call it replaces,
@@ -1001,7 +1038,7 @@ mod tests {
     use crate::test_utils::{
         eval_assert, eval_assert_equal, eval_assert_error, eval_assert_error_line, eval_assert_not,
     };
-    use crate::{Error, TulispContext, TulispValue, list};
+    use crate::{Error, TulispContext, TulispObject, TulispValue, list};
 
     // A tail call marked at parse time bounces to whatever the symbol
     // names at run time, so a Rust defun reached that way is checked
@@ -1811,6 +1848,17 @@ mod tests {
         );
     }
 
+    // A macro's body runs in the VM: a lambda it makes is compiled.
+    #[test]
+    fn a_macro_body_runs_in_the_vm() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            r#"(defmacro vm-m () (lambda () 5)) (format "%s" (vm-m))"#,
+            r#""CompiledDefun""#,
+        );
+    }
+
     // A macro's body may use a macro defined after it.
     #[test]
     fn a_macro_body_may_use_a_macro_defined_later() {
@@ -1820,6 +1868,44 @@ mod tests {
             "(defmacro lz-outer () (list 'quote (lz-inner))) (defmacro lz-inner () 7) (lz-outer)",
             "7",
         );
+    }
+
+    // The body compiles once: a macro used in it expands once, however
+    // often the outer macro expands.
+    #[test]
+    fn a_macro_body_compiles_once() -> Result<(), Error> {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string("(defmacro once-outer () (list 'quote (once-counted)))")?;
+        let count = Arc::new(AtomicUsize::new(0));
+        let counter = count.clone();
+        ctx.defmacro("once-counted", move |_, _| {
+            counter.fetch_add(1, Ordering::Relaxed);
+            Ok(TulispObject::from(1))
+        });
+        for _ in 0..3 {
+            assert_eq!(ctx.eval_string("(once-outer)")?.to_string(), "1");
+        }
+        assert_eq!(count.load(Ordering::Relaxed), 1);
+        Ok(())
+    }
+
+    // A macro used in the body keeps the expansion it had when the body
+    // compiled; redefining the outer macro takes the new one.
+    #[test]
+    fn a_compiled_macro_body_keeps_its_inner_macros() -> Result<(), Error> {
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string("(defmacro kp-outer () (list 'quote (kp-inner)))")?;
+        ctx.eval_string("(defmacro kp-inner () ''a)")?;
+        eval_assert_equal(ctx, "(kp-outer)", "'a");
+        eval_assert_equal(ctx, "(defmacro kp-inner () ''b) (kp-outer)", "'a");
+        eval_assert_equal(
+            ctx,
+            "(defmacro kp-outer () (list 'quote (kp-inner))) (kp-outer)",
+            "'b",
+        );
+        Ok(())
     }
 
     // A first expansion that fails leaves the macro usable once its
@@ -1853,11 +1939,58 @@ mod tests {
         );
     }
 
+    // An error raised or a compile error in the body is traced to the
+    // macro call; one in a backquote-built expansion too.
+    #[test]
+    fn macro_errors_are_traced_to_the_call() {
+        let ctx = &mut TulispContext::new();
+        for (program, needle) in [
+            ("(defmacro er1 () (car 1)) (er1)", "at (er1)"),
+            ("(defmacro er2 () (if)) (er2)", "at (er2)"),
+            (
+                "(defmacro m (x) `(progn ,x)) (m (car 5))",
+                "1.30-1.40:  at (progn (car 5))",
+            ),
+        ] {
+            for result in [ctx.tw_eval_string(program), ctx.eval_string(program)] {
+                let err = result.unwrap_err().format(ctx);
+                assert!(err.contains(needle), "{program}: {err}");
+            }
+        }
+    }
+
     // A macro defined at run time is there for a later program.
     #[test]
     fn a_macro_defined_through_eval() {
         let ctx = &mut TulispContext::new();
         eval_assert_equal(ctx, "(eval '(defmacro em () 3)) t", "t");
         eval_assert_equal(ctx, "(em)", "3");
+    }
+
+    // A call to a local function is not a name with no value: the body
+    // is kept, with the macros it used then.
+    #[test]
+    fn a_body_calling_a_local_function_is_kept() -> Result<(), Error> {
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string(
+            "(defmacro lf-outer () (let ((g (lambda (y) y))) (g (list 'quote (lf-inner)))))",
+        )?;
+        ctx.eval_string("(defmacro lf-inner () ''old)")?;
+        assert_eq!(ctx.eval_string("(lf-outer)")?.to_string(), "old");
+        ctx.eval_string("(defmacro lf-inner () ''new)")?;
+        assert_eq!(ctx.eval_string("(lf-outer)")?.to_string(), "old");
+        Ok(())
+    }
+
+    // A body whose first compile met a call to a name with no value yet
+    // is not kept, so it takes that name once it is defined.
+    #[test]
+    fn a_body_compiled_before_its_helper_exists_is_not_kept() -> Result<(), Error> {
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string("(defmacro fz (x) (if x (list 'quote (fz-inner x)) ''none))")?;
+        assert_eq!(ctx.eval_string("(fz nil)")?.to_string(), "none");
+        ctx.eval_string("(defmacro fz-inner (x) (list 'car x))")?;
+        assert_eq!(ctx.eval_string("(fz (a b))")?.to_string(), "a");
+        Ok(())
     }
 }

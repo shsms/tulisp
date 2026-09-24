@@ -691,9 +691,13 @@ pub enum TulispValue {
         arity: DefunArity,
     },
     Macro(Shared<dyn TulispFn>),
+    /// A macro defined in Lisp: `lambda` is `(lambda PARAMS . BODY)`,
+    /// and `compiled` holds it compiled, once an expansion with it
+    /// succeeded, unless its compile met a call to a name with no value
+    /// yet.
     Defmacro {
-        params: DefunParams,
-        body: TulispObject,
+        lambda: TulispObject,
+        compiled: SharedMut<Option<TulispObject>>,
     },
     Lambda {
         params: DefunParams,
@@ -739,11 +743,9 @@ impl std::fmt::Debug for TulispValue {
             Self::Defun { .. } => write!(f, "Defun"),
             Self::Special { .. } => write!(f, "Special"),
             Self::Macro(_) => write!(f, "Macro"),
-            Self::Defmacro { params, body } => f
-                .debug_struct("Defmacro")
-                .field("params", params)
-                .field("body", body)
-                .finish(),
+            Self::Defmacro { lambda, .. } => {
+                f.debug_struct("Defmacro").field("lambda", lambda).finish()
+            }
             Self::Lambda { params, body } => f
                 .debug_struct("Defun")
                 .field("params", params)

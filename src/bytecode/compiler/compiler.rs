@@ -51,6 +51,9 @@ pub(crate) struct Compiler {
     /// The names, by address, that the compile in progress defined or
     /// redefined in `bytecode.functions`.
     pub added_functions: Vec<usize>,
+    /// How many calls to a name with no value yet were compiled, ever.
+    /// A macro body whose compile adds to it is not kept.
+    pub unbound_calls: usize,
     label_counter: usize,
 }
 
@@ -65,6 +68,7 @@ impl Compiler {
             active_let_scopes: Vec::new(),
             in_block: false,
             added_functions: Vec::new(),
+            unbound_calls: 0,
             label_counter: 0,
         }
     }
