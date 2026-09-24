@@ -916,6 +916,21 @@ impl TulispValue {
         }
     }
 
+    /// Fails as [`set_global`](Self::set_global) would, and sets
+    /// nothing.
+    pub(crate) fn check_global_settable(&self) -> Result<(), Error> {
+        match self {
+            TulispValue::Symbol { value } if value.is_constant() => {
+                Err(Error::setting_constant(&value.name))
+            }
+            TulispValue::Symbol { .. } => Ok(()),
+            TulispValue::Nil | TulispValue::T => Err(Error::setting_constant(self)),
+            _ => Err(Error::type_mismatch(format!(
+                "Expected Symbol: Can't assign to {self}"
+            ))),
+        }
+    }
+
     #[inline(always)]
     pub(crate) fn set_global(&mut self, to_set: TulispObject) -> Result<(), Error> {
         match self {

@@ -230,7 +230,12 @@ pub(super) fn compile_fn_defun_call(
     let mut result = vec![];
     let mut args_count = 0;
     if crate::eval::is_lambda_list(ctx, name) {
-        compile_fn_defun(ctx, &name.car()?, &list!(name.clone() ,@name.cdr()?)?)?;
+        compile_defun(
+            ctx,
+            &name.car()?,
+            &list!(name.clone() ,@name.cdr()?)?,
+            false,
+        )?;
     }
 
     for arg in args.base_iter() {
@@ -258,10 +263,25 @@ pub(super) fn compile_fn_defun_call(
     Ok(result)
 }
 
+/// `(defun NAME PARAMS [DOC] BODY...)` defines NAME as it compiles:
+/// NAME holds the compiled function from then on. Its value is NAME.
 pub(super) fn compile_fn_defun(
     ctx: &mut TulispContext,
     defun_kw: &TulispObject,
     args: &TulispObject,
+) -> Result<Vec<Instruction>, Error> {
+    compile_defun(ctx, defun_kw, args, true)
+}
+
+/// Compiles a function from ARGS, `(NAME PARAMS [DOC] BODY...)`, into
+/// the machine's function table under NAME. A `(lambda ...)` list is
+/// its own NAME, and only a named function, with DEFINE, is set as
+/// NAME's value.
+fn compile_defun(
+    ctx: &mut TulispContext,
+    defun_kw: &TulispObject,
+    args: &TulispObject,
+    define: bool,
 ) -> Result<Vec<Instruction>, Error> {
     let mut defun_params = VMDefunParams {
         required: vec![],
@@ -272,6 +292,10 @@ pub(super) fn compile_fn_defun(
     let mut source = None;
     let res = ctx.compile_2_arg_call(defun_kw, args, true, |ctx, defun_name, args, body| {
         fn_name = defun_name.clone();
+        let _: crate::value::DefunParams = args.clone().try_into()?;
+        if define {
+            defun_name.check_global_settable()?;
+        }
         // The tree-walker's lambda for this same form, which `run`
         // installs on the symbol when it loads this compiled copy. A
         // constant name, which a macro can produce, gets none.
@@ -470,7 +494,8 @@ pub(super) fn compile_fn_declare(
 #[cfg(test)]
 mod tests {
     use crate::test_utils::{
-        eval_assert_equal, eval_assert_equal_fresh, eval_assert_error, listing,
+        eval_assert_equal, eval_assert_equal_fresh, eval_assert_error, eval_assert_error_line,
+        listing,
     };
     use crate::{Error, Plist, TulispContext};
 
@@ -578,8 +603,42 @@ mod tests {
         eval_assert_equal(&mut ctx, "(list (g 0) (funcall 'g 0))", "'(7 7)");
         assert!(ctx.eval_string("(mydef g (car))").is_err());
         eval_assert_equal(&mut ctx, "(list (g 0) (funcall 'g 0))", "'(7 7)");
-        let ran = ctx.eval_string("(setq ran t) (mydef :kw 2) ran").unwrap();
-        assert!(ran.is_truthy());
+        let err = ctx.eval_string("(mydef :kw 2)").unwrap_err();
+        assert!(
+            err.to_string().contains("Can't set constant symbol: :kw"),
+            "{err}"
+        );
+    }
+
+    // A name that `set` refuses is refused before the body compiles,
+    // also for a `defun` built at run time.
+    #[test]
+    fn a_defun_with_a_constant_or_non_symbol_name_is_an_error() {
+        let ctx = &mut TulispContext::new();
+        for (program, line) in [
+            (
+                "(eval (list 'defun t nil 1))",
+                "ERR TypeMismatch: Can't set constant symbol: t",
+            ),
+            (
+                "(eval (list 'defun :k nil 1))",
+                "ERR TypeMismatch: Can't set constant symbol: :k",
+            ),
+            (
+                "(eval (list 'defun :k nil '(car)))",
+                "ERR TypeMismatch: Can't set constant symbol: :k",
+            ),
+            (
+                "(eval (list 'defun \"s\" nil 1))",
+                "ERR TypeMismatch: Expected Symbol: Can't assign to \"s\"",
+            ),
+            (
+                "(eval (list 'defun '(a) nil 1))",
+                "ERR TypeMismatch: Expected Symbol: Can't assign to (a)",
+            ),
+        ] {
+            eval_assert_error_line(ctx, program, line);
+        }
     }
 
     #[test]
