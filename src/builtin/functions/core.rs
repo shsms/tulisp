@@ -586,9 +586,10 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     ctx.defun(
         "eval",
-        |ctx: &mut TulispContext, arg: TulispObject| -> Result<TulispObject, Error> {
-            ctx.eval(&arg)
-        },
+        |ctx: &mut TulispContext,
+         form: TulispObject,
+         _lexical: Option<TulispObject>|
+         -> Result<TulispObject, Error> { ctx.eval(&form) },
     );
 
     ctx.define_tw_special("apply", |ctx, args| {
@@ -823,6 +824,15 @@ mod tests {
     use crate::test_utils::{
         eval_assert, eval_assert_equal, eval_assert_error, eval_assert_error_line, eval_assert_not,
     };
+
+    // `eval` takes Emacs's optional LEXICAL argument and ignores it.
+    #[test]
+    fn eval_takes_an_optional_lexical_argument() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(eval '(+ 1 2))", "3");
+        eval_assert_equal(ctx, "(eval '(+ 1 2) t)", "3");
+        eval_assert_equal(ctx, "(eval '(+ 1 2) nil)", "3");
+    }
 
     #[test]
     fn funcall_accepts_symbols_and_lambdas() {
