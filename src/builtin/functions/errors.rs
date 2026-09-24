@@ -1,19 +1,11 @@
-use crate::{
-    Error, ErrorKind, TulispContext, TulispObject, TulispValue, destruct_bind,
-    eval::{substitute_lexical, tw_eval, tw_eval_progn},
-    object::wrappers::generic::SharedMut,
-};
+use crate::{Error, ErrorKind, TulispContext, TulispObject, TulispValue};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defun("error", |msg: String| -> Result<TulispObject, Error> {
         Err(Error::lisp_error(msg))
     });
 
-    ctx.define_tw_special("catch", |ctx, args| {
-        destruct_bind!((tag &rest body) = args);
-        let tag = tw_eval(ctx, &tag)?;
-        tw_eval_progn(ctx, &body).or_else(|err| catch_throw(err, &tag))
-    });
+    ctx.define_special_form("catch");
 
     ctx.defun(
         "throw",
@@ -30,15 +22,10 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     // original error/throw re-propagates.
     //
     // Precedence matches Emacs: an error signaled by an UNWINDFORM
-    // supersedes (masks) the BODYFORM's value or error. `Result::and`
-    // encodes exactly this — `cleanup.and(result)` yields the cleanup
-    // error when cleanup is `Err`, otherwise the BODYFORM's `result`.
-    ctx.define_tw_special("unwind-protect", |ctx, args| {
-        destruct_bind!((bodyform &rest unwindforms) = args);
-        let result = tw_eval(ctx, &bodyform);
-        let cleanup = tw_eval_progn(ctx, &unwindforms);
-        cleanup.and(result)
-    });
+    // supersedes (masks) the BODYFORM's value or error. The
+    // `UnwindProtect` instruction keeps this with `Result::and`: the
+    // cleanup's error when there is one, otherwise BODYFORM's result.
+    ctx.define_special_form("unwind-protect");
 
     // `(condition-case VAR PROTECTED-FORM HANDLER...)` runs
     // PROTECTED-FORM; on an error, it runs the first HANDLER whose
@@ -50,42 +37,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     // bound lexically, like a `let` variable, or dynamically when it is
     // special. A `nil` VAR binds nothing; `t` or a keyword fails when a
     // handler binds it.
-    ctx.define_tw_special("condition-case", |ctx, args| {
-        destruct_bind!((var protected_form &rest handlers) = args);
-        check_condition_case_var(&var)?;
-        let handlers = parse_handlers(&handlers)?;
-        let err = match tw_eval(ctx, &protected_form) {
-            Ok(value) => return Ok(value),
-            Err(err) => err,
-        };
-        let Some(kind_sym) = error_symbol(&err) else {
-            return Err(err);
-        };
-        for (condition, body) in handlers {
-            if !condition_matches(&condition, kind_sym)? {
-                continue;
-            }
-            if var.null() {
-                return tw_eval_progn(ctx, &body);
-            }
-            crate::builtin::check_settable_target(&var)?;
-            let data = error_data(ctx, kind_sym, &err);
-            if var.is_special() {
-                var.set_scope(data)?;
-                let result = tw_eval_progn(ctx, &body);
-                let _ = var.unset();
-                return result;
-            }
-            let lex = TulispObject::lexical_binding_captured(
-                ctx.lex_allocator.clone(),
-                var.clone(),
-                SharedMut::new(data),
-            );
-            let body = substitute_lexical(body, &[(var.clone(), lex)])?;
-            return tw_eval_progn(ctx, &body);
-        }
-        Err(err)
-    });
+    ctx.define_special_form("condition-case");
 }
 
 /// The Emacs error symbol `condition-case` matches ERR against, or

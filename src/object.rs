@@ -551,10 +551,6 @@ impl TulispObject {
         self.rc.borrow_mut().0.set_global(to_set)
     }
 
-    pub(crate) fn is_lexically_bound(&self) -> bool {
-        self.rc.borrow().0.is_lexically_bound()
-    }
-
     /// True for any symbol but `nil` and `t`: a `Symbol` value,
     /// keywords included, or a `LexicalBinding`.
     #[inline(always)]

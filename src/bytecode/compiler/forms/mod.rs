@@ -200,6 +200,11 @@ pub(super) fn compile_form(
                 let form = macroexpand(ctx, form.clone())?;
                 return compile_expr(ctx, &form);
             }
+            // A special form under a name the compiler does not know.
+            (TulispValue::SpecialForm, _) => {
+                return Err(Error::invalid_argument(format!("invalid function: {name}"))
+                    .with_trace(form.clone()));
+            }
             _ => {}
         }
     }

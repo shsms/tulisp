@@ -1,23 +1,10 @@
-use crate::eval::EvalInto;
-use crate::eval::{tw_eval, tw_eval_progn};
-
 use crate::{
-    Error, TulispContext, TulispObject, destruct_bind,
-    eval::eval_basic,
-    list,
+    Error, TulispContext, TulispObject, destruct_bind, list,
     lists::{last, length},
 };
-use std::borrow::Cow;
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    ctx.define_tw_special("if", |ctx, args| {
-        destruct_bind!((cond then &rest body) = args);
-        if cond.eval_into(ctx)? {
-            tw_eval(ctx, &then)
-        } else {
-            tw_eval_progn(ctx, &body)
-        }
-    });
+    ctx.define_special_form("if");
 
     ctx.defmacro("when", |ctx, args| {
         destruct_bind!((cond &rest body) = args);
@@ -33,52 +20,14 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         ))
     });
 
-    ctx.define_tw_special("cond", |ctx, args| {
-        for item in args.base_iter() {
-            if item.car_and_then(|x| x.eval_into(ctx))? {
-                return item.cdr_and_then(|x| tw_eval_progn(ctx, x));
-            }
-        }
-        Ok(TulispObject::nil())
-    });
+    ctx.define_special_form("cond");
 
     // Constructs for combining conditions
     ctx.defun("not", |x: TulispObject| -> bool { x.null() });
 
-    ctx.define_tw_special("and", |ctx, args| {
-        // `(and)` is t, as in Emacs.
-        let mut ret = true.into();
-        for item in args.base_iter() {
-            let result = eval_basic(ctx, &item)?;
-            if result.null() {
-                return Ok(result.into_owned());
-            }
-            ret = match result {
-                Cow::Borrowed(_) => item,
-                Cow::Owned(o) => o,
-            };
-        }
-        Ok(ret)
-    });
+    ctx.define_special_form("and");
 
-    ctx.define_tw_special("or", |ctx, args| {
-        for item in args.base_iter() {
-            let result = eval_basic(ctx, &item)?;
-            match result {
-                Cow::Borrowed(_) => {
-                    if !item.null() {
-                        return Ok(item);
-                    }
-                }
-                Cow::Owned(o) => {
-                    if !o.null() {
-                        return Ok(o);
-                    }
-                }
-            }
-        }
-        Ok(TulispObject::nil())
-    });
+    ctx.define_special_form("or");
 
     ctx.defun(
         "xor",

@@ -1,6 +1,3 @@
-mod eval_into;
-pub(crate) use eval_into::EvalInto;
-
 use std::borrow::Cow;
 
 use crate::object::wrappers::generic::SharedMut;
@@ -235,6 +232,7 @@ pub(crate) fn resolve_function(
         TulispValue::Macro(_)
             | TulispValue::Defmacro { .. }
             | TulispValue::Func(_)
+            | TulispValue::SpecialForm
             | TulispValue::Special { .. }
     ) {
         return Err(Error::invalid_argument(format!("invalid function: {func}")));
@@ -538,6 +536,7 @@ pub(crate) fn eval_basic<'a>(
         | TulispValue::Macro(_)
         | TulispValue::Defmacro { .. }
         | TulispValue::CompiledDefun { .. }
+        | TulispValue::SpecialForm
         | TulispValue::Any(_)
         | TulispValue::Bounce
         | TulispValue::Nil
@@ -856,29 +855,6 @@ fn with_call_span(expansion: TulispObject, call: &TulispObject) -> TulispObject 
     }
 }
 
-/// The tree-walker's lambda for `(defun NAME PARAMS . REST)`: the body
-/// without its docstring and with its tail calls marked, where each
-/// parameter reference points at a `LexicalBinding` allocated once here.
-/// Call-time evaluation then only pushes and pops values on the
-/// binding's stack, instead of cloning the body on every call.
-pub(crate) fn defun_lambda(
-    ctx: &mut TulispContext,
-    name: &TulispObject,
-    params: &TulispObject,
-    rest: TulispObject,
-) -> Result<TulispObject, Error> {
-    let body = if rest.car()?.as_string().is_ok() {
-        rest.cdr()?
-    } else {
-        rest
-    };
-    let body = crate::parse::mark_tail_calls(ctx, name.clone(), body)?;
-    let raw_params: DefunParams = params.clone().try_into()?;
-    let (params, mappings) = raw_params.bind_as_lexical(&ctx.lex_allocator);
-    let body = substitute_lexical(body, &mappings)?;
-    Ok(TulispValue::Lambda { params, body }.into_ref(None))
-}
-
 /// The `X` of a `` `X ``, `,X`, `,@X` or `'X` that a walker
 /// looking for variables goes into, with the backquote depth to walk
 /// it at. See [`wrapped_operand`].
@@ -948,6 +924,7 @@ pub(crate) fn wrapped_operand(
         | TulispValue::List { .. }
         | TulispValue::Any(_)
         | TulispValue::Func(_)
+        | TulispValue::SpecialForm
         | TulispValue::Defun { .. }
         | TulispValue::Special { .. }
         | TulispValue::Macro(_)

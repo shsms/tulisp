@@ -1053,9 +1053,9 @@ pub(crate) fn call_function(
             }
             crate::eval::funcall::<crate::eval::Eval>(ctx, function, &list.build())
         }
-        TulispValue::Func(_) | TulispValue::Special { .. } => Err(Error::invalid_argument(
-            format!("invalid function: {function}"),
-        )),
+        TulispValue::Func(_) | TulispValue::SpecialForm | TulispValue::Special { .. } => Err(
+            Error::invalid_argument(format!("invalid function: {function}")),
+        ),
         _ => Err(Error::undefined(format!("function is void: {}", function))),
     }
 }

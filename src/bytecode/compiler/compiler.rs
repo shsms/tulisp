@@ -542,9 +542,10 @@ pub(crate) fn compile_expr(
                 Ok(vec![])
             }
         }
-        // A function value evaluates to itself.
+        // A function, macro or special-form value evaluates to itself.
         (TulispValue::Lambda { .. }, _)
         | (TulispValue::Func(_), _)
+        | (TulispValue::SpecialForm, _)
         | (TulispValue::Defun { .. }, _)
         | (TulispValue::Special { .. }, _)
         | (TulispValue::CompiledDefun { .. }, _)

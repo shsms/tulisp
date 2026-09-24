@@ -5,18 +5,10 @@ use crate::TulispValue;
 use crate::context::TulispContext;
 use crate::destruct_bind;
 use crate::error::Error;
-use crate::eval::EvalInto;
-use crate::eval::substitute_lexical;
-use crate::eval::{WrappedOperand, wrapped_operand};
-use crate::eval::{tw_eval, tw_eval_progn};
 use crate::list;
-use crate::object::wrappers::generic::{Shared, SharedMut};
-use crate::value::{DefunParams, LexAllocator};
+use crate::object::wrappers::generic::SharedMut;
+use crate::value::DefunParams;
 use std::convert::TryInto;
-
-// `mark_tail_calls` lives in `crate::parse`, shared by the tree-walker's
-// `defun` and the VM's `compile_defun`; see `docs/tco.md` for which
-// tail calls it marks.
 
 /// Defines the macro a `(defmacro NAME PARAMS [DOC] BODY...)` form's
 /// ARGS describe, and returns NAME. The parameter list is checked now;
@@ -250,34 +242,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         },
     );
 
-    ctx.define_tw_special("while", |ctx, args| {
-        destruct_bind!((condition &rest rest) = args);
-        while condition.eval_into(ctx)? {
-            tw_eval_progn(ctx, &rest)?;
-        }
-        Ok(TulispObject::nil())
-    });
+    ctx.define_special_form("while");
 
-    ctx.define_tw_special("setq", |ctx, args| {
-        args.car_and_then(crate::builtin::check_settable_target)?;
-        let value = args.cdr_and_then(|args| {
-            if args.null() {
-                return Err(Error::type_mismatch(
-                    "setq requires exactly 2 arguments".to_string(),
-                ));
-            }
-            args.cdr_and_then(|x| {
-                if !x.null() {
-                    return Err(Error::type_mismatch(
-                        "setq requires exactly 2 arguments".to_string(),
-                    ));
-                }
-                args.car_and_then(|arg| tw_eval(ctx, arg))
-            })
-        })?;
-        args.car_and_then(|name| name.set(value.clone()))?;
-        Ok(value)
-    });
+    ctx.define_special_form("setq");
 
     ctx.defun(
         "set",
@@ -287,297 +254,16 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         },
     );
 
-    /// RAII guard that unwinds dynamic (`defvar`-declared) let bindings
-    /// on scope exit — including the error path when the body returns
-    /// `?` partway through. Lexical (non-special) let vars don't need a
-    /// guard: they own their slot directly via
-    /// `lexical_binding_captured`, so the slot drops with the binding.
-    struct DynamicScopeGuard {
-        names: Vec<TulispObject>,
-    }
-    impl Drop for DynamicScopeGuard {
-        fn drop(&mut self) {
-            for name in self.names.drain(..).rev() {
-                let _ = name.unset();
-            }
-        }
-    }
+    ctx.define_special_form("let");
+    ctx.define_special_form("let*");
 
-    fn impl_let(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
-        destruct_bind!((varlist &rest body) = args);
-        // `body` may be nil — `(let ((x 5)))` is well-formed and
-        // evaluates to nil per Emacs. `eval_progn` returns nil for
-        // an empty form list, so no explicit check is needed.
-        // For non-special vars, create a fresh LexicalBinding per
-        // evaluation that directly owns its slot (via
-        // `lexical_binding_captured`) and rewrite the body to reference
-        // it. The slot drops when the binding drops — no thread-local
-        // stack involvement, no per-call id→stack growth.
-        // For `defvar`-declared (special/dynamic) vars, push onto the
-        // symbol's own stack instead — matching Emacs' behavior under
-        // `lexical-binding: t` for declared variables. The dynamic guard
-        // unwinds those pushes on scope exit.
-        // Initializers are evaluated in the scope of previously-bound
-        // let vars (same as `let*` — tulisp has always had `let` behave
-        // this way).
-        let mut mappings: Vec<(TulispObject, TulispObject)> = Vec::new();
-        let mut dynamic_guard = DynamicScopeGuard { names: Vec::new() };
-        let mut varitems = varlist.base_iter();
-        for varitem in varitems.by_ref() {
-            crate::builtin::check_not_nil_or_t(&varitem)?;
-            let (name, initial) = if varitem.is_symbol_variant() {
-                (varitem, TulispObject::nil())
-            } else if varitem.consp() {
-                destruct_bind!((&optional name value &rest rest) = varitem);
-                crate::builtin::check_not_nil_or_t(&name)?;
-                if !name.is_symbol_variant() {
-                    return Err(Error::type_mismatch(format!(
-                        "Expected Symbol: Can't assign to {name}"
-                    )));
-                }
-                if !rest.null() {
-                    return Err(Error::syntax_error(
-                        "let varitem has too many values".to_string(),
-                    ));
-                }
-                let value_expr = substitute_lexical(value, &mappings)?;
-                let initial = tw_eval(ctx, &value_expr)?;
-                (name, initial)
-            } else {
-                return Err(Error::syntax_error(format!(
-                    "varitems inside a let-varlist should be a var or a binding: {}",
-                    varitem
-                )));
-            };
-            if name.is_special() {
-                name.set_scope(initial)?;
-                dynamic_guard.names.push(name);
-            } else {
-                let slot = SharedMut::new(initial);
-                let lex = TulispObject::lexical_binding_captured(
-                    ctx.lex_allocator.clone(),
-                    name.clone(),
-                    slot,
-                );
-                mappings.push((name, lex));
-            }
-        }
-        varitems.take_error()?;
+    ctx.define_special_form("progn");
 
-        let rewritten = substitute_lexical(body, &mappings)?;
-        tw_eval_progn(ctx, &rewritten)
-    }
-    ctx.define_tw_special("let", impl_let);
-    ctx.define_tw_special("let*", impl_let);
+    ctx.define_special_form("defun");
 
-    ctx.define_tw_special("progn", tw_eval_progn);
+    ctx.define_special_form("lambda");
 
-    ctx.define_tw_special("defun", |ctx, args| {
-        destruct_bind!((name params &rest rest) = args);
-        let lambda = crate::eval::defun_lambda(ctx, &name, &params, rest)?;
-        name.set_global(lambda)?;
-        Ok(name)
-    });
-
-    fn lambda(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
-        destruct_bind!((params &rest rest) = args);
-        let body = if rest.car()?.as_string().is_ok() {
-            rest.cdr()?
-        } else {
-            rest
-        };
-        let params: DefunParams = params.try_into()?;
-        let param_names: Vec<_> = params.iter().map(|x| x.param.clone()).collect();
-
-        fn slice_contains(vec: &[TulispObject], item: &TulispObject) -> bool {
-            for i in vec {
-                if i.eq(item) {
-                    return true;
-                }
-            }
-            false
-        }
-
-        fn capture_symbol(
-            allocator: &Shared<LexAllocator>,
-            captured_vars: &mut Vec<(TulispObject, TulispObject)>,
-            exclude: &[TulispObject],
-            symbol: TulispObject,
-        ) -> Result<TulispObject, Error> {
-            if !symbol.is_lexically_bound() {
-                return Ok(symbol);
-            }
-            if !slice_contains(exclude, &symbol) {
-                for (from, to) in captured_vars.iter() {
-                    if symbol.eq(from) {
-                        return Ok(to.clone().with_span(symbol.span()));
-                    }
-                }
-                // Share the enclosing scope's slot with the closure
-                // so `setq` on either side is visible to both —
-                // matching Emacs' `lexical-binding: t` semantics.
-                let slot_opt = {
-                    let inner = symbol.inner_ref();
-                    match &inner.0 {
-                        crate::value::TulispValue::LexicalBinding { binding } => {
-                            Some((binding.current_slot(), binding.name().to_string()))
-                        }
-                        _ => None,
-                    }
-                };
-                let slot = match slot_opt {
-                    Some((Some(slot), _)) => slot,
-                    Some((None, name)) => {
-                        return Err(Error::uninitialized(format!(
-                            "Variable definition is void: {}",
-                            name
-                        )));
-                    }
-                    None => return Ok(symbol),
-                };
-                let new_var =
-                    TulispObject::lexical_binding_captured(allocator.clone(), symbol.clone(), slot);
-                captured_vars.push((symbol, new_var.clone()));
-                return Ok(new_var);
-            }
-            Ok(symbol)
-        }
-
-        fn capture_variables(
-            allocator: &Shared<LexAllocator>,
-            captured_vars: &mut Vec<(TulispObject, TulispObject)>,
-            exclude: &[TulispObject],
-            body: TulispObject,
-        ) -> Result<TulispObject, Error> {
-            capture_variables_inner(allocator, captured_vars, exclude, body, 0)
-        }
-
-        // `quote_depth` is the backquote depth: 0 in code, where a
-        // symbol is a variable, and more inside a backquote, where it
-        // is data. `wrapped_operand` says how it changes.
-        fn capture_variables_inner(
-            allocator: &Shared<LexAllocator>,
-            captured_vars: &mut Vec<(TulispObject, TulispObject)>,
-            exclude: &[TulispObject],
-            body: TulispObject,
-            quote_depth: u32,
-        ) -> Result<TulispObject, Error> {
-            if !body.consp() {
-                let inner_ref = body.inner_ref();
-                return match &inner_ref.0 {
-                    TulispValue::Symbol { .. } | TulispValue::LexicalBinding { .. } => {
-                        drop(inner_ref);
-                        if quote_depth > 0 {
-                            Ok(body)
-                        } else {
-                            capture_symbol(allocator, captured_vars, exclude, body)
-                        }
-                    }
-                    _ => {
-                        drop(inner_ref);
-                        match wrapped_operand(&body, quote_depth, false) {
-                            Some(operand) => {
-                                capture_operand(allocator, captured_vars, exclude, body, operand)
-                            }
-                            None => Ok(body),
-                        }
-                    }
-                };
-            }
-
-            // At code level, `(quote X)` written as a list form is
-            // data-only — don't descend into X.
-            if quote_depth == 0
-                && let Ok(car) = body.car()
-                && let Ok(name) = car.as_symbol()
-                && name == "quote"
-            {
-                return Ok(body);
-            }
-
-            // Code is always rebuilt. Inside a backquote a list is
-            // data, and one that holds nothing to capture is kept as
-            // it is. (For a lambda with parameters,
-            // `substitute_lexical` still copies it.)
-            let mut changed = quote_depth == 0;
-            let mut builder = crate::cons::ListBuilder::new();
-            let mut items = body.base_iter();
-            for car in items.by_ref() {
-                let walked = capture_variables_inner(
-                    allocator,
-                    captured_vars,
-                    exclude,
-                    car.clone(),
-                    quote_depth,
-                )?;
-                changed |= !walked.eq_ptr(&car);
-                builder.push(walked);
-            }
-            // An improper-list tail, or the error of a list that
-            // loops back.
-            let tail = items.tail()?;
-            let new_tail = if tail.null() {
-                tail
-            } else {
-                let walked = match wrapped_operand(&tail, quote_depth, true) {
-                    Some(operand) => {
-                        capture_operand(allocator, captured_vars, exclude, tail.clone(), operand)?
-                    }
-                    None => capture_variables_inner(
-                        allocator,
-                        captured_vars,
-                        exclude,
-                        tail.clone(),
-                        quote_depth,
-                    )?,
-                };
-                changed |= !walked.eq_ptr(&tail);
-                walked
-            };
-            if !changed {
-                return Ok(body);
-            }
-            if !new_tail.null() {
-                builder.append(new_tail)?;
-            }
-            Ok(builder.build().with_span(body.span()))
-        }
-
-        // Captures in `operand`, the operand of `obj`, and gives `obj`
-        // back when nothing in it changed.
-        fn capture_operand(
-            allocator: &Shared<LexAllocator>,
-            captured_vars: &mut Vec<(TulispObject, TulispObject)>,
-            exclude: &[TulispObject],
-            obj: TulispObject,
-            operand: WrappedOperand,
-        ) -> Result<TulispObject, Error> {
-            let walked = capture_variables_inner(
-                allocator,
-                captured_vars,
-                exclude,
-                operand.value.clone(),
-                operand.depth,
-            )?;
-            if walked.eq_ptr(&operand.value) {
-                Ok(obj)
-            } else {
-                Ok(operand.rewrap(walked))
-            }
-        }
-
-        let body = capture_variables(&ctx.lex_allocator, &mut vec![], &param_names, body)?;
-        // After capture_variables, free vars in body point at captured
-        // LexicalBindings from the enclosing scope; param references
-        // are still raw symbols. Pre-rewrite them to the new
-        // per-param LexicalBindings so calls are push/pop only.
-        let (params, mappings) = params.bind_as_lexical(&ctx.lex_allocator);
-        let body = substitute_lexical(body, &mappings)?;
-        Ok(TulispValue::Lambda { params, body }.into_ref(None))
-    }
-    ctx.define_tw_special("lambda", lambda);
-
-    ctx.define_tw_special("defmacro", define_macro);
+    ctx.define_special_form("defmacro");
 
     ctx.defun("null", |arg: TulispObject| -> bool { arg.null() });
 
@@ -748,25 +434,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     );
     // predicates end
 
-    ctx.define_tw_special("declare", |_ctx, _args| {
-        // no-op
-        Ok(TulispObject::nil())
-    });
+    ctx.define_special_form("declare");
 
-    ctx.define_tw_special("defvar", |ctx, args| {
-        destruct_bind!((name &optional initval _docstring) = args);
-        crate::builtin::check_defvar_name(&name)?;
-        // Flip the symbol's `special` flag so subsequent let/let* and
-        // reference-rewrite paths treat it as dynamic (Emacs' behavior
-        // under `lexical-binding: t`). Done before any initval eval so
-        // the flag is set even if initval errors.
-        name.set_special()?;
-        if !name.boundp() {
-            let val = tw_eval(ctx, &initval)?;
-            name.set(val)?;
-        }
-        Ok(name)
-    });
+    ctx.define_special_form("defvar");
 }
 
 #[cfg(test)]
@@ -777,6 +447,44 @@ mod tests {
         eval_assert_error_line,
     };
     use crate::{Error, TulispContext};
+
+    // A built-in special form's symbol holds a marker that is not a
+    // function, and not `equal` to another special form's.
+    #[test]
+    fn a_special_form_holds_a_marker() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(format \"%s\" (symbol-value 'if))", "\"SpecialForm\"");
+        eval_assert_equal(ctx, "(equal (symbol-value 'if) (symbol-value 'let))", "nil");
+        eval_assert_error_line(
+            ctx,
+            "(funcall (symbol-value 'if) t 1 2)",
+            "ERR InvalidArgument: invalid function: SpecialForm",
+        );
+        eval_assert_error_line(
+            ctx,
+            "(setq my-if (symbol-value 'if)) (my-if t 1 2)",
+            "ERR InvalidArgument: invalid function: my-if",
+        );
+        // Once `my-if` holds the marker, a call to it is refused when it
+        // compiles, so none of the program runs.
+        eval_assert_error_line(
+            ctx,
+            "(setq my-if-ran t) (my-if t 1 2)",
+            "ERR InvalidArgument: invalid function: my-if",
+        );
+        eval_assert_equal(ctx, "(condition-case nil my-if-ran (error 'void))", "'void");
+        eval_assert_error_line(
+            ctx,
+            "(mapcar 'if '(1 2))",
+            "ERR InvalidArgument: invalid function: if",
+        );
+        let if_ = ctx.intern("if");
+        let err = ctx.funcall(&if_, (1i64, 2i64)).unwrap_err().format(ctx);
+        assert!(
+            err.starts_with("ERR InvalidArgument: invalid function: if\n"),
+            "{err}"
+        );
+    }
 
     // A special form is not a function, as in Emacs; `funcall` and
     // `apply` themselves stay callable.

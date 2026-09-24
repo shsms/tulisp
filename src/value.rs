@@ -172,43 +172,6 @@ impl DefunParams {
     pub(crate) fn arity(&self) -> &DefunArity {
         &self.arity
     }
-
-    /// Replaces each raw-symbol param with a fresh `LexicalBinding` and
-    /// returns `(new_params, mappings)` where `mappings` is a list of
-    /// `(old_symbol, new_binding)` pairs suitable for
-    /// `substitute_lexical`. Callers are expected to run that
-    /// substitution on the function/macro body once at definition time,
-    /// so call-time evaluation only needs to push/pop values on each
-    /// binding's thread-local stack.
-    pub(crate) fn bind_as_lexical(
-        self,
-        allocator: &Shared<LexAllocator>,
-    ) -> (DefunParams, Vec<(TulispObject, TulispObject)>) {
-        let mut mappings = Vec::with_capacity(self.params.len());
-        let mut new_params = Vec::with_capacity(self.params.len());
-        for dp in self.params {
-            // Defun/lambda params are always lexically bound — even
-            // when the symbol has been declared `defvar` (special).
-            // Emacs under `lexical-binding: t` behaves this way: `let`
-            // of a special var binds dynamically, but function
-            // parameters stay lexical. Matching that keeps semantics
-            // consistent with Emacs' byte-compiler.
-            let lex = TulispObject::lexical_binding(allocator.clone(), dp.param.clone());
-            mappings.push((dp.param, lex.clone()));
-            new_params.push(DefunParam {
-                param: lex,
-                is_rest: dp.is_rest,
-                is_optional: dp.is_optional,
-            });
-        }
-        (
-            DefunParams {
-                params: new_params,
-                arity: self.arity,
-            },
-            mappings,
-        )
-    }
 }
 
 #[derive(Default, Clone, Debug)]
@@ -221,7 +184,6 @@ pub struct SymbolBindings {
     // symbol's own `items` stack, matching Emacs' behavior under
     // `lexical-binding: t` for declared variables.
     special: bool,
-    has_global: bool,
     items: Vec<TulispObject>,
 }
 
@@ -240,7 +202,6 @@ impl SymbolBindings {
             return Err(Error::setting_constant(&self.name));
         }
         if self.items.is_empty() {
-            self.has_global = true;
             self.items.push(to_set);
         } else {
             *self.items.last_mut().unwrap() = to_set;
@@ -253,7 +214,6 @@ impl SymbolBindings {
         if self.constant {
             return Err(Error::setting_constant(&self.name));
         }
-        self.has_global = true;
         if self.items.is_empty() {
             self.items.push(to_set);
         } else {
@@ -297,29 +257,6 @@ impl SymbolBindings {
             )));
         }
         Ok(self.items.last().unwrap().clone())
-    }
-
-    /// Gets the number value directly from the binding without cloning a TulispObject.
-    #[inline(always)]
-    pub(crate) fn get_as_number(&self) -> Result<crate::Number, Error> {
-        let Some(item) = self.items.last() else {
-            return Err(Error::uninitialized(format!(
-                "Variable definition is void: {}",
-                self.name
-            )));
-        };
-        item.as_number()
-    }
-
-    #[inline(always)]
-    pub(crate) fn get_as_bool(&self) -> Result<bool, Error> {
-        let Some(item) = self.items.last() else {
-            return Err(Error::uninitialized(format!(
-                "Variable definition is void: {}",
-                self.name
-            )));
-        };
-        Ok(item.is_truthy())
     }
 
     #[inline(always)]
@@ -473,7 +410,8 @@ impl LexBinding {
     }
 
     /// Creates a captured binding that shares `slot` with the
-    /// originating scope. Used by lambda's `capture_variables`.
+    /// originating scope, when the VM makes a lambda
+    /// (`make_lambda_from_template`).
     pub(crate) fn new_captured(
         allocator: Shared<LexAllocator>,
         symbol: TulispObject,
@@ -581,16 +519,6 @@ impl LexBinding {
         }
         with_lex_stack(self.inner.id, |s| !s.is_empty())
     }
-
-    #[inline(always)]
-    pub(crate) fn get_as_number(&self) -> Result<Number, Error> {
-        self.get()?.as_number()
-    }
-
-    #[inline(always)]
-    pub(crate) fn get_as_bool(&self) -> Result<bool, Error> {
-        Ok(self.get()?.is_truthy())
-    }
 }
 
 /// A host type that Lisp holds as an opaque value: stored behind a
@@ -673,6 +601,9 @@ pub enum TulispValue {
     },
     Any(Shared<dyn TulispAny>),
     Func(Shared<dyn TulispFn>),
+    /// A built-in special form, such as `if`: the compiler builds its
+    /// code, so the value is only a marker. It is not a function.
+    SpecialForm,
     /// A `ctx.defun`-registered Rust function, with already-evaluated
     /// args. Distinct from `Func` (a tree-walker special form, with raw
     /// args) so the VM can dispatch via `RustCallTyped` — args are
@@ -735,6 +666,7 @@ impl std::fmt::Debug for TulispValue {
             Self::Splice { value } => f.debug_struct("Splice").field("value", value).finish(),
             Self::Any(arg0) => write!(f, "Any({:?} = {})", arg0.type_id(), arg0),
             Self::Func(_) => write!(f, "Func"),
+            Self::SpecialForm => write!(f, "SpecialForm"),
             Self::Defun { .. } => write!(f, "Defun"),
             Self::Special { .. } => write!(f, "Special"),
             Self::Macro(_) => write!(f, "Macro"),
@@ -843,6 +775,7 @@ impl std::fmt::Display for TulispValue {
             TulispValue::Any(value) => f.write_fmt(format_args!("{}", value)),
             TulispValue::T => f.write_str("t"),
             TulispValue::Func(_) => f.write_str("Func"),
+            TulispValue::SpecialForm => f.write_str("SpecialForm"),
             TulispValue::Defun { .. } => f.write_str("Defun"),
             TulispValue::Special { .. } => f.write_str("Special"),
             TulispValue::Macro(_) => f.write_str("Macro"),
@@ -872,7 +805,6 @@ impl TulispValue {
                 name,
                 constant,
                 special: false,
-                has_global: false,
                 items: Default::default(),
             },
         }
@@ -964,21 +896,6 @@ impl TulispValue {
             _ => Err(Error::type_mismatch(
                 "Can unbind only from Symbols".to_string(),
             )),
-        }
-    }
-
-    #[inline(always)]
-    pub(crate) fn is_lexically_bound(&self) -> bool {
-        match self {
-            TulispValue::Symbol { value } => {
-                if value.special {
-                    return false;
-                }
-                (value.has_global && value.items.len() > 1)
-                    || (!value.has_global && !value.items.is_empty())
-            }
-            TulispValue::LexicalBinding { .. } => true,
-            _ => false,
         }
     }
 

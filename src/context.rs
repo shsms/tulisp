@@ -453,11 +453,10 @@ impl TulispContext {
         self
     }
 
-    /// Registers FUNC as a tree-walker special form, which gets its
-    /// arguments unevaluated, as one list.
-    #[inline(always)]
+    /// Makes NAME a built-in special form, whose code the compiler
+    /// builds: its symbol holds the `SpecialForm` marker.
     #[track_caller]
-    pub(crate) fn define_tw_special(&mut self, name: &str, func: impl TulispFn + std::any::Any) {
+    pub(crate) fn define_special_form(&mut self, name: &str) {
         #[cfg(feature = "etags")]
         {
             let caller = std::panic::Location::caller();
@@ -469,9 +468,8 @@ impl TulispContext {
         }
 
         let sym = self.intern(name);
-        sym.set_global(TulispValue::Func(Shared::new_tulisp_fn(func)).into_ref(None))
+        sym.set_global(TulispValue::SpecialForm.into_ref(None))
             .unwrap();
-        self.evict_compiled_dispatch(sym.addr_as_usize());
     }
 
     /// Drop any compile-time call-dispatch entry recorded for `addr`.
