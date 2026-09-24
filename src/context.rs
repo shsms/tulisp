@@ -487,7 +487,6 @@ impl TulispContext {
         self.evict_compiled_dispatch(sym.addr_as_usize());
     }
 
-    #[allow(dead_code)]
     #[inline(always)]
     #[track_caller]
     pub(crate) fn define_special(
@@ -518,6 +517,20 @@ impl TulispContext {
         )
         .unwrap();
         self.evict_compiled_dispatch(sym.addr_as_usize());
+    }
+
+    /// Registers a special form with typed parameters. The public
+    /// `defspecial` switches to this.
+    #[allow(dead_code)]
+    #[inline(always)]
+    #[track_caller]
+    pub(crate) fn defspecial_typed<Args: 'static, Output: 'static, const CTX: bool>(
+        &mut self,
+        name: &str,
+        func: impl special::SpecialCallable<Args, Output, CTX> + 'static,
+    ) -> &mut Self {
+        func.add_to_context(self, name);
+        self
     }
 
     /// Registers a Rust function as a callable Lisp function.

@@ -15,6 +15,8 @@ pub use context::call_args::{ApplyArgs, FuncallArgs, SpreadArgs};
 #[doc(hidden)]
 pub use context::callable::TulispCallable;
 pub use context::callable::{Param, ParamKind, PositionalParam, Return};
+#[doc(hidden)]
+pub use context::special::SpecialCallable;
 pub use context::special::{Form, SpecialArgs, SpecialParam, SpecialPositionalParam};
 pub use context::{Rest, TulispContext};
 

@@ -1,9 +1,10 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::bytecode::Block;
-use crate::object::wrappers::generic::Shared;
+use crate::object::wrappers::generic::{Shared, SyncSend};
 use crate::{
-    Error, Param, ParamKind, PositionalParam, Rest, TulispContext, TulispConvertible, TulispObject,
+    Error, Param, ParamKind, PositionalParam, Rest, Return, TulispContext, TulispConvertible,
+    TulispObject,
 };
 
 /// An argument of a special form, passed unevaluated. See
@@ -174,21 +175,91 @@ impl<T: PositionalParam> SpecialPositionalParam for T {}
 impl SpecialPositionalParam for Form {}
 impl SpecialPositionalParam for Option<Form> {}
 
+/// A closure that [`defspecial`](TulispContext::defspecial) can
+/// register: `Fn(P1, .., Pn) -> R` or
+/// `Fn(&mut TulispContext, P1, .., Pn) -> R` for up to twelve
+/// parameters and a [`Return`]; every parameter but the last is a
+/// [`SpecialPositionalParam`], the last any [`SpecialParam`].
+#[diagnostic::on_unimplemented(
+    message = "`defspecial` cannot register this closure",
+    note = "up to twelve parameters, each `TulispConvertible` or `Form`; only the last may be `Rest<T>`, `Plist<T>` or `Rest<Form>`",
+    note = "the return type must be `TulispConvertible`, `()`, or a `Result` of one"
+)]
+pub trait SpecialCallable<Args: 'static, Output: 'static, const CTX: bool> {
+    fn add_to_context(self, ctx: &mut TulispContext, name: &str);
+}
+
+macro_rules! impl_special_callable {
+    // One impl per arity for closures with and without the context
+    // parameter; `$cx` is the name the closure binds it to. Every
+    // parameter but the last binds one position.
+    (@impl $ctx:literal, $cx:ident, ($($fn_ctx:tt)*), ($($call_ctx:tt)*), ($($p:ident),*), ($($last:ident)?)) => {
+        #[allow(nonstandard_style)]
+        impl<FnT, R, $($p,)* $($last,)?> SpecialCallable<($($p,)* $($last,)?), R, $ctx> for FnT
+        where
+            FnT: Fn($($fn_ctx)* $($p,)* $($last)?) -> R + SyncSend + 'static,
+            R: Return,
+            $($p: SpecialPositionalParam,)*
+            $($last: SpecialParam,)?
+        {
+            // `define_special` records the caller's location for TAGS.
+            #[track_caller]
+            #[allow(unused_mut, unused_variables)]
+            fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
+                let kinds = vec![$(<$p as SpecialParam>::KIND,)* $(<$last as SpecialParam>::KIND,)?];
+                ctx.define_special(name, kinds, move |$cx, values, forms| {
+                    let mut args = SpecialArgs { values, forms: forms.into_iter() };
+                    $(let $p = <$p as SpecialParam>::take($cx, &mut args)?;)*
+                    $(let $last = <$last as SpecialParam>::take($cx, &mut args)?;)?
+                    (self)($($call_ctx)* $($p,)* $($last)?).into_result($cx)
+                });
+            }
+        }
+    };
+    (($($p:ident),*), ($($last:ident)?)) => {
+        impl_special_callable!(@impl false, cx, (), (), ($($p),*), ($($last)?));
+        impl_special_callable!(@impl true, cx, (&mut TulispContext,), (cx,), ($($p),*), ($($last)?));
+    };
+}
+
+impl_special_callable!((), ());
+impl_special_callable!((), (A));
+impl_special_callable!((A), (B));
+impl_special_callable!((A, B), (C));
+impl_special_callable!((A, B, C), (D));
+impl_special_callable!((A, B, C, D), (E));
+impl_special_callable!((A, B, C, D, E), (F));
+impl_special_callable!((A, B, C, D, E, F), (G));
+impl_special_callable!((A, B, C, D, E, F, G), (H));
+impl_special_callable!((A, B, C, D, E, F, G, H), (I));
+impl_special_callable!((A, B, C, D, E, F, G, H, I), (J));
+impl_special_callable!((A, B, C, D, E, F, G, H, I, J), (K));
+impl_special_callable!((A, B, C, D, E, F, G, H, I, J, K), (L));
+
 #[cfg(test)]
 mod tests {
     use super::takes_form;
     use crate::ParamKind;
-    use crate::TulispContext;
     use crate::test_utils::{eval_assert_error_line, eval_assert_not};
+    use crate::{Form, TulispContext};
+
+    #[cfg(feature = "etags")]
+    #[test]
+    fn a_special_form_gets_a_tags_entry() {
+        let ctx = &mut TulispContext::new();
+        ctx.defspecial_typed("tagged-form", |form: Form| form.source().clone());
+        assert!(
+            ctx.tags_table
+                .get(file!())
+                .is_some_and(|tags| tags.contains_key("tagged-form"))
+        );
+    }
 
     // A special form is not a function, as in Emacs.
     #[test]
     fn a_special_form_is_not_a_function() {
         let ctx = &mut TulispContext::new();
-        let kinds = vec![ParamKind::Form { required: true }];
-        ctx.define_special("quote-it", kinds, |_, _, forms| {
-            Ok(forms[0].source().clone())
-        });
+        ctx.defspecial_typed("quote-it", |form: Form| form.source().clone());
         let err = "ERR InvalidArgument: invalid function: quote-it";
         eval_assert_error_line(ctx, "(funcall 'quote-it 1)", err);
         eval_assert_error_line(ctx, "(apply 'quote-it '(1))", err);
