@@ -125,6 +125,9 @@ pub struct TulispContext {
     /// Nesting cap before evaluation raises a catchable error instead
     /// of overflowing the host's native stack.
     max_eval_depth: u32,
+    /// The macros whose bodies are compiling, by the address of their
+    /// cache, so a macro used in its own body is refused.
+    pub(crate) compiling_macros: Vec<usize>,
     #[cfg(feature = "etags")]
     pub(crate) tags_table: HashMap<String, HashMap<String, usize>>,
 }
@@ -150,6 +153,7 @@ impl TulispContext {
             lex_allocator: Shared::new(LexAllocator::new()),
             eval_depth: 0,
             reserve_frames: 0,
+            compiling_macros: Vec::new(),
             max_eval_depth: DEFAULT_MAX_EVAL_DEPTH,
             #[cfg(feature = "etags")]
             tags_table: HashMap::new(),
@@ -1257,6 +1261,22 @@ mod tests {
                      (condition-case nil (f 1000000) (error 'caught))",
                     "'caught",
                 );
+                let mut ctx = TulispContext::new();
+                ctx.set_max_eval_depth(super::PROFILE_MAX_EVAL_DEPTH);
+                let err = ctx
+                    .eval_string("(defmacro pm () (progn (progn (progn (progn (progn (pm)))))))")
+                    .unwrap_err()
+                    .format(&ctx);
+                assert!(err.contains("used in its own body"), "{err}");
+                // A long chain of macros, each using the next in its body,
+                // compiles one body inside another.
+                let mut ctx = TulispContext::new();
+                ctx.set_max_eval_depth(super::PROFILE_MAX_EVAL_DEPTH);
+                let chain: String = (0..3000)
+                    .map(|i| format!("(defmacro chain-{i} () (list 'quote (chain-{})))", i + 1))
+                    .collect();
+                let err = ctx.eval_string(&chain).unwrap_err().format(&ctx);
+                assert!(err.contains("max-eval-depth"), "{err}");
             })
             .unwrap()
             .join()

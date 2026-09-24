@@ -7,7 +7,7 @@ use crate::object::wrappers::generic::SharedMut;
 use crate::value::DefunArity;
 use crate::{
     TulispObject, TulispValue,
-    context::TulispContext,
+    context::{FrameGuard, TulispContext},
     error::Error,
     list,
     value::{DefunParams, LexBinding},
@@ -651,19 +651,61 @@ fn expand_lisp_macro(
     Ok(expansion)
 }
 
-/// Compiles a macro's `(lambda PARAMS . BODY)` form in the VM. The flag
-/// is false when the body calls a name with no value yet: a macro
+/// Compiles a macro's `(lambda PARAMS . BODY)` form in the VM. A macro
+/// used in its own body would expand without end, so it is refused. The
+/// flag is false when the body calls a name with no value yet: a macro
 /// defined later would then expand there, so the body is not kept.
 fn compile_macro_body(
     ctx: &mut TulispContext,
-    _name: &TulispObject,
+    name: &TulispObject,
     lambda: &TulispObject,
-    _compiled: &SharedMut<Option<TulispObject>>,
+    compiled: &SharedMut<Option<TulispObject>>,
 ) -> Result<(TulispObject, bool), Error> {
+    let key = compiled.addr_as_usize();
+    if ctx.compiling_macros.contains(&key) {
+        return Err(Error::lisp_error(format!(
+            "macro {name} is used in its own body"
+        )));
+    }
     let before = ctx.compiler.as_ref().unwrap().unbound_calls;
-    let function = ctx.eval(lambda)?;
-    let complete = ctx.compiler.as_ref().unwrap().unbound_calls == before;
+    let mut compiling = CompilingMacro::new(ctx, key)?;
+    let function = compiling.eval(lambda)?;
+    let complete = compiling.compiler.as_ref().unwrap().unbound_calls == before;
     Ok((function, complete))
+}
+
+/// A macro whose body is compiling: it is in `compiling_macros`, and
+/// counts a frame toward the depth limit, until this is dropped, on any
+/// path including a panic. Macros whose bodies use each other compile
+/// one inside another, so the frame bounds a long chain of them.
+struct CompilingMacro<'a>(FrameGuard<'a>);
+
+impl<'a> CompilingMacro<'a> {
+    fn new(ctx: &'a mut TulispContext, key: usize) -> Result<Self, Error> {
+        let mut frame = ctx.enter_frame()?;
+        frame.compiling_macros.push(key);
+        Ok(CompilingMacro(frame))
+    }
+}
+
+impl std::ops::Deref for CompilingMacro<'_> {
+    type Target = TulispContext;
+
+    fn deref(&self) -> &TulispContext {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for CompilingMacro<'_> {
+    fn deref_mut(&mut self) -> &mut TulispContext {
+        &mut self.0
+    }
+}
+
+impl Drop for CompilingMacro<'_> {
+    fn drop(&mut self) {
+        self.0.compiling_macros.pop();
+    }
 }
 
 /// Gives a fully expanded list the span of the macro call it replaces,
@@ -1991,6 +2033,84 @@ mod tests {
         assert_eq!(ctx.eval_string("(fz nil)")?.to_string(), "none");
         ctx.eval_string("(defmacro fz-inner (x) (list 'car x))")?;
         assert_eq!(ctx.eval_string("(fz (a b))")?.to_string(), "a");
+        Ok(())
+    }
+
+    // A macro used in its own body, however deep and even in code that
+    // never runs, is refused when it is defined: the parser expands the
+    // whole program after defining it, which compiles the body. (A cycle
+    // through a second Lisp macro cannot be set up through the parser,
+    // which expands a defmacro body as it reads it; the guard keys on
+    // the macro, so it covers one too.)
+    #[test]
+    fn a_macro_used_in_its_own_body_is_an_error() {
+        std::thread::Builder::new()
+            .stack_size(8 * 1024 * 1024)
+            .spawn(|| {
+                for (program, name) in [
+                    ("(defmacro rm1 () (rm1))", "rm1"),
+                    (
+                        "(defmacro rm2 () (progn (progn (progn (progn (progn (rm2)))))))",
+                        "rm2",
+                    ),
+                    (
+                        "(defmacro rm3 (x) (let ((f (lambda (y) (rm3 y)))) (list 'quote x)))",
+                        "rm3",
+                    ),
+                ] {
+                    let ctx = &mut TulispContext::new();
+                    eval_assert_error_line(
+                        ctx,
+                        program,
+                        &format!("ERR LispError: macro {name} is used in its own body"),
+                    );
+                }
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    // A macro that keeps expanding itself while its body runs ends
+    // with the depth limit.
+    #[test]
+    fn a_macro_expanding_itself_at_run_time_hits_the_depth_limit() {
+        std::thread::Builder::new()
+            .stack_size(8 * 1024 * 1024)
+            .spawn(|| {
+                let ctx = &mut TulispContext::new();
+                let program = "(defmacro rr () (macroexpand '(rr))) (rr)";
+                for result in [ctx.tw_eval_string(program), ctx.eval_string(program)] {
+                    let err = result.unwrap_err().format(ctx);
+                    assert!(err.contains("max-eval-depth"), "{err}");
+                }
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    // A panic while a body compiles does not leave its macro marked as
+    // compiling.
+    #[test]
+    fn a_panic_while_a_body_compiles_is_recovered() -> Result<(), Error> {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string("(defmacro pc-outer () (list 'quote (pc-host)))")?;
+        let first = Arc::new(AtomicBool::new(true));
+        let flag = first.clone();
+        ctx.defmacro("pc-host", move |_, _| {
+            if flag.swap(false, Ordering::Relaxed) {
+                panic!("host macro panic");
+            }
+            Ok(TulispObject::from(1))
+        });
+        let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            ctx.eval_string("(pc-outer)")
+        }));
+        assert!(caught.is_err());
+        assert_eq!(ctx.eval_string("(pc-outer)")?.to_string(), "1");
         Ok(())
     }
 }
