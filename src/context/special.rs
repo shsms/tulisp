@@ -27,7 +27,6 @@ pub struct Form {
     live: Shared<AtomicBool>,
 }
 
-#[allow(dead_code)]
 #[derive(Clone)]
 enum FormCode {
     /// Compiled by the VM.
@@ -80,7 +79,6 @@ impl CallForms {
         }
     }
 
-    #[allow(dead_code)]
     pub(crate) fn compiled(&self, block: Block, source: TulispObject) -> Form {
         Form {
             source,
@@ -249,8 +247,113 @@ impl_special_callable!((A, B, C, D, E, F, G, H, I, J, K), (L));
 mod tests {
     use super::takes_form;
     use crate::ParamKind;
-    use crate::test_utils::{eval_assert_error_line, eval_assert_not};
-    use crate::{Form, TulispContext};
+    use crate::test_utils::{eval_assert_equal, eval_assert_error_line, eval_assert_not};
+    use crate::{Error, Form, Rest, TulispContext, TulispObject};
+
+    fn with_forms() -> TulispContext {
+        let mut ctx = TulispContext::new();
+        ctx.defspecial_typed("never", |_form: Form| ());
+        ctx.defspecial_typed(
+            "twice",
+            |ctx: &mut TulispContext, form: Form| -> Result<TulispObject, Error> {
+                form.eval(ctx)?;
+                form.eval(ctx)
+            },
+        );
+        ctx.defspecial_typed(
+            "my-or",
+            |ctx: &mut TulispContext, forms: Rest<Form>| -> Result<TulispObject, Error> {
+                for form in forms {
+                    let value = form.eval(ctx)?;
+                    if value.is_truthy() {
+                        return Ok(value);
+                    }
+                }
+                Ok(TulispObject::nil())
+            },
+        );
+        ctx.defspecial_typed("my-progn", |ctx: &mut TulispContext, body: Rest<Form>| {
+            body.eval_progn(ctx)
+        });
+        ctx.defspecial_typed(
+            "maybe",
+            |ctx: &mut TulispContext, form: Option<Form>| -> Result<TulispObject, Error> {
+                match form {
+                    Some(form) => form.eval(ctx),
+                    None => Ok(ctx.intern("absent")),
+                }
+            },
+        );
+        ctx.defspecial_typed("source-of", |form: Form| form.source().clone());
+        ctx.defspecial_typed(
+            "eval-source",
+            |ctx: &mut TulispContext, form: Form| -> Result<TulispObject, Error> {
+                let source = form.source().clone();
+                ctx.eval(&source)
+            },
+        );
+        ctx
+    }
+
+    #[test]
+    fn a_form_runs_as_often_as_the_closure_asks() {
+        let ctx = &mut with_forms();
+        let program = "(defvar n 0) (setq n 0)
+                       (never (setq n (+ n 1)))
+                       (twice (setq n (+ n 1)))
+                       n";
+        eval_assert_equal(ctx, program, "2");
+    }
+
+    #[test]
+    fn eager_arguments_run_in_order_before_the_call() {
+        let ctx = &mut with_forms();
+        ctx.defspecial_typed(
+            "eager-first",
+            |ctx: &mut TulispContext, a: i64, form: Form, b: i64| -> Result<TulispObject, Error> {
+                let log = ctx.intern("log").get()?;
+                let value = form.eval(ctx)?;
+                Ok([TulispObject::from(a), b.into(), log, value]
+                    .into_iter()
+                    .collect())
+            },
+        );
+        let program = "(defvar log nil) (setq log nil)
+                       (eager-first (progn (setq log (cons 'a log)) 1)
+                                    (setq log (cons 'form log))
+                                    (progn (setq log (cons 'b log)) 2))";
+        eval_assert_equal(ctx, program, "'(1 2 (b a) (form b a))");
+    }
+
+    #[test]
+    fn an_optional_form() {
+        let ctx = &mut with_forms();
+        eval_assert_equal(ctx, "(list (maybe) (maybe (+ 1 2)))", "'(absent 3)");
+    }
+
+    #[test]
+    fn rest_forms_run_one_by_one() {
+        let ctx = &mut with_forms();
+        let program = "(defvar n 0) (setq n 0)
+                       (list (my-or nil (progn (setq n (+ n 1)) 7) (setq n 100)) n)";
+        eval_assert_equal(ctx, program, "'(7 1)");
+        eval_assert_equal(ctx, "(list (my-progn) (my-progn 1 2 3))", "'(nil 3)");
+    }
+
+    #[test]
+    fn arity_is_checked_where_the_form_is_used() {
+        let ctx = &mut with_forms();
+        eval_assert_error_line(ctx, "(twice)", "ERR ArityMismatch: Too few arguments");
+        eval_assert_error_line(ctx, "(twice 1 2)", "ERR ArityMismatch: Too many arguments");
+    }
+
+    #[test]
+    fn a_call_compiles_to_special_call() {
+        let ctx = &mut with_forms();
+        let listing = crate::test_utils::listing(ctx, "(my-or nil 1)");
+        assert!(listing.contains("specialcall my-or 0 2"), "{listing}");
+        assert!(!listing.contains("rustcall"), "{listing}");
+    }
 
     #[cfg(feature = "etags")]
     #[test]

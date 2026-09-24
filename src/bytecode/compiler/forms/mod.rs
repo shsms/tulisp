@@ -16,6 +16,7 @@ mod list_elements;
 mod other_functions;
 mod plist;
 mod setting;
+mod special;
 
 type FnCallCompiler =
     fn(&mut TulispContext, &TulispObject, &TulispObject) -> Result<Vec<Instruction>, Error>;
@@ -186,6 +187,12 @@ pub(super) fn compile_form(
                     keep_result,
                 });
                 return Ok(result);
+            }
+            (TulispValue::Special { call, kinds, arity }, _) => {
+                let (call, kinds, arity) = (call.clone(), kinds.clone(), arity.clone());
+                return special::compile_special_call(
+                    ctx, &name, form, &args, call, &kinds, &arity,
+                );
             }
             (TulispValue::Defmacro { .. }, _) | (TulispValue::Macro(..), _) => {
                 // TODO: this should not be necessary, this should be

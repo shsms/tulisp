@@ -10,7 +10,7 @@ mod lambda_template;
 pub(crate) use lambda_template::LambdaTemplate;
 
 mod block;
-pub(crate) use block::{Block, Handler};
+pub(crate) use block::{Block, FormBlock, Handler};
 
 mod interpreter;
 pub(crate) use interpreter::{Machine, run, run_block, run_lambda};

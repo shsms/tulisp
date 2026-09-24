@@ -1,6 +1,6 @@
 use super::{
-    Block, Handler, Instruction, LambdaTemplate, bytecode::Bytecode, bytecode::CompiledDefun,
-    bytecode::TraceRange, compiler::VMDefunParams,
+    Block, FormBlock, Handler, Instruction, LambdaTemplate, bytecode::Bytecode,
+    bytecode::CompiledDefun, bytecode::TraceRange, compiler::VMDefunParams,
 };
 use crate::{
     Error, Number, TulispContext, TulispObject, TulispValue, bytecode::Pos,
@@ -823,6 +823,35 @@ fn run_impl_inner(
                     ctx.vm.stack.push(result);
                 }
             }
+            Instruction::SpecialCall {
+                form,
+                call,
+                eager_count,
+                blocks,
+                keep_result,
+                ..
+            } => {
+                let split_at = ctx.vm.stack.len() - *eager_count;
+                let values: Vec<TulispObject> = ctx.vm.stack.drain(split_at..).collect();
+                let call_forms = crate::context::special::CallForms::new();
+                let forms = blocks
+                    .iter()
+                    .map(|arg| call_forms.compiled(arg.block.clone(), arg.source.clone()))
+                    .collect();
+                // The closure re-enters the machine, which re-borrows
+                // this instruction list: release it first.
+                let form = form.clone();
+                let call = call.clone();
+                let keep_result = *keep_result;
+                drop(instr_ref);
+                let result = call(ctx, &values, forms);
+                drop(call_forms);
+                let result = result.map_err(|e| e.with_trace(form))?;
+                instr_ref = program.borrow_mut();
+                if keep_result {
+                    ctx.vm.stack.push(result);
+                }
+            }
             // Trace markers and labels never reach the interpreter:
             // `assemble` removes them at compile time, lifting the
             // form spans into a `TraceRange` side-table consulted by
@@ -1173,6 +1202,21 @@ fn rewrite_instruction(
             *template = crate::object::wrappers::generic::Shared::new(rebuilt);
         }
         Instruction::Catch { body } => *body = rewrite_block(body, mapping, rewrite)?,
+        Instruction::SpecialCall { blocks, .. } => {
+            let mut rewritten = Vec::with_capacity(blocks.len());
+            for arg in blocks.iter() {
+                let source = if ast_contains_placeholder(&arg.source, mapping) {
+                    rewrite_ast(&arg.source, mapping)?
+                } else {
+                    arg.source.clone()
+                };
+                rewritten.push(FormBlock {
+                    block: rewrite_block(&arg.block, mapping, rewrite)?,
+                    source,
+                });
+            }
+            *blocks = crate::object::wrappers::generic::Shared::new(rewritten);
+        }
         Instruction::UnwindProtect { body, cleanup } => {
             *body = rewrite_block(body, mapping, rewrite)?;
             *cleanup = rewrite_block(cleanup, mapping, rewrite)?;

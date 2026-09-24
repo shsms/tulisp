@@ -6,9 +6,9 @@ use super::instruction::Instruction;
 use crate::object::wrappers::generic::{Shared, SharedMut};
 use crate::{Error, TulispObject};
 
-/// A body compiled as its own unit. Only the instruction that holds it
-/// runs it, since it reads the lexical bindings of the code around that
-/// instruction.
+/// A body compiled as its own unit. Only the instruction that holds it,
+/// or a special form's `Form` during the call, runs it, since it reads
+/// the lexical bindings of the code around that instruction.
 #[derive(Clone)]
 pub(crate) struct Block {
     pub(crate) instructions: SharedMut<Vec<Instruction>>,
@@ -35,4 +35,12 @@ impl Block {
 pub(crate) struct Handler {
     pub(crate) condition: TulispObject,
     pub(crate) body: Block,
+}
+
+/// A special form's unevaluated argument: its code, and the argument
+/// as written.
+#[derive(Clone)]
+pub(crate) struct FormBlock {
+    pub(crate) block: Block,
+    pub(crate) source: TulispObject,
 }

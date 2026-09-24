@@ -1,9 +1,9 @@
 use crate::{
     Number, TulispObject,
-    object::wrappers::{DefunFn, TulispFn, generic::Shared},
+    object::wrappers::{DefunFn, SpecialFn, TulispFn, generic::Shared},
 };
 
-use super::block::{Block, Handler};
+use super::block::{Block, FormBlock, Handler};
 use super::bytecode::CompiledDefun;
 use super::lambda_template::LambdaTemplate;
 
@@ -180,6 +180,19 @@ pub(crate) enum Instruction {
         args_count: usize,
         keep_result: bool,
     },
+    /// A call to a special form. Its `eager_count` evaluated arguments
+    /// are on the stack; each unevaluated one is a block of its own.
+    /// The handler pops the values, hands them and the forms to
+    /// `call`, and pushes the result if `keep_result`.
+    SpecialCall {
+        name: TulispObject,
+        /// See `RustCall::form`.
+        form: TulispObject,
+        call: Shared<dyn SpecialFn>,
+        eager_count: usize,
+        blocks: Shared<Vec<FormBlock>>,
+        keep_result: bool,
+    },
     Call {
         name: TulispObject,
         /// See `RustCall::form`.
@@ -324,7 +337,8 @@ impl Instruction {
         match self {
             Instruction::Catch { .. }
             | Instruction::UnwindProtect { .. }
-            | Instruction::ConditionCase { .. } => true,
+            | Instruction::ConditionCase { .. }
+            | Instruction::SpecialCall { .. } => true,
             Instruction::Push(..)
             | Instruction::Pop
             | Instruction::Set
@@ -407,6 +421,11 @@ impl Instruction {
                 }
                 blocks
             }
+            Instruction::SpecialCall { blocks, .. } => blocks
+                .iter()
+                .enumerate()
+                .map(|(index, arg)| (format!("form {index}"), arg.block.clone()))
+                .collect(),
             _ => {
                 debug_assert!(!self.holds_blocks(), "{self} holds blocks it does not list");
                 Vec::new()
@@ -524,6 +543,18 @@ impl std::fmt::Display for Instruction {
             Instruction::RustCallTyped {
                 name, args_count, ..
             } => write!(f, "    rustcall_typed {} {}", name, args_count),
+            Instruction::SpecialCall {
+                name,
+                eager_count,
+                blocks,
+                ..
+            } => write!(
+                f,
+                "    specialcall {} {} {}",
+                name,
+                eager_count,
+                blocks.len()
+            ),
             Instruction::Label(name) => write!(f, "{}", name),
             Instruction::Cons => write!(f, "    cons"),
             Instruction::List(len) => write!(f, "    list {}", len),
