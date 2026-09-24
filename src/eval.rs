@@ -599,7 +599,8 @@ fn macroexpand_1(
 /// chain is walked iteratively), so `depth` bounds the native
 /// recursion — deeply nested input raises a catchable error instead of
 /// overflowing the stack. `quote_depth` is the backquote depth, 0 being
-/// code: inside a backquote only what an unquote runs is expanded.
+/// code: inside a backquote only what an unquote runs is expanded. A
+/// list in which nothing expands is returned as it is.
 fn macroexpand_depth(
     ctx: &mut TulispContext,
     inp: TulispObject,
@@ -621,20 +622,48 @@ fn macroexpand_depth(
             &inp,
         ));
     }
-    let mut builder = crate::cons::ListBuilder::new();
+    // The copy starts at the first element that changes.
+    let mut copy: Option<crate::cons::ListBuilder> = None;
     let mut items = inp.base_iter();
+    let mut count = 0;
     for item in items.by_ref() {
-        builder.push(macroexpand_depth(ctx, item, depth + 1, quote_depth)?);
+        let expanded = macroexpand_depth(ctx, item.clone(), depth + 1, quote_depth)?;
+        if copy.is_none() && !expanded.eq_ptr(&item) {
+            copy = Some(builder_with_first(&inp, count));
+        }
+        if let Some(copy) = copy.as_mut() {
+            copy.push(expanded);
+        }
+        count += 1;
     }
     let tail = items.tail()?;
     if !tail.null() {
-        builder.append(macroexpand_operand(ctx, tail, depth, quote_depth, true)?)?;
+        let expanded = macroexpand_operand(ctx, tail.clone(), depth, quote_depth, true)?;
+        if copy.is_none() && !expanded.eq_ptr(&tail) {
+            copy = Some(builder_with_first(&inp, count));
+        }
+        if let Some(copy) = copy.as_mut() {
+            copy.append(expanded)?;
+        }
     }
-    Ok(builder.build().with_span(inp.span()))
+    Ok(match copy {
+        Some(copy) => copy.build().with_span(inp.span()),
+        None => inp,
+    })
+}
+
+/// A list builder holding the first COUNT elements of LIST.
+fn builder_with_first(list: &TulispObject, count: usize) -> crate::cons::ListBuilder {
+    let mut copy = crate::cons::ListBuilder::new();
+    for item in list.base_iter().take(count) {
+        copy.push(item);
+    }
+    copy
 }
 
 /// Expands what `obj`, a non-list at backquote depth QUOTE_DEPTH, wraps
-/// that may hold code; see [`wrapped_operand`].
+/// that may hold code; see [`wrapped_operand`]. `obj` itself when
+/// nothing in it expands.
 fn macroexpand_operand(
     ctx: &mut TulispContext,
     obj: TulispObject,
@@ -642,12 +671,15 @@ fn macroexpand_operand(
     quote_depth: u32,
     in_tail: bool,
 ) -> Result<TulispObject, Error> {
-    match wrapped_operand(&obj, quote_depth, in_tail) {
-        Some(operand) => {
-            operand.map(|value, quote_depth| macroexpand_depth(ctx, value, depth + 1, quote_depth))
-        }
-        None => Ok(obj),
-    }
+    let Some(operand) = wrapped_operand(&obj, quote_depth, in_tail) else {
+        return Ok(obj);
+    };
+    let expanded = macroexpand_depth(ctx, operand.value.clone(), depth + 1, operand.depth)?;
+    Ok(if expanded.eq_ptr(&operand.value) {
+        obj
+    } else {
+        operand.rewrap(expanded)
+    })
 }
 
 /// Runs F on each top-level form of FORMS, in order. Each form's macros
@@ -813,11 +845,11 @@ impl Drop for CompilingMacro<'_> {
 }
 
 /// Gives a fully expanded list the span of the macro call it replaces,
-/// so error traces point at the call. The list is the fresh copy
-/// `macroexpand_depth` builds, so no list the macro shares is changed.
+/// so error traces point at the call. The span goes on a copy of the
+/// list's first cell, so a list the macro shares is not changed.
 fn with_call_span(expansion: TulispObject, call: &TulispObject) -> TulispObject {
-    if expansion.consp() && expansion.span().is_none() {
-        expansion.with_span(call.span())
+    if expansion.consp() && expansion.span().is_none() && call.span().is_some() {
+        expansion.clone_inner().into_ref(call.span())
     } else {
         expansion
     }
@@ -2207,6 +2239,22 @@ mod tests {
             .eval_string("(macroexpand '`(when ,@(when x (list y))))")
             .unwrap();
         assert_eq!(got.to_string(), "`(when ,@(if x (progn (list y))))");
+    }
+
+    // A macro that returns a list it keeps gives each call's
+    // expansion that call's location, and leaves the list alone.
+    #[test]
+    fn a_shared_expansion_is_traced_to_each_call() {
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string("(defvar shared (list 'car 5)) (defmacro sm () shared)")
+            .unwrap();
+        for (program, needle) in [
+            ("\n(sm)", "<eval_string>:2.1-2.4"),
+            ("\n\n\n(sm)", "<eval_string>:4.1-4.4"),
+        ] {
+            let err = ctx.eval_string(program).unwrap_err().format(ctx);
+            assert!(err.contains(needle), "{program}: {err}");
+        }
     }
 
     // A macro defined at run time is there for a later program.

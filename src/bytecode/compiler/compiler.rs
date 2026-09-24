@@ -720,6 +720,23 @@ mod tests {
         assert!(l.contains("tcall pb"), "{l}");
     }
 
+    // Compiling the same form again replaces what it compiled before,
+    // instead of adding to the function table.
+    #[test]
+    fn evaluating_a_form_again_adds_no_function() {
+        let ctx = &mut TulispContext::new();
+        let form = ctx.eval_string("'((lambda (x) x) 1)").unwrap();
+        ctx.eval(&form).unwrap();
+        let count = ctx.compiler.as_ref().unwrap().bytecode.functions.len();
+        for _ in 0..3 {
+            ctx.eval(&form).unwrap();
+        }
+        assert_eq!(
+            ctx.compiler.as_ref().unwrap().bytecode.functions.len(),
+            count
+        );
+    }
+
     // Two `defun`s in a literal top-level `progn` are registered before
     // either compiles, so their calls to each other are tail calls.
     #[test]
