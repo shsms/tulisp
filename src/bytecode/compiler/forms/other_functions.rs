@@ -107,7 +107,15 @@ pub(super) fn compile_fn_defun_bounce_call(
     name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
+    // cdr twice: first skips `Bounce`, second skips the function identity.
+    let call_args = args.cdr()?.cdr()?;
     let compiler = ctx.compiler.as_mut().unwrap();
+    // A tail call leaves the function's `let` scopes before it runs. A
+    // special variable one of them binds must still be bound for the
+    // callee, so such a call is an ordinary call.
+    if compiler.active_let_scopes.iter().any(|b| b.is_special()) {
+        return compile_fn_defun_call(ctx, name, &call_args);
+    }
     // A name evicted while its own body compiles has no arity entry,
     // and its tail calls go through the general path.
     let self_params = compiler
@@ -119,8 +127,7 @@ pub(super) fn compile_fn_defun_bounce_call(
     let Some(params) = self_params else {
         let mut result = vec![];
         let mut args_count = 0;
-        // cdr twice: first skips `Bounce`, second skips the function identity.
-        for arg in args.cdr()?.cdr()?.base_iter() {
+        for arg in call_args.base_iter() {
             result.append(&mut compile_expr_keep_result(ctx, &arg)?);
             args_count += 1;
         }
@@ -165,8 +172,7 @@ pub(super) fn compile_fn_defun_bounce_call(
 
     let mut result = vec![];
     let mut args_count = 0;
-    // cdr twice: first skips `Bounce`, second skips the function identity.
-    for arg in args.cdr()?.cdr()?.base_iter() {
+    for arg in call_args.base_iter() {
         result.append(&mut compile_expr_keep_result(ctx, &arg)?);
         args_count += 1;
     }
@@ -1084,6 +1090,23 @@ mod tests {
         ] {
             eval_assert_equal_fresh(program, expected);
         }
+    }
+
+    // A tail call inside a `let` that binds a special variable still
+    // runs with that binding, as in Emacs: it becomes an ordinary call.
+    #[test]
+    fn a_tail_call_keeps_a_special_binding() {
+        eval_assert_equal_fresh(
+            "(defvar sv 1)
+             (defun g () sv)
+             (defun f (y) (let ((sv y)) (g)))
+             (defun f2 (y) (let* ((a 1) (sv y)) (g)))
+             (defun f4 (y) (let* ((sv y) (a 1)) (let ((b 2)) (g))))
+             (defvar depth 0)
+             (defun f3 (n) (if (= n 0) depth (let ((depth (1+ depth))) (f3 (1- n)))))
+             (list (f 2) sv (f2 3) (f4 4) (f3 3) depth)",
+            "'(2 1 3 4 3 0)",
+        );
     }
 
     // A tail call is marked for the compiler in a way that neither a

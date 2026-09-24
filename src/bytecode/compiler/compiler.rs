@@ -33,15 +33,15 @@ pub(crate) struct Compiler {
     pub bytecode: Bytecode,
     pub keep_result: bool,
     pub current_defun: Option<TulispObject>,
-    /// Lexical bindings introduced by the enclosing `let` / `let*`
-    /// forms in source-order. Forms that emit a function-escaping
-    /// instruction (`TailCall`, self-recursion's
-    /// `Jump(Pos::Abs(0))`) read this list and emit `EndScope`s for
-    /// the active bindings before the escape — otherwise the trailing
-    /// `EndScope`s appended by `compile_fn_let_star` are skipped on
-    /// the escape path and the bindings stay pushed on `LEX_STACKS`
-    /// permanently. Saved/restored at lambda + defun boundaries so
-    /// nested function bodies start fresh.
+    /// The bindings the enclosing `let` / `let*` forms make, in source
+    /// order: a lexical binding, or the symbol itself for a special
+    /// variable. A self call's `Jump(Pos::Abs(0))` and a `TailCall` skip
+    /// the `EndScope`s that `compile_fn_let_star` puts after the body,
+    /// so they first emit an `EndScope` for each binding here, innermost
+    /// first. While this list holds a special variable, a tail call that
+    /// `mark_tail_calls` marked compiles as an ordinary call. The list
+    /// starts empty in each call to `compile`, in each function or
+    /// lambda body, and in each block that `compile_block` compiles.
     pub active_let_scopes: Vec<TulispObject>,
     /// The names, by address, that the compile in progress defined or
     /// redefined in `bytecode.functions`.

@@ -14,11 +14,11 @@ The compiler rewrites a function body before it compiles it:
    `(Bounce fn arg1 arg2 ...)`, a cons whose `car` is the fieldless
    `TulispValue::Bounce` marker and whose `cdr` is the call.
 
-`compile_form` compiles a form headed by the marker into a jump or a
-`TailCall`, so no bounced value exists when it runs. The marker is not a
-symbol, so no function or variable of the program can shadow it. The
-trace entry of a tail call shows the call as written, without the
-marker.
+`compile_form` compiles a form headed by the marker into a jump, a
+`TailCall` or an ordinary call, so the marker is never called as a
+function. The marker is not a symbol, so no function or variable of the
+program can shadow it. The trace entry of a tail call shows the call as
+written, without the marker.
 
 ## Which tail calls are marked
 
@@ -36,8 +36,13 @@ that is not registered yet.
 `compile_defun` in `src/bytecode/compiler/forms/other_functions.rs` calls
 `mark_tail_calls`. `compile_fn_defun_bounce_call` compiles a marked call:
 
-- A self call stores the arguments in the function's own parameters and
-  jumps to its start (`Jump(Pos::Abs(0))`).
+- Inside a `let` or `let*` of the same function that binds a special
+  (`defvar`) variable, any marked call is an ordinary call: a tail call
+  would leave that binding before the callee runs. Its arity is checked
+  when it runs, and recursion through it counts toward the eval depth
+  limit (`TulispContext::set_max_eval_depth`), as in Emacs.
+- Otherwise, a self call stores the arguments in the function's own
+  parameters and jumps to its start (`Jump(Pos::Abs(0))`).
 - A call to another function becomes a `TailCall`. When the callee is in
   `defun_args`, its arity is checked at compile time. `run_tail_calls` in
   `src/bytecode/interpreter.rs` loops on it without a new Rust frame.
@@ -76,6 +81,8 @@ function".
     `test_self_tail_recursion_arity_checked_at_compile_time`.
   - `a_tail_call_is_not_taken_over_by_list`: a variable named `list`,
     or a redefined `list`, leaves the marker alone.
+  - `a_tail_call_keeps_a_special_binding`: a call in tail position
+    inside a `let` that binds a special variable keeps that binding.
   - `a_tail_call_arity_error_traces_the_call_once`: the trace of a
     tail call shows the call once, without the marker.
 - `src/bytecode/compiler/compiler.rs`:
