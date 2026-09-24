@@ -198,9 +198,8 @@ pub(super) fn compile_fn_lambda(
 /// VM compiler for `(funcall fn arg1 arg2 …)`.
 ///
 /// Emits bytecode that evaluates `fn` and each arg onto the stack, then
-/// emits a single `Instruction::Funcall { args_count }` that dispatches
-/// in-place — avoiding the `RustCall → eval::funcall` path, which would
-/// re-borrow `ctx.vm` and panic when called from inside a VM run.
+/// emits a single `Instruction::Funcall { args_count }`, which
+/// `funcall_inline` runs on the machine already running.
 pub(super) fn compile_fn_funcall(
     ctx: &mut TulispContext,
     _name: &TulispObject,
@@ -232,7 +231,7 @@ pub(super) fn compile_fn_funcall(
     Ok(result)
 }
 
-/// Compiles the special form `(apply fn arg1 ... final-list)`.
+/// Compiles a call to `apply`: `(apply fn arg1 ... final-list)`.
 ///
 /// Same shape as [`compile_fn_funcall`] but the trailing argument is
 /// spliced at runtime: the runtime handler pops `args_count`

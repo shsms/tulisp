@@ -224,9 +224,9 @@ pub(crate) fn is_lambda_list(ctx: &TulispContext, obj: &TulispObject) -> bool {
 /// Turn the evaluated first argument of `funcall` / `apply` into
 /// the function to call. A symbol resolves to the function bound to
 /// it, one lookup as in Emacs. A `(lambda ...)` list is built into a
-/// Lambda value. A macro is rejected here, as in Emacs. Anything
-/// else is returned as is, and `funcall` rejects it if it is not
-/// callable.
+/// Lambda value. A macro or a special form is rejected here, as in
+/// Emacs. Anything else is returned as is, and `funcall` rejects it if
+/// it is not callable.
 pub(crate) fn resolve_function(
     ctx: &mut TulispContext,
     func: &TulispObject,
@@ -241,7 +241,10 @@ pub(crate) fn resolve_function(
     // A macro or a special form is not a function, as in Emacs.
     if matches!(
         &resolved.inner_ref().0,
-        TulispValue::Macro(_) | TulispValue::Defmacro { .. } | TulispValue::Special { .. }
+        TulispValue::Macro(_)
+            | TulispValue::Defmacro { .. }
+            | TulispValue::Func(_)
+            | TulispValue::Special { .. }
     ) {
         return Err(Error::invalid_argument(format!("invalid function: {func}")));
     }
@@ -1036,7 +1039,6 @@ mod tests {
         for program in [
             "(one (bump 1) (bump 2))",
             "(one)",
-            "(funcall (lambda (x) x) (bump 1) (bump 2))",
             "((lambda (x y) x) (bump 1))",
             "(mac (bump 1) (bump 2))",
         ] {

@@ -488,8 +488,6 @@ impl TulispObject {
     /// Returns True if `self` can be called like a function: a function
     /// value, a `(lambda ...)` list, or a symbol whose value is a function
     /// value. Special forms and macros are not functions, as in Emacs.
-    /// `apply` and `funcall` are special forms here, so this is false for
-    /// them, where Emacs says true.
     pub fn functionp(&self, ctx: &crate::TulispContext) -> bool {
         if self.consp() {
             return crate::eval::is_lambda_list(ctx, self);

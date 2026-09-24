@@ -640,9 +640,9 @@ fn run_impl_inner(
                         // Target isn't a VM-compiled defun. It might
                         // be a TW `Lambda` (e.g., defined by a file
                         // loaded via `(load …)` → TW `eval_file`),
-                        // a `Func` defspecial, or a variable holding
-                        // a compiled closure. Fall back to the same
-                        // dispatch the inline `Funcall` uses.
+                        // a variable holding a compiled closure, or a
+                        // special form, which is refused. Fall back to
+                        // the same dispatch the inline `Funcall` uses.
                         let args_count = *args_count;
                         let split_at = ctx.vm.stack.len() - args_count;
                         let args: Vec<TulispObject> = ctx.vm.stack.drain(split_at..).collect();
@@ -1017,18 +1017,6 @@ fn funcall_inline(
     func: &TulispObject,
     args: Vec<TulispObject>,
 ) -> Result<TulispObject, Error> {
-    // `(funcall 'funcall fn …)` — unwrap the redundant outer
-    // `funcall`. If we didn't, the symbol would eval to the
-    // `funcall` defspecial `Func` and we'd fall through to the
-    // Lambda/Func arm below, which hands control back to
-    // `eval::funcall` — a needless bounce out of the VM for a
-    // call we can dispatch right here. Peel one layer: the first
-    // arg is the new func, the rest are its args.
-    if func.eq(&ctx.keywords.funcall) && !args.is_empty() {
-        let mut args = args;
-        let inner_func = args.remove(0);
-        return funcall_inline(ctx, &inner_func, args);
-    }
     let resolved = crate::eval::resolve_function(ctx, func)?;
     let inner = resolved.inner_ref();
     match &inner.0 {
@@ -1048,7 +1036,7 @@ fn funcall_inline(
             arity.check(args.len())?;
             call(ctx, &args)
         }
-        TulispValue::Lambda { .. } | TulispValue::Func(_) => {
+        TulispValue::Lambda { .. } => {
             drop(inner);
             // Rebuild an arg list TulispObject (quoted so the TW
             // side doesn't re-evaluate already-resolved values).
@@ -1058,7 +1046,7 @@ fn funcall_inline(
             }
             crate::eval::funcall::<crate::eval::Eval>(ctx, &resolved, &list.build())
         }
-        TulispValue::Special { .. } => {
+        TulispValue::Func(_) | TulispValue::Special { .. } => {
             Err(Error::invalid_argument(format!("invalid function: {func}")))
         }
         _ => Err(Error::undefined(format!("function is void: {}", resolved))),
@@ -1378,9 +1366,8 @@ mod tests {
         assert_eq!(ctx.reduce(&f, &zero, &nil).unwrap().to_string(), "t");
     }
 
-    // Arguments from Rust reach a function unevaluated on every path: a
-    // tree-walker lambda, and a special form that reads its argument
-    // forms.
+    // Arguments from Rust reach a tree-walker lambda unevaluated. A
+    // special form is not a function, so Rust cannot call it.
     #[test]
     fn a_host_call_passes_arguments_unevaluated() {
         let mut ctx = TulispContext::new();
@@ -1394,11 +1381,12 @@ mod tests {
             ctx.funcall(&same, (sym.clone(),)).unwrap().to_string(),
             "unbound-sym"
         );
-        assert_eq!(
-            ctx.funcall(&raw, (sym, form.clone())).unwrap().to_string(),
-            "(unbound-sym (+ 1 2))"
-        );
-        assert_eq!(ctx.apply(&raw, &form).unwrap().to_string(), "(+ 1 2)");
+        for err in [
+            ctx.funcall(&raw, (sym, form.clone())).unwrap_err(),
+            ctx.apply(&raw, &form).unwrap_err(),
+        ] {
+            assert!(err.format(&ctx).contains("invalid function: raw"));
+        }
     }
 
     #[test]

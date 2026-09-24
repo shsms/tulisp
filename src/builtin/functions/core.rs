@@ -1,13 +1,11 @@
 use super::print_to_stdout;
+use crate::Rest;
 use crate::TulispObject;
 use crate::TulispValue;
 use crate::context::TulispContext;
 use crate::destruct_bind;
 use crate::error::Error;
-use crate::eval::DummyEval;
-use crate::eval::Eval;
 use crate::eval::EvalInto;
-use crate::eval::resolve_function;
 use crate::eval::substitute_lexical;
 use crate::eval::{WrappedOperand, wrapped_operand};
 use crate::eval::{tw_eval, tw_eval_progn};
@@ -592,65 +590,32 @@ pub(crate) fn add(ctx: &mut TulispContext) {
          -> Result<TulispObject, Error> { ctx.eval(&form) },
     );
 
-    ctx.define_tw_special("apply", |ctx, args| {
-        // (apply FUNCTION &rest ARGUMENTS) — calls FUNCTION with its
-        // intermediate ARGUMENTS plus the elements of the final list
-        // (which must itself evaluate to a list). E.g.
-        //   (apply '+ 1 2 '(3 4))  =>  10
-        if args.null() {
-            return Err(Error::missing_argument(
-                "apply requires at least 2 arguments".to_string(),
-            ));
-        }
-        destruct_bind!((name &rest rest) = args);
-        let name = tw_eval(ctx, &name)?;
-        let name = resolve_function(ctx, &name)?;
+    // (apply FUNCTION &rest ARGUMENTS) calls FUNCTION with the
+    // intermediate ARGUMENTS plus the elements of the final one, a
+    // list: (apply '+ 1 2 '(3 4)) => 10.
+    ctx.defun(
+        "apply",
+        |ctx: &mut TulispContext, args: Rest<TulispObject>| -> Result<TulispObject, Error> {
+            let mut args: Vec<TulispObject> = args.into_iter().collect();
+            if args.len() < 2 {
+                return Err(Error::missing_argument(
+                    "apply requires at least 2 arguments".to_string(),
+                ));
+            }
+            let func = args.remove(0);
+            ctx.apply(&func, crate::eval::spread_apply_args(args)?)
+        },
+    );
 
-        let mut evaluated: Vec<TulispObject> = Vec::new();
-        let mut arg_forms = rest.base_iter();
-        for arg in arg_forms.by_ref() {
-            evaluated.push(tw_eval(ctx, &arg)?);
-        }
-        arg_forms.take_error()?;
-        if evaluated.is_empty() {
-            return Err(Error::missing_argument(
-                "apply requires at least 2 arguments".to_string(),
-            ));
-        }
-        let evaluated = crate::eval::spread_apply_args(evaluated)?;
-
-        // Hand the spliced, already-evaluated args to `funcall` via a
-        // quoted arg list — same trick the VM's `funcall_inline` uses
-        // for Lambda/Func: wrap each value in `quote` so the inner
-        // `Eval` pass treats it as a no-op.
-        let mut call_args = crate::cons::ListBuilder::new();
-        for arg in evaluated {
-            call_args.push(TulispValue::Quote { value: arg }.into_ref(None));
-        }
-        let call_args = call_args.build();
-
-        if name.inner_ref().0.is_function_value() {
-            crate::eval::funcall::<Eval>(ctx, &name, &call_args)
-        } else {
-            crate::eval::funcall::<DummyEval>(ctx, &name, &call_args)
-        }
-    });
-
-    ctx.define_tw_special("funcall", |ctx, args| {
-        destruct_bind!((name &rest rest) = args);
-        let name = tw_eval(ctx, &name)?;
-        let name = resolve_function(ctx, &name)?;
-        // Lambda / Defun / CompiledDefun all expect their args to be
-        // already-evaluated values. Pass through `Eval` so the rest
-        // list is evaluated before dispatch. Func-style defspecials
-        // are the only callers that want the raw, unevaluated arg
-        // list — those keep the `DummyEval` path.
-        if name.inner_ref().0.is_function_value() {
-            crate::eval::funcall::<Eval>(ctx, &name, &rest)
-        } else {
-            crate::eval::funcall::<DummyEval>(ctx, &name, &rest)
-        }
-    });
+    ctx.defun(
+        "funcall",
+        |ctx: &mut TulispContext,
+         func: TulispObject,
+         args: Rest<TulispObject>|
+         -> Result<TulispObject, Error> {
+            ctx.apply(&func, args.into_iter().collect::<Vec<_>>())
+        },
+    );
 
     ctx.defun(
         "macroexpand",
@@ -810,8 +775,38 @@ mod tests {
     use crate::TulispContext;
     use crate::TulispObject;
     use crate::test_utils::{
-        eval_assert, eval_assert_equal, eval_assert_error, eval_assert_error_line, eval_assert_not,
+        eval_assert, eval_assert_equal, eval_assert_error, eval_assert_error_line,
     };
+
+    // A special form is not a function, as in Emacs; `funcall` and
+    // `apply` themselves stay callable.
+    #[test]
+    fn funcall_and_apply_refuse_special_forms() {
+        let ctx = &mut TulispContext::new();
+        let err = "ERR InvalidArgument: invalid function: if";
+        eval_assert_error_line(ctx, "(funcall 'if t 1 2)", err);
+        eval_assert_error_line(ctx, "(apply 'if '(t 1 2))", err);
+        eval_assert_equal(ctx, "(funcall 'funcall '+ 1 2)", "3");
+        eval_assert_equal(ctx, "(funcall 'apply '+ '(1 2))", "3");
+        eval_assert_equal(ctx, "(apply 'funcall '(+ 1 2))", "3");
+        eval_assert_equal(ctx, "(apply 'apply '+ '((1 2)))", "3");
+        let if_sym = ctx.intern("if");
+        let err = ctx.funcall(&if_sym, (true, 1, 2)).unwrap_err();
+        assert!(err.format(ctx).contains("invalid function: if"));
+        let funcall = ctx.intern("funcall");
+        let plus = ctx.intern("+");
+        assert_eq!(
+            ctx.funcall(&funcall, (plus, 1, 2)).unwrap().to_string(),
+            "3"
+        );
+        // They are functions, so any caller of a function can take them.
+        let thunks = ctx
+            .eval_string("(list (lambda () 1) (lambda () 2))")
+            .unwrap();
+        assert_eq!(ctx.map(&funcall, &thunks).unwrap().to_string(), "(1 2)");
+        let err = ctx.funcall(&funcall, ()).unwrap_err();
+        assert!(err.format(ctx).contains("Too few arguments"));
+    }
 
     // `eval` takes Emacs's optional LEXICAL argument and ignores it.
     #[test]
@@ -1439,9 +1434,7 @@ mod tests {
         );
         // Binding `car` with `let` doesn't hide its function.
         eval_assert(ctx, "(let ((car 1)) (functionp 'car))");
-        // Differs from Emacs, which gives t: `apply` and `funcall` are
-        // special forms here, so they look like `if`.
-        eval_assert_not(ctx, "(or (functionp 'apply) (functionp 'funcall))");
+        eval_assert(ctx, "(and (functionp 'apply) (functionp 'funcall))");
         // Differs from Emacs, which gives nil: a symbol has one value
         // slot here, shared by variables and functions, so a variable
         // holding a function names that function.

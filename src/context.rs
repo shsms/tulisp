@@ -62,7 +62,6 @@ intern_from_obarray! {
         amp_optional: "&optional",
         amp_rest: "&rest",
         lambda: "lambda",
-        funcall: "funcall",
     }
 }
 
@@ -724,8 +723,8 @@ impl TulispContext {
         func: &TulispObject,
         args: impl FuncallArgs,
     ) -> Result<TulispObject, Error> {
-        let function = self.resolve_for_call(func)?;
         let args = args.into_args(self);
+        let function = self.resolve_for_call(func)?;
         self.call_with(&function, args)
     }
 
@@ -752,8 +751,8 @@ impl TulispContext {
         func: &TulispObject,
         args: impl ApplyArgs,
     ) -> Result<TulispObject, Error> {
-        let function = self.resolve_for_call(func)?;
         let args = args.into_args(self)?;
+        let function = self.resolve_for_call(func)?;
         self.call_with(&function, args)
     }
 
