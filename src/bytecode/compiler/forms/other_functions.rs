@@ -469,8 +469,10 @@ pub(super) fn compile_fn_declare(
 
 #[cfg(test)]
 mod tests {
-    use crate::TulispContext;
-    use crate::test_utils::{eval_assert_equal, listing};
+    use crate::test_utils::{
+        eval_assert_equal, eval_assert_equal_fresh, eval_assert_error, listing,
+    };
+    use crate::{Error, Plist, TulispContext};
 
     // A defmacro form the parser never saw, built in Rust, defines its
     // macro when it compiles.
@@ -592,5 +594,568 @@ mod tests {
         let ctx = &mut TulispContext::new();
         // The macro expands to a function value, not to a form.
         eval_assert_equal(ctx, "(defmacro m () (lambda () 5)) (funcall (m))", "5");
+    }
+
+    #[test]
+    fn test_defun() -> Result<(), Error> {
+        eval_assert_equal_fresh("(defun num () 4) (num)", "4");
+        eval_assert_equal_fresh("(defun add (x y) (+ x y)) (add 10 20)", "30");
+        eval_assert_equal_fresh(
+            r##"
+            (defun add (x &optional y z)
+              "Have a docstring."
+              (+ x
+                 (if y y -10)
+                 (if z z -10)))
+
+            (add
+             (add 100)
+             (add 10 20)
+             (add 1 2 3))
+        "##,
+            "106",
+        );
+        eval_assert_equal_fresh(
+            r##"
+        (let ((res (test)))
+
+        (defun test ()
+          (let* ((a 5)
+                 (c 7))
+            (when-let ((b 6))
+              (list a b c))))
+        res)
+        "##,
+            "'(5 6 7)",
+        );
+        eval_assert_equal_fresh(
+            r##"
+            (defun add (x &rest y)
+             (if y
+                 (append y (list x))
+               (list x)))
+
+            (list (add 100) (add 10 20) (add 1 2 3))
+        "##,
+            "'((100) (20 10) (2 3 1))",
+        );
+        eval_assert_error(
+            &mut TulispContext::new(),
+            "(defun j (&rest x y) nil) (j)",
+            r#"ERR TypeMismatch: Too many &rest parameters
+<eval_string>:1.1-1.25:  at (defun j (&rest x y) nil)
+"#,
+        );
+        eval_assert_equal_fresh(
+            r##"(defun j (&rest x) x) (list (j) (j 10) (j 100 200))"##,
+            "'(nil (10) (100 200))",
+        );
+        eval_assert_equal_fresh(
+            r##"
+        (defun add (x &optional y z &rest rest)
+          (let ((ret (list (+ x (if y y 0) (if z z 0)))))
+            (if rest (append ret rest) ret)))
+
+        (list (add 100)
+              (add 10 20)
+              (add 1 2 3)
+              (add 1 2 3 4)
+              (add 1 2 3 4 5))
+    "##,
+            "'((100) (30) (6) (6 4) (6 4 5))",
+        );
+        eval_assert_error(
+            &mut TulispContext::new(),
+            "(defun add (x y) (+ x y)) (add 10)",
+            r#"ERR ArityMismatch: Too few arguments
+<eval_string>:1.27-1.34:  at (add 10)
+"#,
+        );
+        eval_assert_error(
+            &mut TulispContext::new(),
+            "(defun add (x y) (+ x y)) (add 10 20 30)",
+            r#"ERR ArityMismatch: Too many arguments
+<eval_string>:1.27-1.40:  at (add 10 20 30)
+"#,
+        );
+        eval_assert_equal_fresh("((lambda (v1 v2) (+ v1 v2)) 10 20)", "30");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_tco() -> Result<(), Error> {
+        eval_assert_equal_fresh(
+            r##"
+        (defun if-tail (n acc)
+          (if (equal n 0) acc (if-tail (- n 1) (+ acc 1))))
+
+        (if-tail 30000 0)
+        "##,
+            "30000",
+        );
+        eval_assert_equal_fresh(
+            r##"
+        (defun cond-tail (n acc)
+          (cond ((equal n 0) acc)
+                (t (cond-tail (- n 1) (+ acc 1)))))
+
+        (cond-tail 30000 0)
+        "##,
+            "30000",
+        );
+        eval_assert_equal_fresh(
+            r##"
+        (defun progn-tail (n acc)
+          (let (next-n)
+            (progn
+              (setq next-n (- n 1))
+              (setq n next-n)
+              (if (equal n 0)
+                  acc
+                (progn-tail next-n (+ acc 1))))))
+
+        (progn-tail 20001 0)
+        "##,
+            "20000",
+        );
+        eval_assert_equal_fresh(
+            r##"
+        (defun my-even (n) (if (equal n 0) t (my-odd (- n 1))))
+        (defun my-odd (n) (if (equal n 0) nil (my-even (- n 1))))
+        (list (my-even 5) (my-odd 5) (my-even 30000) (my-odd 10000))
+        "##,
+            "'(nil t t nil)",
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_plist_defun_callable_from_vm_run() -> Result<(), Error> {
+        // A defun taking a `Plist<T>`, called from VM-compiled code with
+        // argument expressions that are themselves compiled calls, binds
+        // the evaluated values.
+
+        crate::AsList! {
+            struct Cfg {
+                x: i64,
+                y: i64,
+                tag: String,
+                xs: Vec<i64>,
+            }
+        }
+
+        let mut ctx = TulispContext::new();
+        ctx.defun("cfg-summary", |c: Plist<Cfg>| -> String {
+            format!(
+                "{}={}({} sum={})",
+                c.tag,
+                c.x + c.y,
+                c.xs.len(),
+                c.xs.iter().sum::<i64>(),
+            )
+        });
+
+        // VM-compile a defun whose body calls `cfg-summary` with arg
+        // expressions that are themselves CompiledDefun calls (`mkx`,
+        // `mky`, `mktag`) and a quoted list value (`'(1 2 3)`). Each
+        // arg's evaluated form ends up in the typed-defun's args slice
+        // and must round-trip through Plist::new without re-eval.
+        // `(defun mktag () "answer")` would strip the string as a
+        // docstring and leave the body empty. Use `progn` to force the
+        // string to be the actual return value.
+        ctx.eval_string(
+            r#"
+        (defun mkx () 10)
+        (defun mky () 32)
+        (defun mktag () (progn "answer"))
+        (defun outer ()
+          (cfg-summary :x (mkx) :y (mky) :tag (mktag) :xs '(1 2 3)))
+        "#,
+        )?;
+
+        let outer = ctx.intern("outer");
+        let result = ctx.funcall(&outer, ())?;
+        assert_eq!(result.as_string()?, "answer=42(3 sum=6)");
+
+        // Also exercise the inverse path: TW-eval the call to make sure
+        // the typed-arg path also works through `eval::funcall`'s
+        // `Defun` arm.
+        let tw_result = ctx.eval_string(r#"(cfg-summary :x 1 :y 2 :tag "tw" :xs '(4 5 6))"#)?;
+        assert_eq!(tw_result.as_string()?, "tw=3(3 sum=15)");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_mutual_tail_recursion_is_tco() -> Result<(), Error> {
+        // `mark_tail_calls` now also marks tail calls to other VM defuns
+        // as `Bounce`, so mutual recursion compiles to `Instruction::TailCall`
+        // (loop-style unwind) rather than nested `Instruction::Call`
+        // (per-cycle Rust frame). A pre-pass in `compile_progn` registers
+        // every top-level `(defun NAME PARAMS …)`'s arity before
+        // compiling any body, so cycles get full TCO without forward
+        // declarations.
+        //
+        // Pin the behavior with a depth that would blow a non-TCO Rust
+        // stack: 200,000 alternations of even?/odd? = 200,000 hops.
+        // Without TCO the test thread's stack overflows.
+        let mut ctx = TulispContext::new();
+        ctx.eval_string(
+            r#"
+        (defun even? (n)
+          (if (= n 0) t (odd? (- n 1))))
+        (defun odd? (n)
+          (if (= n 0) nil (even? (- n 1))))
+        "#,
+        )?;
+        let r = ctx.eval_string("(even? 200000)")?;
+        assert!(r.is_truthy(), "even? 200000 should be true, got {}", r);
+        let r = ctx.eval_string("(odd? 200001)")?;
+        assert!(r.is_truthy(), "odd? 200001 should be true, got {}", r);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_mutual_tail_call_arity_checked_at_compile_time() -> Result<(), Error> {
+        // Non-self bounce path now arity-checks at compile time when the
+        // target is a known VM defun. Catches mismatches without running
+        // the program — same shape as the self-bounce and
+        // `TulispValue::Defun` checks.
+
+        // Too few: helper takes 2, called with 1 in tail position.
+        let mut ctx = TulispContext::new();
+        let err = ctx.eval_string(
+            r#"
+        (defun helper (a b) (+ a b))
+        (defun caller () (helper 1))
+        "#,
+        );
+        let msg = err.unwrap_err().format(&ctx);
+        assert!(
+            msg.contains("Too few arguments: tail call to helper takes 2 arguments, got 1"),
+            "expected too-few error from mutual tail-call, got: {}",
+            msg
+        );
+
+        // Too many: helper takes 1, called with 3.
+        let mut ctx = TulispContext::new();
+        let err = ctx.eval_string(
+            r#"
+        (defun helper (a) a)
+        (defun caller () (helper 1 2 3))
+        "#,
+        );
+        let msg = err.unwrap_err().format(&ctx);
+        assert!(
+            msg.contains("Too many arguments: tail call to helper takes 1 argument, got 3"),
+            "expected too-many error from mutual tail-call, got: {}",
+            msg
+        );
+
+        // The message gives the accepted range for &optional and &rest.
+        let mut ctx = TulispContext::new();
+        let err = ctx.eval_string(
+            r#"
+        (defun helper (a &optional b c) a)
+        (defun caller () (helper 1 2 3 4))
+        "#,
+        );
+        let msg = err.unwrap_err().format(&ctx);
+        assert!(
+            msg.contains("Too many arguments: tail call to helper takes 1 to 3 arguments, got 4"),
+            "expected the &optional range, got: {}",
+            msg
+        );
+        let mut ctx = TulispContext::new();
+        let err = ctx.eval_string(
+            r#"
+        (defun helper (a &rest r) a)
+        (defun caller () (helper))
+        "#,
+        );
+        let msg = err.unwrap_err().format(&ctx);
+        assert!(
+            msg.contains("Too few arguments: tail call to helper takes at least 1 argument, got 0"),
+            "expected the &rest floor, got: {}",
+            msg
+        );
+
+        // Cyclic mutual recursion (a calls b, b calls a) defined in
+        // either order — pre-pass populates both arities first, so
+        // mark_tail_calls catches mismatches whichever direction is
+        // wrong.
+        let mut ctx = TulispContext::new();
+        let err = ctx.eval_string(
+            r#"
+        (defun a (n) (if (= n 0) 'done (b)))     ; b takes 1, called with 0
+        (defun b (n) (if (= n 0) 'done (a (- n 1))))
+        "#,
+        );
+        let msg = err.unwrap_err().format(&ctx);
+        assert!(
+            msg.contains("too few arguments") || msg.contains("Too few arguments"),
+            "expected too-few error in cyclic case, got: {}",
+            msg
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_self_tail_recursion_arity_checked_at_compile_time() -> Result<(), Error> {
+        // `mark_tail_calls` rewrites self-recursive tail calls into
+        // `(Bounce f args …)`, which `compile_fn_defun_bounce_call`
+        // compiles into the in-place arg-rebind + `Jump(Pos::Abs(0))`
+        // shape (no `Instruction::Call`). That path arity-checks against
+        // `compiler.defun_args[name]` at compile time and reports the
+        // mismatch instead of silently wrapping a usize subtraction.
+
+        // Too many: 2 required, called with 3.
+        let mut ctx = TulispContext::new();
+        let err = ctx.eval_string(
+            r#"
+        (defun f (a b)
+          (if (= a 0) b (f (- a 1) (+ b a) (* b 2))))
+        "#,
+        );
+        let msg = err.unwrap_err().format(&ctx);
+        assert!(
+            msg.contains("Too many arguments: f takes 2 arguments, got 3"),
+            "expected too-many error from self tail-call, got: {}",
+            msg
+        );
+
+        // Too few: 2 required, called with 1. This previously underflowed
+        // `args_count - params.required.len()` (usize) and surfaced a
+        // misleading "too many" error in release mode.
+        let mut ctx = TulispContext::new();
+        let err = ctx.eval_string(
+            r#"
+        (defun f (a b)
+          (if (= a 0) b (f (- a 1))))
+        "#,
+        );
+        let msg = err.unwrap_err().format(&ctx);
+        assert!(
+            msg.contains("Too few arguments: f takes 2 arguments, got 1"),
+            "expected too-few error from self tail-call, got: {}",
+            msg
+        );
+
+        // Sanity: matching arity compiles + runs cleanly.
+        let mut ctx = TulispContext::new();
+        let r = ctx.eval_string(
+            r#"
+        (defun sum-to (n acc)
+          (if (= n 0) acc (sum-to (- n 1) (+ acc n))))
+        (sum-to 10 0)
+        "#,
+        )?;
+        assert_eq!(r.try_int()?, 55);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_trace_distinguishes_call_sites_of_same_function() -> Result<(), Error> {
+        // Two call sites of `bad` in the same defun body, each at a
+        // different source position. When the error fires, the
+        // backtrace must name the *specific* call site that ran, not
+        // collapse them into a single representative entry. Pins both
+        // the TW path (`eval_basic`'s recursive `with_trace`) and the
+        // VM path (`assemble` lifting per-form ranges) into exact
+        // match — which only works if both attribute the call
+        // form's distinct `TulispObject` (with its own span) for each
+        // hit.
+        //
+        // The leading newlines in the program string anchor the
+        // expected source positions: `bad` sits on line 2, `caller` on
+        // line 3, so the call sites have stable column ranges across
+        // runs.
+
+        // Error on the *second* call site `(bad 2)`.
+        let mut ctx = TulispContext::new();
+        ctx.eval_string(
+            r#"
+(defun bad (n) (if (= n 2) (error "boom-on-2") nil))
+(defun caller () (progn (bad 1) (bad 2) 'done))
+"#,
+        )?;
+        let expected_call2 = "ERR LispError: boom-on-2\n\
+        <eval_string>:2.28-2.46:  at (error \"boom-on-2\")\n\
+        <eval_string>:2.16-2.51:  at (if (= n 2) (error \"boom-on-2\") nil)\n\
+        <eval_string>:3.33-3.39:  at (bad 2)\n\
+        <eval_string>:3.18-3.46:  at (progn (bad 1) (bad 2) 'done)\n\
+        <eval_string>:1.1-1.8:  at (caller)\n";
+        assert_eq!(
+            ctx.eval_string("(caller)").unwrap_err().format(&ctx),
+            expected_call2,
+            "TW trace for boom-on-2"
+        );
+        assert_eq!(
+            ctx.eval_string("(caller)").unwrap_err().format(&ctx),
+            expected_call2,
+            "VM trace for boom-on-2"
+        );
+
+        // Same shape, but error on the *first* call site `(bad 1)`.
+        // The expected backtrace differs only at the call-site frame:
+        // span and form text both move from `(bad 2)` to `(bad 1)`.
+        let mut ctx = TulispContext::new();
+        ctx.eval_string(
+            r#"
+(defun bad (n) (if (= n 1) (error "boom-on-1") nil))
+(defun caller () (progn (bad 1) (bad 2) 'done))
+"#,
+        )?;
+        let expected_call1 = "ERR LispError: boom-on-1\n\
+        <eval_string>:2.28-2.46:  at (error \"boom-on-1\")\n\
+        <eval_string>:2.16-2.51:  at (if (= n 1) (error \"boom-on-1\") nil)\n\
+        <eval_string>:3.25-3.31:  at (bad 1)\n\
+        <eval_string>:3.18-3.46:  at (progn (bad 1) (bad 2) 'done)\n\
+        <eval_string>:1.1-1.8:  at (caller)\n";
+        assert_eq!(
+            ctx.eval_string("(caller)").unwrap_err().format(&ctx),
+            expected_call1,
+            "TW trace for boom-on-1"
+        );
+        assert_eq!(
+            ctx.eval_string("(caller)").unwrap_err().format(&ctx),
+            expected_call1,
+            "VM trace for boom-on-1"
+        );
+
+        // Nested same-function call: `(bad (bad -1))`. The inner
+        // `(bad -1)` is in argument position (non-tail) and the outer
+        // `(bad …)` is in tail position. The inner call's call-site
+        // form `(bad -1)` shows up in the trace; the outer collapses
+        // into the `mark_tail_calls`-rewritten `(list Bounce bad …)`
+        // form. (Tail-position call sites generally don't preserve
+        // their original `(NAME ARGS…)` text in traces because the
+        // rewrite replaces it with the Bounce shape — that's a
+        // pre-existing TW property the VM mirrors.)
+        let mut ctx = TulispContext::new();
+        ctx.eval_string(
+            r#"
+(defun bad (n) (if (= n -1) (error "nested-boom") n))
+(defun caller () (bad (bad -1)))
+"#,
+        )?;
+        let expected_nested = "ERR LispError: nested-boom\n\
+        <eval_string>:2.29-2.49:  at (error \"nested-boom\")\n\
+        <eval_string>:2.16-2.52:  at (if (= n -1) (error \"nested-boom\") n)\n\
+        <eval_string>:3.23-3.30:  at (bad -1)\n\
+        <eval_string>:3.18-3.31:  at (list Bounce bad (bad -1))\n\
+        <eval_string>:1.1-1.8:  at (caller)\n";
+        assert_eq!(
+            ctx.eval_string("(caller)").unwrap_err().format(&ctx),
+            expected_nested,
+            "TW trace for nested same-function call"
+        );
+        assert_eq!(
+            ctx.eval_string("(caller)").unwrap_err().format(&ctx),
+            expected_nested,
+            "VM trace for nested same-function call"
+        );
+
+        Ok(())
+    }
+
+    // `defvar`-declared variables are dynamic (special) — references resolve
+    // through the symbol's own stack, so eval-in-a-different-scope sees the
+    // enclosing binding. This matches Emacs' behavior under
+    // `lexical-binding: t`.
+    #[test]
+    fn test_defvar_dynamic_binding() -> Result<(), Error> {
+        // With defvar, eval in a different function scope sees the let binding
+        // through the symbol's dynamic stack — the let binding pushes onto the
+        // symbol's dynamic stack, and eval inside run-eval sees it.
+        eval_assert_equal_fresh(
+            r#"
+        (defvar xdyn nil)
+        (defun run-eval (form) (eval form))
+        (let ((xdyn 7))
+          (run-eval 'xdyn))
+        "#,
+            "7",
+        );
+
+        // The backquote-quoted-and-eval'd-later pattern — works once the
+        // variable is defvar'd so dynamic binding survives the scope jump.
+        eval_assert_equal_fresh(
+            r#"
+        (defvar xbq nil)
+        (defun run-eval (form) (eval form))
+        (let ((xbq 42))
+          (run-eval '`(+ ,xbq 1)))
+        "#,
+            "'(+ 42 1)",
+        );
+
+        // setq on a dynamic var in outer scope is visible after let scope
+        // exits: the global slot gets updated, not a fresh lex slot.
+        eval_assert_equal_fresh(
+            r#"
+        (defvar counter 0)
+        (defun bump () (setq counter (+ counter 1)))
+        (bump) (bump) (bump)
+        counter
+        "#,
+            "3",
+        );
+
+        // Dynamic binding unwinds properly on let exit — outer value is
+        // restored.
+        eval_assert_equal_fresh(
+            r#"
+        (defvar k 100)
+        (let ((k 1))
+          (let ((k 2)) k)
+          k)
+        "#,
+            "1",
+        );
+
+        // A closure referencing a dynamic var reads the current dynamic
+        // binding at call time, not a snapshot from capture time.
+        eval_assert_equal_fresh(
+            r#"
+        (defvar d 1)
+        (setq f (lambda () d))
+        (let ((d 99))
+          (funcall f))
+        "#,
+            "99",
+        );
+
+        // Defun/lambda parameters are lexically bound even when the name
+        // was declared `defvar` — matching Emacs' byte-compiler under
+        // `lexical-binding: t`. The param binding does not shadow the
+        // dynamic global, so another function that references the same
+        // symbol sees the outer dynamic value, not the caller's arg.
+        eval_assert_equal_fresh(
+            r#"
+        (defvar p 10)
+        (defun observe () p)
+        (defun with-p (p) (observe))
+        (with-p 55)
+        "#,
+            "10",
+        );
+
+        // Direct reference to the param inside the defun sees the lex
+        // binding even though the name is defvar'd.
+        eval_assert_equal_fresh(
+            r#"
+        (defvar p2 10)
+        (defun read-param (p2) p2)
+        (read-param 55)
+        "#,
+            "55",
+        );
+
+        Ok(())
     }
 }

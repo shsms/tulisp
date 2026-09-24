@@ -782,11 +782,12 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
 #[cfg(test)]
 mod tests {
-    use crate::TulispContext;
     use crate::TulispObject;
     use crate::test_utils::{
-        eval_assert, eval_assert_equal, eval_assert_error, eval_assert_error_line,
+        eval_assert, eval_assert_equal, eval_assert_equal_fresh, eval_assert_error,
+        eval_assert_error_line,
     };
+    use crate::{Error, TulispContext};
 
     // A special form is not a function, as in Emacs; `funcall` and
     // `apply` themselves stay callable.
@@ -1525,5 +1526,101 @@ mod tests {
             "(let ((l (list 1 2 3))) (setcdr (cddr l) l) (nth 7 (append '(0) l)))",
             "1",
         );
+    }
+
+    #[test]
+    fn test_load() -> Result<(), Error> {
+        let mut ctx = TulispContext::new();
+
+        eval_assert_equal(&mut ctx, r#"(load "tests/good-load.lisp")"#, "'(1 2 3)");
+
+        // The loaded file's definitions survive the load: a later call
+        // reaches them, and so does a load inside a function body.
+        eval_assert_equal(
+            &mut ctx,
+            "(list loaded-var (loaded-fn loaded-var))",
+            "'(3 7)",
+        );
+        eval_assert_equal(
+            &mut ctx,
+            r#"(defun load-it () (load "tests/good-load.lisp"))
+                    (list (load-it) (loaded-fn 1))"#,
+            "'((1 2 3) 5)",
+        );
+
+        eval_assert_error(
+            &mut ctx,
+            r#"(load "tests/bad-load.lisp")"#,
+            r#"ERR ParsingError: Unexpected closing parenthesis
+tests/bad-load.lisp:1.9-1.9:  at nil
+<eval_string>:1.1-1.28:  at (load "tests/bad-load.lisp")
+"#,
+        );
+
+        ctx.set_load_path(Some("tests/"))?;
+        eval_assert_equal(&mut ctx, r#"(load "good-load.lisp")"#, "'(1 2 3)");
+
+        Ok(())
+    }
+
+    /// The parser caches a callable resolution on every list it builds
+    /// to skip the symbol → function lookup at runtime. The previous
+    /// implementation cached unconditionally, which meant a list-shaped
+    /// car (a cond predicate, an IIFE head, a let binding init) got
+    /// *evaluated* at parse time — side effects fired before the
+    /// surrounding form was ever called. Now the cache is gated on
+    /// the car being a symbol other than nil or t; list cars rebuild
+    /// the callable at runtime instead.
+    /// Emacs Lisp keeps function bindings and value bindings in separate
+    /// namespaces. A `(let ((f x))` introduces a *value* binding on `f`;
+    /// `(funcall 'f)` resolves the *function* binding (because the
+    /// symbol arrives quoted, so funcall walks the function cell). The
+    /// two should not interfere.
+    ///
+    /// Tulisp had a speculative todo entry (b2) flagging this as a place
+    /// where lex-binding might diverge from Emacs under shadowing. The
+    /// cases below verify each scenario — quoted symbol funcall, lambda-
+    /// valued let binding, Rust-side ctx.defun, closure capture — and
+    /// all behave as Emacs does. The entry can come out of todo.org;
+    /// this test pins the behavior so a future lex-binding regression
+    /// surfaces it.
+    #[test]
+    fn test_funcall_shadowing_keeps_namespaces_separate() -> Result<(), Error> {
+        // (defun f) + (funcall 'f) under value-shadowing — function
+        // binding wins.
+        eval_assert_equal_fresh(
+            "(defun f () 'global) (let ((f 'shadow)) (funcall 'f))",
+            "'global",
+        );
+        // Even when the shadowing let-value is itself a callable, the
+        // function binding still wins for quoted-symbol funcall.
+        eval_assert_equal_fresh(
+            "(defun f () 'global)
+         (let ((f (lambda () 'shadow))) (funcall 'f))",
+            "'global",
+        );
+        // A closure that references the symbol funcall'd by name resolves
+        // the function cell at *call* time, not at lambda creation —
+        // shadowing in the outer let doesn't reach into the closure.
+        eval_assert_equal_fresh(
+            "(defun f () 'global)
+         (let ((g (lambda () (funcall 'f))))
+           (let ((f 'shadow))
+             (funcall g)))",
+            "'global",
+        );
+
+        // Rust-side variant: ctx.defun-registered closure under value
+        // shadowing. The Rust dispatch should still fire — function
+        // cell vs value cell separation holds regardless of which side
+        // registered the function.
+        let mut ctx = TulispContext::new();
+        ctx.defun("rust-f", || "rust-global".to_string());
+        assert_eq!(
+            ctx.eval_string("(let ((rust-f 'shadow)) (funcall 'rust-f))")?
+                .to_string(),
+            "\"rust-global\"",
+        );
+        Ok(())
     }
 }

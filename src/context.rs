@@ -1035,7 +1035,7 @@ impl Drop for FrameGuard<'_> {
 #[cfg(test)]
 mod tests {
     use crate::test_utils::{eval_assert, eval_assert_equal, eval_assert_not};
-    use crate::{Error, TulispContext, TulispObject, TulispValue};
+    use crate::{Error, Form, TulispContext, TulispObject, TulispValue};
 
     // A program run while a protected body compiles fails to compile
     // as a whole, before any of it runs.
@@ -1486,5 +1486,36 @@ mod tests {
             assert!(inner.enter_frame().is_err());
         }
         assert_eq!(ctx.eval_depth, 0);
+    }
+
+    #[test]
+    fn test_rust_registration_overrides_prelude_defun() -> Result<(), Error> {
+        // A Rust `defun` registered for a name the built-in prelude
+        // already defines (here `sort`) must win for code compiled after
+        // the registration. Regression: the prelude's `defun` wires the
+        // name into the VM compiler's call-dispatch table, which
+        // `compile_form` consulted before the symbol's global cell —
+        // silently shadowing the Rust override on the VM path.
+        let mut ctx = TulispContext::new();
+        ctx.defun(
+            "sort",
+            |_seq: TulispObject, _pred: TulispObject| -> String { "rust-sort".to_string() },
+        );
+        eval_assert_equal(
+            &mut ctx,
+            r#"(sort '(3 1 2) (lambda (a b) (< a b)))"#,
+            r#""rust-sort""#,
+        );
+
+        // A later `defspecial` for the same name re-overrides it: the
+        // eviction is idempotent across repeated registrations.
+        ctx.defspecial("sort", |_seq: Form, _pred: Form| "special-sort".to_string());
+        eval_assert_equal(
+            &mut ctx,
+            r#"(sort '(3 1 2) (lambda (a b) (< a b)))"#,
+            r#""special-sort""#,
+        );
+
+        Ok(())
     }
 }

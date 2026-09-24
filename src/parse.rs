@@ -883,8 +883,8 @@ pub fn parse(
 
 #[cfg(test)]
 mod tests {
-    use crate::TulispContext;
-    use crate::test_utils::eval_assert_error;
+    use crate::test_utils::{eval_assert_equal_fresh, eval_assert_error};
+    use crate::{Error, TulispContext};
 
     // A dotted-pair tail with no value before end-of-input must
     // parse-error, not panic. Regression: `parse_list` unwrapped
@@ -976,5 +976,192 @@ mod tests {
         };
         assert!(parse_nested(39).is_ok(), "40 levels must be accepted");
         assert!(parse_nested(40).is_err(), "41 levels must be rejected");
+    }
+
+    #[test]
+    fn test_parse_does_not_eval_list_cars() -> Result<(), Error> {
+        // A defun whose body has a cond with a side-effecting predicate
+        // must not fire that predicate during defun registration.
+        eval_assert_equal_fresh(
+            "(progn
+           (setq c 0)
+           (defun bump () (setq c (1+ c)) c)
+           (defun nc () (cond ((bump) 1) (t 2)))
+           c)",
+            "0",
+        );
+        // Calling the defun runs the predicate exactly once.
+        eval_assert_equal_fresh(
+            "(progn
+           (setq c 0)
+           (defun bump () (setq c (1+ c)) c)
+           (defun nc () (cond ((bump) 1) (t 2)))
+           (nc)
+           c)",
+            "1",
+        );
+        // IIFE — list car that's a lambda — keeps working after the
+        // cache is skipped; the runtime path rebuilds the lambda value.
+        eval_assert_equal_fresh("((lambda (x) (* x 2)) 21)", "42");
+        // let binding-init expressions don't fire at parse time either.
+        eval_assert_equal_fresh(
+            "(progn
+           (setq c 0)
+           (defun bump () (setq c (1+ c)) c)
+           (defun nl () (let ((a (bump))) a))
+           c)",
+            "0",
+        );
+        Ok(())
+    }
+}
+
+#[cfg(all(test, feature = "etags"))]
+mod etags_tests {
+    use crate::TulispContext;
+    use std::io::Write;
+
+    fn write_temp_file(name: &str, content: &str) -> (std::path::PathBuf, impl Drop + use<>) {
+        let dir = std::env::temp_dir().join("tulisp_etags_test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(name);
+        let mut f = std::fs::File::create(&path).unwrap();
+        write!(f, "{}", content).unwrap();
+        struct Cleanup(std::path::PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                std::fs::remove_file(&self.0).ok();
+            }
+        }
+        let cleanup = Cleanup(path.clone());
+        (path, cleanup)
+    }
+
+    /// Assert that the tags output contains a tag entry line with the given
+    /// function/macro name between the \x7f and \x01 delimiters.
+    #[track_caller]
+    fn assert_tag_entry(tags: &str, name: &str) {
+        let pattern = format!("\x7f{}\x01", name);
+        assert!(
+            tags.contains(&pattern),
+            "tags output should contain an entry for `{name}`, got: {tags}"
+        );
+    }
+
+    #[test]
+    fn test_etags_defun_tracking() -> Result<(), crate::Error> {
+        let (path, _cleanup) =
+            write_temp_file("defun_test.el", "(defun my-test-func (x) (+ x 1))\n");
+        let mut ctx = TulispContext::new();
+        let path_str = path.to_str().unwrap();
+        let tags = ctx.tags_table(Some(&[path_str]))?;
+        assert_tag_entry(&tags, "my-test-func");
+        Ok(())
+    }
+
+    #[test]
+    fn test_etags_defmacro_tracking() -> Result<(), crate::Error> {
+        let (path, _cleanup) =
+            write_temp_file("defmacro_test.el", "(defmacro my-test-macro (x) x)\n");
+        let mut ctx = TulispContext::new();
+        let path_str = path.to_str().unwrap();
+        let tags = ctx.tags_table(Some(&[path_str]))?;
+        assert_tag_entry(&tags, "my-test-macro");
+        Ok(())
+    }
+
+    #[test]
+    fn test_etags_multiple_definitions() -> Result<(), crate::Error> {
+        let (path, _cleanup) = write_temp_file(
+            "multi_test.el",
+            "(defun func-a () 1)\n(defun func-b () 2)\n(defmacro macro-c (x) x)\n",
+        );
+        let mut ctx = TulispContext::new();
+        let path_str = path.to_str().unwrap();
+        let tags = ctx.tags_table(Some(&[path_str]))?;
+        assert_tag_entry(&tags, "func-a");
+        assert_tag_entry(&tags, "func-b");
+        assert_tag_entry(&tags, "macro-c");
+        Ok(())
+    }
+
+    #[test]
+    fn test_etags_defvar_tracking() -> Result<(), crate::Error> {
+        let (path, _cleanup) = write_temp_file(
+            "defvar_test.el",
+            r#"(defvar my-test-var 42)
+(defvar my-test-var-with-doc 7 "docs")
+"#,
+        );
+        let mut ctx = TulispContext::new();
+        let path_str = path.to_str().unwrap();
+        let tags = ctx.tags_table(Some(&[path_str]))?;
+        assert_tag_entry(&tags, "my-test-var");
+        assert_tag_entry(&tags, "my-test-var-with-doc");
+        Ok(())
+    }
+
+    #[test]
+    fn test_etags_builtin_functions_tracked() -> Result<(), crate::Error> {
+        let mut ctx = TulispContext::new();
+        let tags = ctx.tags_table(None)?;
+        assert!(
+            !tags.is_empty(),
+            "tags table should contain builtin entries"
+        );
+        // Verify at least some well-known builtins have proper tag entries.
+        assert_tag_entry(&tags, "if");
+        assert_tag_entry(&tags, "let");
+        Ok(())
+    }
+
+    #[test]
+    fn test_etags_output_contains_filename() -> Result<(), crate::Error> {
+        let (path, _cleanup) =
+            write_temp_file("filename_test.el", "(defun filename-test-fn () 42)\n");
+        let mut ctx = TulispContext::new();
+        let path_str = path.to_str().unwrap();
+        let tags = ctx.tags_table(Some(&[path_str]))?;
+        assert!(
+            tags.contains(path_str),
+            "tags output should reference the filename, got: {tags}"
+        );
+        assert_tag_entry(&tags, "filename-test-fn");
+        Ok(())
+    }
+
+    #[test]
+    fn test_etags_multiple_files() -> Result<(), crate::Error> {
+        let (path1, _c1) = write_temp_file("file1.el", "(defun fn-from-file1 () 1)\n");
+        let (path2, _c2) = write_temp_file("file2.el", "(defun fn-from-file2 () 2)\n");
+        let mut ctx = TulispContext::new();
+        let p1 = path1.to_str().unwrap();
+        let p2 = path2.to_str().unwrap();
+        let tags = ctx.tags_table(Some(&[p1, p2]))?;
+        assert_tag_entry(&tags, "fn-from-file1");
+        assert_tag_entry(&tags, "fn-from-file2");
+        assert!(tags.contains(p1), "should contain first file path");
+        assert!(tags.contains(p2), "should contain second file path");
+        Ok(())
+    }
+
+    #[test]
+    fn test_etags_follow_load() -> Result<(), crate::Error> {
+        let (path2, _c2) = write_temp_file("loaded.el", "(defun loaded-fn () 42)\n");
+        let p2_str = path2.to_str().unwrap();
+        let (path1, _c1) = write_temp_file(
+            "loader.el",
+            &format!("(defun loader-fn () 1)\n(load \"{}\")\n", p2_str),
+        );
+        let mut ctx = TulispContext::new();
+        let p1_str = path1.to_str().unwrap();
+        let tags = ctx.tags_table(Some(&[p1_str]))?;
+        assert_tag_entry(&tags, "loader-fn");
+        assert_tag_entry(&tags, "loaded-fn");
+        assert!(
+            tags.contains(p2_str),
+            "should contain the loaded file's path, got: {tags}"
+        );
+        Ok(())
     }
 }

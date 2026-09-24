@@ -128,6 +128,27 @@ mod test_utils {
         }
     }
 
+    /// Like `eval_assert_equal`, but each evaluator runs on a fresh
+    /// context, for programs whose result depends on what an earlier
+    /// run left behind.
+    #[track_caller]
+    pub(crate) fn eval_assert_equal_fresh(a: &str, b: &str) {
+        for kind in [EvalKind::Tw, EvalKind::Vm] {
+            let ctx = &mut crate::TulispContext::new();
+            let av = must_eval_string(ctx, kind, a);
+            let bv = must_eval_string(ctx, kind, b);
+            assert!(
+                crate::TulispObject::equal(&av, &bv),
+                "[{}] {}(=> {}) != {}(=> {})",
+                kind.name(),
+                a,
+                av,
+                b,
+                bv
+            );
+        }
+    }
+
     /// Like `eval_assert_equal`, but compares the printed forms, for
     /// results that hold uninterned symbols, which are `equal` only
     /// to themselves.

@@ -1616,4 +1616,98 @@ mod tests {
         let err = rewrite_ast(&with, &mapping).unwrap_err();
         assert_eq!(err.to_string(), "ERR OutOfRange: Circular list");
     }
+
+    #[test]
+    fn test_vm_reentry_during_run() -> Result<(), Error> {
+        // VM re-entry from inside a VM run. The outer `eval_string`
+        // is mid-run on `ctx.vm` when the `eval` defun receives the
+        // quoted form and hands it to `ctx.eval` (TW); TW's `funcall`
+        // arm reaches a callable defined on the same context and
+        // dispatches it, ultimately landing back in the VM. The inner
+        // and outer runs share the same machine — the inner sees the
+        // outer's function table and pushes/pops on the shared stack.
+        //
+        // Pre-rewrite (when `ctx.vm` was `Option<Machine>` taken at
+        // the run boundary), the inner entry found `ctx.vm = None`
+        // and panicked with "ctx.vm taken twice — VM re-entered
+        // during a run". Free-function dispatch with a direct
+        // `ctx.vm` field makes re-entry transparent.
+
+        // Lambda case: `f` holds a `CompiledDefun` (anonymous lambda
+        // materialized by `Instruction::MakeLambda`). TW funcall hits
+        // the `CompiledDefun` arm in `eval::funcall`, which calls
+        // `bytecode::run_lambda` — that's the inner VM run.
+        let mut ctx = TulispContext::new();
+        let result: i64 = ctx
+            .eval_string(
+                r#"
+        (setq f (lambda () 42))
+        (eval '(funcall f))
+        "#,
+            )?
+            .try_into()?;
+        assert_eq!(result, 42);
+
+        // Defun case: top-level `(defun g …)` registers a
+        // `CompiledDefun` in `ctx.vm.functions` and stores a
+        // `TulispValue::Lambda` on the symbol's function slot. TW
+        // funcall on the symbol resolves to the `Lambda` (not the
+        // `CompiledDefun`), dispatches via `eval::funcall`'s `Lambda`
+        // arm, and the body call eventually reaches the VM-registered
+        // function — exercising the same re-entry pathway with a
+        // different setup shape.
+        let mut ctx = TulispContext::new();
+        let result: i64 = ctx
+            .eval_string(
+                r#"
+        (defun g () 99)
+        (eval '(funcall 'g))
+        "#,
+            )?
+            .try_into()?;
+        assert_eq!(result, 99);
+        Ok(())
+    }
+
+    #[test]
+    fn test_funcall_compiled_defun_through_tw() -> Result<(), Error> {
+        // Regression for the cross-path bug: a lambda stored on a symbol
+        // via VM evaluation materializes as a `CompiledDefun`. Then
+        // calling a TW-evaluated defun (here: via `ctx.funcall` from
+        // Rust) whose body funcalls through `(symbol-value '…)` exposed
+        // the bug — the TW `funcall` defspecial was dispatching
+        // `CompiledDefun` through `DummyEval`, leaving `LexicalBinding`
+        // AST nodes in the args. The VM then `set_scope`'d the
+        // CompiledDefun's params with those LexicalBindings, and the
+        // first typed-arg call downstream surfaced as
+        // `TypeMismatch: Expected number, got: <name>`.
+        //
+        // A test on one evaluator can't reproduce this — VM funcalls
+        // go through `funcall_inline` (which handles values correctly),
+        // and TW evaluation of `(lambda …)` produces a `Lambda` not a
+        // `CompiledDefun`. The cross-path is unique to "VM-eval the
+        // setup, then TW-eval the call", which is what happens when a host
+        // calls a tree-walker function through `ctx.funcall`.
+        let mut ctx = TulispContext::new();
+        ctx.defun("rust-needs-num", |v: f64| -> f64 { v });
+        // VM-eval: `inner-fn` ends up holding a `CompiledDefun`
+        // (materialized by `Instruction::MakeLambda` at runtime).
+        ctx.eval_string("(set 'inner-fn (lambda (x) (rust-needs-num x)))")?;
+        // TW-eval: `outer` has no compiled copy, so calling it through
+        // `ctx.funcall` runs the TW path.
+        ctx.tw_eval_string(
+            r#"
+        (defun outer (id v)
+          (funcall (symbol-value 'inner-fn) v))
+        "#,
+        )?;
+        let outer = ctx.intern("outer");
+        let result = ctx.funcall(&outer, (1i64, 42.0_f64))?;
+        assert!(
+            result.equal(&42.0_f64.into()),
+            "expected 42, got {}",
+            result
+        );
+        Ok(())
+    }
 }
