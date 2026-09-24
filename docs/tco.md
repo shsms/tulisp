@@ -1,127 +1,95 @@
 # Tail Call Optimization
 
-Tulisp has two evaluator backends — the tree-walker (`src/eval.rs`) and the
-bytecode VM (`src/bytecode/interpreter.rs`) — and they implement TCO
-differently. As of the `vm` branch merge of `lexical-binding` (2026-04-24),
-the tree-walker supports general TCO (self + mutual); the VM only supports
-self-recursive TCO.
+Tulisp has two evaluator backends: the tree-walker (`src/eval.rs`) and the
+bytecode VM (`src/bytecode/interpreter.rs`). Both run a marked call in
+tail position without growing the Rust stack, for self-recursion and for
+calls between functions. Which calls get marked differs; see below.
 
-## Shared design: Bounce trampolines
+## Shared design: Bounce marks
 
-Both backends use the same compile-time rewrite:
+Both backends use the same rewrite of a function body:
 
 1. `mark_tail_calls` walks a function body and finds calls in tail position
    (including inside `if`, `cond`, `progn`, `let`, `let*`).
 2. Each qualifying tail call `(fn arg1 arg2 ...)` is rewritten to
    `(list Bounce fn arg1 arg2 ...)` — a fresh cons list whose `car` is the
    `TulispValue::Bounce` marker.
-3. At runtime, the caller returns this bounced value instead of recursing.
-4. The *caller's* machinery checks `is_bounced()` and, if so, unpacks the
-   function + args and dispatches again — without growing the host stack.
+
+The tree-walker runs that form: the caller returns the bounced value, and
+its trampoline dispatches again without growing the host stack. The VM
+compiles the form into a jump or a `TailCall`, so no bounced value exists
+when it runs.
 
 `TulispValue::Bounce` is fieldless; it lives at the head of the returned list.
 `is_bounced()` is `matches!(self, TulispValue::List { cons, .. })` where
 `cons.car()` is `TulispValue::Bounce`.
 
-## Tree-walker: general TCO
+## Which tail calls are marked
 
-**`mark_tail_calls` lives in `src/builtin/functions/core.rs`.** Signature
-takes `self_name: Option<&TulispObject>`. A tail call is rewritten if:
+`mark_tail_calls` lives in `src/parse.rs`. It marks a tail call when:
 
-- it's a self-recursive call (`tail_ident == self_name`), **or**
-- the function bound to `tail_ident` is a `TulispValue::Lambda { .. }`
-  (i.e. any known user-defined function — this is what enables mutual
-  recursion).
+- it calls the function being defined (self-recursion), or
+- the VM has registered the callee in `defun_args`, or
+- the callee's symbol holds a tree-walker `Lambda`.
 
-**Trampoline: `eval_lambda` in `src/eval.rs`.** After calling `eval_function`
-once, it loops while `result.is_bounced()`, extracting `cadr` (the lambda)
-and `cddr` (the args) and re-entering `eval_function` without recursing.
-Because the next function's body may itself return a bounced value for
-*another* function, this works for arbitrary mutual recursion.
+A call to anything else is left as an ordinary call. That includes a
+function held in a variable, and a function defined later in the program
+when neither of the last two rules applies.
 
-The lambda check at rewrite time is important: for unknown or not-yet-bound
-calls, `mark_tail_calls` leaves the call alone. That means a function that
-tail-calls itself before the target exists still TCOs (the self-name check
-catches it), but ordinary forward references to not-yet-defined functions
-fall back to non-TCO — which is fine in practice because Elisp programs
-define mutually recursive helpers in order.
+## Tree-walker
 
-## VM: self-TCO only
+`eval::defun_lambda` calls `mark_tail_calls` when a `defun` runs. The
+trampoline is `eval_lambda` in `src/eval.rs`. After running the body once,
+it loops while the result is bounced: it takes the function (`cadr`) and
+the arguments (`cddr`) and runs that function without recursing. Since
+the tree-walker defines a function only when its `defun` runs, a tail call
+to a function defined further down is not marked, unless the VM has
+registered its name.
 
-**`mark_tail_calls` lives in `src/parse.rs`.** Different signature — takes
-the defun name as a plain `TulispObject` — and only rewrites `tail_ident ==
-name` (self-recursion). No check for a lambda; mutual recursion is not
-detected.
+## VM
 
-**Tail-call site: `compile_fn_list` in
-`src/bytecode/compiler/forms/other_functions.rs`.** When compiling a call
-and `args.is_bounced()` is true, it dispatches to
-`compile_fn_defun_bounce_call`, which:
+`compile_defun` in `src/bytecode/compiler/forms/other_functions.rs` calls
+the same `mark_tail_calls`. `compile_fn_defun_bounce_call` compiles a
+marked call:
 
-1. Compiles each argument expression.
-2. Stores the results into the *current* function's parameter slots via
-   `StorePop`.
-3. Emits `Instruction::Jump(Pos::Abs(0))` — jump back to the start of the
-   same compiled function.
+- A self call stores the arguments in the function's own parameters and
+  jumps to its start (`Jump(Pos::Abs(0))`).
+- A call to another function becomes a `TailCall`. When the callee is in
+  `defun_args`, its arity is checked at compile time. `run_tail_calls` in
+  `src/bytecode/interpreter.rs` loops on it without a new Rust frame.
 
-This reuses the current `run_impl` Rust stack frame, so self-recursion is
-O(1) stack regardless of depth.
+Before a program compiles, `pre_register_defun_arities` puts every `defun`
+at the program's top level, or in a `progn` there, into `defun_args`. The
+walk over the top-level forms does the same for each `progn` a macro
+expands to. So such functions can tail-call each other whatever their
+order. A `defun` that a macro produces on its own is registered only when
+the walk reaches it: a tail call to it from an earlier function is an
+ordinary call.
 
-**Why mutual recursion overflows:** a non-tail `Instruction::Call` in
-`src/bytecode/interpreter.rs` dispatches through `run_tail_calls`, which
-calls `run_impl` — a native Rust recursion per non-tail call, while a
-`TailCall` loops inside `run_tail_calls` instead. 30000-deep mutual recursion ≈ 30000 Rust
-stack frames ≈ stack overflow (cargo test threads default to ~2 MiB).
-
-Native binaries (the CLI, examples) have an 8 MiB main-thread stack and
-handle 30000 fine; the overflow is specific to test threads.
-
-## What general VM TCO would need
-
-The VM's `Call` would need a tail-call variant that, instead of calling
-`run_impl` recursively, unwinds the current frame and dispatches to the
-callee's bytecode within the same Rust stack frame. Options:
-
-- **Separate opcode** (`TailCall`): the compiler emits it when the call is
-  in tail position. Execution swaps the current `instructions`/`pc` pointers
-  for the callee's and continues the loop.
-- **Inner dispatch loop** at `Call`: detect tail position at compile time
-  (keep a "next instruction is Ret" hint) and convert to a local loop. Same
-  shape, different plumbing.
-
-Either approach also needs to unify argument binding: self-TCO today uses
-`StorePop` directly into param slots because it knows the params are already
-bound. A general tail call to a *different* function needs to bind the
-target function's params — which means the compiler needs `VMDefunParams`
-for the callee at the tail-call site. `defun_args` is keyed by
-`addr_as_usize()` so it's already keyed across functions; the tail-call site
-just needs to look up the callee's params, not only the enclosing function's.
-
-The trampoline approach used by the tree-walker (return a bounced value,
-loop at the entry point) is awkward to port: the VM's `Call` instruction
-currently pushes the call's result onto `self.stack` and moves on. A bounced
-return value would need to be unpacked by the caller's `Ret` or by a
-dedicated post-call step, and care needs to be taken so that non-tail calls
-are unaffected.
+`TailCall` finds its target only in the machine's function table, so a
+tail call to a function the tree-walker defined, and the VM never
+compiled, fails with "undefined function".
 
 ## Related code
 
-- `src/eval.rs` — `eval_lambda` trampoline, `eval_function`.
-- `src/eval.rs` — `defun_lambda`, the tree-walker's lambda for a defun.
-- `src/parse.rs` — VM `mark_tail_calls` (self-only).
-- `src/bytecode/compiler/forms/other_functions.rs` —
-  `compile_fn_list` tail-call detection, `compile_fn_defun_bounce_call`
-  self-TCO codegen.
-- `src/bytecode/interpreter.rs` — `Instruction::Call` implementation,
-  `run_impl` recursion.
-- `src/value.rs` — `TulispValue::Bounce`, `is_bounce`, `is_bounced`.
+- `src/parse.rs`: `mark_tail_calls`.
+- `src/eval.rs`: `defun_lambda`, `eval_lambda`.
+- `src/bytecode/compiler/compiler.rs`: `pre_register_defun_arities`.
+- `src/bytecode/compiler/forms/other_functions.rs`: `compile_defun`,
+  `compile_fn_list` (tail-call detection), `compile_fn_defun_bounce_call`.
+- `src/bytecode/interpreter.rs`: the `TailCall` instruction and
+  `run_tail_calls`.
+- `src/value.rs`: `TulispValue::Bounce`; `src/object.rs`: `is_bounced`.
 
 ## Test coverage
 
-`test_tco` in `tests/tests.rs` has four sub-tests:
-
-1. `if-tail` — self-recursive via `if`. **TW + VM pass.**
-2. `cond-tail` — self-recursive via `cond`. **TW + VM pass.**
-3. `progn-tail` — self-recursive via `let` + `progn`. **TW + VM pass.**
-4. `my-even` / `my-odd` — mutual recursion at depth 30000. **TW passes,
-   VM overflows** (added in `d37b33d` on the lexical-binding branch).
+- `src/bytecode/compiler/forms/other_functions.rs`:
+  - `test_tco`: self-recursion through `if`, `cond`, `let` and `progn` in
+    both evaluators, and mutual recursion in the VM.
+  - `test_mutual_tail_recursion_is_tco`, and the arity checks
+    `test_mutual_tail_call_arity_checked_at_compile_time` and
+    `test_self_tail_recursion_arity_checked_at_compile_time`.
+- `src/bytecode/compiler/compiler.rs`:
+  `defuns_in_a_top_level_progn_tail_call_each_other`,
+  `defuns_a_macro_produces_tail_call_each_other` and
+  `a_defun_tail_calls_one_in_a_later_progn`.
