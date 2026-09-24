@@ -1001,7 +1001,7 @@ mod tests {
     use crate::test_utils::{
         eval_assert, eval_assert_equal, eval_assert_error, eval_assert_error_line, eval_assert_not,
     };
-    use crate::{TulispContext, TulispValue, list};
+    use crate::{Error, TulispContext, TulispValue, list};
 
     // A tail call marked at parse time bounces to whatever the symbol
     // names at run time, so a Rust defun reached that way is checked
@@ -1809,5 +1809,55 @@ mod tests {
         "#,
             r#"'((a . 1) (b . 2) (c . 3) (d . 4))"#,
         );
+    }
+
+    // A macro's body may use a macro defined after it.
+    #[test]
+    fn a_macro_body_may_use_a_macro_defined_later() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(defmacro lz-outer () (list 'quote (lz-inner))) (defmacro lz-inner () 7) (lz-outer)",
+            "7",
+        );
+    }
+
+    // A first expansion that fails leaves the macro usable once its
+    // helper is defined.
+    #[test]
+    fn a_failed_first_expansion_can_succeed_later() -> Result<(), Error> {
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string("(defmacro ff-a (x) (list 'quote (ff-b x)))")?;
+        assert!(ctx.eval_string("(ff-a 5)").is_err());
+        ctx.eval_string("(defmacro ff-b (x) x)")?;
+        assert_eq!(ctx.eval_string("(ff-a 5)")?.to_string(), "5");
+        Ok(())
+    }
+
+    #[test]
+    fn macro_docstrings_and_empty_bodies() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, r#"(defmacro ds1 () "doc" "real") (ds1)"#, r#""real""#);
+        eval_assert_equal(ctx, r#"(defmacro ds2 () "doc") (ds2)"#, "nil");
+        eval_assert_equal(ctx, "(defmacro ds3 ()) (ds3)", "nil");
+    }
+
+    #[test]
+    fn macro_optional_and_rest_parameters() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(defmacro op (a &optional b &rest c) (list 'quote (list a b c)))
+             (list (op 1) (op 1 2 3 4))",
+            "'((1 nil nil) (1 2 (3 4)))",
+        );
+    }
+
+    // A macro defined at run time is there for a later program.
+    #[test]
+    fn a_macro_defined_through_eval() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(eval '(defmacro em () 3)) t", "t");
+        eval_assert_equal(ctx, "(em)", "3");
     }
 }
