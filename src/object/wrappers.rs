@@ -26,6 +26,21 @@ impl<T> DefunFn for T where
 {
 }
 
+/// The closure of a special form: the evaluated arguments, and the
+/// unevaluated ones as forms, each in order.
+pub trait SpecialFn:
+    Fn(&mut TulispContext, &[TulispObject], Vec<crate::Form>) -> Result<TulispObject, Error>
+    + generic::SyncSend
+    + 'static
+{
+}
+impl<T> SpecialFn for T where
+    T: Fn(&mut TulispContext, &[TulispObject], Vec<crate::Form>) -> Result<TulispObject, Error>
+        + generic::SyncSend
+        + 'static
+{
+}
+
 #[cfg(not(feature = "sync"))]
 pub mod generic {
     use std::ops::Deref;
@@ -61,6 +76,10 @@ pub mod generic {
         }
 
         pub(crate) fn new_defun_fn(val: impl DefunFn) -> Shared<dyn DefunFn> {
+            Shared(std::rc::Rc::new(val))
+        }
+
+        pub(crate) fn new_special_fn(val: impl SpecialFn) -> Shared<dyn SpecialFn> {
             Shared(std::rc::Rc::new(val))
         }
 
@@ -192,6 +211,10 @@ pub mod generic {
         }
 
         pub(crate) fn new_defun_fn(val: impl DefunFn) -> Shared<dyn DefunFn> {
+            Shared(std::sync::Arc::new(val))
+        }
+
+        pub(crate) fn new_special_fn(val: impl SpecialFn) -> Shared<dyn SpecialFn> {
             Shared(std::sync::Arc::new(val))
         }
 

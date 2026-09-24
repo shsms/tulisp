@@ -6,7 +6,7 @@ use crate::{
     object::{
         Span,
         wrappers::{
-            DefunFn, TulispFn,
+            DefunFn, SpecialFn, TulispFn,
             generic::{Shared, SharedMut, SyncSend},
         },
     },
@@ -683,6 +683,13 @@ pub enum TulispValue {
         call: Shared<dyn DefunFn>,
         arity: DefunArity,
     },
+    /// A special form registered with `ctx.defspecial`. `kinds` tells
+    /// which arguments are passed unevaluated.
+    Special {
+        call: Shared<dyn SpecialFn>,
+        kinds: Vec<crate::ParamKind>,
+        arity: DefunArity,
+    },
     Macro(Shared<dyn TulispFn>),
     Defmacro {
         params: DefunParams,
@@ -730,6 +737,7 @@ impl std::fmt::Debug for TulispValue {
             Self::Any(arg0) => write!(f, "Any({:?} = {})", arg0.type_id(), arg0),
             Self::Func(_) => write!(f, "Func"),
             Self::Defun { .. } => write!(f, "Defun"),
+            Self::Special { .. } => write!(f, "Special"),
             Self::Macro(_) => write!(f, "Macro"),
             Self::Defmacro { params, body } => f
                 .debug_struct("Defmacro")
@@ -839,6 +847,7 @@ impl std::fmt::Display for TulispValue {
             TulispValue::T => f.write_str("t"),
             TulispValue::Func(_) => f.write_str("Func"),
             TulispValue::Defun { .. } => f.write_str("Defun"),
+            TulispValue::Special { .. } => f.write_str("Special"),
             TulispValue::Macro(_) => f.write_str("Macro"),
             TulispValue::Defmacro { .. } => f.write_str("Defmacro"),
             TulispValue::Lambda { .. } => f.write_str("Lambda"),

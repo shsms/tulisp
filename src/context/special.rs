@@ -178,6 +178,25 @@ impl SpecialPositionalParam for Option<Form> {}
 mod tests {
     use super::takes_form;
     use crate::ParamKind;
+    use crate::TulispContext;
+    use crate::test_utils::{eval_assert_error_line, eval_assert_not};
+
+    // A special form is not a function, as in Emacs.
+    #[test]
+    fn a_special_form_is_not_a_function() {
+        let ctx = &mut TulispContext::new();
+        let kinds = vec![ParamKind::Form { required: true }];
+        ctx.define_special("quote-it", kinds, |_, _, forms| {
+            Ok(forms[0].source().clone())
+        });
+        let err = "ERR InvalidArgument: invalid function: quote-it";
+        eval_assert_error_line(ctx, "(funcall 'quote-it 1)", err);
+        eval_assert_error_line(ctx, "(apply 'quote-it '(1))", err);
+        eval_assert_not(ctx, "(functionp 'quote-it)");
+        let sym = ctx.intern("quote-it");
+        let err = ctx.funcall(&sym, (1,)).unwrap_err();
+        assert!(err.format(ctx).contains("invalid function: quote-it"));
+    }
 
     #[test]
     fn takes_form_follows_the_parameter_kinds() {

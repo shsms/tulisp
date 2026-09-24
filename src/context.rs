@@ -487,6 +487,39 @@ impl TulispContext {
         self.evict_compiled_dispatch(sym.addr_as_usize());
     }
 
+    #[allow(dead_code)]
+    #[inline(always)]
+    #[track_caller]
+    pub(crate) fn define_special(
+        &mut self,
+        name: &str,
+        kinds: Vec<crate::ParamKind>,
+        func: impl crate::object::wrappers::SpecialFn,
+    ) {
+        #[cfg(feature = "etags")]
+        {
+            let caller = std::panic::Location::caller();
+
+            self.tags_table
+                .entry(caller.file().to_owned())
+                .or_default()
+                .insert(name.to_owned(), caller.line() as usize);
+        }
+
+        let arity = callable::arity(&kinds);
+        let sym = self.intern(name);
+        sym.set_global(
+            TulispValue::Special {
+                call: Shared::new_special_fn(func),
+                kinds,
+                arity,
+            }
+            .into_ref(None),
+        )
+        .unwrap();
+        self.evict_compiled_dispatch(sym.addr_as_usize());
+    }
+
     /// Registers a Rust function as a callable Lisp function.
     ///
     /// This is the primary way to expose Rust logic to Lisp code. Argument

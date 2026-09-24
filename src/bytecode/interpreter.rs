@@ -1043,6 +1043,9 @@ fn funcall_inline(
             }
             crate::eval::funcall::<crate::eval::Eval>(ctx, &resolved, &list.build())
         }
+        TulispValue::Special { .. } => {
+            Err(Error::invalid_argument(format!("invalid function: {func}")))
+        }
         _ => Err(Error::undefined(format!("function is void: {}", resolved))),
     }
 }

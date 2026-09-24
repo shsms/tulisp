@@ -194,6 +194,9 @@ fn eval_lambda<E: Evaluator>(
                 arity.check(evaluated.len())?;
                 call(ctx, &evaluated)?
             }
+            TulispValue::Special { .. } => {
+                return Err(Error::invalid_argument(format!("invalid function: {func}")));
+            }
             _ => return Err(Error::undefined(format!("function is void: {}", func))),
         };
     }
@@ -235,10 +238,10 @@ pub(crate) fn resolve_function(
     } else {
         func.clone()
     };
-    // A macro is not a function, as in Emacs.
+    // A macro or a special form is not a function, as in Emacs.
     if matches!(
         &resolved.inner_ref().0,
-        TulispValue::Macro(_) | TulispValue::Defmacro { .. }
+        TulispValue::Macro(_) | TulispValue::Defmacro { .. } | TulispValue::Special { .. }
     ) {
         return Err(Error::invalid_argument(format!("invalid function: {func}")));
     }
@@ -278,6 +281,9 @@ pub(crate) fn funcall<E: Evaluator>(
             let expanded = macroexpand(ctx, list!(func.clone() ,@args.clone())?)?;
             tw_eval(ctx, &expanded)
         }
+        TulispValue::Special { .. } => Err(Error::not_implemented(format!(
+            "the tree-walker cannot run special form {func}"
+        ))),
         _ => Err(Error::undefined(format!("function is void: {}", func))),
     }
 }
@@ -499,6 +505,7 @@ pub(crate) fn eval_basic<'a>(
         | TulispValue::Lambda { .. }
         | TulispValue::Func(_)
         | TulispValue::Defun { .. }
+        | TulispValue::Special { .. }
         | TulispValue::Macro(_)
         | TulispValue::Defmacro { .. }
         | TulispValue::CompiledDefun { .. }
@@ -684,6 +691,7 @@ pub(crate) fn wrapped_operand(
         | TulispValue::Any(_)
         | TulispValue::Func(_)
         | TulispValue::Defun { .. }
+        | TulispValue::Special { .. }
         | TulispValue::Macro(_)
         | TulispValue::Defmacro { .. }
         | TulispValue::Lambda { .. }

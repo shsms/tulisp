@@ -514,6 +514,7 @@ pub(crate) fn compile_expr(
         (TulispValue::Lambda { .. }, _)
         | (TulispValue::Func(_), _)
         | (TulispValue::Defun { .. }, _)
+        | (TulispValue::Special { .. }, _)
         | (TulispValue::CompiledDefun { .. }, _)
         | (TulispValue::Macro(_), _)
         | (TulispValue::Defmacro { .. }, _) => {
