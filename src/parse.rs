@@ -516,17 +516,17 @@ struct Parser<'a, 'b> {
     follow_load_files: bool,
 }
 
-fn recursive_update_ctxobj(ctx: &mut TulispContext, body: &TulispObject) -> Result<(), Error> {
+fn recursive_update_ctxobj(body: &TulispObject) -> Result<(), Error> {
     if !body.consp() {
         return Ok(());
     }
     let name = body.car()?;
     if name.is_symbol_variant() && body.ctxobj().is_none() {
-        let ctxobj = ctx.eval(&name).ok();
+        let ctxobj = name.get().ok();
         body.with_ctxobj(ctxobj);
     }
     for item in body.base_iter() {
-        recursive_update_ctxobj(ctx, &item)?;
+        recursive_update_ctxobj(&item)?;
     }
     Ok(())
 }
@@ -644,7 +644,7 @@ impl Parser<'_, '_> {
             inner = macroexpand(self.ctx, inner)?;
             self.ctx.eval(&inner)?;
             // recursively update ctx obj in case it is a recursive function.
-            recursive_update_ctxobj(self.ctx, &inner)?;
+            recursive_update_ctxobj(&inner)?;
         }
         if inner.consp() {
             let name = inner.car()?;
@@ -658,7 +658,7 @@ impl Parser<'_, '_> {
             // only static-resolvable case anyway; for list cars the
             // runtime path rebuilds the callable on every call.
             if name.is_symbol_variant() {
-                let ctxobj = self.ctx.eval(&name).ok();
+                let ctxobj = name.get().ok();
                 inner.with_ctxobj(ctxobj);
             }
         }
@@ -826,8 +826,8 @@ pub(crate) fn mark_tail_calls(
         .is_some_and(|c| c.defun_args.contains_key(&tail_ident.addr_as_usize()));
     let new_tail = if is_self_call
         || is_known_vm_defun
-        || ctx
-            .eval(&tail_ident)
+        || tail_ident
+            .get()
             .is_ok_and(|f| matches!(&f.inner_ref().0, TulispValue::Lambda { .. }))
     {
         let ret_tail = TulispObject::nil().append(tail.cdr()?)?.to_owned();

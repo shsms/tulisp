@@ -29,7 +29,7 @@ Both backends use the same compile-time rewrite:
 takes `self_name: Option<&TulispObject>`. A tail call is rewritten if:
 
 - it's a self-recursive call (`tail_ident == self_name`), **or**
-- `ctx.eval(&tail_ident)` resolves to a `TulispValue::Lambda { .. }`
+- the function bound to `tail_ident` is a `TulispValue::Lambda { .. }`
   (i.e. any known user-defined function — this is what enables mutual
   recursion).
 
@@ -50,7 +50,7 @@ define mutually recursive helpers in order.
 
 **`mark_tail_calls` lives in `src/parse.rs`.** Different signature — takes
 the defun name as a plain `TulispObject` — and only rewrites `tail_ident ==
-name` (self-recursion). No `ctx.eval` lambda check; mutual recursion is not
+name` (self-recursion). No check for a lambda; mutual recursion is not
 detected.
 
 **Tail-call site: `compile_fn_list` in

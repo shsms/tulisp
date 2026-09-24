@@ -228,7 +228,9 @@ pub(crate) fn resolve_function(
     ctx: &mut TulispContext,
     func: &TulispObject,
 ) -> Result<TulispObject, Error> {
-    let resolved = if func.symbolp() || is_lambda_list(ctx, func) {
+    let resolved = if func.symbolp() {
+        func.get()?
+    } else if is_lambda_list(ctx, func) {
         ctx.eval(func)?
     } else {
         func.clone()

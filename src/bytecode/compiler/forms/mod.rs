@@ -141,7 +141,11 @@ pub(super) fn compile_form(
     {
         return compiler(ctx, &name, &args);
     }
-    if let Ok(func) = ctx.eval(&name) {
+    // The head's function, read directly: a head that is not a symbol
+    // is never evaluated while compiling.
+    if name.is_symbol_variant()
+        && let Ok(func) = name.get()
+    {
         match &*func.inner_ref() {
             (TulispValue::Func(func), _) => {
                 let compiler = ctx.compiler.as_mut().unwrap();
@@ -194,4 +198,19 @@ pub(super) fn compile_form(
     }
 
     other_functions::compile_fn_defun_call(ctx, &name, &args)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::TulispContext;
+
+    // A call whose head is a list is not evaluated while it compiles:
+    // compiling must not run code.
+    #[test]
+    fn compiling_a_call_does_not_evaluate_a_list_head() {
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string("(defvar hits 0)").unwrap();
+        let _ = ctx.compile_string("((progn (setq hits (+ hits 1)) 'car) '(1))", true);
+        assert_eq!(ctx.intern("hits").get().unwrap().to_string(), "0");
+    }
 }
