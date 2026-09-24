@@ -8,21 +8,32 @@ use crate::{
     eval::{substitute_lexical, substitute_lexical_body},
 };
 
+/// `(setq [SYM VAL]...)` sets each SYM to its VAL in order, and gives
+/// the last VAL, or nil with no pairs.
 pub(super) fn compile_fn_setq(
     ctx: &mut TulispContext,
-    name: &TulispObject,
+    _name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    ctx.compile_2_arg_call(name, args, false, |ctx, arg1, arg2, _| {
-        crate::builtin::check_settable_target(arg1)?;
-        let mut result = compile_expr_keep_result(ctx, arg2)?;
-        if ctx.compiler.as_ref().unwrap().keep_result {
-            result.push(Instruction::Store(arg1.clone()));
+    let keep_result = ctx.compiler.as_ref().unwrap().keep_result;
+    let mut result = Vec::new();
+    let mut items = args.base_iter().peekable();
+    while let Some(target) = items.next() {
+        let Some(value) = items.next() else {
+            return Err(Error::too_few_arguments());
+        };
+        crate::builtin::check_settable_target(&target)?;
+        result.append(&mut compile_expr_keep_result(ctx, &value)?);
+        result.push(if keep_result && items.peek().is_none() {
+            Instruction::Store(target)
         } else {
-            result.push(Instruction::StorePop(arg1.clone()));
-        }
-        Ok(result)
-    })
+            Instruction::StorePop(target)
+        });
+    }
+    if result.is_empty() && keep_result {
+        result.push(Instruction::Push(TulispObject::nil()));
+    }
+    Ok(result)
 }
 
 pub(super) fn compile_fn_set(
@@ -151,8 +162,35 @@ pub(super) fn compile_fn_let_star(
 
 #[cfg(test)]
 mod tests {
-    use crate::Error;
-    use crate::test_utils::eval_assert_equal_fresh;
+    use crate::test_utils::{eval_assert_equal, eval_assert_equal_fresh, eval_assert_error_line};
+    use crate::{Error, TulispContext};
+
+    // `setq` sets each pair in order, so a value sees the pairs
+    // before it, and gives the last value; with no pairs it gives nil.
+    #[test]
+    fn setq_sets_pairs_in_order() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(let ((x 0)) (list (setq x 1 y (+ x 1)) x y))",
+            "'(2 1 2)",
+        );
+        eval_assert_equal(ctx, "(setq)", "nil");
+        eval_assert_equal(ctx, "(list 1 (progn (setq) 2))", "'(1 2)");
+        eval_assert_equal(ctx, "(progn (setq p 1 q 2) (list p q))", "'(1 2)");
+        eval_assert_equal(
+            ctx,
+            "(defun f (a) (setq a (1+ a) b (* a 10)) (list a b)) (f 1)",
+            "'(2 20)",
+        );
+        eval_assert_error_line(ctx, "(setq a)", "ERR ArityMismatch: Too few arguments");
+        eval_assert_error_line(ctx, "(setq a 1 b)", "ERR ArityMismatch: Too few arguments");
+        eval_assert_error_line(
+            ctx,
+            "(setq a 1 t 2)",
+            "ERR TypeMismatch: Can't set constant symbol: t",
+        );
+    }
 
     #[test]
     fn setq_sets_the_global_value() -> Result<(), Error> {
