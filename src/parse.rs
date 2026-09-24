@@ -1,8 +1,7 @@
 use std::{collections::HashMap, iter::Peekable, str::Chars};
 
 use crate::{
-    Error, Number, TulispContext, TulispObject, TulispValue, destruct_bind, eval::macroexpand,
-    list, object::Span,
+    Error, Number, TulispContext, TulispObject, TulispValue, destruct_bind, list, object::Span,
 };
 
 struct Tokenizer<'a> {
@@ -516,21 +515,6 @@ struct Parser<'a, 'b> {
     follow_load_files: bool,
 }
 
-fn recursive_update_ctxobj(body: &TulispObject) -> Result<(), Error> {
-    if !body.consp() {
-        return Ok(());
-    }
-    let name = body.car()?;
-    if name.is_symbol_variant() && body.ctxobj().is_none() {
-        let ctxobj = name.get().ok();
-        body.with_ctxobj(ctxobj);
-    }
-    for item in body.base_iter() {
-        recursive_update_ctxobj(&item)?;
-    }
-    Ok(())
-}
-
 impl Parser<'_, '_> {
     fn new<'b, 'a>(
         ctx: &'b mut TulispContext,
@@ -601,7 +585,7 @@ impl Parser<'_, '_> {
             builder.append(next)?;
         }
 
-        let mut inner = builder.build().with_span(full_span);
+        let inner = builder.build().with_span(full_span);
 
         #[cfg(feature = "etags")]
         if self.follow_load_files
@@ -625,26 +609,18 @@ impl Parser<'_, '_> {
             }
         }
 
+        // A name that is no plain symbol, such as `t`, gets no tag.
+        #[cfg(feature = "etags")]
         if let Ok("defun" | "defmacro" | "defvar") =
             inner.car()?.as_symbol().as_ref().map(|x| x.as_str())
+            && let Ok(name) = inner.cadr().and_then(|name| name.as_symbol())
+            && let Some(span) = inner.span()
         {
-            // A name that is no plain symbol, such as `t`, gets no tag;
-            // evaluating the form reports the error.
-            #[cfg(feature = "etags")]
-            if let Ok(name) = inner.cadr().and_then(|name| name.as_symbol())
-                && let Some(span) = inner.span()
-            {
-                self.ctx
-                    .tags_table
-                    .entry(self.ctx.filenames[self.file_id].clone())
-                    .or_default()
-                    .insert(name, span.start.0);
-            }
-
-            inner = macroexpand(self.ctx, inner)?;
-            crate::eval::tw_eval(self.ctx, &inner)?;
-            // recursively update ctx obj in case it is a recursive function.
-            recursive_update_ctxobj(&inner)?;
+            self.ctx
+                .tags_table
+                .entry(self.ctx.filenames[self.file_id].clone())
+                .or_default()
+                .insert(name, span.start.0);
         }
         if inner.consp() {
             let name = inner.car()?;
@@ -880,7 +856,7 @@ pub fn parse(
 
 #[cfg(test)]
 mod tests {
-    use crate::test_utils::{eval_assert_equal_fresh, eval_assert_error};
+    use crate::test_utils::{eval_assert_equal, eval_assert_equal_fresh, eval_assert_error};
     use crate::{Error, TulispContext};
 
     // A dotted-pair tail with no value before end-of-input must
@@ -955,6 +931,40 @@ mod tests {
             r#"ERR ParsingError: SyntaxError Vector syntax is not supported
 <eval_string>:1.12-1.12:  at nil
 "#,
+        );
+    }
+
+    // Reading a program defines nothing: a quoted definition is data.
+    #[test]
+    fn a_quoted_definition_defines_nothing() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(progn '(defun qf () 1) (condition-case nil (qf) (error 'undefined)))",
+            "'undefined",
+        );
+        eval_assert_equal(
+            ctx,
+            "(progn '(defmacro qm () 1) (condition-case nil (qm) (error 'undefined)))",
+            "'undefined",
+        );
+        eval_assert_equal(
+            ctx,
+            "'(defvar qx) (defun rq () qx)
+             (let ((qx 5)) (condition-case nil (rq) (error 'lexical)))",
+            "'lexical",
+        );
+    }
+
+    // A backquoted definition is a template: it reads as data, and a
+    // macro can fill it in.
+    #[test]
+    fn a_backquoted_definition_is_a_template() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(defmacro mkdef (name) `(defun ,name () 7)) (mkdef bq-f) (bq-f)",
+            "7",
         );
     }
 
@@ -1159,6 +1169,19 @@ mod etags_tests {
             tags.contains(p2_str),
             "should contain the loaded file's path, got: {tags}"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_etags_continue_past_a_failing_defvar() -> Result<(), crate::Error> {
+        let (path, _cleanup) = write_temp_file(
+            "failing_defvar.el",
+            "(defvar fails-at-load (no-such-fn))\n(defun after-failing-defvar () 1)\n",
+        );
+        let mut ctx = TulispContext::new();
+        let tags = ctx.tags_table(Some(&[path.to_str().unwrap()]))?;
+        assert_tag_entry(&tags, "fails-at-load");
+        assert_tag_entry(&tags, "after-failing-defvar");
         Ok(())
     }
 }

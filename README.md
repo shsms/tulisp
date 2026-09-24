@@ -160,8 +160,7 @@ expansion. It keeps the compiled body, unless that expansion failed or
 the body has a call to a name that had no value yet. The macros a kept
 body uses stay as they were: redefining one later does not change the
 macro that uses it, as with Emacs's byte-compiler. A macro whose body
-uses that macro itself is refused, when the parser reads its definition
-or else at its first expansion.
+uses that macro itself is refused at its first expansion.
 
 ## Cargo features
 

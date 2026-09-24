@@ -441,8 +441,6 @@ pub(super) fn compile_fn_defmacro(
     _name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    // The parser defines a macro it reads; a form built at run time
-    // reaches only the compiler.
     let name = crate::builtin::functions::core::define_macro(ctx, args)?;
     Ok(if ctx.compiler.as_ref().unwrap().keep_result {
         vec![Instruction::Push(name)]
@@ -556,9 +554,9 @@ mod tests {
         eval_assert_equal(ctx, "(defvar dv-none) dv-none", "nil");
     }
 
-    // The parser runs every `defvar` in the source, so only a `defvar` a
-    // macro builds reaches the VM's value path. Each evaluator gets its
-    // own context, since a first run would leave SYM bound for the next.
+    // A `defvar` sets its value when it runs, once. Each evaluator gets
+    // its own context, since a first run would leave SYM bound for the
+    // next.
     #[test]
     fn a_defvar_a_macro_builds_runs_in_the_vm() {
         let program = "(defmacro dv-make (n v) (list 'defvar n v))
@@ -702,19 +700,20 @@ mod tests {
         "##,
             "106",
         );
-        eval_assert_equal_fresh(
-            r##"
-        (let ((res (test)))
-
-        (defun test ()
-          (let* ((a 5)
-                 (c 7))
-            (when-let ((b 6))
-              (list a b c))))
-        res)
-        "##,
-            "'(5 6 7)",
-        );
+        // A call to a function defined further down works once the
+        // program compiled; the tree-walker runs the call before the
+        // definition.
+        let ctx = &mut TulispContext::new();
+        let got = ctx.eval_string(
+            "(let ((res (test)))
+               (defun test ()
+                 (let* ((a 5)
+                        (c 7))
+                   (when-let ((b 6))
+                     (list a b c))))
+               res)",
+        )?;
+        assert_eq!(got.to_string(), "(5 6 7)");
         eval_assert_equal_fresh(
             r##"
             (defun add (x &rest y)
@@ -806,14 +805,15 @@ mod tests {
         "##,
             "20000",
         );
-        eval_assert_equal_fresh(
-            r##"
-        (defun my-even (n) (if (equal n 0) t (my-odd (- n 1))))
-        (defun my-odd (n) (if (equal n 0) nil (my-even (- n 1))))
-        (list (my-even 5) (my-odd 5) (my-even 30000) (my-odd 10000))
-        "##,
-            "'(nil t t nil)",
-        );
+        // The tree-walker marks a tail call only to a function already
+        // defined, so mutual recursion runs in the VM alone.
+        let ctx = &mut TulispContext::new();
+        let got = ctx.eval_string(
+            "(defun my-even (n) (if (equal n 0) t (my-odd (- n 1))))
+             (defun my-odd (n) (if (equal n 0) nil (my-even (- n 1))))
+             (list (my-even 5) (my-odd 5) (my-even 30000) (my-odd 10000))",
+        )?;
+        assert_eq!(got.to_string(), "(nil t t nil)");
         Ok(())
     }
 

@@ -1263,7 +1263,9 @@ mod tests {
                 let mut ctx = TulispContext::new();
                 ctx.set_max_eval_depth(super::PROFILE_MAX_EVAL_DEPTH);
                 let err = ctx
-                    .eval_string("(defmacro pm () (progn (progn (progn (progn (progn (pm)))))))")
+                    .eval_string(
+                        "(defmacro pm () (progn (progn (progn (progn (progn (pm))))))) (pm)",
+                    )
                     .unwrap_err()
                     .format(&ctx);
                 assert!(err.contains("used in its own body"), "{err}");
@@ -1271,9 +1273,10 @@ mod tests {
                 // compiles one body inside another.
                 let mut ctx = TulispContext::new();
                 ctx.set_max_eval_depth(super::PROFILE_MAX_EVAL_DEPTH);
-                let chain: String = (0..3000)
+                let chain = (0..3000)
                     .map(|i| format!("(defmacro chain-{i} () (list 'quote (chain-{})))", i + 1))
-                    .collect();
+                    .collect::<String>()
+                    + "(chain-0)";
                 let err = ctx.eval_string(&chain).unwrap_err().format(&ctx);
                 assert!(err.contains("max-eval-depth"), "{err}");
             })
@@ -1485,6 +1488,34 @@ mod tests {
             assert!(inner.enter_frame().is_err());
         }
         assert_eq!(ctx.eval_depth, 0);
+    }
+
+    // Parsing a file runs none of it.
+    #[test]
+    fn parse_file_defines_nothing() {
+        let path = std::env::temp_dir().join(format!(
+            "tulisp_parse_file_defines_nothing_{}.lisp",
+            std::process::id()
+        ));
+        std::fs::write(
+            &path,
+            "(defun pf-f () 1) (defvar pf-v 2) (defmacro pf-m () 3)",
+        )
+        .unwrap();
+        let ctx = &mut TulispContext::new();
+        let forms = ctx.parse_file(path.to_str().unwrap());
+        std::fs::remove_file(&path).ok();
+        assert_eq!(
+            forms.unwrap().to_string(),
+            "((defun pf-f nil 1) (defvar pf-v 2) (defmacro pf-m nil 3))"
+        );
+        eval_assert_equal(
+            ctx,
+            "(list (condition-case nil (pf-f) (error 'none))
+                   (condition-case nil pf-v (error 'none))
+                   (condition-case nil (pf-m) (error 'none)))",
+            "'(none none none)",
+        );
     }
 
     // A Rust function that replaces a Lisp `defun` is what code

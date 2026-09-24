@@ -1189,9 +1189,9 @@ mod tests {
     };
     use crate::{Error, TulispContext, TulispObject, TulispValue, list};
 
-    // A tail call marked at parse time bounces to whatever the symbol
-    // names at run time, so a Rust defun reached that way is checked
-    // like on every other path.
+    // A tail call marked when a defun is defined bounces to whatever
+    // the symbol names at run time, so a Rust defun reached that way is
+    // checked like on every other path.
     #[test]
     fn a_bounced_call_to_a_defun_checks_arity() {
         let ctx = &mut TulispContext::new();
@@ -2264,24 +2264,22 @@ mod tests {
     }
 
     // A macro used in its own body, however deep and even in code that
-    // never runs, is refused when it is defined: the parser expands the
-    // whole program after defining it, which compiles the body. (A cycle
-    // through a second Lisp macro cannot be set up through the parser,
-    // which expands a defmacro body as it reads it; the guard keys on
-    // the macro, so it covers one too.)
+    // never runs, is refused at its first expansion, which compiles the
+    // body. The guard keys on the macro, so a cycle through a second
+    // macro is refused too.
     #[test]
     fn a_macro_used_in_its_own_body_is_an_error() {
         std::thread::Builder::new()
             .stack_size(8 * 1024 * 1024)
             .spawn(|| {
                 for (program, name) in [
-                    ("(defmacro rm1 () (rm1))", "rm1"),
+                    ("(defmacro rm1 () (rm1)) (rm1)", "rm1"),
                     (
-                        "(defmacro rm2 () (progn (progn (progn (progn (progn (rm2)))))))",
+                        "(defmacro rm2 () (progn (progn (progn (progn (progn (rm2))))))) (rm2)",
                         "rm2",
                     ),
                     (
-                        "(defmacro rm3 (x) (let ((f (lambda (y) (rm3 y)))) (list 'quote x)))",
+                        "(defmacro rm3 (x) (let ((f (lambda (y) (rm3 y)))) (list 'quote x))) (rm3 1)",
                         "rm3",
                     ),
                 ] {
