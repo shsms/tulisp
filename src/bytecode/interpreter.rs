@@ -112,6 +112,11 @@ impl Drop for ActiveScopes {
 pub struct Machine {
     stack: Vec<TulispObject>,
     functions: HashMap<usize, CompiledDefun>, // key: fn_name.addr_as_usize()
+    /// Counts the functions replaced, so a call can tell that the
+    /// target it keeps may be out of date. No entry is ever removed and
+    /// a call keeps only one it found, so adding a name leaves every
+    /// kept target valid.
+    generation: u64,
 }
 
 /// Pops two operands and gives whether `$cmp` holds for them. `$b` is
@@ -174,12 +179,15 @@ impl Machine {
         Machine {
             stack: Vec::new(),
             functions: HashMap::new(),
+            generation: 0,
         }
     }
 
     /// Makes FUNCTION what a compiled call to the name at ADDR runs.
     pub(crate) fn set_function(&mut self, addr: usize, function: CompiledDefun) {
-        self.functions.insert(addr, function);
+        if self.functions.insert(addr, function).is_some() {
+            self.generation += 1;
+        }
     }
 }
 
@@ -610,7 +618,11 @@ fn run_impl_inner(
                 optional_count,
                 rest_count,
             } => {
-                if function.is_none() {
+                let generation = ctx.vm.generation;
+                if function
+                    .as_ref()
+                    .is_none_or(|(seen, _)| *seen != generation)
+                {
                     let addr = name.addr_as_usize();
                     if let Some(func) = ctx.vm.functions.get(&addr) {
                         let func = func.clone();
@@ -619,7 +631,7 @@ fn run_impl_inner(
                             .arity()
                             .split(*args_count)
                             .map_err(|e| e.with_trace(form.clone()))?;
-                        *function = Some(func);
+                        *function = Some((generation, func));
                     } else {
                         // Target isn't a VM-compiled defun. It might
                         // be a TW `Lambda` (e.g., defined by a file
@@ -643,7 +655,7 @@ fn run_impl_inner(
                 }
 
                 let call = TailCallInfo {
-                    function: function.as_ref().unwrap().clone(),
+                    function: function.as_ref().unwrap().1.clone(),
                     optional_count: *optional_count,
                     rest_count: *rest_count,
                 };
@@ -661,7 +673,11 @@ fn run_impl_inner(
                 optional_count,
                 rest_count,
             } => {
-                if function.is_none() {
+                let generation = ctx.vm.generation;
+                if function
+                    .as_ref()
+                    .is_none_or(|(seen, _)| *seen != generation)
+                {
                     let addr = name.addr_as_usize();
                     let Some(func) = ctx.vm.functions.get(&addr) else {
                         return Err(Error::new(
@@ -676,11 +692,11 @@ fn run_impl_inner(
                         .arity()
                         .split(*args_count)
                         .map_err(|e| e.with_trace(form.clone()))?;
-                    *function = Some(func);
+                    *function = Some((generation, func));
                 }
 
                 let info = TailCallInfo {
-                    function: function.as_ref().unwrap().clone(),
+                    function: function.as_ref().unwrap().1.clone(),
                     optional_count: *optional_count,
                     rest_count: *rest_count,
                 };
@@ -1411,6 +1427,37 @@ mod tests {
             ctx.apply(&raw, &form).unwrap_err(),
         ] {
             assert!(err.format(&ctx).contains("invalid function: raw"));
+        }
+    }
+
+    // After a later program redefines a function, a call compiled
+    // earlier reaches the new definition.
+    #[test]
+    fn a_compiled_call_reaches_a_redefined_function() {
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string("(defun g () 1) (defun h () (g)) (defun hl () (list (g))) (h) (hl)")
+            .unwrap();
+        ctx.eval_string("(defun g () 2)").unwrap();
+        let got = ctx
+            .eval_string("(list (h) (hl) (funcall 'h) (mapcar (lambda (_) (h)) '(1)))")
+            .unwrap();
+        assert_eq!(got.to_string(), "(2 (2) 2 (2))");
+        let h = ctx.intern("h");
+        assert_eq!(ctx.funcall(&h, ()).unwrap().to_string(), "2");
+        // A redefinition with other parameters checks the arguments
+        // again.
+        ctx.eval_string(
+            "(defun g2 (&optional a) (list 'opt a))
+             (defun h2 () (g2 1)) (defun hl2 () (list (g2 1))) (h2) (hl2)",
+        )
+        .unwrap();
+        ctx.eval_string("(defun g2 (a) (list 'req a))").unwrap();
+        let got = ctx.eval_string("(list (h2) (hl2))").unwrap();
+        assert_eq!(got.to_string(), "((req 1) ((req 1)))");
+        ctx.eval_string("(defun g2 (a b) b)").unwrap();
+        for program in ["(h2)", "(hl2)"] {
+            let err = ctx.eval_string(program).unwrap_err();
+            assert!(err.to_string().contains("Too few arguments"), "{err}");
         }
     }
 

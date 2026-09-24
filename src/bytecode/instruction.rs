@@ -198,7 +198,9 @@ pub(crate) enum Instruction {
         /// See `RustCall::form`.
         form: TulispObject,
         args_count: usize,
-        function: Option<CompiledDefun>,
+        /// The function the call last reached, with the machine's
+        /// `generation` then: a later replacement makes it stale.
+        function: Option<(u64, CompiledDefun)>,
         optional_count: usize,
         rest_count: usize,
     },
@@ -207,7 +209,9 @@ pub(crate) enum Instruction {
         /// See `RustCall::form`.
         form: TulispObject,
         args_count: usize,
-        function: Option<CompiledDefun>,
+        /// The function the call last reached, with the machine's
+        /// `generation` then: a later replacement makes it stale.
+        function: Option<(u64, CompiledDefun)>,
         optional_count: usize,
         rest_count: usize,
     },
