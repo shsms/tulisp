@@ -47,7 +47,7 @@ fn main() -> Result<(), Error> {
         })?);
     }
 
-    // TW `(list ...)` with many args — exercises `eval_each`.
+    // `(list ...)` with many args, run in the VM.
     {
         let mut src = String::with_capacity(N * 4 + 7);
         src.push_str("(list");
@@ -57,7 +57,7 @@ fn main() -> Result<(), Error> {
         }
         src.push(')');
         let mut ctx = TulispContext::new();
-        results.push(common::run("tw_list_call", || {
+        results.push(common::run("vm_list_call", || {
             let result = ctx.eval_string(black_box(&src))?;
             Ok(black_box(result.fmt_string().len()).to_string())
         })?);

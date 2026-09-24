@@ -96,9 +96,9 @@ The enum also gets `Display` and `FromStr` with the same spellings. A
 `#[lisp(strings)]` marker, after the enum's doc comment and before its other
 attributes, makes it read a string as well as a symbol, and write a string.
 
-For raw argument lists and code transformation, see
-[`defspecial`](https://docs.rs/tulisp/latest/tulisp/struct.TulispContext.html#method.defspecial)
-and
+For arguments that are passed unevaluated, see
+[`defspecial`](https://docs.rs/tulisp/latest/tulisp/struct.TulispContext.html#method.defspecial);
+for code transformation, see
 [`defmacro`](https://docs.rs/tulisp/latest/tulisp/struct.TulispContext.html#method.defmacro).
 
 ## Keyed-list structs
