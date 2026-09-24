@@ -766,7 +766,11 @@ pub(crate) fn mark_tail_calls(
     }
     let span = tail.span();
     let tail_ident = tail.car()?;
-    let tail_name_str = tail_ident.as_symbol()?;
+    // A head that is not a symbol, such as a `(lambda ...)` list, is
+    // no function the compiler knows: the call stays as it is.
+    let Ok(tail_name_str) = tail_ident.as_symbol() else {
+        return Ok(body);
+    };
     let is_self_call = tail_ident.eq(&name);
     // A call to another VM-compiled defun in tail position is also
     // a TCO opportunity. The call site uses the same `Bounce` shape
@@ -834,6 +838,17 @@ pub fn parse(
 mod tests {
     use crate::test_utils::{eval_assert_equal, eval_assert_equal_fresh, eval_assert_error};
     use crate::{Error, TulispContext};
+
+    // A call whose head is a `(lambda ...)` list can be in tail
+    // position, alone or in a branch.
+    #[test]
+    fn a_lambda_call_can_be_a_tail_call() {
+        eval_assert_equal_fresh("(defun f () ((lambda (x) (list 'l x)) 1)) (f)", "'(l 1)");
+        eval_assert_equal_fresh(
+            "(defun f (n) (if (= n 0) ((lambda () 'done)) (f (- n 1)))) (f 3)",
+            "'done",
+        );
+    }
 
     // A dotted-pair tail with no value before end-of-input must
     // parse-error, not panic. Regression: `parse_list` unwrapped
