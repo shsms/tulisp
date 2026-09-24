@@ -23,16 +23,8 @@ use crate::{
 #[derive(Clone)]
 pub struct Form {
     source: TulispObject,
-    code: FormCode,
+    block: Block,
     live: Shared<AtomicBool>,
-}
-
-#[derive(Clone)]
-enum FormCode {
-    /// Compiled by the VM.
-    Compiled(Block),
-    /// Evaluated from its source by the tree-walker.
-    TreeWalker,
 }
 
 impl Form {
@@ -45,10 +37,7 @@ impl Form {
                     .with_trace(self.source.clone()),
             );
         }
-        match &self.code {
-            FormCode::Compiled(block) => crate::bytecode::run_block(ctx, block, None),
-            FormCode::TreeWalker => crate::eval::tw_eval(ctx, &self.source),
-        }
+        crate::bytecode::run_block(ctx, &self.block, None)
     }
 
     /// Evaluates the form and converts the value, as a
@@ -79,18 +68,10 @@ impl CallForms {
         }
     }
 
-    pub(crate) fn compiled(&self, block: Block, source: TulispObject) -> Form {
+    pub(crate) fn form(&self, block: Block, source: TulispObject) -> Form {
         Form {
             source,
-            code: FormCode::Compiled(block),
-            live: self.live.clone(),
-        }
-    }
-
-    pub(crate) fn tree_walker(&self, source: TulispObject) -> Form {
-        Form {
-            source,
-            code: FormCode::TreeWalker,
+            block,
             live: self.live.clone(),
         }
     }
@@ -273,7 +254,7 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
 
-    fn vm(ctx: &mut TulispContext, program: &str) -> String {
+    fn eval_to_string(ctx: &mut TulispContext, program: &str) -> String {
         match ctx.eval_string(program) {
             Ok(value) => value.to_string(),
             Err(err) => err.format(ctx),
@@ -480,7 +461,7 @@ mod tests {
         let ctx = &mut TulispContext::new();
         ctx.eval_string("(defun g () (late-form 1))").unwrap();
         ctx.defspecial("late-form", |form: Form| form.source().clone());
-        assert!(vm(ctx, "(g)").contains("invalid function: late-form"));
+        assert!(eval_to_string(ctx, "(g)").contains("invalid function: late-form"));
     }
 
     #[test]

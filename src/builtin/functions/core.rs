@@ -7,8 +7,6 @@ use crate::destruct_bind;
 use crate::error::Error;
 use crate::list;
 use crate::object::wrappers::generic::SharedMut;
-use crate::value::DefunParams;
-use std::convert::TryInto;
 
 /// Defines the macro a `(defmacro NAME PARAMS [DOC] BODY...)` form's
 /// ARGS describe, and returns NAME. The parameter list is checked now;
@@ -18,7 +16,7 @@ pub(crate) fn define_macro(
     args: &TulispObject,
 ) -> Result<TulispObject, Error> {
     destruct_bind!((name params &rest body) = args);
-    let _: DefunParams = params.clone().try_into()?;
+    crate::builtin::check_param_list(ctx, &params)?;
     let lambda = TulispObject::cons(
         ctx.keywords.lambda.clone(),
         TulispObject::cons(params, body),
@@ -525,15 +523,13 @@ mod tests {
         eval_assert_equal(ctx, "(eval '(+ 1 2) nil)", "3");
     }
 
-    // `eval` compiles in the VM.
+    // `eval` of a `(lambda ...)` form gives a function value, not the
+    // list.
     #[test]
-    fn eval_builtin_runs_in_the_vm() {
+    fn eval_builtin_makes_a_function_of_a_lambda() {
         let ctx = &mut TulispContext::new();
         let value = ctx.eval_string("(eval '(lambda (x) x))").unwrap();
-        assert!(matches!(
-            &value.inner_ref().0,
-            crate::TulispValue::CompiledDefun { .. }
-        ));
+        assert!(value.inner_ref().0.is_function_value());
     }
 
     #[test]

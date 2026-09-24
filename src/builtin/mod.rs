@@ -102,7 +102,7 @@ pairs. `format-seconds` formats a duration.
 pub(crate) mod functions;
 pub(crate) mod macros;
 
-use crate::{Error, TulispObject, TulispValue};
+use crate::{Error, TulispContext, TulispObject, TulispValue};
 
 /// Returns the "Can't set constant symbol" error when `name` is `nil`
 /// or `t`. Keywords are not checked here.
@@ -122,6 +122,38 @@ pub(crate) fn check_defvar_name(name: &TulispObject) -> Result<(), Error> {
         ));
     }
     Ok(())
+}
+
+/// Checks the parameter list of a `defun`, `defmacro` or `lambda`: a
+/// list of symbols, with at most one symbol after `&rest`. `&optional`
+/// and `&rest` are the interned symbols, as the compilers read them.
+pub(crate) fn check_param_list(ctx: &TulispContext, params: &TulispObject) -> Result<(), Error> {
+    if !params.listp() {
+        return Err(Error::syntax_error(
+            "Parameter list needs to be a list".to_string(),
+        ));
+    }
+    let mut params_iter = params.base_iter();
+    let mut is_rest = false;
+    while let Some(param) = params_iter.next() {
+        check_not_nil_or_t(&param)?;
+        param.as_symbol()?;
+        if param.eq(&ctx.keywords.amp_optional) {
+            continue;
+        } else if param.eq(&ctx.keywords.amp_rest) {
+            is_rest = true;
+            continue;
+        }
+        if is_rest {
+            if params_iter.next().is_some() {
+                return Err(Error::type_mismatch(
+                    "Too many &rest parameters".to_string(),
+                ));
+            }
+            break;
+        }
+    }
+    params_iter.take_error()
 }
 
 /// Validate that `target` is a writable variable cell. Used by both
@@ -146,6 +178,30 @@ pub(crate) fn check_settable_target(target: &TulispObject) -> Result<(), Error> 
 mod tests {
     use crate::TulispContext;
     use crate::test_utils::{eval_assert_equal, eval_assert_error, eval_assert_error_line};
+
+    // An uninterned symbol named `&rest` is an ordinary parameter, as
+    // in Emacs.
+    #[test]
+    fn an_uninterned_rest_is_an_ordinary_parameter() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            r#"(funcall (eval (list 'lambda (list (make-symbol "&rest") 'a 'b) 'b)) 1 2 3)"#,
+            "3",
+        );
+        eval_assert_equal(
+            ctx,
+            r#"(eval (list 'defun 'ur-f (list (make-symbol "&rest") 'a 'b) 'b))"#,
+            "'ur-f",
+        );
+        eval_assert_equal(ctx, "(ur-f 1 2 3)", "3");
+        eval_assert_equal(
+            ctx,
+            r#"(eval (list 'defmacro 'ur-m (list (make-symbol "&rest") 'a 'b) 'b))"#,
+            "'ur-m",
+        );
+        eval_assert_equal(ctx, "(ur-m 1 2 3)", "3");
+    }
 
     #[test]
     fn mapcar_maps_a_list() {

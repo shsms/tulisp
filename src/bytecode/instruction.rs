@@ -1,6 +1,6 @@
 use crate::{
     Number, TulispObject,
-    object::wrappers::{DefunFn, SpecialFn, TulispFn, generic::Shared},
+    object::wrappers::{DefunFn, SpecialFn, generic::Shared},
 };
 
 use super::block::{Block, FormBlock, Handler};
@@ -157,24 +157,15 @@ pub(crate) enum Instruction {
     },
     // functions
     Label(TulispObject),
-    RustCall {
-        name: TulispObject,
-        /// Source AST of the full call form (`(name args…)`),
-        /// recorded so an error from `func` carries the same outer
-        /// `at (form)` trace line that `eval_basic`'s `with_trace`
-        /// adds in the TW path.
-        form: TulispObject,
-        func: Shared<dyn TulispFn>,
-        keep_result: bool,
-    },
-    /// Like `RustCall` but for `ctx.defun`-registered fns. Args have
+    /// A call to a `ctx.defun`-registered Rust function. Args have
     /// already been pushed on the stack (compiled with
     /// `keep_result=true`); the handler pops `args_count` of them in
     /// source order, hands them to `call(ctx, &args)`, and pushes the
     /// result if `keep_result`.
-    RustCallTyped {
+    RustCall {
         name: TulispObject,
-        /// See `RustCall::form`.
+        /// Source AST of the full call form (`(name args…)`), so an
+        /// error from `call` has the call's `at (form)` trace line.
         form: TulispObject,
         call: Shared<dyn DefunFn>,
         args_count: usize,
@@ -383,7 +374,6 @@ impl Instruction {
             | Instruction::CompareChain { .. }
             | Instruction::Label(..)
             | Instruction::RustCall { .. }
-            | Instruction::RustCallTyped { .. }
             | Instruction::Call { .. }
             | Instruction::TailCall { .. }
             | Instruction::MakeLambda(..)
@@ -543,10 +533,9 @@ impl std::fmt::Display for Instruction {
             Instruction::Ret => write!(f, "    ret"),
             Instruction::PushTrace(obj) => write!(f, "    push_trace {}", obj),
             Instruction::PopTrace => write!(f, "    pop_trace"),
-            Instruction::RustCall { name, .. } => write!(f, "    rustcall {}", name),
-            Instruction::RustCallTyped {
+            Instruction::RustCall {
                 name, args_count, ..
-            } => write!(f, "    rustcall_typed {} {}", name, args_count),
+            } => write!(f, "    rustcall {} {}", name, args_count),
             Instruction::SpecialCall {
                 name,
                 eager_count,

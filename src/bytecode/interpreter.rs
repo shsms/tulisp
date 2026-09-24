@@ -1,6 +1,6 @@
 use super::{
     Block, FormBlock, Handler, Instruction, LambdaTemplate, bytecode::Bytecode,
-    bytecode::CompiledDefun, bytecode::TraceRange, compiler::VMDefunParams,
+    bytecode::CompiledDefun, bytecode::TraceRange, compiler::DefunParams,
 };
 use crate::{
     Error, Number, TulispContext, TulispObject, TulispValue, bytecode::Pos,
@@ -254,7 +254,7 @@ pub fn run(ctx: &mut TulispContext, bytecode: Bytecode) -> Result<TulispObject, 
 /// `eval::funcall` when it encounters a `TulispValue::CompiledDefun`,
 /// by the bounce trampoline in `eval::eval_lambda`, and by the VM's
 /// own `funcall` dispatch.
-pub(crate) fn run_lambda(
+fn run_lambda(
     ctx: &mut TulispContext,
     compiled: CompiledDefun,
     args: Vec<TulispObject>,
@@ -767,28 +767,6 @@ fn run_impl_inner(
             }
             Instruction::RustCall {
                 form,
-                func,
-                keep_result,
-                ..
-            } => {
-                let args = ctx.vm.stack.pop().unwrap();
-                // Clone what the call needs and release the program
-                // borrow: the host callable may re-enter the
-                // interpreter (e.g. a tree-walker special form whose
-                // argument calls this same function again through
-                // `funcall`), which re-borrows its instruction list.
-                let form = form.clone();
-                let func = func.clone();
-                let keep_result = *keep_result;
-                drop(instr_ref);
-                let result = func(ctx, &args).map_err(|e| e.with_trace(form))?;
-                instr_ref = program.borrow_mut();
-                if keep_result {
-                    ctx.vm.stack.push(result);
-                }
-            }
-            Instruction::RustCallTyped {
-                form,
                 call,
                 args_count,
                 keep_result,
@@ -797,8 +775,10 @@ fn run_impl_inner(
                 let args_count = *args_count;
                 let split_at = ctx.vm.stack.len() - args_count;
                 let args: Vec<TulispObject> = ctx.vm.stack.drain(split_at..).collect();
-                // Same re-entry discipline as `RustCall` above: the
-                // typed closure also receives `ctx` and may evaluate.
+                // Clone what the call needs and release the program
+                // borrow: the closure receives `ctx` and may re-enter
+                // the interpreter, which re-borrows this instruction
+                // list.
                 let form = form.clone();
                 let call = call.clone();
                 let keep_result = *keep_result;
@@ -822,7 +802,7 @@ fn run_impl_inner(
                 let call_forms = crate::context::special::CallForms::new();
                 let forms = blocks
                     .iter()
-                    .map(|arg| call_forms.compiled(arg.block.clone(), arg.source.clone()))
+                    .map(|arg| call_forms.form(arg.block.clone(), arg.source.clone()))
                     .collect();
                 // The closure re-enters the machine, which re-borrows
                 // this instruction list: release it first.
@@ -1043,19 +1023,9 @@ pub(crate) fn call_function(
             arity.check(args.len())?;
             call(ctx, &args)
         }
-        TulispValue::Lambda { .. } => {
-            drop(inner);
-            // Rebuild an arg list TulispObject (quoted so the TW
-            // side doesn't re-evaluate already-resolved values).
-            let mut list = crate::cons::ListBuilder::new();
-            for a in args {
-                list.push(TulispValue::Quote { value: a }.into_ref(None));
-            }
-            crate::eval::funcall::<crate::eval::Eval>(ctx, function, &list.build())
-        }
-        TulispValue::Func(_) | TulispValue::SpecialForm | TulispValue::Special { .. } => Err(
-            Error::invalid_argument(format!("invalid function: {function}")),
-        ),
+        TulispValue::SpecialForm | TulispValue::Special { .. } => Err(Error::invalid_argument(
+            format!("invalid function: {function}"),
+        )),
         _ => Err(Error::undefined(format!("function is void: {}", function))),
     }
 }
@@ -1130,7 +1100,7 @@ fn make_lambda_from_template(
             .cloned()
             .unwrap_or_else(|| obj.clone())
     };
-    let params = VMDefunParams {
+    let params = DefunParams {
         required: template.params.required.iter().map(&rewrite_obj).collect(),
         optional: template.params.optional.iter().map(&rewrite_obj).collect(),
         rest: template.params.rest.as_ref().map(&rewrite_obj),
@@ -1166,17 +1136,6 @@ fn rewrite_instruction(
         | Instruction::StorePop(o)
         | Instruction::BeginScope(o)
         | Instruction::EndScope(o) => rewrite(o),
-        Instruction::Push(o)
-            // `Push` can carry an AST subtree — notably the args list
-            // of a `RustCall`-dispatched defun call — that may contain
-            // placeholder LexicalBinding references inside cons cells.
-            // Walk the subtree and materialize a fresh copy with
-            // placeholders substituted; the original AST is shared
-            // across all closures from this template, so we must not
-            // mutate in place.
-            if ast_contains_placeholder(o, mapping) => {
-                *o = rewrite_ast(o, mapping)?;
-            }
         Instruction::MakeLambda(template) => {
             let rebuilt = rewrite_template(template, mapping)?;
             *template = crate::object::wrappers::generic::Shared::new(rebuilt);
@@ -1212,7 +1171,10 @@ fn rewrite_instruction(
             }
             *handlers = crate::object::wrappers::generic::Shared::new(rewritten);
         }
-        _ => debug_assert!(!insn.holds_blocks(), "a block {insn} holds is not rewritten"),
+        _ => debug_assert!(
+            !insn.holds_blocks(),
+            "a block {insn} holds is not rewritten"
+        ),
     }
     Ok(())
 }
@@ -1250,9 +1212,9 @@ fn rewrite_instructions(
     Ok(rewritten)
 }
 
-/// Quick check: does `obj` or any cons-cell descendant reference a
-/// placeholder? Avoids the expensive deep-copy when Push holds plain
-/// literals (numbers, strings, etc.).
+/// Quick check: does `obj` hold a placeholder anywhere `rewrite_ast`
+/// would replace one? Avoids the deep copy of a special form's
+/// unevaluated argument that holds none.
 fn ast_contains_placeholder(obj: &TulispObject, mapping: &HashMap<usize, TulispObject>) -> bool {
     contains_placeholder_at(obj, mapping, 0, false)
 }
@@ -1665,7 +1627,7 @@ mod tests {
 
         // Lambda case: `f` holds a `CompiledDefun` (anonymous lambda
         // materialized by `Instruction::MakeLambda`). The inner run's
-        // `funcall` runs it through `bytecode::run_lambda`.
+        // `funcall` runs it through `run_lambda`.
         let mut ctx = TulispContext::new();
         let result: i64 = ctx
             .eval_string(
@@ -1679,8 +1641,8 @@ mod tests {
 
         // Defun case: top-level `(defun g …)` leaves a
         // `CompiledDefun` on `g`. The inner run's `funcall` on the
-        // symbol runs it through `bytecode::run_lambda`, in the machine
-        // the outer run is using.
+        // symbol runs it through `run_lambda`, in the machine the outer
+        // run is using.
         let mut ctx = TulispContext::new();
         let result: i64 = ctx
             .eval_string(

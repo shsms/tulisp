@@ -9,13 +9,13 @@ use crate::{
 use super::forms::{VMCompilers, compile_form};
 
 #[derive(Default, Clone)]
-pub(crate) struct VMDefunParams {
+pub(crate) struct DefunParams {
     pub required: Vec<TulispObject>,
     pub optional: Vec<TulispObject>,
     pub rest: Option<TulispObject>,
 }
 
-impl VMDefunParams {
+impl DefunParams {
     /// The arity this parameter list accepts.
     pub(crate) fn arity(&self) -> crate::value::DefunArity {
         crate::value::DefunArity {
@@ -29,7 +29,7 @@ impl VMDefunParams {
 #[allow(dead_code)]
 pub(crate) struct Compiler {
     pub vm_compilers: VMCompilers,
-    pub defun_args: HashMap<usize, VMDefunParams>, // fn_name.addr_as_usize() -> arg symbol idx
+    pub defun_args: HashMap<usize, DefunParams>, // fn_name.addr_as_usize() -> arg symbol idx
     pub bytecode: Bytecode,
     pub keep_result: bool,
     pub current_defun: Option<TulispObject>,
@@ -283,7 +283,7 @@ fn try_pre_register_one(ctx: &mut TulispContext, expr: &TulispObject) {
         }
     }
 
-    let params_struct = VMDefunParams {
+    let params_struct = DefunParams {
         required,
         optional,
         rest: rest_param,
@@ -543,9 +543,7 @@ pub(crate) fn compile_expr(
             }
         }
         // A function, macro or special-form value evaluates to itself.
-        (TulispValue::Lambda { .. }, _)
-        | (TulispValue::Func(_), _)
-        | (TulispValue::SpecialForm, _)
+        (TulispValue::SpecialForm, _)
         | (TulispValue::Defun { .. }, _)
         | (TulispValue::Special { .. }, _)
         | (TulispValue::CompiledDefun { .. }, _)
@@ -634,7 +632,7 @@ mod tests {
 
     /// PROGRAM's value, or the first line of its error, from the VM on
     /// a fresh context.
-    fn vm_result(program: &str) -> String {
+    fn eval_fresh_to_string(program: &str) -> String {
         let ctx = &mut TulispContext::new();
         match ctx.eval_string(program) {
             Ok(value) => value.to_string(),
@@ -674,7 +672,7 @@ mod tests {
             // defined: it takes effect when it compiles.
             ("(when nil (defun nd () 1)) (nd)", "1"),
         ] {
-            assert_eq!(vm_result(program), expected, "{program}");
+            assert_eq!(eval_fresh_to_string(program), expected, "{program}");
         }
         // A program that fails to compile keeps the defuns compiled
         // before the failure, one a macro produced too.

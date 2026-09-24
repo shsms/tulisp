@@ -780,12 +780,7 @@ pub(crate) fn mark_tail_calls(
         .compiler
         .as_ref()
         .is_some_and(|c| c.defun_args.contains_key(&tail_ident.addr_as_usize()));
-    let new_tail = if is_self_call
-        || is_known_vm_defun
-        || tail_ident
-            .get()
-            .is_ok_and(|f| matches!(&f.inner_ref().0, TulispValue::Lambda { .. }))
-    {
+    let new_tail = if is_self_call || is_known_vm_defun {
         let ret_tail = TulispObject::nil().append(tail.cdr()?)?.to_owned();
         list!(,ctx.intern("list")
               ,TulispValue::Bounce.into_ref(None)

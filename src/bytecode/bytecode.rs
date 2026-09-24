@@ -3,7 +3,7 @@ use std::{collections::HashMap, fmt};
 use super::Instruction;
 use crate::{
     Error, TulispObject,
-    bytecode::compiler::VMDefunParams,
+    bytecode::compiler::DefunParams,
     object::wrappers::generic::{Shared, SharedMut},
 };
 
@@ -33,7 +33,7 @@ pub struct CompiledDefun {
     /// for functions whose bytecode contains no list-form markers.
     pub(crate) trace_ranges: Shared<Vec<TraceRange>>,
     /// Behind a `Shared` for the same reason as `trace_ranges`.
-    pub(crate) params: Shared<VMDefunParams>,
+    pub(crate) params: Shared<DefunParams>,
 }
 
 #[derive(Clone)]

@@ -4,7 +4,7 @@ use crate::{
         Instruction, Pos,
         bytecode::CompiledDefun,
         compiler::{
-            VMDefunParams,
+            DefunParams,
             compiler::{
                 compile_expr, compile_expr_keep_result, compile_progn, compile_progn_keep_result,
             },
@@ -288,7 +288,7 @@ fn compile_defun(
     args: &TulispObject,
     define: bool,
 ) -> Result<Vec<Instruction>, Error> {
-    let mut defun_params = VMDefunParams {
+    let mut defun_params = DefunParams {
         required: vec![],
         optional: vec![],
         rest: None,
@@ -296,7 +296,7 @@ fn compile_defun(
     let mut fn_name = TulispObject::nil();
     let res = ctx.compile_2_arg_call(defun_kw, args, true, |ctx, defun_name, args, body| {
         fn_name = defun_name.clone();
-        let _: crate::value::DefunParams = args.clone().try_into()?;
+        crate::builtin::check_param_list(ctx, args)?;
         if define {
             defun_name.check_global_settable()?;
         }

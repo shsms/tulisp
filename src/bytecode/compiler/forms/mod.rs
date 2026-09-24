@@ -148,18 +148,6 @@ pub(super) fn compile_form(
         && let Ok(func) = name.get()
     {
         match &*func.inner_ref() {
-            (TulispValue::Func(func), _) => {
-                let compiler = ctx.compiler.as_mut().unwrap();
-                return Ok(vec![
-                    Instruction::Push(args.clone()),
-                    Instruction::RustCall {
-                        name: name.clone(),
-                        form: form.clone(),
-                        func: func.clone(),
-                        keep_result: compiler.keep_result,
-                    },
-                ]);
-            }
             (TulispValue::Defun { call, arity }, _) => {
                 let call = call.clone();
                 let arity = arity.clone();
@@ -179,7 +167,7 @@ pub(super) fn compile_form(
                     .check(args_count)
                     .map_err(|e| e.with_trace(form.clone()))?;
                 let keep_result = ctx.compiler.as_ref().unwrap().keep_result;
-                result.push(Instruction::RustCallTyped {
+                result.push(Instruction::RustCall {
                     name: name.clone(),
                     form: form.clone(),
                     call,

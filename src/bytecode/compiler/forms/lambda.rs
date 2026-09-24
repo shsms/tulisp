@@ -3,7 +3,7 @@ use crate::{
     bytecode::{
         Instruction, LambdaTemplate,
         compiler::{
-            VMDefunParams,
+            DefunParams,
             compiler::{compile_expr_keep_result, compile_progn_keep_result},
             free_vars::classify_free_vars,
         },
@@ -28,7 +28,7 @@ pub(super) fn compile_fn_lambda(
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
     ctx.compile_1_arg_call(name, args, true, |ctx, params, body| {
-        let _: crate::value::DefunParams = params.clone().try_into()?;
+        crate::builtin::check_param_list(ctx, params)?;
         // Strip an optional docstring as the first body form, matching
         // the TW's lambda handling.
         let body = if body.car()?.as_string().is_ok() {
@@ -39,7 +39,7 @@ pub(super) fn compile_fn_lambda(
 
         // Parse params: required, &optional group, &rest group.
         let mut param_names: Vec<TulispObject> = Vec::new();
-        let mut vm_params = VMDefunParams {
+        let mut vm_params = DefunParams {
             required: Vec::new(),
             optional: Vec::new(),
             rest: None,
@@ -96,7 +96,7 @@ pub(super) fn compile_fn_lambda(
             param_placeholders.push(lex);
         }
         params_iter.take_error()?;
-        // Populate VMDefunParams from the placeholders, honoring
+        // Populate DefunParams from the placeholders, honoring
         // &optional / &rest positions from the original declaration.
         {
             let mut cursor = 0usize;
@@ -294,6 +294,29 @@ mod tests {
             ctx,
             "(lambda 5 1)",
             "ERR SyntaxError: Parameter list needs to be a list",
+        );
+    }
+
+    // A macro defined in the same top-level form expands after the
+    // lambda's parameters became placeholders, so quoted data it builds
+    // from a parameter holds the placeholder. It is `eq` to the symbol,
+    // and `eval` of it does not see the parameter's value.
+    #[test]
+    fn quoted_data_a_late_macro_builds_from_a_parameter() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(let () (defmacro qm (v) (list 'quote v))
+                     (defun f () (funcall (lambda (x) (qm x)) 1)))
+             (list (f) (eq (f) 'x) (symbolp (f)))",
+            "'(x t t)",
+        );
+        eval_assert_error_line(
+            ctx,
+            "(let () (defmacro qm2 (v) (list 'quote v))
+                     (defun f2 () (funcall (lambda (x) (eval (qm2 x))) 1)))
+             (f2)",
+            "ERR Uninitialized: Variable definition is void: x",
         );
     }
 }

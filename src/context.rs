@@ -853,32 +853,6 @@ impl TulispContext {
         self.eval_progn(&vv)
     }
 
-    /// Tree-walker variant of [`eval_string`]. Kept (`#[doc(hidden)]`)
-    /// for cross-path test coverage so behavioral divergences between
-    /// the VM and TW paths surface as a regression. Not part of the
-    /// stable public API — may be removed without notice.
-    #[doc(hidden)]
-    pub fn tw_eval_string(&mut self, string: &str) -> Result<TulispObject, Error> {
-        let vv = parse(
-            self,
-            0,
-            string,
-            #[cfg(feature = "etags")]
-            false,
-        )?;
-        let mut value = TulispObject::nil();
-        crate::eval::for_each_top_level_form(
-            self,
-            &vv,
-            &mut |ctx, form, _| {
-                value = crate::eval::tw_eval(ctx, form)?;
-                Ok(())
-            },
-            &mut |_, _| {},
-        )?;
-        Ok(value)
-    }
-
     /// Evaluates each form in SEQ, and returns the value of the last
     /// one, or nil for none. The forms are compiled and run in the VM,
     /// as for [`eval`](Self::eval).
@@ -1031,7 +1005,7 @@ impl Drop for FrameGuard<'_> {
 #[cfg(test)]
 mod tests {
     use crate::test_utils::{eval_assert, eval_assert_equal, eval_assert_not};
-    use crate::{Error, Form, TulispContext, TulispObject, TulispValue};
+    use crate::{Error, Form, TulispContext, TulispObject};
 
     // A program run while a protected body compiles fails to compile
     // as a whole, before any of it runs.
@@ -1086,21 +1060,21 @@ mod tests {
         Ok(())
     }
 
-    fn is_compiled(value: &TulispObject) -> bool {
-        matches!(&value.inner_ref().0, TulispValue::CompiledDefun { .. })
+    fn is_function(value: &TulispObject) -> bool {
+        value.inner_ref().0.is_function_value()
     }
 
-    // Each entry point compiles and runs in the VM: a lambda it
-    // evaluates is a compiled one.
+    // Each entry point evaluates a `(lambda ...)` form to a function
+    // value, not to the list.
     #[test]
-    fn the_eval_family_runs_in_the_vm() -> Result<(), Error> {
+    fn the_eval_family_makes_a_function_of_a_lambda() -> Result<(), Error> {
         let ctx = &mut TulispContext::new();
         let form = ctx.eval_string("'(lambda (x) x)")?;
         let forms = TulispObject::cons(form.clone(), TulispObject::nil());
-        assert!(is_compiled(&ctx.eval(&form)?));
-        assert!(ctx.eval_and_then(&form, |_, value| Ok(is_compiled(value)))?);
-        assert!(is_compiled(&ctx.eval_progn(&forms)?));
-        assert!(is_compiled(&ctx.eval_each(&forms)?.car()?));
+        assert!(is_function(&ctx.eval(&form)?));
+        assert!(ctx.eval_and_then(&form, |_, value| Ok(is_function(value)))?);
+        assert!(is_function(&ctx.eval_progn(&forms)?));
+        assert!(is_function(&ctx.eval_each(&forms)?.car()?));
         Ok(())
     }
 

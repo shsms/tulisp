@@ -20,23 +20,6 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-#[doc(hidden)]
-#[derive(Debug, Clone)]
-pub(crate) struct DefunParam {
-    pub(crate) param: TulispObject,
-    pub(crate) is_rest: bool,
-    pub(crate) is_optional: bool,
-}
-
-impl std::fmt::Display for DefunParam {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!(
-            "{}, rest:{}, opt: {}",
-            self.param, self.is_rest, self.is_optional
-        ))
-    }
-}
-
 /// Compile-time arity metadata for a `ctx.defun`-registered fn.
 /// Recorded on `TulispValue::Defun` so the VM compiler can reject
 /// arity mismatches at compile time, before any args are pushed.
@@ -46,8 +29,7 @@ impl std::fmt::Display for DefunParam {
 ///
 /// Marked `pub` (and `#[doc(hidden)]`) only because it appears as a
 /// field of the public `TulispValue::Defun` variant — same reason
-/// `DefunFn` and `DefunParams` are `pub`. Item #6 in `todo.md` plans
-/// to demote both along with `TulispValue` itself.
+/// `DefunFn` is `pub`.
 #[doc(hidden)]
 #[derive(Debug, Default, Clone)]
 pub struct DefunArity {
@@ -92,85 +74,6 @@ impl DefunArity {
                 format!("{} to {most} {}", self.required, plural(most))
             }
         }
-    }
-}
-
-#[doc(hidden)]
-#[derive(Debug, Default, Clone)]
-pub struct DefunParams {
-    params: Vec<DefunParam>,
-    /// The arity the parameters accept, fixed when they are read.
-    arity: DefunArity,
-}
-
-impl std::fmt::Display for DefunParams {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("params:\n")?;
-        for param in &self.params {
-            f.write_fmt(format_args!("  param: {param}\n"))?;
-        }
-        Ok(())
-    }
-}
-
-impl TryFrom<TulispObject> for DefunParams {
-    type Error = Error;
-
-    fn try_from(params: TulispObject) -> Result<Self, Self::Error> {
-        if !params.listp() {
-            return Err(Error::syntax_error(
-                "Parameter list needs to be a list".to_string(),
-            ));
-        }
-        let mut def_params = DefunParams::default();
-        let mut params_iter = params.base_iter();
-        let mut is_optional = false;
-        let mut is_rest = false;
-        while let Some(param) = params_iter.next() {
-            crate::builtin::check_not_nil_or_t(&param)?;
-            let name = param.as_symbol()?;
-            if name == "&optional" {
-                is_optional = true;
-                continue;
-            } else if name == "&rest" {
-                is_optional = false;
-                is_rest = true;
-                continue;
-            }
-            if is_rest {
-                def_params.arity.has_rest = true;
-            } else if is_optional {
-                def_params.arity.optional += 1;
-            } else {
-                def_params.arity.required += 1;
-            }
-            def_params.params.push(DefunParam {
-                param,
-                is_rest,
-                is_optional,
-            });
-            if is_rest {
-                if params_iter.next().is_some() {
-                    return Err(Error::type_mismatch(
-                        "Too many &rest parameters".to_string(),
-                    ));
-                }
-                break;
-            }
-        }
-        params_iter.take_error()?;
-        Ok(def_params)
-    }
-}
-
-impl DefunParams {
-    pub(crate) fn iter(&self) -> std::slice::Iter<'_, DefunParam> {
-        self.params.iter()
-    }
-
-    /// The arity this parameter list accepts.
-    pub(crate) fn arity(&self) -> &DefunArity {
-        &self.arity
     }
 }
 
@@ -450,15 +353,6 @@ impl LexBinding {
     }
 
     #[inline(always)]
-    pub(crate) fn push(&self, val: TulispObject) {
-        if let Some(slot) = &self.inner.captured {
-            *slot.borrow_mut() = val;
-            return;
-        }
-        with_lex_stack(self.inner.id, |s| s.push(SharedMut::new(val)));
-    }
-
-    #[inline(always)]
     pub(crate) fn pop(&self) -> Result<(), Error> {
         if self.inner.captured.is_some() {
             return Ok(());
@@ -600,13 +494,12 @@ pub enum TulispValue {
         value: TulispObject,
     },
     Any(Shared<dyn TulispAny>),
-    Func(Shared<dyn TulispFn>),
     /// A built-in special form, such as `if`: the compiler builds its
     /// code, so the value is only a marker. It is not a function.
     SpecialForm,
     /// A `ctx.defun`-registered Rust function, with already-evaluated
     /// args. Distinct from `Func` (a tree-walker special form, with raw
-    /// args) so the VM can dispatch via `RustCallTyped` — args are
+    /// args) so the VM can dispatch via `RustCall` — args are
     /// pushed onto the stack one by one and the closure receives them
     /// as a slice.
     Defun {
@@ -628,10 +521,6 @@ pub enum TulispValue {
     Defmacro {
         lambda: TulispObject,
         compiled: SharedMut<Option<TulispObject>>,
-    },
-    Lambda {
-        params: DefunParams,
-        body: TulispObject,
     },
     CompiledDefun {
         value: CompiledDefun,
@@ -665,7 +554,6 @@ impl std::fmt::Debug for TulispValue {
             Self::Unquote { value } => f.debug_struct("Unquote").field("value", value).finish(),
             Self::Splice { value } => f.debug_struct("Splice").field("value", value).finish(),
             Self::Any(arg0) => write!(f, "Any({:?} = {})", arg0.type_id(), arg0),
-            Self::Func(_) => write!(f, "Func"),
             Self::SpecialForm => write!(f, "SpecialForm"),
             Self::Defun { .. } => write!(f, "Defun"),
             Self::Special { .. } => write!(f, "Special"),
@@ -673,11 +561,6 @@ impl std::fmt::Debug for TulispValue {
             Self::Defmacro { lambda, .. } => {
                 f.debug_struct("Defmacro").field("lambda", lambda).finish()
             }
-            Self::Lambda { params, body } => f
-                .debug_struct("Defun")
-                .field("params", params)
-                .field("body", body)
-                .finish(),
             Self::CompiledDefun { .. } => f.debug_struct("CompiledDefun").finish(),
             Self::Bounce => f.debug_struct("Bounce").finish(),
         }
@@ -774,13 +657,11 @@ impl std::fmt::Display for TulispValue {
             TulispValue::Sharpquote { value, .. } => f.write_fmt(format_args!("#'{}", value)),
             TulispValue::Any(value) => f.write_fmt(format_args!("{}", value)),
             TulispValue::T => f.write_str("t"),
-            TulispValue::Func(_) => f.write_str("Func"),
             TulispValue::SpecialForm => f.write_str("SpecialForm"),
             TulispValue::Defun { .. } => f.write_str("Defun"),
             TulispValue::Special { .. } => f.write_str("Special"),
             TulispValue::Macro(_) => f.write_str("Macro"),
             TulispValue::Defmacro { .. } => f.write_str("Defmacro"),
-            TulispValue::Lambda { .. } => f.write_str("Lambda"),
             TulispValue::CompiledDefun { .. } => f.write_str("CompiledDefun"),
         }
     }
@@ -792,9 +673,7 @@ impl TulispValue {
     pub(crate) fn is_function_value(&self) -> bool {
         matches!(
             self,
-            TulispValue::Defun { .. }
-                | TulispValue::Lambda { .. }
-                | TulispValue::CompiledDefun { .. }
+            TulispValue::Defun { .. } | TulispValue::CompiledDefun { .. }
         )
     }
 
