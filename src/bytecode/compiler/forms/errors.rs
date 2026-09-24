@@ -105,10 +105,7 @@ mod tests {
     fn catch_compiles_to_a_block() {
         let ctx = &mut TulispContext::new();
         let l = listing(ctx, "(catch 'a (+ 1 2))");
-        assert!(
-            l.contains("catch") && l.contains("body:") && !l.contains("rustcall"),
-            "{l}"
-        );
+        assert!(l.contains("catch") && l.contains("body:"), "{l}");
         // A self-call at the end of a catch body stays a plain call.
         let l = listing(ctx, "(defun catch-self (n) (catch 'a (catch-self n)))");
         assert!(l.contains("call catch-self") && !l.contains("tcall"), "{l}");
@@ -168,14 +165,11 @@ mod tests {
         let ctx = &mut TulispContext::new();
         let l = listing(ctx, "(unwind-protect 1 (setq x 2))");
         assert!(
-            l.contains("unwind_protect") && l.contains("cleanup:") && !l.contains("rustcall"),
+            l.contains("unwind_protect") && l.contains("cleanup:"),
             "{l}"
         );
         let l = listing(ctx, "(defun up-f () (unwind-protect 1 2))");
-        assert!(
-            l.contains("unwind_protect") && !l.contains("rustcall"),
-            "{l}"
-        );
+        assert!(l.contains("unwind_protect"), "{l}");
     }
 
     #[test]
@@ -248,17 +242,9 @@ mod tests {
     fn condition_case_compiles_to_blocks() {
         let ctx = &mut TulispContext::new();
         let l = listing(ctx, r#"(condition-case e (error "x") (error e))"#);
-        assert!(
-            l.contains("condition_case")
-                && l.contains("handler")
-                && !l.contains("rustcall condition-case"),
-            "{l}"
-        );
+        assert!(l.contains("condition_case") && l.contains("handler"), "{l}");
         let l = listing(ctx, "(defun cc-f () (condition-case e 1 (error 2)))");
-        assert!(
-            l.contains("condition_case") && !l.contains("rustcall"),
-            "{l}"
-        );
+        assert!(l.contains("condition_case"), "{l}");
     }
 
     #[test]

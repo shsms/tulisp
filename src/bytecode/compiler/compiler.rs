@@ -372,11 +372,8 @@ pub(crate) fn compile_block(
 /// instruction. A `,@X` in a dotted tail, `(a . ,@X)`, is data at
 /// every depth, because Emacs reads it as `(a \,@ X)`: it stays, and
 /// `X` is compiled at the depth of the list.
-/// This native compilation matches Emacs' nested
-/// backquote semantics — `\`(a \`(b ,,x ,y) c)` with `x = 1`
-/// produces `(a \`(b ,1 ,y) c)` — without falling back to a TW
-/// runtime helper that would re-borrow `ctx.vm` on `CompiledDefun`
-/// callees.
+/// This matches Emacs' nested backquote semantics —
+/// `\`(a \`(b ,,x ,y) c)` with `x = 1` produces `(a \`(b ,1 ,y) c)`.
 fn compile_back_quote(
     ctx: &mut TulispContext,
     template: &TulispObject,
@@ -472,10 +469,9 @@ fn compile_back_quote(
     Ok(result)
 }
 
-/// Compiles `X`, the one operand of a `,X` or `,@X` kept as data, or
-/// of a `'X`, at `depth`, as `eval_back_quote_operand` walks it: a
-/// `,@Y` for `depth` 1 gives the one element of the value of `Y`, or
-/// nil for an empty list when `empty_is_nil`.
+/// Compiles `X`, the one operand of a `,X` or `,@X` kept as data, or of
+/// a `'X`, at `depth`: a `,@Y` for `depth` 1 gives the one element of
+/// the value of `Y`, or nil for an empty list when `empty_is_nil`.
 fn compile_back_quote_operand(
     ctx: &mut TulispContext,
     x: &TulispObject,
@@ -517,8 +513,7 @@ pub(crate) fn compile_expr(
                 // Push the parsed object itself, not a fresh
                 // `false.into()` / `true.into()`. Otherwise a `nil`
                 // / `t` argument loses its source span and error
-                // backtraces miss the trace line for it (TW path
-                // keeps the span, so VM and TW would diverge).
+                // backtraces miss the trace line for it.
                 Ok(vec![Instruction::Push(expr.clone())])
             } else {
                 Ok(vec![])
@@ -575,7 +570,6 @@ pub(crate) fn compile_expr(
             // nothing for them on the happy path; on the error
             // path, `run_impl` looks up which ranges contain the
             // failing PC and applies their forms via `with_trace`.
-            // Same shape TW's `eval_basic` produces.
             let mut inner = compile_form(ctx, expr).map_err(|err| err.with_trace(expr.clone()))?;
             if inner.is_empty() {
                 return Ok(inner);
@@ -623,9 +617,7 @@ mod tests {
     }
 
     // Definitions take effect as the compiler reaches them, in source
-    // order, and the program runs once it has compiled. The
-    // tree-walker, which defines things as it runs them, differs, so
-    // this is the VM alone.
+    // order, and the program runs once it has compiled.
     #[test]
     fn definitions_take_effect_as_they_compile() {
         for (program, expected) in [

@@ -11,10 +11,9 @@ impl<T> TulispFn for T where
 {
 }
 
-/// Raw-args closure used by `ctx.defun`-registered functions. Args
-/// arrive already evaluated (the TW or VM evaluates each arg before
-/// dispatch), so the closure never re-enters `ctx.eval` and cannot
-/// re-borrow `ctx.vm` mid-run.
+/// The closure behind a `ctx.defun`-registered function. It gets its
+/// arguments as values, evaluated by the caller or passed from Rust, as
+/// a slice. It may call back into `ctx`.
 pub trait DefunFn:
     Fn(&mut TulispContext, &[TulispObject]) -> Result<TulispObject, Error> + generic::SyncSend + 'static
 {

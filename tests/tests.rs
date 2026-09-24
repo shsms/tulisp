@@ -921,10 +921,9 @@ fn test_lexical_binding() -> Result<(), Error> {
         result: "'the-key-value",
     }
 
-    // VM-specific: an anonymous lambda created inside a function body
-    // must compile via the two-phase scheme (MakeLambda + inline
-    // Funcall) without falling back to the TW. Closure captures the
-    // enclosing defun param.
+    // An anonymous lambda created inside a function body compiles
+    // via the two-phase scheme (MakeLambda + inline Funcall). The
+    // closure captures the enclosing defun param.
     tulisp_assert! {
         program: r#"
         (defun make-scaler (k)

@@ -156,10 +156,10 @@ pub(crate) fn check_param_list(ctx: &TulispContext, params: &TulispObject) -> Re
     params_iter.take_error()
 }
 
-/// Validate that `target` is a writable variable cell. Used by both
-/// the VM compiler (~setq~) and the TW ~setq~ defspecial so the two
-/// dispatch paths reject the same inputs with the same error shape,
-/// at compile time, before any value expression evaluates.
+/// Validate that `target` is a writable variable cell. The compiler of
+/// `setq` calls it, so a bad target is refused at compile time, before
+/// any value expression evaluates. The compiler of `condition-case`
+/// calls it for VAR, and each handler raises the error when it runs.
 pub(crate) fn check_settable_target(target: &TulispObject) -> Result<(), Error> {
     check_not_nil_or_t(target)?;
     if !target.is_symbol_variant() {

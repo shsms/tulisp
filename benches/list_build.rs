@@ -28,7 +28,7 @@ fn main() -> Result<(), Error> {
         })?);
     }
 
-    // Backquote with a long literal list — exercises `eval_back_quote`.
+    // Backquote with a long literal list — exercises the compiled backquote.
     {
         let mut src = String::with_capacity(N * 4 + 2);
         src.push('`');

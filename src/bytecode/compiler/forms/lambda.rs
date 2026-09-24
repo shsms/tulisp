@@ -29,8 +29,7 @@ pub(super) fn compile_fn_lambda(
 ) -> Result<Vec<Instruction>, Error> {
     ctx.compile_1_arg_call(name, args, true, |ctx, params, body| {
         crate::builtin::check_param_list(ctx, params)?;
-        // Strip an optional docstring as the first body form, matching
-        // the TW's lambda handling.
+        // Strip an optional docstring as the first body form.
         let body = if body.car()?.as_string().is_ok() {
             body.cdr()?
         } else {

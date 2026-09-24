@@ -69,9 +69,9 @@ intern_from_obarray! {
 /// The nesting cap a normal (non-test) build uses, sized to leave the
 /// 8 MiB main thread (used by `cargo run` and typical embeddings)
 /// headroom before it overflows. The per-call native frame varies
-/// enormously — an unoptimized `run_impl` / `eval_lambda` frame is an
-/// order of magnitude larger than a release one — so debug caps far
-/// lower than release for the same stack. The
+/// enormously — an unoptimized `run_impl` frame is an order of
+/// magnitude larger than a release one — so debug caps far lower than
+/// release for the same stack. The
 /// `profile_default_errors_before_overflowing_target_stack` test
 /// checks each stays below that stack; an embedding on a smaller stack
 /// (e.g. a 2 MiB worker thread) should lower it via
@@ -95,11 +95,10 @@ const DEFAULT_MAX_EVAL_DEPTH: u32 = 16;
 #[cfg(not(test))]
 const DEFAULT_MAX_EVAL_DEPTH: u32 = PROFILE_MAX_EVAL_DEPTH;
 
-/// Frames past the depth limit that a running VM cleanup or handler,
+/// Frames past the depth limit that a running cleanup or handler,
 /// and the calls it makes, may use, so it still runs when its body
 /// stopped at the limit. This is similar to the extra depth Emacs gives
 /// `handler-bind` handlers and the debugger (`lisp-eval-depth-reserve`).
-/// The tree-walker's cleanups and handlers get no reserve.
 const CLEANUP_RESERVE: u32 = 8;
 
 /// Represents an instance of the _Tulisp_ interpreter.
@@ -164,10 +163,9 @@ impl TulispContext {
         let vm_compilers = VMCompilers::new(&mut ctx);
         ctx.compiler = Some(Compiler::new(vm_compilers));
         // The Lisp prelude is VM-compiled so higher-order forms
-        // (`seq-filter`, `mapcar`, `sort`, …) dispatch their
-        // predicate through `Instruction::Funcall` on the current
-        // `Machine`, keeping per-element dispatch inside the VM loop
-        // instead of bouncing each call through `eval::funcall`.
+        // (`seq-filter`, `mapcar`, `sort`, …) loop over the elements
+        // in bytecode and call their predicate through
+        // `Instruction::Funcall` on the current `Machine`.
         //
         // Use the build-time absolute path of `prelude.lisp` as the
         // synthetic filename so error traces inside these defuns
@@ -189,9 +187,8 @@ impl TulispContext {
 
     /// Sets the maximum evaluation nesting depth for this context.
     ///
-    /// Every non-tail call of a Lisp function counts one level,
-    /// whether it runs in the tree-walker or in the VM; calls of Rust
-    /// functions do not. Every program run through the VM
+    /// Every non-tail call of a Lisp function counts one level; calls
+    /// of Rust functions do not. Every program run through the VM
     /// counts one as well, the outermost included: a plain
     /// [`eval_string`](Self::eval_string) spends a level before the
     /// program's own calls, and a Rust callable that runs another
@@ -1194,8 +1191,7 @@ mod tests {
     // The non-test default (`PROFILE_MAX_EVAL_DEPTH`: 64 in debug,
     // 1000 in release) must raise a catchable error *before*
     // overflowing the 8 MiB main-thread stack it targets. Run on an
-    // 8 MiB thread and recurse far past the cap, on both the VM and
-    // tree-walker paths (via `eval_assert_equal`): a correctly-sized
+    // 8 MiB thread and recurse far past the cap: a correctly-sized
     // cap yields the caught error, whereas a cap set too high for the
     // stack overflows and aborts the whole test process.
     //
@@ -1476,7 +1472,7 @@ mod tests {
         // the registration. Regression: the prelude's `defun` wires the
         // name into the VM compiler's call-dispatch table, which
         // `compile_form` consulted before the symbol's global cell —
-        // silently shadowing the Rust override on the VM path.
+        // silently shadowing the Rust override.
         let mut ctx = TulispContext::new();
         ctx.defun(
             "sort",

@@ -322,10 +322,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     );
 
     // `dolist` and `dotimes` are macros over `let` and `while`, as in
-    // Emacs, so every evaluator sees the same scoping. Each iteration
-    // binds `var` afresh, so closures made in different iterations see
-    // different values. The loop state lives in uninterned symbols,
-    // which user code cannot name.
+    // Emacs. Each iteration binds `var` afresh, so closures made in
+    // different iterations see different values. The loop state lives
+    // in uninterned symbols, which user code cannot name.
     ctx.defmacro("dolist", |ctx, args| {
         destruct_bind!((spec &rest body) = args);
         destruct_bind!((var list &optional result) = spec);

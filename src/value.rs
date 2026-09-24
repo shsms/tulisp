@@ -497,11 +497,11 @@ pub enum TulispValue {
     /// A built-in special form, such as `if`: the compiler builds its
     /// code, so the value is only a marker. It is not a function.
     SpecialForm,
-    /// A `ctx.defun`-registered Rust function, with already-evaluated
-    /// args. Distinct from `Func` (a tree-walker special form, with raw
-    /// args) so the VM can dispatch via `RustCall` — args are
-    /// pushed onto the stack one by one and the closure receives them
-    /// as a slice.
+    /// A `ctx.defun`-registered Rust function. A call to it that
+    /// compiles while it is registered becomes a `RustCall`: the args
+    /// are pushed onto the stack one by one and the closure receives
+    /// them as a slice. Other calls, such as through `funcall`, `apply`
+    /// or Rust, reach it through `call_function`.
     Defun {
         call: Shared<dyn DefunFn>,
         arity: DefunArity,
@@ -668,7 +668,7 @@ impl std::fmt::Display for TulispValue {
 }
 
 impl TulispValue {
-    /// Whether this is a function value: a `Defun`, `Lambda` or
+    /// Whether this is a function value: a `Defun` or a
     /// `CompiledDefun`. Symbols and `(lambda ...)` lists are not.
     pub(crate) fn is_function_value(&self) -> bool {
         matches!(

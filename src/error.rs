@@ -215,8 +215,8 @@ impl Error {
     /// `backtrace.last()` entry, not the full set. Today the
     /// well-formedness invariant that justifies that is:
     ///
-    /// 1. `eval_basic` and `eval_form` wrap an inner result with
-    ///    `with_trace(expr.clone())` once each, in nested order.
+    /// 1. A call instruction wraps its callee's error with
+    ///    `with_trace(form)` once.
     /// 2. The VM's `run_impl` walks `trace_ranges` from
     ///    innermost-out and applies them with `with_trace(form)` in
     ///    order, so the same form can't appear non-adjacently in the

@@ -97,9 +97,7 @@ mod tests {
     }
 
     // Nullary `+`/`*`/`-` return their identity, matching Emacs.
-    // `(-)` is 0, `(- x)` negates. Exercised on both eval paths by
-    // `eval_assert_equal`, since the VM compiles these as special
-    // forms while the tree-walker dispatches the typed builtin.
+    // `(-)` is 0, `(- x)` negates.
     #[test]
     fn nullary_arithmetic_uses_identity() {
         let mut ctx = TulispContext::new();

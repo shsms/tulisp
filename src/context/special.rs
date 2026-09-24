@@ -474,7 +474,6 @@ mod tests {
         let ctx = &mut with_forms();
         let listing = crate::test_utils::listing(ctx, "(my-or nil 1)");
         assert!(listing.contains("specialcall my-or 0 2"), "{listing}");
-        assert!(!listing.contains("rustcall"), "{listing}");
     }
 
     #[cfg(feature = "etags")]

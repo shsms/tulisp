@@ -126,14 +126,12 @@ fn compile_fn_defun_bounce_call(
             result.append(&mut compile_expr_keep_result(ctx, &arg)?);
             args_count += 1;
         }
-        // If the target is a known VM defun (mutual-recursion TCO
-        // path; `mark_tail_calls` only marks `Bounce` for these and
-        // self / `TulispValue::Lambda`), validate arity at compile
-        // time — same shape as the self-bounce path below and the
-        // `TulispValue::Defun` arm in `compile_form`. The runtime
-        // `TailCall` handler also re-checks against the resolved
-        // `bytecode.functions[name].params`, so missing it here on a
-        // `Lambda` target stays a runtime error.
+        // If the target is a known VM defun (mutual-recursion TCO path;
+        // `mark_tail_calls` only marks `Bounce` for these and self
+        // calls), validate arity at compile time — same shape as the
+        // self-bounce path below and the `TulispValue::Defun` arm in
+        // `compile_form`. The runtime `TailCall` handler also re-checks
+        // against the resolved `bytecode.functions[name].params`.
         let target_arity = ctx
             .compiler
             .as_ref()
@@ -532,18 +530,12 @@ mod tests {
     fn defvar_and_declare_compile_in_the_vm() {
         let ctx = &mut TulispContext::new();
         let l = listing(ctx, "(defvar dv-listed 1) (declare (indent 1))");
-        assert!(
-            l.contains("defvar dv-listed") && !l.contains("rustcall"),
-            "{l}"
-        );
+        assert!(l.contains("defvar dv-listed"), "{l}");
         let l = listing(
             ctx,
             "(defun dv-f () (declare (indent 1)) (defvar dv-inner 1))",
         );
-        assert!(
-            l.contains("defvar dv-inner") && !l.contains("rustcall"),
-            "{l}"
-        );
+        assert!(l.contains("defvar dv-inner"), "{l}");
         eval_assert_equal(ctx, "(list (declare (indent 1)))", "'(nil)");
         eval_assert_equal(
             ctx,
@@ -695,8 +687,7 @@ mod tests {
             "106",
         );
         // A call to a function defined further down works once the
-        // program compiled; the tree-walker runs the call before the
-        // definition.
+        // program compiled.
         let ctx = &mut TulispContext::new();
         let got = ctx.eval_string(
             "(let ((res (test)))
@@ -799,8 +790,7 @@ mod tests {
         "##,
             "20000",
         );
-        // The tree-walker marks a tail call only to a function already
-        // defined, so mutual recursion runs in the VM alone.
+        // Mutual recursion runs in constant stack.
         let ctx = &mut TulispContext::new();
         let got = ctx.eval_string(
             "(defun my-even (n) (if (equal n 0) t (my-odd (- n 1))))
@@ -859,11 +849,9 @@ mod tests {
         let result = ctx.funcall(&outer, ())?;
         assert_eq!(result.as_string()?, "answer=42(3 sum=6)");
 
-        // Also exercise the inverse path: TW-eval the call to make sure
-        // the typed-arg path also works through `eval::funcall`'s
-        // `Defun` arm.
-        let tw_result = ctx.eval_string(r#"(cfg-summary :x 1 :y 2 :tag "tw" :xs '(4 5 6))"#)?;
-        assert_eq!(tw_result.as_string()?, "tw=3(3 sum=15)");
+        // A direct call with literal arguments.
+        let result = ctx.eval_string(r#"(cfg-summary :x 1 :y 2 :tag "lit" :xs '(4 5 6))"#)?;
+        assert_eq!(result.as_string()?, "lit=3(3 sum=15)");
 
         Ok(())
     }
@@ -1044,12 +1032,9 @@ mod tests {
         // Two call sites of `bad` in the same defun body, each at a
         // different source position. When the error fires, the
         // backtrace must name the *specific* call site that ran, not
-        // collapse them into a single representative entry. Pins both
-        // the TW path (`eval_basic`'s recursive `with_trace`) and the
-        // VM path (`assemble` lifting per-form ranges) into exact
-        // match — which only works if both attribute the call
-        // form's distinct `TulispObject` (with its own span) for each
-        // hit.
+        // collapse them into a single representative entry: `assemble`
+        // lifts a range per form, each with the call form's own
+        // `TulispObject` (and so its own span).
         //
         // The leading newlines in the program string anchor the
         // expected source positions: `bad` sits on line 2, `caller` on
@@ -1073,12 +1058,7 @@ mod tests {
         assert_eq!(
             ctx.eval_string("(caller)").unwrap_err().format(&ctx),
             expected_call2,
-            "TW trace for boom-on-2"
-        );
-        assert_eq!(
-            ctx.eval_string("(caller)").unwrap_err().format(&ctx),
-            expected_call2,
-            "VM trace for boom-on-2"
+            "trace for boom-on-2"
         );
 
         // Same shape, but error on the *first* call site `(bad 1)`.
@@ -1100,12 +1080,7 @@ mod tests {
         assert_eq!(
             ctx.eval_string("(caller)").unwrap_err().format(&ctx),
             expected_call1,
-            "TW trace for boom-on-1"
-        );
-        assert_eq!(
-            ctx.eval_string("(caller)").unwrap_err().format(&ctx),
-            expected_call1,
-            "VM trace for boom-on-1"
+            "trace for boom-on-1"
         );
 
         // Nested same-function call: `(bad (bad -1))`. The inner
@@ -1115,8 +1090,7 @@ mod tests {
         // into the `mark_tail_calls`-rewritten `(list Bounce bad …)`
         // form. (Tail-position call sites generally don't preserve
         // their original `(NAME ARGS…)` text in traces because the
-        // rewrite replaces it with the Bounce shape — that's a
-        // pre-existing TW property the VM mirrors.)
+        // rewrite replaces it with the Bounce shape.)
         let mut ctx = TulispContext::new();
         ctx.eval_string(
             r#"
@@ -1133,12 +1107,7 @@ mod tests {
         assert_eq!(
             ctx.eval_string("(caller)").unwrap_err().format(&ctx),
             expected_nested,
-            "TW trace for nested same-function call"
-        );
-        assert_eq!(
-            ctx.eval_string("(caller)").unwrap_err().format(&ctx),
-            expected_nested,
-            "VM trace for nested same-function call"
+            "trace for nested same-function call"
         );
 
         Ok(())

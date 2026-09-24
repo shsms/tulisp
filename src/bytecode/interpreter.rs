@@ -61,7 +61,7 @@ impl Drop for SetParams {
         // came from a successful `set_scope` in `init_defun_args`), but
         // a panic here while another error is propagating would
         // double-fault and abort the process — silently swallow the
-        // error like `LexScopeGuard::drop` in `eval.rs`.
+        // error.
         for obj in self.0.iter() {
             let _ = obj.unset();
         }
@@ -69,8 +69,7 @@ impl Drop for SetParams {
 }
 
 /// Per-frame Drop guard for `BeginScope` bindings — `let` / `let*` / inline
-/// `lambda` body bindings. Mirrors `SetParams` (function params) and
-/// `LexScopeGuard` (TW path).
+/// `lambda` body bindings. Mirrors `SetParams` (function params).
 ///
 /// On clean execution every `BeginScope` is matched by an `EndScope`,
 /// which removes the entry from the guard, so `Drop` finds the Vec
@@ -250,10 +249,8 @@ pub fn run(ctx: &mut TulispContext, bytecode: Bytecode) -> Result<TulispObject, 
     Ok(guard.take_value())
 }
 
-/// Invoke a VM-compiled lambda with already-evaluated args. Used by
-/// `eval::funcall` when it encounters a `TulispValue::CompiledDefun`,
-/// by the bounce trampoline in `eval::eval_lambda`, and by the VM's
-/// own `funcall` dispatch.
+/// Invoke a VM-compiled lambda with ARGS, which are values. Used by
+/// `call_function`.
 fn run_lambda(
     ctx: &mut TulispContext,
     compiled: CompiledDefun,
@@ -352,7 +349,7 @@ fn run_handler(
 /// bookkeeping. When the inner loop returns `Err`, every range
 /// in `trace_ranges` whose `[start_pc, end_pc)` contains the
 /// failing PC contributes a `with_trace(form)` call (innermost
-/// first), reproducing TW's recursive `eval_basic` shape.
+/// first).
 ///
 /// `Error::with_trace` already de-duplicates same-form entries,
 /// so an inner call instruction whose handler attached its own
@@ -381,9 +378,8 @@ fn run_impl(
             // `assemble` pushes ranges as it encounters each
             // closing `PopTrace`, so the vector is sorted
             // innermost-first. Walking forward applies the
-            // innermost form first, matching TW's recursive
-            // `eval_basic` shape (the innermost wrapper runs
-            // closest to the failure). Inner-first also lets
+            // innermost form first, so the trace reads from the
+            // failure outwards. Inner-first also lets
             // `Error::with_trace`'s last-entry dedup collapse
             // duplicates with whatever the inner call
             // instruction's own `with_trace(form)` already
@@ -456,8 +452,7 @@ fn run_impl_inner(
                         full_path.to_string_lossy()
                     ))
                 })?;
-                // `(load …)` from VM-compiled code compiles the
-                // loaded file through the VM as well — so defuns
+                // `(load …)` compiles the loaded file — so defuns
                 // in the loaded file register in `ctx.vm.functions`
                 // and subsequent calls dispatch directly via the
                 // `Call` instruction (same as if they had been
@@ -634,11 +629,10 @@ fn run_impl_inner(
                         *function = Some((generation, func));
                     } else {
                         // Target isn't a VM-compiled defun. It might
-                        // be a TW `Lambda` (e.g., defined by a file
-                        // loaded via `(load …)` → TW `eval_file`),
-                        // a variable holding a compiled closure, or a
-                        // special form, which is refused. Fall back to
-                        // the same dispatch the inline `Funcall` uses.
+                        // be a Rust function, a variable holding a
+                        // compiled closure, or a special form, which
+                        // is refused. Fall back to the same dispatch
+                        // the inline `Funcall` uses.
                         let args_count = *args_count;
                         let split_at = ctx.vm.stack.len() - args_count;
                         let args: Vec<TulispObject> = ctx.vm.stack.drain(split_at..).collect();
@@ -987,11 +981,9 @@ fn run_tail_calls(ctx: &mut TulispContext, mut call: TailCallInfo) -> Result<(),
     }
 }
 
-/// In-VM `funcall` dispatch used by `Instruction::Funcall`. Args are
-/// already fully evaluated, so going through `eval::funcall` would
-/// only bounce out of the dispatch loop and re-enter the interpreter
-/// for a form we can dispatch right here. Instead we dispatch each
-/// callable variant on the machine we already have.
+/// In-VM `funcall` dispatch used by `Instruction::Funcall`: resolves
+/// FUNC and calls it with ARGS, which are already evaluated, on the
+/// machine already running.
 fn funcall_inline(
     ctx: &mut TulispContext,
     func: &TulispObject,

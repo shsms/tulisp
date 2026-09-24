@@ -1,13 +1,12 @@
 # Tail Call Optimization
 
-Tulisp has two evaluator backends: the tree-walker (`src/eval.rs`) and the
-bytecode VM (`src/bytecode/interpreter.rs`). Both run a marked call in
+The bytecode VM (`src/bytecode/interpreter.rs`) runs a marked call in
 tail position without growing the Rust stack, for self-recursion and for
-calls between functions. Which calls get marked differs; see below.
+calls between functions.
 
-## Shared design: Bounce marks
+## Bounce marks
 
-Both backends use the same rewrite of a function body:
+The compiler rewrites a function body before it compiles it:
 
 1. `mark_tail_calls` walks a function body and finds calls in tail position
    (including inside `if`, `cond`, `progn`, `let`, `let*`).
@@ -15,42 +14,28 @@ Both backends use the same rewrite of a function body:
    `(list Bounce fn arg1 arg2 ...)` — a fresh cons list whose `car` is the
    `TulispValue::Bounce` marker.
 
-The tree-walker runs that form: the caller returns the bounced value, and
-its trampoline dispatches again without growing the host stack. The VM
-compiles the form into a jump or a `TailCall`, so no bounced value exists
-when it runs.
+The VM compiles that form into a jump or a `TailCall`, so no bounced
+value exists when it runs.
 
-`TulispValue::Bounce` is fieldless; it lives at the head of the returned list.
-`is_bounced()` is `matches!(self, TulispValue::List { cons, .. })` where
-`cons.car()` is `TulispValue::Bounce`.
+`TulispValue::Bounce` is fieldless; it lives at the head of the rewritten
+list. `is_bounced()` is `matches!(self, TulispValue::List { cons, .. })`
+where `cons.car()` is `TulispValue::Bounce`.
 
 ## Which tail calls are marked
 
 `mark_tail_calls` lives in `src/parse.rs`. It marks a tail call when:
 
 - it calls the function being defined (self-recursion), or
-- the VM has registered the callee in `defun_args`, or
-- the callee's symbol holds a tree-walker `Lambda`.
+- the compiler has registered the callee in `defun_args`.
 
 A call to anything else is left as an ordinary call. That includes a
 function held in a variable, and a function defined later in the program
-when neither of the last two rules applies.
+that is not registered yet.
 
-## Tree-walker
-
-`eval::defun_lambda` calls `mark_tail_calls` when a `defun` runs. The
-trampoline is `eval_lambda` in `src/eval.rs`. After running the body once,
-it loops while the result is bounced: it takes the function (`cadr`) and
-the arguments (`cddr`) and runs that function without recursing. Since
-the tree-walker defines a function only when its `defun` runs, a tail call
-to a function defined further down is not marked, unless the VM has
-registered its name.
-
-## VM
+## Compiling a marked call
 
 `compile_defun` in `src/bytecode/compiler/forms/other_functions.rs` calls
-the same `mark_tail_calls`. `compile_fn_defun_bounce_call` compiles a
-marked call:
+`mark_tail_calls`. `compile_fn_defun_bounce_call` compiles a marked call:
 
 - A self call stores the arguments in the function's own parameters and
   jumps to its start (`Jump(Pos::Abs(0))`).
@@ -67,13 +52,12 @@ the walk reaches it: a tail call to it from an earlier function is an
 ordinary call.
 
 `TailCall` finds its target only in the machine's function table, so a
-tail call to a function the tree-walker defined, and the VM never
-compiled, fails with "undefined function".
+tail call to a name whose `defun` is not there fails with "undefined
+function".
 
 ## Related code
 
 - `src/parse.rs`: `mark_tail_calls`.
-- `src/eval.rs`: `defun_lambda`, `eval_lambda`.
 - `src/bytecode/compiler/compiler.rs`: `pre_register_defun_arities`.
 - `src/bytecode/compiler/forms/other_functions.rs`: `compile_defun`,
   `compile_fn_list` (tail-call detection), `compile_fn_defun_bounce_call`.
@@ -84,8 +68,8 @@ compiled, fails with "undefined function".
 ## Test coverage
 
 - `src/bytecode/compiler/forms/other_functions.rs`:
-  - `test_tco`: self-recursion through `if`, `cond`, `let` and `progn` in
-    both evaluators, and mutual recursion in the VM.
+  - `test_tco`: self-recursion through `if`, `cond`, `let` and `progn`,
+    and mutual recursion.
   - `test_mutual_tail_recursion_is_tco`, and the arity checks
     `test_mutual_tail_call_arity_checked_at_compile_time` and
     `test_self_tail_recursion_arity_checked_at_compile_time`.

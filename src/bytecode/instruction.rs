@@ -242,8 +242,7 @@ pub(crate) enum Instruction {
     /// Inline `(funcall fn arg1 …)` dispatch. The function value is
     /// pushed first, then each arg, in source order (so at execution
     /// the top of stack is the last arg, `args_count + 1` below it is
-    /// the function). Used to keep nested calls inside a VM run from
-    /// re-entering `eval::funcall` (which would re-borrow `ctx.vm`).
+    /// the function).
     Funcall {
         args_count: usize,
     },
@@ -262,9 +261,8 @@ pub(crate) enum Instruction {
     /// Push `form` onto the machine's `trace_stack`. Errors that
     /// propagate out of any subsequent instruction (until a matching
     /// `PopTrace`) get `form` appended to their backtrace by the
-    /// `run_impl` wrapper. Mirrors how TW's `eval_basic` wraps every
-    /// list-form evaluation with `with_trace(expr)`. Emitted by
-    /// `compile_expr` around every list-form's compiled bytecode.
+    /// `run_impl` wrapper. Emitted by `compile_expr` around every
+    /// list-form's compiled bytecode.
     PushTrace(TulispObject),
     PopTrace,
     // lists

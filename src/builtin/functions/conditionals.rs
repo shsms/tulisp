@@ -211,9 +211,6 @@ mod tests {
 
     #[test]
     fn if_let_binds_each_spec_in_turn() {
-        // A fresh context for each: on the VM, redefining `test` with a
-        // different arity in the same context fails with "Too few
-        // arguments".
         eval_assert_equal(
             &mut TulispContext::new(),
             "(defun test (val) (if-let (a val) (+ a 10))) (test nil)",

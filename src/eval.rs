@@ -85,8 +85,7 @@ fn macroexpand_1(
         return Ok(None);
     }
     let head = form.car()?;
-    // A head that is itself a macro, as the tree-walker builds when it
-    // runs a macro call, expands too.
+    // A head that is a macro value rather than a symbol expands too.
     let value = head.get().unwrap_or_else(|_| head.clone());
     let inner = value.inner_ref();
     let expansion = match &inner.0 {

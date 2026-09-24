@@ -8,10 +8,10 @@
 ;;; dispatches on the *current* `Machine`.
 ;;;
 ;;; That is why these particular functions live here rather than in
-;;; Rust: with the bodies compiled as bytecode, per-element predicate
-;;; dispatch stays inside the VM's dispatch loop, instead of each
-;;; element bouncing out through `eval::funcall` and re-entering the
-;;; interpreter via `bytecode::run_lambda`.
+;;; Rust: with the bodies compiled as bytecode, the loop over the
+;;; elements is bytecode too, and each call of the predicate is a
+;;; `Funcall` instruction on the machine already running, not a call
+;;; from a Rust loop through `ctx.funcall`.
 ;;;
 ;;; `dolist` runs forever on a list that loops back, as in Emacs, so
 ;;; the functions below that walk all of SEQ first call `length`,
