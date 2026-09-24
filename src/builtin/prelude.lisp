@@ -93,3 +93,11 @@
           (setq new (cons item new)))
         (setq out (reverse new))))
     out))
+
+;; `push' for a variable PLACE, the common case of the Emacs macro.
+;; Other places, like (car X), need generalized variables, which
+;; tulisp does not have.
+(defmacro push (newelt place)
+  (if (symbolp place)
+      `(setq ,place (cons ,newelt ,place))
+    (error (format "push: PLACE must be a variable, got: %S" place))))

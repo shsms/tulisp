@@ -31,7 +31,8 @@ differences from Emacs are called out inline.
 - **Construction**: `cons`, `list`, `append`.
 - **Access**: `car`, `cdr`, every `c[ad]+r` form up to four `a`/`d`s,
   `nth`, `nthcdr`, `last`.
-- **Modification**: `setcar`, `setcdr`.
+- **Modification**: `setcar`, `setcdr`, `push` (PLACE must be a
+  variable: tulisp has no generalized variables).
 - **Length / membership**: `length` (also for strings),
   `memq`, `memql`, `member`.
 - **Sequence operations**: `reverse`, `sort`, `mapcar`, `mapconcat`,
@@ -352,6 +353,35 @@ mod tests {
             ctx,
             "(sort '(20 10 30 15 45) '(lambda (v1 v2) (> v1 v2)))",
             "'(45 30 20 15 10)",
+        );
+    }
+
+    // `push` conses onto a variable, evaluating NEWELT first, and
+    // gives the new list.
+    #[test]
+    fn push_conses_onto_a_variable() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(let ((l '(2))) (push 1 l) l)", "'(1 2)");
+        eval_assert_equal(ctx, "(let ((l nil)) (push 1 l))", "'(1)");
+        eval_assert_equal(
+            ctx,
+            "(let ((l nil) (i 0)) (push (setq i (1+ i)) l) (push i l))",
+            "'(1 1)",
+        );
+        eval_assert_equal(
+            ctx,
+            "(let ((l '(2))) (push (progn (setq l nil) 1) l))",
+            "'(1)",
+        );
+        eval_assert_equal(ctx, "(defun f (l) (push 0 l)) (f '(1))", "'(0 1)");
+        // The `cons` it expands to is the function, not a variable.
+        eval_assert_equal(ctx, "(defun g (cons) (push 1 cons) cons) (g nil)", "'(1)");
+        // Only a variable is a place: tulisp has no generalized
+        // variables.
+        eval_assert_error_line(
+            ctx,
+            "(let ((l (list 1))) (push 0 (car l)))",
+            "ERR LispError: push: PLACE must be a variable, got: (car l)",
         );
     }
 
