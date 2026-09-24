@@ -457,6 +457,10 @@ pub(crate) enum FormShape {
     Quote,
     /// `(lambda PARAMS BODY...)`.
     Lambda,
+    /// `(defun NAME PARAMS BODY...)` or `(defmacro NAME PARAMS BODY...)`.
+    Defun,
+    /// `(defvar NAME [VALUE [DOC]])`.
+    Defvar,
     /// `(let VARLIST BODY...)` or `(let* VARLIST BODY...)`.
     Let,
     /// `(condition-case VAR BODYFORM HANDLERS...)`.
@@ -485,6 +489,8 @@ impl FormShape {
         match head.0.symbol_name() {
             Some("quote") => FormShape::Quote,
             Some("lambda") => FormShape::Lambda,
+            Some("defun" | "defmacro") => FormShape::Defun,
+            Some("defvar") => FormShape::Defvar,
             Some("let" | "let*") => FormShape::Let,
             Some("condition-case") => FormShape::ConditionCase,
             Some("cond") => FormShape::Cond,
@@ -493,12 +499,13 @@ impl FormShape {
     }
 
     /// How many elements at the start of `form`, a list at code
-    /// level, are its head or names it binds rather than forms. The
-    /// rest of a `Lambda`, `TailCall` or `Call` are forms. A `Call`'s
-    /// head is a name when it is a symbol.
+    /// level, are its head or names it binds or defines rather than
+    /// forms. The rest of a `Lambda`, `Defun`, `Defvar`, `TailCall` or
+    /// `Call` are forms. A `Call`'s head is a name when it is a symbol.
     pub(crate) fn names_at_start(form: &TulispObject) -> usize {
         match FormShape::of(form) {
-            FormShape::Lambda | FormShape::TailCall => 2,
+            FormShape::Defun => 3,
+            FormShape::Lambda | FormShape::Defvar | FormShape::TailCall => 2,
             FormShape::Call if form.car().is_ok_and(|head| head.is_symbol_variant()) => 1,
             FormShape::Call => 0,
             FormShape::Quote | FormShape::Let | FormShape::ConditionCase | FormShape::Cond => 1,
@@ -683,7 +690,11 @@ fn substitute_form(
             Ok(builder.build().with_span(span))
         }
         // Preserve the head and the names; substitute the rest.
-        FormShape::Lambda | FormShape::TailCall | FormShape::Call => {
+        FormShape::Lambda
+        | FormShape::Defun
+        | FormShape::Defvar
+        | FormShape::TailCall
+        | FormShape::Call => {
             let preserve = FormShape::names_at_start(body);
             walk_tail_substitute(body.clone(), preserve, mappings, quote_depth)
         }
@@ -1445,6 +1456,20 @@ mod tests {
                 "(car (condition-case let (error \"x\") (error let)))",
                 "'error",
             ),
+        ] {
+            eval_assert_equal(&mut TulispContext::new(), program, expected);
+        }
+    }
+
+    // The name and parameters of a nested `defun`, and the name of a
+    // nested `defvar`, are not variables of the scopes around them.
+    #[test]
+    fn a_nested_definition_names_no_variable() {
+        for (program, expected) in [
+            ("(let ((f 1)) (defun f () 2)) (f)", "2"),
+            ("(let ((x 1)) (defun f (&optional x) x)) (f 5)", "5"),
+            ("(let ((z 1)) (defvar z 3)) z", "3"),
+            ("(let ((z 1)) (defvar z 3) z)", "1"),
         ] {
             eval_assert_equal(&mut TulispContext::new(), program, expected);
         }

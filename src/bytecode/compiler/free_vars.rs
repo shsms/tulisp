@@ -77,7 +77,14 @@ fn visit(
         // `(quote …)` at code level is data — skip.
         FormShape::Quote => Ok(()),
         FormShape::Let => visit_let(obj, free, scopes, quote_depth),
-        FormShape::Lambda => visit_lambda(obj, free, scopes, quote_depth),
+        FormShape::Lambda => {
+            destruct_bind!((_lambda params &rest body) = obj);
+            visit_function(&params, &body, free, scopes, quote_depth)
+        }
+        FormShape::Defun => {
+            destruct_bind!((_defun _name params &rest body) = obj);
+            visit_function(&params, &body, free, scopes, quote_depth)
+        }
         FormShape::ConditionCase => visit_condition_case(obj, free, scopes, quote_depth),
         // Every element of a `cond` clause is a form, its first one too.
         FormShape::Cond => {
@@ -89,8 +96,9 @@ fn visit(
             }
             clauses.take_error()
         }
-        // The head of a call names a function, not a variable.
-        FormShape::TailCall | FormShape::Call => {
+        // The head of a call names a function, not a variable, and
+        // `defvar` names a variable it defines.
+        FormShape::Defvar | FormShape::TailCall | FormShape::Call => {
             let skip = FormShape::names_at_start(obj);
             visit_elements(obj, skip, free, scopes, quote_depth)
         }
@@ -152,14 +160,14 @@ fn visit_let(
     result
 }
 
-fn visit_lambda(
-    form: &TulispObject,
+/// Visits BODY, the body of a `lambda` or `defun`, with PARAMS bound.
+fn visit_function(
+    params: &TulispObject,
+    body: &TulispObject,
     free: &mut Vec<TulispObject>,
     scopes: &mut Vec<Vec<TulispObject>>,
     quote_depth: u32,
 ) -> Result<(), Error> {
-    // (lambda (params…) body…)
-    destruct_bind!((_lambda params &rest body) = form);
     let mut bound: Vec<TulispObject> = Vec::new();
     let mut items = params.base_iter();
     for p in items.by_ref() {
@@ -174,7 +182,7 @@ fn visit_lambda(
     }
     items.take_error()?;
     scopes.push(bound);
-    let result = visit_elements(&body, 0, free, scopes, quote_depth);
+    let result = visit_elements(body, 0, free, scopes, quote_depth);
     scopes.pop();
     result
 }
