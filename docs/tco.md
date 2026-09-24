@@ -11,15 +11,14 @@ The compiler rewrites a function body before it compiles it:
 1. `mark_tail_calls` walks a function body and finds calls in tail position
    (including inside `if`, `cond`, `progn`, `let`, `let*`).
 2. Each qualifying tail call `(fn arg1 arg2 ...)` is rewritten to
-   `(list Bounce fn arg1 arg2 ...)` — a fresh cons list whose `car` is the
-   `TulispValue::Bounce` marker.
+   `(Bounce fn arg1 arg2 ...)`, a cons whose `car` is the fieldless
+   `TulispValue::Bounce` marker and whose `cdr` is the call.
 
-The VM compiles that form into a jump or a `TailCall`, so no bounced
-value exists when it runs.
-
-`TulispValue::Bounce` is fieldless; it lives at the head of the rewritten
-list. `is_bounced()` is `matches!(self, TulispValue::List { cons, .. })`
-where `cons.car()` is `TulispValue::Bounce`.
+`compile_form` compiles a form headed by the marker into a jump or a
+`TailCall`, so no bounced value exists when it runs. The marker is not a
+symbol, so no function or variable of the program can shadow it. The
+trace entry of a tail call shows the call as written, without the
+marker.
 
 ## Which tail calls are marked
 
@@ -59,11 +58,13 @@ function".
 
 - `src/parse.rs`: `mark_tail_calls`.
 - `src/bytecode/compiler/compiler.rs`: `pre_register_defun_arities`.
+- `src/bytecode/compiler/forms/mod.rs`: `compile_form` (tail-call
+  detection).
 - `src/bytecode/compiler/forms/other_functions.rs`: `compile_defun`,
-  `compile_fn_list` (tail-call detection), `compile_fn_defun_bounce_call`.
+  `compile_fn_defun_bounce_call`.
 - `src/bytecode/interpreter.rs`: the `TailCall` instruction and
   `run_tail_calls`.
-- `src/value.rs`: `TulispValue::Bounce`; `src/object.rs`: `is_bounced`.
+- `src/value.rs`: `TulispValue::Bounce`.
 
 ## Test coverage
 
@@ -73,6 +74,10 @@ function".
   - `test_mutual_tail_recursion_is_tco`, and the arity checks
     `test_mutual_tail_call_arity_checked_at_compile_time` and
     `test_self_tail_recursion_arity_checked_at_compile_time`.
+  - `a_tail_call_is_not_taken_over_by_list`: a variable named `list`,
+    or a redefined `list`, leaves the marker alone.
+  - `a_tail_call_arity_error_traces_the_call_once`: the trace of a
+    tail call shows the call once, without the marker.
 - `src/bytecode/compiler/compiler.rs`:
   `defuns_in_a_top_level_progn_tail_call_each_other`,
   `defuns_a_macro_produces_tail_call_each_other` and

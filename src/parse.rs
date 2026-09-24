@@ -781,11 +781,9 @@ pub(crate) fn mark_tail_calls(
         .as_ref()
         .is_some_and(|c| c.defun_args.contains_key(&tail_ident.addr_as_usize()));
     let new_tail = if is_self_call || is_known_vm_defun {
-        let ret_tail = TulispObject::nil().append(tail.cdr()?)?.to_owned();
-        list!(,ctx.intern("list")
-              ,TulispValue::Bounce.into_ref(None)
-              ,tail_ident
-              ,@ret_tail)?
+        // The marker is its own head, so no function or variable of
+        // the program can shadow it.
+        TulispObject::cons(TulispValue::Bounce.into_ref(None), tail)
     } else if tail_name_str == "progn" || tail_name_str == "let" || tail_name_str == "let*" {
         list!(,tail_ident ,@mark_tail_calls(ctx, name, tail.cdr()?)?)?
     } else if tail_name_str == "if" {

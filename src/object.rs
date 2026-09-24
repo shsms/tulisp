@@ -611,10 +611,6 @@ impl TulispObject {
         self.rc.borrow().0.is_bounce()
     }
 
-    pub(crate) fn is_bounced(&self) -> bool {
-        self.rc.borrow().0.is_bounced()
-    }
-
     #[doc(hidden)]
     #[inline(always)]
     pub fn span(&self) -> Option<Span> {

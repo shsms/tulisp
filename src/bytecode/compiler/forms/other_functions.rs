@@ -68,13 +68,6 @@ pub(super) fn compile_fn_list(
     _name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    if args.is_bounced() {
-        // args: (Bounce fn arg1 arg2 ...). The bounced function identity
-        // is the second element.
-        let name = args.cdr()?.car()?;
-        return compile_fn_defun_bounce_call(ctx, &name, args);
-    }
-
     let mut result = vec![];
     let mut len = 0;
     for arg in args.base_iter() {
@@ -104,7 +97,9 @@ pub(super) fn compile_fn_append(
     Ok(result)
 }
 
-fn compile_fn_defun_bounce_call(
+/// Compiles `(Bounce NAME ARGS...)`, the marker `mark_tail_calls`
+/// puts on a tail call to a Lisp function.
+pub(super) fn compile_fn_defun_bounce_call(
     ctx: &mut TulispContext,
     name: &TulispObject,
     args: &TulispObject,
@@ -144,7 +139,6 @@ fn compile_fn_defun_bounce_call(
                     e.desc(),
                     arity.describe()
                 ))
-                .with_trace(args.clone())
             })?;
         }
         // Tail-call escape: `TailCall` returns from `run_impl`
@@ -155,14 +149,9 @@ fn compile_fn_defun_bounce_call(
         push_active_scope_endscopes(ctx, &mut result);
         result.push(Instruction::TailCall {
             name: name.clone(),
-            // `args` is the rewritten `(list Bounce f a b)` shape
-            // produced by `mark_tail_calls`. Its source span is set
-            // to the original tail-call form's span (see
-            // `mark_tail_calls`'s `with_span(span)` call), so using
-            // it as the trace anchor still highlights the right
-            // source range even though the text differs from the
-            // pre-rewrite form.
-            form: args.clone(),
+            // The call without its marker, at the span of the source
+            // call (see `mark_tail_calls`'s `with_span(span)` call).
+            form: args.cdr()?.with_span(args.span()),
             args_count,
             function: None,
             optional_count: 0,
@@ -185,7 +174,6 @@ fn compile_fn_defun_bounce_call(
             e.desc(),
             arity.describe()
         ))
-        .with_trace(args.clone())
     })?;
     if let Some(param) = &params.rest {
         result.push(Instruction::List(rest_count));
@@ -972,6 +960,66 @@ mod tests {
         Ok(())
     }
 
+    // A tail call is marked for the compiler in a way that neither a
+    // variable named `list` nor a redefined `list` can take over.
+    #[test]
+    fn a_tail_call_is_not_taken_over_by_list() {
+        for (program, expected) in [
+            ("(defun g (x) x) (defun f (list) (g list)) (f 3)", "3"),
+            (
+                "(defun g (x) x) (defun f (list) (let* ((a 1)) (g a))) (f 3)",
+                "1",
+            ),
+            (
+                "(defun f (list) (if list (f (cdr list)) 'done)) (f '(1 2))",
+                "'done",
+            ),
+            (
+                "(defun list (&rest a) a) (defun g (x) x) (defun f (y) (g y)) (f 1)",
+                "1",
+            ),
+        ] {
+            eval_assert_equal_fresh(program, expected);
+        }
+    }
+
+    // An arity error in a tail call traces the call once, as it was
+    // written.
+    #[test]
+    fn a_tail_call_arity_error_traces_the_call_once() {
+        for (program, expected) in [
+            (
+                "(defun f (a b) (f a))",
+                "ERR ArityMismatch: Too few arguments: f takes 2 arguments, got 1\n\
+                 <eval_string>:1.16-1.20:  at (f a)\n\
+                 <eval_string>:1.1-1.21:  at (defun f (a b) (f a))\n",
+            ),
+            (
+                "(defun g (x) x) (defun f (a) (g a a))",
+                "ERR ArityMismatch: Too many arguments: tail call to g takes 1 argument, got 2\n\
+                 <eval_string>:1.30-1.36:  at (g a a)\n\
+                 <eval_string>:1.17-1.37:  at (defun f (a) (g a a))\n",
+            ),
+        ] {
+            let ctx = &mut TulispContext::new();
+            let err = ctx.eval_string(program).unwrap_err();
+            assert_eq!(err.format(ctx), expected);
+        }
+        // The same at run time, when the called function changed after
+        // the call compiled.
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string("(defun g (x) x) (defun f (a) (g a))")
+            .unwrap();
+        ctx.eval_string("(defun g (x y) x)").unwrap();
+        let err = ctx.eval_string("(f 1)").unwrap_err();
+        assert_eq!(
+            err.format(ctx),
+            "ERR ArityMismatch: Too few arguments\n\
+             <eval_string>:1.30-1.34:  at (g a)\n\
+             <eval_string>:1.1-1.5:  at (f 1)\n"
+        );
+    }
+
     #[test]
     fn test_self_tail_recursion_arity_checked_at_compile_time() -> Result<(), Error> {
         // `mark_tail_calls` rewrites self-recursive tail calls into
@@ -1085,12 +1133,9 @@ mod tests {
 
         // Nested same-function call: `(bad (bad -1))`. The inner
         // `(bad -1)` is in argument position (non-tail) and the outer
-        // `(bad …)` is in tail position. The inner call's call-site
-        // form `(bad -1)` shows up in the trace; the outer collapses
-        // into the `mark_tail_calls`-rewritten `(list Bounce bad …)`
-        // form. (Tail-position call sites generally don't preserve
-        // their original `(NAME ARGS…)` text in traces because the
-        // rewrite replaces it with the Bounce shape.)
+        // `(bad …)` is in tail position. Both call sites show up in
+        // the trace as written, the outer one without the marker
+        // `mark_tail_calls` puts on it.
         let mut ctx = TulispContext::new();
         ctx.eval_string(
             r#"
@@ -1102,7 +1147,7 @@ mod tests {
         <eval_string>:2.29-2.49:  at (error \"nested-boom\")\n\
         <eval_string>:2.16-2.52:  at (if (= n -1) (error \"nested-boom\") n)\n\
         <eval_string>:3.23-3.30:  at (bad -1)\n\
-        <eval_string>:3.18-3.31:  at (list Bounce bad (bad -1))\n\
+        <eval_string>:3.18-3.31:  at (bad (bad -1))\n\
         <eval_string>:1.1-1.8:  at (caller)\n";
         assert_eq!(
             ctx.eval_string("(caller)").unwrap_err().format(&ctx),

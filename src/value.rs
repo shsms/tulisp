@@ -1007,14 +1007,6 @@ impl TulispValue {
     }
 
     #[inline(always)]
-    pub(crate) fn is_bounced(&self) -> bool {
-        match self {
-            TulispValue::List { cons, .. } => cons.car().is_bounce(),
-            _ => false,
-        }
-    }
-
-    #[inline(always)]
     pub fn is_bounce(&self) -> bool {
         matches!(self, TulispValue::Bounce)
     }

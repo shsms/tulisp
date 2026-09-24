@@ -132,6 +132,9 @@ pub(super) fn compile_form(
     // Every form walks its own arguments; check once here that the
     // list is proper and not circular, so no walker drops a tail.
     crate::lists::length(&args)?;
+    if name.is_bounce() {
+        return other_functions::compile_fn_defun_bounce_call(ctx, &args.car()?, form);
+    }
     if let Some(compiler) = ctx
         .compiler
         .as_ref()
