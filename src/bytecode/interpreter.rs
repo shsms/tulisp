@@ -774,9 +774,9 @@ fn run_impl_inner(
                 let args = ctx.vm.stack.pop().unwrap();
                 // Clone what the call needs and release the program
                 // borrow: the host callable may re-enter the
-                // interpreter (e.g. a defspecial that calls
-                // `ctx.eval_string`), which re-borrows this
-                // function's instruction list.
+                // interpreter (e.g. a tree-walker special form whose
+                // argument calls this same function again through
+                // `funcall`), which re-borrows its instruction list.
                 let form = form.clone();
                 let func = func.clone();
                 let keep_result = *keep_result;
@@ -1337,10 +1337,9 @@ fn rewrite_template(
 #[cfg(test)]
 mod tests {
     use super::{ast_contains_placeholder, rewrite_ast, run};
-    use crate::TulispContext;
-    use crate::TulispObject;
     use crate::bytecode::{Bytecode, Instruction, Pos};
     use crate::test_utils::eval_assert_equal;
+    use crate::{Error, Form, Rest, TulispContext, TulispObject};
     use std::collections::HashMap;
 
     #[test]
@@ -1372,7 +1371,12 @@ mod tests {
     fn a_host_call_passes_arguments_unevaluated() {
         let mut ctx = TulispContext::new();
         ctx.tw_eval_string("(defun same (x) x)").unwrap();
-        ctx.defspecial("raw", |_, args| Ok(args.clone()));
+        ctx.defspecial("raw", |forms: Rest<Form>| -> TulispObject {
+            forms
+                .into_iter()
+                .map(|form| form.source().clone())
+                .collect()
+        });
         let same = ctx.intern("same");
         let raw = ctx.intern("raw");
         let sym = ctx.intern("unbound-sym");
@@ -1453,8 +1457,7 @@ mod tests {
     #[test]
     fn reentrant_eval_string_preserves_vm_stack() {
         let mut ctx = TulispContext::new();
-        ctx.defspecial("inner-eval", |ctx, args| {
-            let program = args.car()?.as_string()?;
+        ctx.defspecial("inner-eval", |ctx: &mut TulispContext, program: String| {
             ctx.eval_string(&program)
         });
         eval_assert_equal(&mut ctx, r#"(list 1 2 (inner-eval ""))"#, "'(1 2 nil)");
@@ -1466,14 +1469,13 @@ mod tests {
     #[test]
     fn reentrant_eval_error_leaves_outer_stack_clean() {
         let mut ctx = TulispContext::new();
-        ctx.defspecial("inner-eval-swallow", |ctx, args| {
-            let program = args.car()?.as_string()?;
-            let result = match ctx.eval_string(&program) {
+        ctx.defspecial(
+            "inner-eval-swallow",
+            |ctx: &mut TulispContext, program: String| match ctx.eval_string(&program) {
                 Ok(_) => ctx.intern("ok"),
                 Err(_) => ctx.intern("caught"),
-            };
-            Ok(result)
-        });
+            },
+        );
         eval_assert_equal(
             &mut ctx,
             r#"(list 1 2 (inner-eval-swallow "(list 7 8 (car 5))"))"#,
@@ -1489,12 +1491,11 @@ mod tests {
     fn caught_panic_in_reentrant_run_leaves_outer_stack_intact() {
         let mut ctx = TulispContext::new();
         ctx.defun("panicky", || -> i64 { panic!("host panic") });
-        ctx.defspecial("inner-catch", |ctx, args| {
-            let program = args.car()?.as_string()?;
+        ctx.defspecial("inner-catch", |ctx: &mut TulispContext, program: String| {
             let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 ctx.eval_string(&program)
             }));
-            Ok(ctx.intern(if caught.is_err() { "caught" } else { "ok" }))
+            ctx.intern(if caught.is_err() { "caught" } else { "ok" })
         });
         eval_assert_equal(
             &mut ctx,
@@ -1514,12 +1515,16 @@ mod tests {
     fn caught_panic_in_reentrant_funcall_leaves_outer_stack_intact() {
         let mut ctx = TulispContext::new();
         ctx.defun("panicky", || -> i64 { panic!("host panic") });
-        ctx.defspecial("inner-catch-call", |ctx, _args| {
-            let lambda = ctx.eval_string("(lambda () (list 7 8 (panicky)))")?;
-            let caught =
-                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| ctx.funcall(&lambda, ())));
-            Ok(ctx.intern(if caught.is_err() { "caught" } else { "ok" }))
-        });
+        ctx.defspecial(
+            "inner-catch-call",
+            |ctx: &mut TulispContext| -> Result<TulispObject, Error> {
+                let lambda = ctx.eval_string("(lambda () (list 7 8 (panicky)))")?;
+                let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    ctx.funcall(&lambda, ())
+                }));
+                Ok(ctx.intern(if caught.is_err() { "caught" } else { "ok" }))
+            },
+        );
         eval_assert_equal(
             &mut ctx,
             "(list 1 2 (inner-catch-call) 3)",

@@ -123,6 +123,27 @@ pub struct SpecialArgs<'a> {
 /// [`defspecial`](TulispContext::defspecial): any [`Param`], whose
 /// argument is evaluated before the call, or a [`Form`],
 /// `Option<Form>` or [`Rest<Form>`], whose argument is not.
+///
+/// `defspecial` refuses a hand-written [`Param`] whose kind is
+/// `ParamKind::Form` or `ParamKind::RestForm` when the program is
+/// built (`cargo check` does not report it):
+///
+/// ```compile_fail
+/// use tulisp::{Error, Param, ParamKind, TulispContext, TulispObject};
+///
+/// struct Raw(TulispObject);
+/// impl Param for Raw {
+///     const KIND: ParamKind = ParamKind::Form { required: true };
+///     fn take(_: &mut TulispContext, args: &mut &[TulispObject]) -> Result<Self, Error> {
+///         let (first, rest) = args.split_first().ok_or_else(Error::too_few_arguments)?;
+///         *args = rest;
+///         Ok(Raw(first.clone()))
+///     }
+/// }
+///
+/// let mut ctx = TulispContext::new();
+/// ctx.defspecial("raw", |raw: Raw| raw.0);
+/// ```
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not a `defspecial` parameter",
     note = "a parameter is `TulispConvertible`, `Rest<T>`, `Plist<T>`, `Form`, `Option<Form>` or `Rest<Form>`"
@@ -261,15 +282,15 @@ mod tests {
 
     fn with_forms() -> TulispContext {
         let mut ctx = TulispContext::new();
-        ctx.defspecial_typed("never", |_form: Form| ());
-        ctx.defspecial_typed(
+        ctx.defspecial("never", |_form: Form| ());
+        ctx.defspecial(
             "twice",
             |ctx: &mut TulispContext, form: Form| -> Result<TulispObject, Error> {
                 form.eval(ctx)?;
                 form.eval(ctx)
             },
         );
-        ctx.defspecial_typed(
+        ctx.defspecial(
             "my-or",
             |ctx: &mut TulispContext, forms: Rest<Form>| -> Result<TulispObject, Error> {
                 for form in forms {
@@ -281,10 +302,10 @@ mod tests {
                 Ok(TulispObject::nil())
             },
         );
-        ctx.defspecial_typed("my-progn", |ctx: &mut TulispContext, body: Rest<Form>| {
+        ctx.defspecial("my-progn", |ctx: &mut TulispContext, body: Rest<Form>| {
             body.eval_progn(ctx)
         });
-        ctx.defspecial_typed(
+        ctx.defspecial(
             "maybe",
             |ctx: &mut TulispContext, form: Option<Form>| -> Result<TulispObject, Error> {
                 match form {
@@ -293,8 +314,8 @@ mod tests {
                 }
             },
         );
-        ctx.defspecial_typed("source-of", |form: Form| form.source().clone());
-        ctx.defspecial_typed(
+        ctx.defspecial("source-of", |form: Form| form.source().clone());
+        ctx.defspecial(
             "eval-source",
             |ctx: &mut TulispContext, form: Form| -> Result<TulispObject, Error> {
                 let source = form.source().clone();
@@ -317,7 +338,7 @@ mod tests {
     #[test]
     fn eager_arguments_run_in_order_before_the_call() {
         let ctx = &mut with_forms();
-        ctx.defspecial_typed(
+        ctx.defspecial(
             "eager-first",
             |ctx: &mut TulispContext, a: i64, form: Form, b: i64| -> Result<TulispObject, Error> {
                 let log = ctx.intern("log").get()?;
@@ -366,7 +387,7 @@ mod tests {
         let ctx = &mut with_forms();
         let cleanups = Arc::new(AtomicUsize::new(0));
         let seen = cleanups.clone();
-        ctx.defspecial_typed(
+        ctx.defspecial(
             "with-cleanup",
             move |ctx: &mut TulispContext, body: Rest<Form>| -> Result<TulispObject, Error> {
                 let result = body.eval_progn(ctx);
@@ -394,7 +415,7 @@ mod tests {
         let ctx = &mut with_forms();
         let kept: Arc<Mutex<Option<Form>>> = Arc::default();
         let store = kept.clone();
-        ctx.defspecial_typed("keep-form", move |form: Form| {
+        ctx.defspecial("keep-form", move |form: Form| {
             *store.lock().unwrap() = Some(form);
         });
         ctx.defun(
@@ -458,7 +479,7 @@ mod tests {
     fn a_special_form_defined_late_is_an_error() {
         let ctx = &mut TulispContext::new();
         ctx.eval_string("(defun g () (late-form 1))").unwrap();
-        ctx.defspecial_typed("late-form", |form: Form| form.source().clone());
+        ctx.defspecial("late-form", |form: Form| form.source().clone());
         assert!(vm(ctx, "(g)").contains("invalid function: late-form"));
     }
 
@@ -474,7 +495,7 @@ mod tests {
     #[test]
     fn a_special_form_gets_a_tags_entry() {
         let ctx = &mut TulispContext::new();
-        ctx.defspecial_typed("tagged-form", |form: Form| form.source().clone());
+        ctx.defspecial("tagged-form", |form: Form| form.source().clone());
         assert!(
             ctx.tags_table
                 .get(file!())
@@ -486,7 +507,7 @@ mod tests {
     #[test]
     fn a_special_form_is_not_a_function() {
         let ctx = &mut TulispContext::new();
-        ctx.defspecial_typed("quote-it", |form: Form| form.source().clone());
+        ctx.defspecial("quote-it", |form: Form| form.source().clone());
         let err = "ERR InvalidArgument: invalid function: quote-it";
         eval_assert_error_line(ctx, "(funcall 'quote-it 1)", err);
         eval_assert_error_line(ctx, "(apply 'quote-it '(1))", err);
@@ -515,7 +536,7 @@ mod tests {
     #[test]
     fn the_tree_walker_runs_a_special_form() {
         let ctx = &mut TulispContext::new();
-        ctx.defspecial_typed(
+        ctx.defspecial(
             "add-twice",
             |ctx: &mut TulispContext,
              n: i64,

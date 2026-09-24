@@ -367,30 +367,67 @@ impl TulispContext {
         Ok(ret)
     }
 
-    /// Registers a low-level Rust function as a Lisp special form.
+    /// Registers a Rust closure as a Lisp special form.
     ///
-    /// The function receives unevaluated arguments as a raw [`TulispObject`]
-    /// list and is responsible for evaluating them itself.  This gives full
-    /// control over evaluation order and is how built-in forms like `if`,
-    /// `let`, and `and` are implemented internally.
+    /// The closure takes typed parameters, as for
+    /// [`defun`](Self::defun). A parameter's type decides whether its
+    /// argument is evaluated before the call:
     ///
-    /// For most use cases, prefer [`defun`](Self::defun), which handles
-    /// argument evaluation and type conversion automatically.
+    /// - A [`TulispConvertible`](crate::TulispConvertible) type,
+    ///   `Option<T>`, [`Rest<T>`](crate::Rest) or
+    ///   [`Plist<T>`](crate::Plist) is evaluated before the closure
+    ///   runs, in argument order, and converted as for `defun`.
+    /// - A [`Form`](crate::Form) takes one argument unevaluated;
+    ///   `Option<Form>` one that may be absent; and `Rest<Form>`, which
+    ///   must come last, all the remaining ones. The closure evaluates
+    ///   a form with [`Form::eval`](crate::Form::eval), as many times
+    ///   as it likes, and [`Rest::eval_progn`](crate::Rest::eval_progn)
+    ///   evaluates them all in order.
+    ///
+    /// A form reads the variables of the code around the call, so it
+    /// is valid only during the call. A special form is not a function.
+    /// Lisp's `funcall` and `apply`, and [`funcall`](Self::funcall) and
+    /// [`apply`](Self::apply) here, refuse it, as they refuse a built-in
+    /// special form such as `if`. Define a
+    /// special form before compiling code that uses it: code compiled
+    /// earlier calls it as a function, so its arguments are evaluated
+    /// and then the call fails.
+    ///
+    /// # Migrating from raw arguments
+    ///
+    /// A closure that took `(ctx, args: &TulispObject)` and called
+    /// `ctx.eval(&arg)` declares each argument instead: a typed
+    /// parameter to have it evaluated, or a `Form` / `Rest<Form>` to
+    /// get it unevaluated, and calls `form.eval(ctx)` where it called
+    /// `ctx.eval(&arg)`. For code transformation, use
+    /// [`defmacro`](Self::defmacro), which keeps raw arguments.
+    ///
+    /// A single `TulispObject` parameter is one evaluated argument, not
+    /// the argument list: use `Rest<Form>` for all the arguments,
+    /// unevaluated. `defspecial` returns `&mut Self`, as `defun` does.
+    /// [`ParamKind`](crate::ParamKind) has two new kinds, `Form` and
+    /// `RestForm`; an exhaustive `match` over it must handle them.
     ///
     /// # Example
     ///
     /// ```rust
-    /// use tulisp::{TulispContext, TulispObject, Error, destruct_bind};
+    /// use tulisp::{Error, Form, Rest, TulispContext, TulispObject};
     ///
     /// let mut ctx = TulispContext::new();
-    /// ctx.defspecial("my-if", |ctx, args| {
-    ///     destruct_bind!((cond then &rest else_body) = args);
-    ///     if ctx.eval(&cond)?.is_truthy() {
-    ///         ctx.eval(&then)
-    ///     } else {
-    ///         ctx.eval_progn(&else_body)
-    ///     }
-    /// });
+    /// ctx.defspecial(
+    ///     "my-if",
+    ///     |ctx: &mut TulispContext,
+    ///      cond: Form,
+    ///      then: Form,
+    ///      else_body: Rest<Form>|
+    ///      -> Result<TulispObject, Error> {
+    ///         if cond.eval(ctx)?.is_truthy() {
+    ///             then.eval(ctx)
+    ///         } else {
+    ///             else_body.eval_progn(ctx)
+    ///         }
+    ///     },
+    /// );
     ///
     /// assert!(
     ///     ctx
@@ -401,8 +438,13 @@ impl TulispContext {
     /// ```
     #[inline(always)]
     #[track_caller]
-    pub fn defspecial(&mut self, name: &str, func: impl TulispFn + std::any::Any) {
-        self.define_tw_special(name, func);
+    pub fn defspecial<Args: 'static, Output: 'static, const CTX: bool>(
+        &mut self,
+        name: &str,
+        func: impl special::SpecialCallable<Args, Output, CTX> + 'static,
+    ) -> &mut Self {
+        func.add_to_context(self, name);
+        self
     }
 
     /// Registers FUNC as a tree-walker special form, which gets its
@@ -516,20 +558,6 @@ impl TulispContext {
         )
         .unwrap();
         self.evict_compiled_dispatch(sym.addr_as_usize());
-    }
-
-    /// Registers a special form with typed parameters. The public
-    /// `defspecial` switches to this.
-    #[allow(dead_code)]
-    #[inline(always)]
-    #[track_caller]
-    pub(crate) fn defspecial_typed<Args: 'static, Output: 'static, const CTX: bool>(
-        &mut self,
-        name: &str,
-        func: impl special::SpecialCallable<Args, Output, CTX> + 'static,
-    ) -> &mut Self {
-        func.add_to_context(self, name);
-        self
     }
 
     /// Registers a Rust function as a callable Lisp function.
@@ -1341,8 +1369,7 @@ mod tests {
         for (label, entry) in entries {
             let mut ctx = TulispContext::new();
             ctx.set_max_eval_depth(20);
-            ctx.defspecial("re-eval", |ctx, args| {
-                let program = args.car()?.as_string()?;
+            ctx.defspecial("re-eval", |ctx: &mut TulispContext, program: String| {
                 ctx.eval_string(&program)
             });
             ctx.eval_string(r#"(defun f () (re-eval "(f)"))"#).unwrap();

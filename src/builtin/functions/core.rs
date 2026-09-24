@@ -1413,7 +1413,7 @@ mod tests {
     fn functionp_accepts_only_functions() {
         let ctx = &mut TulispContext::new();
         ctx.defun("rust-identity", |x: TulispObject| x);
-        ctx.define_tw_special("rust-special", |_ctx, _args| Ok(TulispObject::nil()));
+        ctx.defspecial("rust-special", TulispObject::nil);
         eval_assert_equal(
             ctx,
             "(defun lisp-identity (x) x)

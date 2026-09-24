@@ -1,5 +1,5 @@
 use std::fmt::Display;
-use tulisp::{AsList, Error, Iter, Plist, TulispContext, TulispObject, destruct_eval_bind};
+use tulisp::{AsList, Error, Form, Iter, Plist, TulispContext, TulispObject};
 
 macro_rules! tulisp_assert {
     (@impl $ctx: expr, program:$input:expr, result:$result:expr $(,)?) => {
@@ -308,7 +308,7 @@ fn test_rust_registration_overrides_prelude_defun() -> Result<(), Error> {
 
     // A later `defspecial` for the same name re-overrides it: the
     // eviction is idempotent across repeated registrations.
-    ctx.defspecial("sort", |_ctx, _args| Ok("special-sort".into()));
+    ctx.defspecial("sort", |_seq: Form, _pred: Form| "special-sort".to_string());
     tulisp_assert! {
         ctx: ctx,
         program: r#"(sort '(3 1 2) (lambda (a b) (< a b)))"#,
@@ -2316,7 +2316,7 @@ fn test_owned_method() -> Result<(), Error> {
 
     let mut ctx = TulispContext::new();
 
-    ctx.defspecial("d.run", move |_, _| Ok(d.run().into()));
+    ctx.defspecial("d.run", move || d.run());
 
     tulisp_assert! {
         ctx: ctx,
@@ -2338,19 +2338,13 @@ fn test_from_iter() -> Result<(), Error> {
 fn test_typed_iter() -> Result<(), Error> {
     let mut ctx = TulispContext::new();
 
-    ctx.defspecial("add_ints", |_ctx, args| {
-        destruct_eval_bind!(_ctx, (ints) = args);
-
+    ctx.defspecial("add_ints", |ints: TulispObject| -> Result<i64, Error> {
         let ints: Iter<i64> = ints.iter()?;
-
-        Ok({
-            let mut sums = 0;
-            for next in ints {
-                sums += next?;
-            }
-            sums
+        let mut sums = 0;
+        for next in ints {
+            sums += next?;
         }
-        .into())
+        Ok(sums)
     });
 
     tulisp_assert! {
