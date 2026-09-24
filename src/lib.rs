@@ -55,49 +55,16 @@ pub mod as_symbol;
 
 #[cfg(test)]
 mod test_utils {
-    /// A pair of evaluators for the same source string, run on the
-    /// same `TulispContext` so any test setup (defuns, defvars,
-    /// etc.) on the ctx is visible to both. Each helper below runs
-    /// its assertion through `EvalKind::Tw` first and then
-    /// `EvalKind::Vm`, so a behavioral divergence between paths
-    /// surfaces as a panic naming the path.
-    #[derive(Copy, Clone)]
-    enum EvalKind {
-        Tw,
-        Vm,
-    }
-
-    impl EvalKind {
-        fn name(self) -> &'static str {
-            match self {
-                EvalKind::Tw => "TW",
-                EvalKind::Vm => "VM",
-            }
-        }
+    #[track_caller]
+    fn eval_string(ctx: &mut crate::TulispContext, s: &str) -> Result<crate::TulispObject, String> {
+        ctx.eval_string(s).map_err(|e| e.format(ctx))
     }
 
     #[track_caller]
-    fn eval_string(
-        ctx: &mut crate::TulispContext,
-        kind: EvalKind,
-        s: &str,
-    ) -> Result<crate::TulispObject, String> {
-        let res = match kind {
-            EvalKind::Tw => ctx.tw_eval_string(s),
-            EvalKind::Vm => ctx.eval_string(s),
-        };
-        res.map_err(|e| e.format(ctx))
-    }
-
-    #[track_caller]
-    fn must_eval_string(
-        ctx: &mut crate::TulispContext,
-        kind: EvalKind,
-        s: &str,
-    ) -> crate::TulispObject {
-        match eval_string(ctx, kind, s) {
+    fn must_eval_string(ctx: &mut crate::TulispContext, s: &str) -> crate::TulispObject {
+        match eval_string(ctx, s) {
             Ok(t) => t,
-            Err(e) => panic!("[{}] {}", kind.name(), e),
+            Err(e) => panic!("{}", e),
         }
     }
 
@@ -113,40 +80,22 @@ mod test_utils {
 
     #[track_caller]
     pub(crate) fn eval_assert_equal(ctx: &mut crate::TulispContext, a: &str, b: &str) {
-        for kind in [EvalKind::Tw, EvalKind::Vm] {
-            let av = must_eval_string(ctx, kind, a);
-            let bv = must_eval_string(ctx, kind, b);
-            assert!(
-                crate::TulispObject::equal(&av, &bv),
-                "[{}] {}(=> {}) != {}(=> {})",
-                kind.name(),
-                a,
-                av,
-                b,
-                bv
-            );
-        }
+        let av = must_eval_string(ctx, a);
+        let bv = must_eval_string(ctx, b);
+        assert!(
+            crate::TulispObject::equal(&av, &bv),
+            "{}(=> {}) != {}(=> {})",
+            a,
+            av,
+            b,
+            bv
+        );
     }
 
-    /// Like `eval_assert_equal`, but each evaluator runs on a fresh
-    /// context, for programs whose result depends on what an earlier
-    /// run left behind.
+    /// Like `eval_assert_equal`, on a fresh context.
     #[track_caller]
     pub(crate) fn eval_assert_equal_fresh(a: &str, b: &str) {
-        for kind in [EvalKind::Tw, EvalKind::Vm] {
-            let ctx = &mut crate::TulispContext::new();
-            let av = must_eval_string(ctx, kind, a);
-            let bv = must_eval_string(ctx, kind, b);
-            assert!(
-                crate::TulispObject::equal(&av, &bv),
-                "[{}] {}(=> {}) != {}(=> {})",
-                kind.name(),
-                a,
-                av,
-                b,
-                bv
-            );
-        }
+        eval_assert_equal(&mut crate::TulispContext::new(), a, b);
     }
 
     /// Like `eval_assert_equal`, but compares the printed forms, for
@@ -154,70 +103,44 @@ mod test_utils {
     /// to themselves.
     #[track_caller]
     pub(crate) fn eval_assert_prints_as(ctx: &mut crate::TulispContext, a: &str, b: &str) {
-        for kind in [EvalKind::Tw, EvalKind::Vm] {
-            let av = must_eval_string(ctx, kind, a).to_string();
-            let bv = must_eval_string(ctx, kind, b).to_string();
-            assert_eq!(av, bv, "[{}] {}", kind.name(), a);
-        }
+        let av = must_eval_string(ctx, a).to_string();
+        let bv = must_eval_string(ctx, b).to_string();
+        assert_eq!(av, bv, "{}", a);
     }
 
     #[track_caller]
     pub(crate) fn eval_assert(ctx: &mut crate::TulispContext, a: &str) {
-        for kind in [EvalKind::Tw, EvalKind::Vm] {
-            let av = must_eval_string(ctx, kind, a);
-            assert!(
-                av.is_truthy(),
-                "[{}] {}(=> {}) is not true",
-                kind.name(),
-                a,
-                av
-            );
-        }
+        let av = must_eval_string(ctx, a);
+        assert!(av.is_truthy(), "{}(=> {}) is not true", a, av);
     }
 
     #[track_caller]
     pub(crate) fn eval_assert_not(ctx: &mut crate::TulispContext, a: &str) {
-        for kind in [EvalKind::Tw, EvalKind::Vm] {
-            let av = must_eval_string(ctx, kind, a);
-            assert!(av.null(), "[{}] {}(=> {}) is not nil", kind.name(), a, av);
-        }
+        let av = must_eval_string(ctx, a);
+        assert!(av.null(), "{}(=> {}) is not nil", a, av);
     }
 
+    /// Asserts that `a` fails with the error `msg`, trace included.
     #[track_caller]
     pub(crate) fn eval_assert_error(ctx: &mut crate::TulispContext, a: &str, msg: &str) {
-        // Both paths must match `msg` exactly. The VM emits
-        // `PushTrace` / `PopTrace` instructions around every list
-        // form, which gives errors the same multi-level trace shape
-        // TW's recursive `eval_basic` produces.
-        for kind in [EvalKind::Tw, EvalKind::Vm] {
-            match eval_string(ctx, kind, a) {
-                Ok(v) => panic!("[{}] Expected error but got {} for {}", kind.name(), v, a),
-                Err(e) => assert_eq!(
-                    e.to_string(),
-                    msg,
-                    "[{}] Error message mismatch for {}",
-                    kind.name(),
-                    a
-                ),
-            }
+        match eval_string(ctx, a) {
+            Ok(v) => panic!("Expected error but got {} for {}", v, a),
+            Err(e) => assert_eq!(e.to_string(), msg, "Error message mismatch for {}", a),
         }
     }
 
     /// Like `eval_assert_error`, but checks only the error line and
-    /// not the trace, for errors the two paths trace differently.
+    /// not the trace.
     #[track_caller]
     pub(crate) fn eval_assert_error_line(ctx: &mut crate::TulispContext, a: &str, line: &str) {
-        for kind in [EvalKind::Tw, EvalKind::Vm] {
-            match eval_string(ctx, kind, a) {
-                Ok(v) => panic!("[{}] Expected error but got {} for {}", kind.name(), v, a),
-                Err(e) => assert_eq!(
-                    e.lines().next(),
-                    Some(line),
-                    "[{}] Error line mismatch for {}",
-                    kind.name(),
-                    a
-                ),
-            }
+        match eval_string(ctx, a) {
+            Ok(v) => panic!("Expected error but got {} for {}", v, a),
+            Err(e) => assert_eq!(
+                e.lines().next(),
+                Some(line),
+                "Error line mismatch for {}",
+                a
+            ),
         }
     }
 }

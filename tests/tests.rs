@@ -3,23 +3,6 @@ use tulisp::{Error, Iter, TulispContext, TulispObject};
 
 macro_rules! tulisp_assert {
     (@impl $ctx: expr, program:$input:expr, result:$result:expr $(,)?) => {
-        let output = $ctx.tw_eval_string($input).map_err(|err| {
-            panic!("{}:{}: execution failed: {}", file!(), line!(),err.format(&$ctx));
-
-        })?;
-        let expected = $ctx.tw_eval_string($result)?;
-        assert!(
-            output.equal(&expected),
-            "\n{}:{}: program: {}\n  output: {},\n  expected: {}\n",
-            file!(),
-            line!(),
-            $input,
-            output,
-            expected
-        );
-    };
-
-    (@impl_vm $ctx: expr, program:$input:expr, result:$result:expr $(,)?) => {
         let output = $ctx.eval_string($input).map_err(|err| {
             panic!("{}:{}: execution failed: {}", file!(), line!(),err.format(&$ctx));
 
@@ -27,7 +10,7 @@ macro_rules! tulisp_assert {
         let expected = $ctx.eval_string($result)?;
         assert!(
             output.equal(&expected),
-            "\n{}:{}: program: {}\n  vm output: {},\n  expected: {}\n",
+            "\n{}:{}: program: {}\n  output: {},\n  expected: {}\n",
             file!(),
             line!(),
             $input,
@@ -37,11 +20,11 @@ macro_rules! tulisp_assert {
     };
 
     (@impl $ctx: expr, program:$input:expr, result_str:$result:expr $(,)?) => {
-        let output = $ctx.tw_eval_string($input).map_err(|err| {
+        let output = $ctx.eval_string($input).map_err(|err| {
             println!("{}:{}: execution failed: {}", file!(), line!(),err.format(&$ctx));
             err
         })?;
-        let expected = $ctx.tw_eval_string($result)?;
+        let expected = $ctx.eval_string($result)?;
         assert_eq!(output.to_string(), expected.to_string(),
             "\n{}:{}: program: {}\n  output: {},\n  expected: {}\n",
             file!(),
@@ -52,29 +35,7 @@ macro_rules! tulisp_assert {
         );
     };
 
-    (@impl_vm $ctx: expr, program:$input:expr, result_str:$result:expr $(,)?) => {
-        let output = $ctx.eval_string($input).map_err(|err| {
-            println!("{}:{}: execution failed: {}", file!(), line!(),err.format(&$ctx));
-            err
-        })?;
-        let expected = $ctx.eval_string($result)?;
-        assert_eq!(output.to_string(), expected.to_string(),
-            "\n{}:{}: program: {}\n  vm output: {},\n  expected: {}\n",
-            file!(),
-            line!(),
-            $input,
-            output,
-            expected
-        );
-    };
-
     (@impl $ctx: expr, program:$input:expr, error:$desc:expr $(,)?) => {
-        let output = $ctx.tw_eval_string($input);
-        assert!(output.is_err());
-        assert_eq!(output.unwrap_err().format(&$ctx), $desc);
-    };
-
-    (@impl_vm $ctx: expr, program:$input:expr, error:$desc:expr $(,)?) => {
         let output = $ctx.eval_string($input);
         assert!(output.is_err());
         assert_eq!(output.unwrap_err().format(&$ctx), $desc);
@@ -82,14 +43,11 @@ macro_rules! tulisp_assert {
 
     (ctx: $ctx: expr, program: $($tail:tt)+) => {
         tulisp_assert!(@impl $ctx, program: $($tail)+);
-        tulisp_assert!(@impl_vm $ctx, program: $($tail)+);
     };
 
     (program: $($tail:tt)+) => {
         let mut ctx = TulispContext::new();
         tulisp_assert!(@impl ctx, program: $($tail)+);
-        let mut ctx = TulispContext::new();
-        tulisp_assert!(@impl_vm ctx, program: $($tail)+);
     };
 }
 
@@ -1043,11 +1001,9 @@ fn test_lexical_binding() -> Result<(), Error> {
 
 #[test]
 fn test_typed_defun_arity_checked_before_arg_eval() -> Result<(), Error> {
-    // `TulispValue::Defun` carries arity metadata so the dispatchers
-    // (compile_form for VM, eval::funcall for TW) can reject
-    // mismatches before the user's closure runs. The TW path also
-    // checks BEFORE evaluating any arg expression, so a too-many-
-    // args call doesn't side-effect through the extras.
+    // `TulispValue::Defun` carries arity metadata so `compile_form`
+    // can reject mismatches before the user's closure runs, and
+    // before any argument expression runs.
     //
     // Test shape: the defun takes 1 required + 0 optional + no rest.
     // Each arg expression bumps a counter so we can observe whether
@@ -1073,29 +1029,13 @@ fn test_typed_defun_arity_checked_before_arg_eval() -> Result<(), Error> {
 
     // Happy-path baseline: 1 arg, evaluated once.
     counter.store(0, Ordering::Relaxed);
-    let r = ctx.tw_eval_string("(narrow (bump 7))")?;
+    let r = ctx.eval_string("(narrow (bump 7))")?;
     assert_eq!(r.try_int()?, 7);
     assert_eq!(counter.load(Ordering::Relaxed), 1);
 
-    // TW path: too-many should error before any (bump …) runs.
+    // Too few is rejected at compile time.
     counter.store(0, Ordering::Relaxed);
-    let err = ctx.tw_eval_string("(narrow (bump 1) (bump 2) (bump 3))");
-    let msg = err.unwrap_err().format(&ctx);
-    assert!(
-        msg.starts_with("ERR ArityMismatch: Too many arguments"),
-        "expected too-many error, got: {}",
-        msg
-    );
-    assert_eq!(
-        counter.load(Ordering::Relaxed),
-        0,
-        "args evaluated before arity check fired"
-    );
-
-    // TW path: too-few also errors before (bump …) for the args
-    // that were present.
-    counter.store(0, Ordering::Relaxed);
-    let err = ctx.tw_eval_string("(narrow)");
+    let err = ctx.eval_string("(narrow)");
     let msg = err.unwrap_err().format(&ctx);
     assert!(
         msg.starts_with("ERR ArityMismatch: Too few arguments"),
@@ -1104,15 +1044,14 @@ fn test_typed_defun_arity_checked_before_arg_eval() -> Result<(), Error> {
     );
     assert_eq!(counter.load(Ordering::Relaxed), 0);
 
-    // VM path: the same call through the VM-backed `eval_string`
-    // should be rejected at compile time, also before any arg
-    // side-effects.
+    // Too many is rejected at compile time too, before any argument
+    // runs.
     counter.store(0, Ordering::Relaxed);
     let err = ctx.eval_string("(narrow (bump 1) (bump 2) (bump 3))");
     let msg = err.unwrap_err().format(&ctx);
     assert!(
         msg.starts_with("ERR ArityMismatch: Too many arguments"),
-        "expected vm too-many error, got: {}",
+        "expected too-many error, got: {}",
         msg
     );
     assert_eq!(counter.load(Ordering::Relaxed), 0);

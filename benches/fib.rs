@@ -21,20 +21,11 @@ const FIB_FLOAT_DEFUN: &str = "(defun fib (n)
 fn main() -> Result<(), Error> {
     let mut results = Vec::new();
 
-    results.push(common::run("fib_int_tw_full", || {
-        let mut ctx = TulispContext::new();
-        ctx.tw_eval_string(FIB_INT_DEFUN)?;
-        let result: i64 = ctx
-            .tw_eval_string(&format!("(fib {})", black_box(FIB_N)))?
-            .try_into()?;
-        Ok(black_box(result).to_string())
-    })?);
-
     {
         let mut ctx = TulispContext::new();
-        ctx.tw_eval_string(FIB_INT_DEFUN)?;
+        ctx.eval_string(FIB_INT_DEFUN)?;
         let fib = ctx.intern("fib");
-        results.push(common::run("fib_int_tw_call", || {
+        results.push(common::run("fib_int_vm_funcall", || {
             let result: i64 = ctx.funcall(&fib, (FIB_N,))?.try_into()?;
             Ok(black_box(result).to_string())
         })?);
@@ -59,20 +50,11 @@ fn main() -> Result<(), Error> {
         })?);
     }
 
-    results.push(common::run("fib_float_tw_full", || {
-        let mut ctx = TulispContext::new();
-        ctx.tw_eval_string(FIB_FLOAT_DEFUN)?;
-        let result: f64 = ctx
-            .tw_eval_string(&format!("(fib {})", black_box(FIB_N)))?
-            .try_into()?;
-        Ok(black_box(result).to_string())
-    })?);
-
     {
         let mut ctx = TulispContext::new();
-        ctx.tw_eval_string(FIB_FLOAT_DEFUN)?;
+        ctx.eval_string(FIB_FLOAT_DEFUN)?;
         let fib = ctx.intern("fib");
-        results.push(common::run("fib_float_tw_call", || {
+        results.push(common::run("fib_float_vm_funcall", || {
             let result: f64 = ctx.funcall(&fib, (FIB_N,))?.try_into()?;
             Ok(black_box(result).to_string())
         })?);

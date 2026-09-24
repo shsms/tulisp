@@ -554,9 +554,7 @@ mod tests {
         eval_assert_equal(ctx, "(defvar dv-none) dv-none", "nil");
     }
 
-    // A `defvar` sets its value when it runs, once. Each evaluator gets
-    // its own context, since a first run would leave SYM bound for the
-    // next.
+    // A `defvar` sets its value when it runs, once.
     #[test]
     fn a_defvar_a_macro_builds_runs_in_the_vm() {
         let program = "(defmacro dv-make (n v) (list 'defvar n v))
@@ -564,9 +562,7 @@ mod tests {
                        (dv-make dv-made (progn (setq dv-count (1+ dv-count)) 3))
                        (dv-make dv-made (progn (setq dv-count (1+ dv-count)) 4))
                        (list dv-made dv-count)";
-        let tw = TulispContext::new().tw_eval_string(program).unwrap();
         let vm = TulispContext::new().eval_string(program).unwrap();
-        assert_eq!(tw.to_string(), "(3 1)");
         assert_eq!(vm.to_string(), "(3 1)");
     }
 
@@ -577,9 +573,7 @@ mod tests {
                        (defun dv-read-qq () dv-qq)
                        (let ((dv-qq 9)) (dv-read-qq))";
         let vm = TulispContext::new().eval_string(program).unwrap();
-        let tw = TulispContext::new().tw_eval_string(program).unwrap();
         assert_eq!(vm.to_string(), "9");
-        assert_eq!(tw.to_string(), "9");
     }
 
     // The symbol holds the definition the compile made from the same

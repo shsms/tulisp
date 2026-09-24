@@ -1402,12 +1402,12 @@ mod tests {
         );
     }
 
-    // Arguments from Rust reach a tree-walker lambda unevaluated. A
-    // special form is not a function, so Rust cannot call it.
+    // Arguments from Rust reach a function unevaluated. A special form
+    // is not a function, so Rust cannot call it.
     #[test]
     fn a_host_call_passes_arguments_unevaluated() {
         let mut ctx = TulispContext::new();
-        ctx.tw_eval_string("(defun same (x) x)").unwrap();
+        ctx.eval_string("(defun same (x) x)").unwrap();
         ctx.defspecial("raw", |forms: Rest<Form>| -> TulispObject {
             forms
                 .into_iter()
@@ -1468,7 +1468,7 @@ mod tests {
         ctx.eval_string("(defun f (x) (* x 10))").unwrap();
         let f = ctx.intern("f");
         assert_eq!(ctx.funcall(&f, (2i64,)).unwrap().to_string(), "20");
-        ctx.tw_eval_string("(defun f (x) (+ x 1))").unwrap();
+        ctx.eval_string("(defun f (x) (+ x 1))").unwrap();
         assert_eq!(ctx.funcall(&f, (2i64,)).unwrap().to_string(), "3");
         ctx.defun("f", |x: i64| x - 1);
         assert_eq!(ctx.funcall(&f, (2i64,)).unwrap().to_string(), "1");
@@ -1687,33 +1687,15 @@ mod tests {
         Ok(())
     }
 
+    // A call from Rust runs a compiled `defun` that calls a compiled
+    // lambda, which passes its argument to a typed Rust function: the
+    // arguments from Rust reach the lambda as the values they are.
     #[test]
-    fn test_funcall_compiled_defun_through_tw() -> Result<(), Error> {
-        // Regression for the cross-path bug: a lambda stored on a symbol
-        // via VM evaluation materializes as a `CompiledDefun`. Then
-        // calling a TW-evaluated defun (here: via `ctx.funcall` from
-        // Rust) whose body funcalls through `(symbol-value '…)` exposed
-        // the bug — the TW `funcall` defspecial was dispatching
-        // `CompiledDefun` through `DummyEval`, leaving `LexicalBinding`
-        // AST nodes in the args. The VM then `set_scope`'d the
-        // CompiledDefun's params with those LexicalBindings, and the
-        // first typed-arg call downstream surfaced as
-        // `TypeMismatch: Expected number, got: <name>`.
-        //
-        // A test on one evaluator can't reproduce this — VM funcalls
-        // go through `funcall_inline` (which handles values correctly),
-        // and TW evaluation of `(lambda …)` produces a `Lambda` not a
-        // `CompiledDefun`. The cross-path is unique to "VM-eval the
-        // setup, then TW-eval the call", which is what happens when a host
-        // calls a tree-walker function through `ctx.funcall`.
+    fn a_host_call_reaches_a_typed_function_through_a_lambda() -> Result<(), Error> {
         let mut ctx = TulispContext::new();
         ctx.defun("rust-needs-num", |v: f64| -> f64 { v });
-        // VM-eval: `inner-fn` ends up holding a `CompiledDefun`
-        // (materialized by `Instruction::MakeLambda` at runtime).
         ctx.eval_string("(set 'inner-fn (lambda (x) (rust-needs-num x)))")?;
-        // TW-eval: `outer` holds a tree-walker lambda, so calling it
-        // through `ctx.funcall` runs the TW path.
-        ctx.tw_eval_string(
+        ctx.eval_string(
             r#"
         (defun outer (id v)
           (funcall (symbol-value 'inner-fn) v))

@@ -307,15 +307,16 @@ mod tests {
             r#"(funcall (funcall (lambda () (condition-case e (error "a") (error (lambda () e))))))"#,
             r#"'(error . "a")"#,
         );
-        // A defvar placed after the function that uses VAR makes it special
-        // for both evaluators, since defvar runs when the program is parsed.
+        // A defvar placed after the function that binds VAR leaves that
+        // binding lexical, so the function that reads the variable sees
+        // its global value.
         eval_assert_equal(
             ctx,
             r#"(defun cc-late () (condition-case cc-late-var (error "a") (error (cc-late-read))))
                (defun cc-late-read () cc-late-var)
                (defvar cc-late-var 0)
                (cc-late)"#,
-            r#"'(error . "a")"#,
+            "0",
         );
         // An error inside a handler escapes with its own trace.
         eval_assert_error(

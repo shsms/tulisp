@@ -405,7 +405,7 @@ mod tests {
         let program = "(list (condition-case nil (with-cleanup (error \"boom\")) (error 'caught))
                              (catch 'tag (with-cleanup (throw 'tag 1))))";
         eval_assert_equal(ctx, program, "'(caught 1)");
-        assert_eq!(cleanups.load(Ordering::Relaxed), 4);
+        assert_eq!(cleanups.load(Ordering::Relaxed), 2);
     }
 
     // An error leaving a form does not disturb the values the outer
@@ -433,13 +433,11 @@ mod tests {
             },
         );
         let program = "(let ((x 1)) (keep-form (+ x 1))) (run-kept)";
-        for result in [ctx.eval_string(program), ctx.tw_eval_string(program)] {
-            let got = result.unwrap_err().format(ctx);
-            assert!(
-                got.contains("a form ran after its special form returned"),
-                "{got}"
-            );
-        }
+        let got = ctx.eval_string(program).unwrap_err().format(ctx);
+        assert!(
+            got.contains("a form ran after its special form returned"),
+            "{got}"
+        );
     }
 
     #[test]
@@ -465,12 +463,7 @@ mod tests {
     fn a_compile_error_in_a_form_is_raised_when_it_runs() {
         let ctx = &mut with_forms();
         eval_assert_equal(ctx, "(progn (never (if)) 'fine)", "'fine");
-        for result in [
-            ctx.eval_string("(twice (if))"),
-            ctx.tw_eval_string("(twice (if))"),
-        ] {
-            assert!(result.is_err());
-        }
+        assert!(ctx.eval_string("(twice (if))").is_err());
     }
 
     #[test]
@@ -538,10 +531,10 @@ mod tests {
         assert_eq!(got, [true, false, false]);
     }
 
-    // The tree-walker runs a special form: evaluated arguments before
-    // the call, forms when the closure asks for them.
+    // A special form gets its evaluated arguments before the call, and
+    // runs its forms when the closure asks for them.
     #[test]
-    fn the_tree_walker_runs_a_special_form() {
+    fn a_special_form_runs_its_forms_when_asked() {
         let ctx = &mut TulispContext::new();
         ctx.defspecial(
             "add-twice",
@@ -554,7 +547,7 @@ mod tests {
             },
         );
         let program = "(defvar k 0) (setq k 0) (list (add-twice (+ 1 2) (setq k (+ k 1))) k)";
-        let got = ctx.tw_eval_string(program).unwrap();
+        let got = ctx.eval_string(program).unwrap();
         assert_eq!(got.to_string(), "(5 2)");
     }
 }

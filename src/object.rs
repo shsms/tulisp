@@ -1190,13 +1190,22 @@ mod tests {
         Ok(())
     }
 
+    // `with_span` leaves the shared `t` without a span, or every later
+    // `t` would report that location. Another object takes the span.
+    #[test]
+    fn with_span_leaves_the_shared_t_alone() {
+        let span = Some(super::Span::new(0, (1, 1), (1, 2)));
+        let _ = TulispObject::from(true).with_span(span);
+        assert!(TulispObject::from(true).span().is_none());
+        assert_eq!(TulispObject::from(1.5).with_span(span).span(), span);
+    }
+
     #[test]
     fn shared_t_never_takes_a_span() -> Result<(), Error> {
-        // The tree-walker's backquote stamps the unquote form's span
-        // onto its evaluated value. That must not reach the shared
-        // `t`, or every later `t` in the thread reports that location.
+        // A backquote's value must not give the shared `t` a span, or
+        // every later `t` in the thread reports that location.
         let mut ctx = TulispContext::new();
-        ctx.tw_eval_string("(funcall #'(lambda (x) `(,x)) (> 2 1))")?;
+        ctx.eval_string("(funcall #'(lambda (x) `(,x)) (> 2 1))")?;
         assert!(TulispObject::from(true).span().is_none());
         Ok(())
     }
@@ -1210,7 +1219,7 @@ mod tests {
         std::thread::spawn(move || -> Result<(), Error> {
             let mut ctx = TulispContext::new();
             ctx.intern("x").set_global(moved)?;
-            ctx.tw_eval_string("`(,x)")?;
+            ctx.eval_string("`(,x)")?;
             Ok(())
         })
         .join()

@@ -1202,28 +1202,26 @@ mod tests {
     };
     use crate::{Error, TulispContext, TulispObject, TulispValue, list};
 
-    // A tail call marked when a defun is defined bounces to whatever
-    // the symbol names at run time, so a Rust defun reached that way is
-    // checked like on every other path.
+    // A call to a Rust function is checked when it compiles, in tail
+    // position too.
     #[test]
-    fn a_bounced_call_to_a_defun_checks_arity() {
+    fn a_tail_call_to_a_rust_defun_checks_arity() {
         let ctx = &mut TulispContext::new();
-        ctx.tw_eval_string("(defun helper (a) a)").unwrap();
-        ctx.tw_eval_string("(defun caller (x) (helper x)) (defun caller2 (x y) (helper x y))")
-            .unwrap();
         ctx.defun("helper", |a: i64, b: i64| a + b);
-        let err = ctx.tw_eval_string("(caller 7)").unwrap_err();
+        let err = ctx
+            .eval_string("(defun caller (x) (helper x))")
+            .unwrap_err();
         assert!(err.to_string().contains("Too few arguments"), "{err}");
         ctx.defun("helper", |a: i64| a);
-        let err = ctx.tw_eval_string("(caller2 7 8)").unwrap_err();
+        let err = ctx
+            .eval_string("(defun caller2 (x y) (helper x y))")
+            .unwrap_err();
         assert!(err.to_string().contains("Too many arguments"), "{err}");
     }
 
-    // The tree walker rejects a wrong count for a Lisp defun, a lambda
-    // and a macro before any argument runs, as it does for a Rust
-    // defun.
+    // A wrong count for a Lisp defun, a lambda and a macro is an error.
     #[test]
-    fn a_wrong_count_evaluates_no_argument() {
+    fn a_wrong_count_is_an_error() {
         use std::sync::Arc;
         use std::sync::atomic::{AtomicI64, Ordering};
         let bumps = Arc::new(AtomicI64::new(0));
@@ -1241,12 +1239,7 @@ mod tests {
             "((lambda (x y) x) (bump 1))",
             "(mac (bump 1) (bump 2))",
         ] {
-            bumps.store(0, Ordering::Relaxed);
-            assert!(ctx.tw_eval_string(program).is_err(), "[TW] {program}");
-            assert_eq!(bumps.load(Ordering::Relaxed), 0, "[TW] {program}");
-            // The VM evaluates the arguments of a call it could not
-            // check at compile time before its runtime check.
-            assert!(ctx.eval_string(program).is_err(), "[VM] {program}");
+            assert!(ctx.eval_string(program).is_err(), "{program}");
         }
         bumps.store(0, Ordering::Relaxed);
         assert_eq!(ctx.eval_string("(one (bump 5))").unwrap().to_string(), "5");
@@ -1282,11 +1275,7 @@ mod tests {
             ("no-argument call", "'(g . 2)"),
         ] {
             let program = format!("(defun f (a) a) (defun g () 42) (defmacro m () {form}) (m)");
-            assert!(
-                ctx.tw_eval_string(&program).is_err(),
-                "[TW] {name}: {program}"
-            );
-            assert!(ctx.eval_string(&program).is_err(), "[VM] {name}: {program}");
+            assert!(ctx.eval_string(&program).is_err(), "{name}: {program}");
         }
     }
     // `macroexpand` on a deeply nested structure raises a catchable
@@ -2114,10 +2103,8 @@ mod tests {
                 "1.33-1.39:  at (car 5)",
             ),
         ] {
-            for result in [ctx.tw_eval_string(program), ctx.eval_string(program)] {
-                let err = result.unwrap_err().format(ctx);
-                assert!(err.contains(needle), "{program}: {err}");
-            }
+            let err = ctx.eval_string(program).unwrap_err().format(ctx);
+            assert!(err.contains(needle), "{program}: {err}");
         }
     }
 
@@ -2179,17 +2166,6 @@ mod tests {
         eval_assert_equal(ctx, "(progn 1 (progn 2 (progn)))", "nil");
     }
 
-    // The tree-walker expands a macro call when it runs it, so a
-    // function body may use a macro defined after the function.
-    #[test]
-    fn a_function_body_may_use_a_later_macro_in_the_tree_walker() {
-        let ctx = &mut TulispContext::new();
-        let got = ctx
-            .tw_eval_string("(defun uses-m () (m2)) (defmacro m2 () 1) (uses-m)")
-            .unwrap();
-        assert_eq!(got.to_string(), "1");
-    }
-
     // A macro that keeps expanding to a `progn` that uses it again is
     // an error, not a stack overflow.
     #[test]
@@ -2223,10 +2199,8 @@ mod tests {
             "(defmacro ua () (list 'progn 1 'unbound-zz))\n(ua)",
             "\n(progn 1 unbound-zz)",
         ] {
-            for result in [ctx.tw_eval_string(program), ctx.eval_string(program)] {
-                let err = result.unwrap_err().format(ctx);
-                assert!(err.contains("<eval_string>:2.1-2."), "{program}: {err}");
-            }
+            let err = ctx.eval_string(program).unwrap_err().format(ctx);
+            assert!(err.contains("<eval_string>:2.1-2."), "{program}: {err}");
         }
     }
 
@@ -2334,10 +2308,8 @@ mod tests {
             .spawn(|| {
                 let ctx = &mut TulispContext::new();
                 let program = "(defmacro rr () (macroexpand '(rr))) (rr)";
-                for result in [ctx.tw_eval_string(program), ctx.eval_string(program)] {
-                    let err = result.unwrap_err().format(ctx);
-                    assert!(err.contains("max-eval-depth"), "{err}");
-                }
+                let err = ctx.eval_string(program).unwrap_err().format(ctx);
+                assert!(err.contains("max-eval-depth"), "{err}");
             })
             .unwrap()
             .join()
