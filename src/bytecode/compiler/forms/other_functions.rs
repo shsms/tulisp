@@ -409,15 +409,18 @@ pub(super) fn compile_fn_load_file(
     })
 }
 
-/// `defmacro` is handled while parsing, before anything is compiled.
-/// Its value is the macro's name.
+/// `(defmacro NAME PARAMS BODY...)` defines the macro when it
+/// compiles. Its value is the macro's name.
 pub(super) fn compile_fn_defmacro(
     ctx: &mut TulispContext,
     _name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
+    // The parser defines a macro it reads; a form built at run time
+    // reaches only the compiler.
+    let name = crate::builtin::functions::core::define_macro(ctx, args)?;
     Ok(if ctx.compiler.as_ref().unwrap().keep_result {
-        vec![Instruction::Push(args.car()?)]
+        vec![Instruction::Push(name)]
     } else {
         vec![]
     })
@@ -468,6 +471,27 @@ pub(super) fn compile_fn_declare(
 mod tests {
     use crate::TulispContext;
     use crate::test_utils::{eval_assert_equal, listing};
+
+    // A defmacro form the parser never saw, built in Rust, defines its
+    // macro when it compiles.
+    #[test]
+    fn a_built_defmacro_form_defines_its_macro() -> Result<(), crate::Error> {
+        use crate::TulispObject;
+        let ctx = &mut TulispContext::new();
+        let form: TulispObject = [
+            ctx.intern("defmacro"),
+            ctx.intern("built-macro"),
+            TulispObject::nil(),
+            TulispObject::from(5),
+        ]
+        .into_iter()
+        .collect();
+        let program = TulispObject::cons(form, TulispObject::nil());
+        let bytecode = crate::bytecode::compile(ctx, &program, true)?;
+        crate::bytecode::run(ctx, bytecode)?;
+        assert_eq!(ctx.eval_string("(built-macro)")?.to_string(), "5");
+        Ok(())
+    }
 
     #[test]
     fn an_unused_load_drops_the_loaded_value() {

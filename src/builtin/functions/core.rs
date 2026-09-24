@@ -25,6 +25,25 @@ use std::convert::TryInto;
 // check returns false and the existing `Lambda` arm wins as
 // before.
 
+/// Defines the macro a `(defmacro NAME PARAMS [DOC] BODY...)` form's
+/// ARGS describe, and returns NAME.
+pub(crate) fn define_macro(
+    ctx: &mut TulispContext,
+    args: &TulispObject,
+) -> Result<TulispObject, Error> {
+    destruct_bind!((name params &rest rest) = args);
+    let body = if rest.car()?.as_string().is_ok() {
+        rest.cdr()?
+    } else {
+        rest
+    };
+    let raw_params: DefunParams = params.try_into()?;
+    let (params, mappings) = raw_params.bind_as_lexical(&ctx.lex_allocator);
+    let body = substitute_lexical(body, &mappings)?;
+    name.set_global(TulispValue::Defmacro { params, body }.into_ref(None))?;
+    Ok(name)
+}
+
 pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defun("load", |ctx: &mut TulispContext, filename: String| {
         let full_path = if let Some(ref load_path) = ctx.load_path {
@@ -561,19 +580,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     }
     ctx.define_tw_special("lambda", lambda);
 
-    ctx.define_tw_special("defmacro", |ctx, args| {
-        destruct_bind!((name params &rest rest) = args);
-        let body = if rest.car()?.as_string().is_ok() {
-            rest.cdr()?
-        } else {
-            rest
-        };
-        let raw_params: DefunParams = params.try_into()?;
-        let (params, mappings) = raw_params.bind_as_lexical(&ctx.lex_allocator);
-        let body = substitute_lexical(body, &mappings)?;
-        name.set_scope(TulispValue::Defmacro { params, body }.into_ref(None))?;
-        Ok(name)
-    });
+    ctx.define_tw_special("defmacro", define_macro);
 
     ctx.defun("null", |arg: TulispObject| -> bool { arg.null() });
 

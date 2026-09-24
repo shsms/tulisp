@@ -2,7 +2,7 @@ use crate::{Error, TulispContext};
 
 mod comparison_of_strings;
 mod conditionals;
-mod core;
+pub(crate) mod core;
 mod equality_predicates;
 pub(crate) mod errors;
 mod hash_table;
