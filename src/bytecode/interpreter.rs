@@ -1248,13 +1248,28 @@ fn rewrite_instructions(
 /// placeholder? Avoids the expensive deep-copy when Push holds plain
 /// literals (numbers, strings, etc.).
 fn ast_contains_placeholder(obj: &TulispObject, mapping: &HashMap<usize, TulispObject>) -> bool {
+    contains_placeholder_at(obj, mapping, 0, false)
+}
+
+/// `ast_contains_placeholder` at backquote DEPTH: a plain quote outside
+/// any backquote holds data, never a placeholder. IN_TAIL is for the
+/// dotted tail of a list, as in `eval::wrapped_operand`.
+fn contains_placeholder_at(
+    obj: &TulispObject,
+    mapping: &HashMap<usize, TulispObject>,
+    depth: u32,
+    in_tail: bool,
+) -> bool {
     if mapping.contains_key(&obj.addr_as_usize()) {
         return true;
+    }
+    if let Some(operand) = crate::eval::wrapped_operand(obj, depth, in_tail) {
+        return contains_placeholder_at(&operand.value, mapping, operand.depth, false);
     }
     if obj.consp() {
         let mut items = obj.base_iter();
         for car in items.by_ref() {
-            if ast_contains_placeholder(&car, mapping) {
+            if contains_placeholder_at(&car, mapping, depth, false) {
                 return true;
             }
         }
@@ -1262,32 +1277,48 @@ fn ast_contains_placeholder(obj: &TulispObject, mapping: &HashMap<usize, TulispO
         // the time the iterator notices, so its error means `false`.
         return items
             .tail()
-            .is_ok_and(|tail| mapping.contains_key(&tail.addr_as_usize()));
+            .is_ok_and(|tail| contains_placeholder_at(&tail, mapping, depth, true));
     }
     false
 }
 
 /// Deep-clone `obj`, substituting any placeholder reference with the
-/// mapped binding. Only descends through cons lists; quoted literals
-/// and other value kinds pass through unchanged. A list that loops
-/// back has no finite copy, so it is an error.
+/// mapped binding. Descends through cons lists, backquotes, unquotes
+/// and splices, and quotes inside a backquote; other value kinds pass
+/// through unchanged. A list that loops back has no finite copy, so it
+/// is an error.
 fn rewrite_ast(
     obj: &TulispObject,
     mapping: &HashMap<usize, TulispObject>,
 ) -> Result<TulispObject, Error> {
+    rewrite_ast_at(obj, mapping, 0, false)
+}
+
+/// `rewrite_ast` at backquote DEPTH: a plain quote outside any
+/// backquote holds data, and is shared, not copied. IN_TAIL is for the
+/// dotted tail of a list, as in `eval::wrapped_operand`.
+fn rewrite_ast_at(
+    obj: &TulispObject,
+    mapping: &HashMap<usize, TulispObject>,
+    depth: u32,
+    in_tail: bool,
+) -> Result<TulispObject, Error> {
     if let Some(replacement) = mapping.get(&obj.addr_as_usize()) {
         return Ok(replacement.clone());
+    }
+    if let Some(operand) = crate::eval::wrapped_operand(obj, depth, in_tail) {
+        return operand.map(|value, depth| rewrite_ast_at(&value, mapping, depth, false));
     }
     if obj.consp() {
         let span = obj.span();
         let mut builder = crate::cons::ListBuilder::new();
         let mut items = obj.base_iter();
         for car in items.by_ref() {
-            builder.push(rewrite_ast(&car, mapping)?);
+            builder.push(rewrite_ast_at(&car, mapping, depth, false)?);
         }
         let tail = items.tail()?;
         if !tail.null() {
-            builder.append(mapping.get(&tail.addr_as_usize()).cloned().unwrap_or(tail))?;
+            builder.append(rewrite_ast_at(&tail, mapping, depth, true)?)?;
         }
         return Ok(builder.build().with_span(span));
     }

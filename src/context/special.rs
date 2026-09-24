@@ -378,6 +378,13 @@ mod tests {
         let program = "(defun make-source (x) (lambda () (eval-source x)))
                        (list (funcall (make-source 1)) (funcall (make-source 2)))";
         eval_assert_equal(ctx, program, "'(1 2)");
+        // The variables inside a backquote in the source too.
+        let program = "(defun make-quoted (x) (lambda () (eval-source `(a ,x ,@(list x)))))
+                       (funcall (make-quoted 7))";
+        eval_assert_equal(ctx, program, "'(a 7 7)");
+        let program = "(defun make-dotted (x) (lambda () (eval-source `(a . ,x))))
+                       (funcall (make-dotted 7))";
+        eval_assert_equal(ctx, program, "'(a . 7)");
     }
 
     // The closure's own code after the forms runs when they error or
