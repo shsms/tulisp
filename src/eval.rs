@@ -248,6 +248,28 @@ pub(crate) fn resolve_function(
     Ok(resolved)
 }
 
+/// The arguments of `apply`: all but the last, then the elements of
+/// the last, which must be a proper list.
+pub(crate) fn spread_apply_args(mut args: Vec<TulispObject>) -> Result<Vec<TulispObject>, Error> {
+    let Some(final_list) = args.pop() else {
+        return Ok(args);
+    };
+    if !final_list.listp() {
+        return Err(Error::type_mismatch(format!(
+            "apply: last argument must be a list, got: {final_list}"
+        )));
+    }
+    let mut items = final_list.base_iter();
+    args.extend(items.by_ref());
+    let tail = items.tail()?;
+    if !tail.null() {
+        return Err(Error::type_mismatch(format!(
+            "apply: last argument must be a proper list, got non-nil tail: {tail}"
+        )));
+    }
+    Ok(args)
+}
+
 pub(crate) fn funcall<E: Evaluator>(
     ctx: &mut TulispContext,
     func: &TulispObject,

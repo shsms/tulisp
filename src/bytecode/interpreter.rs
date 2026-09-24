@@ -755,25 +755,11 @@ fn run_impl_inner(
                 instr_ref = program.borrow_mut();
             }
             Instruction::Apply { args_count } => {
-                let args_count = *args_count;
                 // Stack layout: [..., FN, intermediate_0..N-1, FINAL_LIST]
-                let final_list = ctx.vm.stack.pop().unwrap();
-                if !final_list.listp() {
-                    return Err(Error::type_mismatch(format!(
-                        "apply: last argument must be a list, got: {final_list}"
-                    )));
-                }
-                let split_at = ctx.vm.stack.len() - args_count;
-                let mut args: Vec<TulispObject> = ctx.vm.stack.drain(split_at..).collect();
+                let split_at = ctx.vm.stack.len() - *args_count - 1;
+                let args: Vec<TulispObject> = ctx.vm.stack.drain(split_at..).collect();
                 let func = ctx.vm.stack.pop().unwrap();
-                let mut items = final_list.base_iter();
-                args.extend(items.by_ref());
-                let tail = items.tail()?;
-                if !tail.null() {
-                    return Err(Error::type_mismatch(format!(
-                        "apply: last argument must be a proper list, got non-nil tail: {tail}"
-                    )));
-                }
+                let args = crate::eval::spread_apply_args(args)?;
                 drop(instr_ref);
                 let result = funcall_inline(ctx, &func, args)?;
                 ctx.vm.stack.push(result);

@@ -612,24 +612,12 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             evaluated.push(tw_eval(ctx, &arg)?);
         }
         arg_forms.take_error()?;
-        let Some(final_list) = evaluated.pop() else {
+        if evaluated.is_empty() {
             return Err(Error::missing_argument(
                 "apply requires at least 2 arguments".to_string(),
             ));
-        };
-        if !final_list.listp() {
-            return Err(Error::type_mismatch(format!(
-                "apply: last argument must be a list, got: {final_list}"
-            )));
         }
-        let mut items = final_list.base_iter();
-        evaluated.extend(items.by_ref());
-        let tail = items.tail()?;
-        if !tail.null() {
-            return Err(Error::type_mismatch(format!(
-                "apply: last argument must be a proper list, got non-nil tail: {tail}"
-            )));
-        }
+        let evaluated = crate::eval::spread_apply_args(evaluated)?;
 
         // Hand the spliced, already-evaluated args to `funcall` via a
         // quoted arg list — same trick the VM's `funcall_inline` uses
