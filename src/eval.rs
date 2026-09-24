@@ -281,9 +281,26 @@ pub(crate) fn funcall<E: Evaluator>(
             let expanded = macroexpand(ctx, list!(func.clone() ,@args.clone())?)?;
             tw_eval(ctx, &expanded)
         }
-        TulispValue::Special { .. } => Err(Error::not_implemented(format!(
-            "the tree-walker cannot run special form {func}"
-        ))),
+        TulispValue::Special { call, kinds, arity } => {
+            // Reached from a form being evaluated: ARGS are the
+            // arguments as written.
+            let call = call.clone();
+            let kinds = kinds.clone();
+            let arity = arity.clone();
+            let args = crate::cons::collect_list(args, Ok)?;
+            arity.check(args.len())?;
+            let call_forms = crate::context::special::CallForms::new();
+            let mut values = Vec::new();
+            let mut forms = Vec::new();
+            for (index, arg) in args.into_iter().enumerate() {
+                if crate::context::special::takes_form(&kinds, index) {
+                    forms.push(call_forms.tree_walker(arg));
+                } else {
+                    values.push(E::eval(ctx, &arg)?.into_owned());
+                }
+            }
+            call(ctx, &values, forms)
+        }
         _ => Err(Error::undefined(format!("function is void: {}", func))),
     }
 }

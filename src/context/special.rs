@@ -32,6 +32,8 @@ pub struct Form {
 enum FormCode {
     /// Compiled by the VM.
     Compiled(Block),
+    /// Evaluated from its source by the tree-walker.
+    TreeWalker,
 }
 
 impl Form {
@@ -46,6 +48,7 @@ impl Form {
         }
         match &self.code {
             FormCode::Compiled(block) => crate::bytecode::run_block(ctx, block, None),
+            FormCode::TreeWalker => crate::eval::tw_eval(ctx, &self.source),
         }
     }
 
@@ -66,12 +69,10 @@ impl Form {
 
 /// The forms of one special-form call. Dropping it, when the call
 /// returns or unwinds, makes them invalid.
-#[allow(dead_code)]
 pub(crate) struct CallForms {
     live: Shared<AtomicBool>,
 }
 
-#[allow(dead_code)]
 impl CallForms {
     pub(crate) fn new() -> Self {
         CallForms {
@@ -79,10 +80,19 @@ impl CallForms {
         }
     }
 
+    #[allow(dead_code)]
     pub(crate) fn compiled(&self, block: Block, source: TulispObject) -> Form {
         Form {
             source,
             code: FormCode::Compiled(block),
+            live: self.live.clone(),
+        }
+    }
+
+    pub(crate) fn tree_walker(&self, source: TulispObject) -> Form {
+        Form {
+            source,
+            code: FormCode::TreeWalker,
             live: self.live.clone(),
         }
     }
@@ -97,7 +107,6 @@ impl Drop for CallForms {
 /// Whether the argument at INDEX of a call to a special form whose
 /// parameters are KINDS is passed unevaluated. An index past the
 /// parameters belongs to the last one, a rest parameter.
-#[allow(dead_code)]
 pub(crate) fn takes_form(kinds: &[ParamKind], index: usize) -> bool {
     matches!(
         kinds.get(index).or(kinds.last()),
@@ -281,5 +290,25 @@ mod tests {
         let eager_rest = [ParamKind::Form { required: true }, ParamKind::Rest];
         let got: Vec<bool> = (0..3).map(|i| takes_form(&eager_rest, i)).collect();
         assert_eq!(got, [true, false, false]);
+    }
+
+    // The tree-walker runs a special form: evaluated arguments before
+    // the call, forms when the closure asks for them.
+    #[test]
+    fn the_tree_walker_runs_a_special_form() {
+        let ctx = &mut TulispContext::new();
+        ctx.defspecial_typed(
+            "add-twice",
+            |ctx: &mut TulispContext,
+             n: i64,
+             form: crate::Form|
+             -> Result<crate::TulispObject, crate::Error> {
+                form.eval(ctx)?;
+                Ok((n + form.eval_into::<i64>(ctx)?).into())
+            },
+        );
+        let program = "(defvar k 0) (setq k 0) (list (add-twice (+ 1 2) (setq k (+ k 1))) k)";
+        let got = ctx.tw_eval_string(program).unwrap();
+        assert_eq!(got.to_string(), "(5 2)");
     }
 }
