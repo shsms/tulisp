@@ -18,7 +18,7 @@ use crate::{
     bytecode::{self, Bytecode, Compiler, VMCompilers, compile},
     context::callable::TulispCallable,
     error::Error,
-    eval::{DummyEval, funcall, resolve_function},
+    eval::resolve_function,
     object::wrappers::{DefunFn, TulispFn, generic::Shared},
     parse::parse,
     value::LexAllocator,
@@ -797,8 +797,7 @@ impl TulispContext {
         function: &TulispObject,
         args: Vec<TulispObject>,
     ) -> Result<TulispObject, Error> {
-        let args: TulispObject = args.into_iter().collect();
-        funcall::<DummyEval>(self, function, &args)
+        crate::bytecode::call_function(self, function, args)
     }
 
     /// Maps the given function over the given sequence, and returns the result.
@@ -1173,6 +1172,21 @@ mod tests {
             |ctx: &mut TulispContext, form: TulispObject| ctx.eval(&form),
         );
         eval_assert_equal(ctx, "(list 1 (host-eval '(+ 1 2)) 4)", "'(1 3 4)");
+    }
+
+    // A function is resolved once: a variable holding a symbol is not
+    // a function, from Rust as from Lisp.
+    #[test]
+    fn a_symbol_held_in_a_variable_is_not_called() {
+        let ctx = &mut TulispContext::new();
+        let lisp = ctx
+            .eval_string("(setq g 'car) (funcall 'g '(1))")
+            .unwrap_err();
+        let g = ctx.intern("g");
+        let rust = ctx.funcall(&g, (1i64,)).unwrap_err();
+        for err in [lisp, rust] {
+            assert!(err.to_string().contains("function is void: car"), "{err}");
+        }
     }
 
     // The Rust API resolves a function the way `funcall` does: a

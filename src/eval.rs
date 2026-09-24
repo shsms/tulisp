@@ -214,10 +214,10 @@ pub(crate) fn is_lambda_list(ctx: &TulispContext, obj: &TulispObject) -> bool {
 
 /// Turn the evaluated first argument of `funcall` / `apply` into
 /// the function to call. A symbol resolves to the function bound to
-/// it, one lookup as in Emacs. A `(lambda ...)` list is built into a
-/// Lambda value. A macro or a special form is rejected here, as in
-/// Emacs. Anything else is returned as is, and `funcall` rejects it if
-/// it is not callable.
+/// it, one lookup as in Emacs. A `(lambda ...)` list is compiled into
+/// a function that sees global and special variables, on each call. A
+/// macro or a special form is rejected here, as in Emacs. Anything else
+/// is returned as is, and `funcall` rejects it if it is not callable.
 pub(crate) fn resolve_function(
     ctx: &mut TulispContext,
     func: &TulispObject,
@@ -225,7 +225,7 @@ pub(crate) fn resolve_function(
     let resolved = if func.symbolp() {
         func.get()?
     } else if is_lambda_list(ctx, func) {
-        tw_eval(ctx, func)?
+        ctx.eval(func)?
     } else {
         func.clone()
     };
@@ -775,12 +775,13 @@ fn expand_lisp_macro(
     compiled: &SharedMut<Option<TulispObject>>,
     args: &TulispObject,
 ) -> Result<TulispObject, Error> {
+    let args = crate::cons::collect_list(args, Ok)?;
     let cached = compiled.borrow().clone();
     if let Some(function) = cached {
-        return funcall::<DummyEval>(ctx, &function, args);
+        return crate::bytecode::call_function(ctx, &function, args);
     }
     let (function, complete) = compile_macro_body(ctx, name, lambda, compiled)?;
-    let expansion = funcall::<DummyEval>(ctx, &function, args)?;
+    let expansion = crate::bytecode::call_function(ctx, &function, args)?;
     if complete {
         *compiled.borrow_mut() = Some(function);
     }
@@ -2229,6 +2230,22 @@ mod tests {
             let err = ctx.eval_string(program).unwrap_err().format(ctx);
             assert!(err.contains(needle), "{program}: {err}");
         }
+    }
+
+    // A quoted `(lambda ...)` list is a function.
+    #[test]
+    fn a_quoted_lambda_list_is_a_function() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(funcall '(lambda (x) (* x 2)) 3)", "6");
+        eval_assert_equal(ctx, "(mapcar '(lambda (x) (1+ x)) '(1 2))", "'(2 3)");
+        eval_assert_equal(ctx, "(let ((f '(lambda () 5))) (funcall f))", "5");
+        eval_assert_equal(ctx, "(funcall '(lambda (x)) 1)", "nil");
+        eval_assert_equal(ctx, "(funcall '(lambda (x) \"doc\" (* x 3)) 2)", "6");
+        eval_assert_error_line(
+            ctx,
+            "(let ((y 1)) (funcall '(lambda () y)))",
+            "ERR Uninitialized: Variable definition is void: y",
+        );
     }
 
     // A macro defined at run time is there for a later program.

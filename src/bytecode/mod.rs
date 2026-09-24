@@ -13,7 +13,7 @@ mod block;
 pub(crate) use block::{Block, FormBlock, Handler};
 
 mod interpreter;
-pub(crate) use interpreter::{Machine, run, run_block, run_lambda};
+pub(crate) use interpreter::{Machine, call_function, run, run_block, run_lambda};
 
 mod compiler;
 pub(crate) use compiler::{Compiler, VMCompilers, compile};

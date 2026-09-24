@@ -5,11 +5,7 @@
 //!
 //! [the Emacs Lisp manual]: https://www.gnu.org/software/emacs/manual/html_node/elisp/Association-Lists.html
 
-use crate::{
-    Error, TulispContext, TulispObject,
-    eval::{DummyEval, funcall, resolve_function},
-    list,
-};
+use crate::{Error, TulispContext, TulispObject, eval::resolve_function};
 
 /// Makes an alist from the given arguments.
 pub fn alist_from<const N: usize>(input: [(TulispObject, TulispObject); N]) -> TulispObject {
@@ -38,7 +34,7 @@ pub fn assoc(
         let pred = resolve_function(ctx, &testfn)?;
 
         let testfn = |_1: &TulispObject, _2: &TulispObject| -> Result<bool, Error> {
-            funcall::<DummyEval>(ctx, &pred, &list!(,_1.clone() ,_2.clone()).unwrap())
+            crate::bytecode::call_function(ctx, &pred, vec![_1.clone(), _2.clone()])
                 .map(|x| x.is_truthy())
         };
         assoc_find(key, alist, testfn)
@@ -135,6 +131,23 @@ mod tests {
     use super::{alist_from, alist_get};
     use crate::test_utils::eval_assert_equal;
     use crate::{Alistable, Error, TulispContext};
+
+    // A test function given as a lambda or as a symbol.
+    #[test]
+    fn a_test_function_as_a_lambda_or_a_symbol() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(assoc 2 '((1 . a) (2 . b)) (lambda (a b) (= a b)))",
+            "'(2 . b)",
+        );
+        eval_assert_equal(ctx, "(assoc 2 '((1 . a) (2 . b)) 'eql)", "'(2 . b)");
+        eval_assert_equal(
+            ctx,
+            "(alist-get 2 '((1 . a) (2 . b)) nil nil (lambda (a b) (= a b)))",
+            "'b",
+        );
+    }
 
     #[test]
     fn assoc_does_not_evaluate_a_quoted_testfn_list() {

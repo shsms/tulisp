@@ -27,12 +27,6 @@ pub(crate) fn define_macro(
 ) -> Result<TulispObject, Error> {
     destruct_bind!((name params &rest body) = args);
     let _: DefunParams = params.clone().try_into()?;
-    // The VM refuses a lambda with no body; an empty macro gives nil.
-    let body = if body.null() {
-        TulispObject::cons(TulispObject::nil(), TulispObject::nil())
-    } else {
-        body
-    };
     let lambda = TulispObject::cons(
         ctx.keywords.lambda.clone(),
         TulispObject::cons(params, body),

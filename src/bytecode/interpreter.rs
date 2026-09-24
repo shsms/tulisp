@@ -1018,7 +1018,17 @@ fn funcall_inline(
     args: Vec<TulispObject>,
 ) -> Result<TulispObject, Error> {
     let resolved = crate::eval::resolve_function(ctx, func)?;
-    let inner = resolved.inner_ref();
+    call_function(ctx, &resolved, args)
+}
+
+/// Calls FUNCTION, a function value `resolve_function` gave, with
+/// ARGS, which are passed as they are.
+pub(crate) fn call_function(
+    ctx: &mut TulispContext,
+    function: &TulispObject,
+    args: Vec<TulispObject>,
+) -> Result<TulispObject, Error> {
+    let inner = function.inner_ref();
     match &inner.0 {
         TulispValue::CompiledDefun { value } => {
             let cd = value.clone();
@@ -1026,10 +1036,7 @@ fn funcall_inline(
             run_lambda(ctx, cd, args)
         }
         TulispValue::Defun { call, arity } => {
-            // Args are already evaluated values from the VM stack
-            // — hand them straight to the typed-args closure.
-            // No interpreter re-entry: we're using the closure's
-            // `&[TulispObject]` shape directly.
+            // ARGS are values; the closure takes them as a slice.
             let call = call.clone();
             let arity = arity.clone();
             drop(inner);
@@ -1044,12 +1051,12 @@ fn funcall_inline(
             for a in args {
                 list.push(TulispValue::Quote { value: a }.into_ref(None));
             }
-            crate::eval::funcall::<crate::eval::Eval>(ctx, &resolved, &list.build())
+            crate::eval::funcall::<crate::eval::Eval>(ctx, function, &list.build())
         }
-        TulispValue::Func(_) | TulispValue::Special { .. } => {
-            Err(Error::invalid_argument(format!("invalid function: {func}")))
-        }
-        _ => Err(Error::undefined(format!("function is void: {}", resolved))),
+        TulispValue::Func(_) | TulispValue::Special { .. } => Err(Error::invalid_argument(
+            format!("invalid function: {function}"),
+        )),
+        _ => Err(Error::undefined(format!("function is void: {}", function))),
     }
 }
 

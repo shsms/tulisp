@@ -27,18 +27,14 @@ pub(super) fn compile_fn_lambda(
     name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    ctx.compile_2_arg_call(name, args, true, |ctx, params, body_head, body_rest| {
+    ctx.compile_1_arg_call(name, args, true, |ctx, params, body| {
+        let _: crate::value::DefunParams = params.clone().try_into()?;
         // Strip an optional docstring as the first body form, matching
         // the TW's lambda handling.
-        let body = if body_head.as_string().is_ok() {
-            body_rest.clone()
+        let body = if body.car()?.as_string().is_ok() {
+            body.cdr()?
         } else {
-            let mut out = crate::cons::ListBuilder::new();
-            out.push(body_head.clone());
-            for item in body_rest.base_iter() {
-                out.push(item);
-            }
-            out.build()
+            body.clone()
         };
 
         // Parse params: required, &optional group, &rest group.
@@ -275,4 +271,29 @@ pub(super) fn compile_fn_apply(
         result.push(Instruction::Pop);
     }
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::TulispContext;
+    use crate::test_utils::{eval_assert_equal, eval_assert_error_line};
+
+    // A lambda with no body gives nil, and its parameter list is
+    // checked as a `defun`'s is.
+    #[test]
+    fn a_lambda_without_a_body_and_bad_parameter_lists() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(funcall (lambda (x)) 1)", "nil");
+        eval_assert_equal(ctx, "(funcall (funcall (lambda () (lambda (x)))) 1)", "nil");
+        eval_assert_error_line(
+            ctx,
+            "(lambda (1) 1)",
+            "ERR TypeMismatch: Expected symbol, got: 1",
+        );
+        eval_assert_error_line(
+            ctx,
+            "(lambda 5 1)",
+            "ERR SyntaxError: Parameter list needs to be a list",
+        );
+    }
 }
