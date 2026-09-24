@@ -83,46 +83,6 @@ fn test_princ_print_newlines() -> Result<(), Error> {
 }
 
 #[test]
-fn test_conditionals() -> Result<(), Error> {
-    tulisp_assert! { program: "(if t 10 15 20)",      result: "10" }
-    tulisp_assert! { program: "(if nil 10 15 20)",    result: "20" }
-    tulisp_assert! { program: "(if (> 20 10) 10 20)", result: "10" }
-    tulisp_assert! { program: "(if (> 10 20) 10 20)", result: "20" }
-    tulisp_assert! { program: r##"
-       (defun cf (vv)
-         (cond ((> vv 45) 'gt45)
-               ((> vv 5) 'gt5)))
-
-       (list (cf 2) (cf 200) (cf 8))
-    "##, result: r#"'(nil gt45 gt5)"#}
-
-    tulisp_assert! { program: "(when t 10 20 30)", result: "30" }
-    tulisp_assert! { program: "(when nil 10 20 30)", result: "nil" }
-    tulisp_assert! { program: "(when (> 20 10) 10 20 30)", result: "30" }
-    tulisp_assert! { program: "(when (> 10 20) 10 20 30)", result: "nil" }
-
-    tulisp_assert! { program: "(unless t 10 20 30)", result: "nil" }
-    tulisp_assert! { program: "(unless nil 10 20 30)", result: "30" }
-    tulisp_assert! { program: "(unless (> 20 10) 10 20 30)", result: "nil" }
-    tulisp_assert! { program: "(unless (> 10 20) 10 20 30)", result: "30" }
-
-    tulisp_assert! { program: "(not t)", result: "nil" }
-    tulisp_assert! { program: "(not nil)", result: "t" }
-    tulisp_assert! { program: "(not (< 10 20))", result: "nil" }
-    tulisp_assert! { program: "(not (> 10 20))", result: "t" }
-
-    tulisp_assert! { program: "(xor t t)", result: "nil" }
-    tulisp_assert! { program: "(xor t nil)", result: "t" }
-    tulisp_assert! { program: "(xor nil t)", result: "t" }
-    tulisp_assert! { program: "(xor nil nil)", result: "nil" }
-    tulisp_assert! { program: "(xor (> 10 5) (< 10 20))", result: "nil" }
-    tulisp_assert! { program: "(xor (> 10 5) (> 10 20))", result: "t" }
-    tulisp_assert! { program: "(xor (< 10 5) (< 10 20))", result: "t" }
-    tulisp_assert! { program: "(xor (< 10 5) (> 10 20))", result: "nil" }
-    Ok(())
-}
-
-#[test]
 fn test_eval_prelude_defuns_visible_to_later_evals() -> Result<(), Error> {
     // A definition evaluated through `eval_prelude` lands in the same
     // global scope as the built-in prelude, so later `eval_string`
@@ -789,20 +749,6 @@ fn test_closure_invoked_in_fresh_ctx() -> Result<(), Error> {
             "cross-ctx funcall of `{prog}`"
         );
     }
-    Ok(())
-}
-
-#[test]
-fn test_setq() -> Result<(), Error> {
-    tulisp_assert! {
-        program: r##"(let ((xx 10)) (setq zz (+ xx 10))) (* zz 3)"##,
-        result: "60",
-    }
-    tulisp_assert! {
-        program: r##"(let ((xx 10) (yy 'qq)) (setq zz (+ xx 10)) (set yy 20)) (* zz qq)"##,
-        result: "400",
-    }
-
     Ok(())
 }
 

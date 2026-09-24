@@ -148,3 +148,20 @@ pub(super) fn compile_fn_let_star(
         Ok(result)
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::Error;
+    use crate::test_utils::eval_assert_equal_fresh;
+
+    #[test]
+    fn setq_sets_the_global_value() -> Result<(), Error> {
+        eval_assert_equal_fresh(r##"(let ((xx 10)) (setq zz (+ xx 10))) (* zz 3)"##, "60");
+        eval_assert_equal_fresh(
+            r##"(let ((xx 10) (yy 'qq)) (setq zz (+ xx 10)) (set yy 20)) (* zz qq)"##,
+            "400",
+        );
+
+        Ok(())
+    }
+}

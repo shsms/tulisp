@@ -240,8 +240,11 @@ fn compile_and_or(
 
 #[cfg(test)]
 mod tests {
+    use crate::Error;
     use crate::TulispContext;
-    use crate::test_utils::{eval_assert_equal, eval_assert_error, listing};
+    use crate::test_utils::{
+        eval_assert_equal, eval_assert_equal_fresh, eval_assert_error, listing,
+    };
 
     #[test]
     fn while_has_the_value_nil() {
@@ -430,5 +433,48 @@ mod tests {
             "(progn (defun f (n) (if (<= n 2) 1 (+ (f (- n 1)) (f (- n 2))))) (f 10))",
             "55",
         );
+    }
+
+    #[test]
+    fn conditionals_give_their_values() -> Result<(), Error> {
+        eval_assert_equal_fresh("(if t 10 15 20)", "10");
+        eval_assert_equal_fresh("(if nil 10 15 20)", "20");
+        eval_assert_equal_fresh("(if (> 20 10) 10 20)", "10");
+        eval_assert_equal_fresh("(if (> 10 20) 10 20)", "20");
+        eval_assert_equal_fresh(
+            r##"
+           (defun cf (vv)
+             (cond ((> vv 45) 'gt45)
+                   ((> vv 5) 'gt5)))
+
+           (list (cf 2) (cf 200) (cf 8))
+        "##,
+            r#"'(nil gt45 gt5)"#,
+        );
+
+        eval_assert_equal_fresh("(when t 10 20 30)", "30");
+        eval_assert_equal_fresh("(when nil 10 20 30)", "nil");
+        eval_assert_equal_fresh("(when (> 20 10) 10 20 30)", "30");
+        eval_assert_equal_fresh("(when (> 10 20) 10 20 30)", "nil");
+
+        eval_assert_equal_fresh("(unless t 10 20 30)", "nil");
+        eval_assert_equal_fresh("(unless nil 10 20 30)", "30");
+        eval_assert_equal_fresh("(unless (> 20 10) 10 20 30)", "nil");
+        eval_assert_equal_fresh("(unless (> 10 20) 10 20 30)", "30");
+
+        eval_assert_equal_fresh("(not t)", "nil");
+        eval_assert_equal_fresh("(not nil)", "t");
+        eval_assert_equal_fresh("(not (< 10 20))", "nil");
+        eval_assert_equal_fresh("(not (> 10 20))", "t");
+
+        eval_assert_equal_fresh("(xor t t)", "nil");
+        eval_assert_equal_fresh("(xor t nil)", "t");
+        eval_assert_equal_fresh("(xor nil t)", "t");
+        eval_assert_equal_fresh("(xor nil nil)", "nil");
+        eval_assert_equal_fresh("(xor (> 10 5) (< 10 20))", "nil");
+        eval_assert_equal_fresh("(xor (> 10 5) (> 10 20))", "t");
+        eval_assert_equal_fresh("(xor (< 10 5) (< 10 20))", "t");
+        eval_assert_equal_fresh("(xor (< 10 5) (> 10 20))", "nil");
+        Ok(())
     }
 }
