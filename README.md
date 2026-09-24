@@ -155,6 +155,14 @@ tail-call optimisation, and lexical scoping.  See the
 [`builtin`](https://docs.rs/tulisp/latest/tulisp/builtin) module for
 the full list of forms and functions.
 
+A macro defined in Lisp with `defmacro` compiles its body on its first
+expansion. It keeps the compiled body, unless that expansion failed or
+the body has a call to a name that had no value yet. The macros a kept
+body uses stay as they were: redefining one later does not change the
+macro that uses it, as with Emacs's byte-compiler. A macro whose body
+uses that macro itself is refused, when the parser reads its definition
+or else at its first expansion.
+
 ## Cargo features
 
 | Feature         | Description                                                                  |
