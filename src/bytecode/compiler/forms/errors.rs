@@ -7,7 +7,7 @@ use crate::{
         Block, Handler, Instruction,
         compiler::compiler::{compile_block, compile_expr_keep_result},
     },
-    eval::substitute_lexical,
+    eval::substitute_lexical_body,
     object::wrappers::generic::Shared,
 };
 
@@ -75,7 +75,7 @@ pub(super) fn compile_fn_condition_case(
                 compile_block(ctx, &forms, Some(var))?
             } else {
                 let binding = TulispObject::lexical_binding(ctx.lex_allocator.clone(), var.clone());
-                let forms = substitute_lexical(forms, &[(var.clone(), binding.clone())])?;
+                let forms = substitute_lexical_body(forms, &[(var.clone(), binding.clone())])?;
                 compile_block(ctx, &forms, Some(&binding))?
             };
             compiled.push(Handler {

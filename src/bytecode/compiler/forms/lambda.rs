@@ -8,7 +8,7 @@ use crate::{
             free_vars::classify_free_vars,
         },
     },
-    eval::substitute_lexical,
+    eval::substitute_lexical_body,
     object::wrappers::generic::Shared,
 };
 
@@ -150,7 +150,7 @@ pub(super) fn compile_fn_lambda(
         for (orig, ph) in &free_vars {
             mappings.push((orig.clone(), ph.clone()));
         }
-        let body = substitute_lexical(body, &mappings)?;
+        let body = substitute_lexical_body(body, &mappings)?;
 
         // The body is its own function frame at runtime, so escapes
         // inside it unwind to *this* lambda — they shouldn't see let

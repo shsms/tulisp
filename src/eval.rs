@@ -449,11 +449,69 @@ pub(crate) fn wrapped_operand(
     })
 }
 
+/// How the walkers over code (the rewrite of lexical variables and
+/// the search for a closure's free variables) read a list at code
+/// level: which of its elements are forms, and which are names.
+pub(crate) enum FormShape {
+    /// `(quote X)`: nothing in it runs.
+    Quote,
+    /// `(lambda PARAMS BODY...)`.
+    Lambda,
+    /// `(let VARLIST BODY...)` or `(let* VARLIST BODY...)`.
+    Let,
+    /// `(condition-case VAR BODYFORM HANDLERS...)`.
+    ConditionCase,
+    /// `(cond CLAUSES...)`: each clause is a list of forms.
+    Cond,
+    /// `(Bounce FUNCTION ARGS...)`, a tail call `mark_tail_calls`
+    /// marked.
+    TailCall,
+    /// `(FUNCTION ARGS...)`: a call, or a special form whose arguments
+    /// are all forms. A symbol FUNCTION names a function, as in Emacs,
+    /// and never a variable.
+    Call,
+}
+
+impl FormShape {
+    /// The shape of `form`, a list at code level.
+    pub(crate) fn of(form: &TulispObject) -> FormShape {
+        let Ok(head) = form.car() else {
+            return FormShape::Call;
+        };
+        if head.is_bounce() {
+            return FormShape::TailCall;
+        }
+        let head = head.inner_ref();
+        match head.0.symbol_name() {
+            Some("quote") => FormShape::Quote,
+            Some("lambda") => FormShape::Lambda,
+            Some("let" | "let*") => FormShape::Let,
+            Some("condition-case") => FormShape::ConditionCase,
+            Some("cond") => FormShape::Cond,
+            _ => FormShape::Call,
+        }
+    }
+
+    /// How many elements at the start of `form`, a list at code
+    /// level, are its head or names it binds rather than forms. The
+    /// rest of a `Lambda`, `TailCall` or `Call` are forms. A `Call`'s
+    /// head is a name when it is a symbol.
+    pub(crate) fn names_at_start(form: &TulispObject) -> usize {
+        match FormShape::of(form) {
+            FormShape::Lambda | FormShape::TailCall => 2,
+            FormShape::Call if form.car().is_ok_and(|head| head.is_symbol_variant()) => 1,
+            FormShape::Call => 0,
+            FormShape::Quote | FormShape::Let | FormShape::ConditionCase | FormShape::Cond => 1,
+        }
+    }
+}
+
 /// Walk `body` and replace each occurrence of a symbol listed in
 /// `mappings` with its mapped replacement (typically a freshly-created
 /// `LexicalBinding`). Only substitutes at code positions — literals
 /// inside `'x`, `(quote x)`, or backquote-but-not-unquote positions
-/// are preserved so data literals (e.g. alist keys) are not corrupted.
+/// are preserved so data literals (e.g. alist keys) are not corrupted,
+/// and the head of a call names a function, so it is kept too.
 pub(crate) fn substitute_lexical(
     body: TulispObject,
     mappings: &[(TulispObject, TulispObject)],
@@ -461,9 +519,21 @@ pub(crate) fn substitute_lexical(
     substitute_lexical_inner(body, mappings, 0)
 }
 
-/// Walk a tail of a list, substituting each element. The first
-/// `preserve` cells are copied verbatim; everything past that is
-/// recursively substituted (including any improper-list tail).
+/// Like [`substitute_lexical`], for `forms`, a list of forms such as
+/// the body of a `let` or a function.
+pub(crate) fn substitute_lexical_body(
+    forms: TulispObject,
+    mappings: &[(TulispObject, TulispObject)],
+) -> Result<TulispObject, Error> {
+    if mappings.is_empty() {
+        return Ok(forms);
+    }
+    walk_tail_substitute(forms, 0, mappings, 0)
+}
+
+/// Walk a list, substituting each element. The first `preserve`
+/// cells are copied verbatim; everything past that is recursively
+/// substituted (including any improper-list tail).
 fn walk_tail_substitute(
     body: TulispObject,
     preserve: usize,
@@ -489,40 +559,42 @@ fn walk_tail_substitute(
         let new_tail = if count < preserve {
             tail
         } else {
-            substitute_lexical_inner(tail, mappings, quote_depth)?
+            match wrapped_operand(&tail, quote_depth, true) {
+                Some(operand) => {
+                    operand.map(|value, depth| substitute_lexical_inner(value, mappings, depth))?
+                }
+                None => substitute_lexical_inner(tail, mappings, quote_depth)?,
+            }
         };
         builder.append(new_tail)?;
     }
     Ok(builder.build().with_span(span))
 }
 
-/// If `name` is a binding-introducing form (lambda, let, let*,
-/// condition-case), substitute the value/body positions while leaving
-/// the binder names alone, and return the rewritten form.
-/// Returns `Ok(None)` for anything else — the caller falls back to
-/// the default element-by-element walk.
-fn substitute_binding_form(
+/// Rewrites `body`, a list at code level, by its [`FormShape`].
+///
+/// Binding-introducing forms have a parameter / varlist section that
+/// *declares* names rather than referencing them. Walking into those
+/// positions and substituting turns them into `LexicalBinding`s, which
+/// the inner form's compiler (`compile_fn_lambda`,
+/// `compile_fn_let_star`, …) then wraps again in a fresh
+/// `LexicalBinding` — producing a double wrap. Substitute only at
+/// value-expression positions and at the body, leaving binder names
+/// alone.
+fn substitute_form(
     body: &TulispObject,
-    name: &str,
     mappings: &[(TulispObject, TulispObject)],
     quote_depth: u32,
-) -> Result<Option<TulispObject>, Error> {
-    match name {
-        // (lambda PARAMS BODY...)
-        "lambda" => {
-            // Preserve head + PARAMS; substitute the rest.
-            Ok(Some(walk_tail_substitute(
-                body.clone(),
-                2,
-                mappings,
-                quote_depth,
-            )?))
-        }
+) -> Result<TulispObject, Error> {
+    match FormShape::of(body) {
+        // At code level, `(quote X)` written as a list form is
+        // data-only — don't substitute inside X (alist key etc.).
+        FormShape::Quote => Ok(body.clone()),
         // (let VARLIST BODY...) | (let* VARLIST BODY...)
         // VARLIST is a list of either bare symbols (uninitialized
         // vars) or `(var init...)` pairs. Skip the var name; descend
         // into the init expressions and the body forms.
-        "let" | "let*" => {
+        FormShape::Let => {
             let head = body.car()?;
             let rest = body.cdr()?;
             let varlist = rest.car()?;
@@ -561,12 +633,12 @@ fn substitute_binding_form(
             if !tail.null() {
                 builder.append(substitute_lexical_inner(tail, mappings, quote_depth)?)?;
             }
-            Ok(Some(builder.build().with_span(body_span)))
+            Ok(builder.build().with_span(body_span))
         }
         // (condition-case VAR BODYFORM HANDLERS...)
         // Leave VAR and each handler's condition alone; substitute
         // BODYFORM and the handler bodies.
-        "condition-case" => {
+        FormShape::ConditionCase => {
             let span = body.span();
             let mut builder = crate::cons::ListBuilder::new();
             let mut items = body.base_iter();
@@ -586,9 +658,35 @@ fn substitute_binding_form(
             if !tail.null() {
                 builder.append(tail)?;
             }
-            Ok(Some(builder.build().with_span(span)))
+            Ok(builder.build().with_span(span))
         }
-        _ => Ok(None),
+        // (cond CLAUSES...): every element of a clause is a form, its
+        // first one too.
+        FormShape::Cond => {
+            let span = body.span();
+            let mut builder = crate::cons::ListBuilder::new();
+            let mut items = body.base_iter();
+            if let Some(head) = items.next() {
+                builder.push(head);
+            }
+            for clause in items.by_ref() {
+                builder.push(if clause.consp() {
+                    walk_tail_substitute(clause, 0, mappings, quote_depth)?
+                } else {
+                    clause
+                });
+            }
+            let tail = items.tail()?;
+            if !tail.null() {
+                builder.append(tail)?;
+            }
+            Ok(builder.build().with_span(span))
+        }
+        // Preserve the head and the names; substitute the rest.
+        FormShape::Lambda | FormShape::TailCall | FormShape::Call => {
+            let preserve = FormShape::names_at_start(body);
+            walk_tail_substitute(body.clone(), preserve, mappings, quote_depth)
+        }
     }
 }
 
@@ -624,45 +722,13 @@ fn substitute_lexical_inner(
         }
         TulispValue::List { .. } => {
             drop(inner_ref);
-            if quote_depth == 0
-                && let Ok(car) = body.car()
-                && let Ok(name) = car.as_symbol()
-            {
-                // At code level, `(quote X)` written as a list form is
-                // data-only — don't substitute inside X (alist key etc.).
-                if name == "quote" {
-                    return Ok(body);
-                }
-                // Binding-introducing forms have a parameter / varlist
-                // section that *declares* names rather than referencing
-                // them. Walking into those positions and substituting
-                // turns them into `LexicalBinding`s, which the inner
-                // form's compiler (`compile_fn_lambda`,
-                // `compile_fn_let_star`, …) then wraps again in a
-                // fresh `LexicalBinding` — producing a double wrap.
-                // Substitute only at value-expression positions and
-                // at the body, leaving binder names alone.
-                if let Some(rewritten) =
-                    substitute_binding_form(&body, &name, mappings, quote_depth)?
-                {
-                    return Ok(rewritten);
-                }
+            if quote_depth > 0 {
+                // Inside a backquote a list is a template: only what
+                // an unquote in it runs is code.
+                walk_tail_substitute(body, 0, mappings, quote_depth)?
+            } else {
+                substitute_form(&body, mappings, quote_depth)?
             }
-            let mut builder = crate::cons::ListBuilder::new();
-            let mut items = body.base_iter();
-            for car in items.by_ref() {
-                builder.push(substitute_lexical_inner(car, mappings, quote_depth)?);
-            }
-            let tail = items.tail()?;
-            if !tail.null() {
-                let new_tail = match wrapped_operand(&tail, quote_depth, true) {
-                    Some(operand) => operand
-                        .map(|value, depth| substitute_lexical_inner(value, mappings, depth))?,
-                    None => substitute_lexical_inner(tail, mappings, quote_depth)?,
-                };
-                builder.append(new_tail)?;
-            }
-            builder.build().with_span(span)
         }
         // Outside a backquote, `'x` is a literal symbol (e.g. an alist
         // key), not a variable use, and rewriting it to a
@@ -1318,6 +1384,72 @@ mod tests {
         );
     }
 
+    // The head of a call names a function, as in Emacs: a lexical
+    // variable of the same name does not hide it, in the body that
+    // binds it or in a closure over it.
+    #[test]
+    fn a_call_head_is_not_a_lexical_variable() {
+        for (program, expected) in [
+            ("(let ((list 3)) (list list))", "'(3)"),
+            ("(defun f (list) (list list)) (f 1)", "'(1)"),
+            ("(funcall (lambda (list) (list list 2)) 1)", "'(1 2)"),
+            ("(let ((list 1)) (funcall (lambda () (list list))))", "'(1)"),
+            (
+                "(defun f (list) (mapcar (lambda (x) (list x)) list)) (f '(1 2))",
+                "'((1) (2))",
+            ),
+            ("(defun f (if) (if if 1 2)) (f nil)", "2"),
+            ("(defun f (setq) (setq setq 2) setq) (f 1)", "2"),
+            ("(defun f (while) (while nil) while) (f 1)", "1"),
+            ("(defun f (progn) (progn progn)) (f 1)", "1"),
+            (
+                "(defun f (car) (let ((s 0)) (dolist (x '(1 2)) (setq s (+ s x))) s)) (f 1)",
+                "3",
+            ),
+            ("(defun f (cons) (setq cons (cons 1 cons))) (f nil)", "'(1)"),
+            ("(defun f (cond) (cond (cond 1) (t 2))) (f t)", "1"),
+            ("(defun g (x) x) (defun f (g) (g g)) (f 1)", "1"),
+            ("(defun f (f) (if (> f 0) (f (- f 1)) 0)) (f 3)", "0"),
+            // The head of a `cond` clause is a condition, not a call.
+            ("(let ((x 5)) (funcall (lambda () (cond (x x)))))", "5"),
+            ("(funcall (let ((x 5)) (lambda () (cond (x 1)))))", "1"),
+            // A variable name a macro puts at the head of a call still
+            // names the function.
+            (
+                "(progn (defmacro m (x) (list x x)) (let ((list 1)) (m list)))",
+                "'(1)",
+            ),
+        ] {
+            eval_assert_equal(&mut TulispContext::new(), program, expected);
+        }
+        // A function held in a variable is called with `funcall`.
+        eval_assert_error_line(
+            &mut TulispContext::new(),
+            "(let ((g (lambda () 1))) (g))",
+            "ERR Uninitialized: Variable definition is void: g",
+        );
+    }
+
+    // A body is a list of forms: one whose first form is a symbol
+    // named like a special form is still read form by form.
+    #[test]
+    fn a_body_is_read_form_by_form() {
+        for (program, expected) in [
+            ("(funcall (lambda (let) let) 5)", "5"),
+            ("(let ((let 2)) let)", "2"),
+            (
+                "(let ((x 4)) (funcall (lambda (let) (funcall (lambda () let))) x))",
+                "4",
+            ),
+            (
+                "(car (condition-case let (error \"x\") (error let)))",
+                "'error",
+            ),
+        ] {
+            eval_assert_equal(&mut TulispContext::new(), program, expected);
+        }
+    }
+
     #[test]
     fn substitute_lexical_skips_binders() {
         let ctx = &mut TulispContext::new();
@@ -1741,13 +1873,14 @@ mod tests {
         eval_assert_equal(ctx, "(em)", "3");
     }
 
-    // A call to a local function is not a name with no value: the body
-    // is kept, with the macros it used then.
+    // A funcall of a function in a variable is not a call to a name
+    // with no value: the body is kept, with the macros it used then.
     #[test]
     fn a_body_calling_a_local_function_is_kept() -> Result<(), Error> {
         let ctx = &mut TulispContext::new();
         ctx.eval_string(
-            "(defmacro lf-outer () (let ((g (lambda (y) y))) (g (list 'quote (lf-inner)))))",
+            "(defmacro lf-outer ()
+               (let ((g (lambda (y) y))) (funcall g (list 'quote (lf-inner)))))",
         )?;
         ctx.eval_string("(defmacro lf-inner () ''old)")?;
         assert_eq!(ctx.eval_string("(lf-outer)")?.to_string(), "old");

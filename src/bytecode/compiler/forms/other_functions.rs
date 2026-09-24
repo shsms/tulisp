@@ -11,7 +11,7 @@ use crate::{
         },
     },
     destruct_bind,
-    eval::substitute_lexical,
+    eval::substitute_lexical_body,
     list,
     object::wrappers::generic::SharedMut,
     parse::mark_tail_calls,
@@ -355,7 +355,7 @@ fn compile_defun(
             body.clone()
         };
         let body = mark_tail_calls(ctx, defun_name.clone(), body)?;
-        let body = substitute_lexical(body, &mappings)?;
+        let body = substitute_lexical_body(body, &mappings)?;
         let mut result = compile_progn_keep_result(ctx, &body)?;
         result.push(Instruction::Ret);
 

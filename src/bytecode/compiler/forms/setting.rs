@@ -5,7 +5,7 @@ use crate::{
         compiler::compiler::{compile_expr_keep_result, compile_progn},
     },
     destruct_bind,
-    eval::substitute_lexical,
+    eval::{substitute_lexical, substitute_lexical_body},
 };
 
 pub(super) fn compile_fn_setq(
@@ -127,7 +127,7 @@ pub(super) fn compile_fn_let_star(
             .unwrap()
             .active_let_scopes
             .extend(params.iter().cloned());
-        let rewritten_body = substitute_lexical(body.clone(), &mappings)?;
+        let rewritten_body = substitute_lexical_body(body.clone(), &mappings)?;
         let body_result = compile_progn(ctx, &rewritten_body);
         ctx.compiler
             .as_mut()

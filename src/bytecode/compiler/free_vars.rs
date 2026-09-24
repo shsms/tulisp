@@ -1,4 +1,7 @@
-use crate::{Error, TulispObject, TulispValue, destruct_bind, eval::wrapped_operand};
+use crate::{
+    Error, TulispObject, TulispValue, destruct_bind,
+    eval::{FormShape, wrapped_operand},
+};
 
 /// Classify symbol references in a lambda body.
 ///
@@ -18,7 +21,7 @@ pub(crate) fn classify_free_vars(
 ) -> Result<Vec<TulispObject>, Error> {
     let mut free: Vec<TulispObject> = Vec::new();
     let mut scopes: Vec<Vec<TulispObject>> = vec![params.to_vec()];
-    visit(body, &mut free, &mut scopes, 0)?;
+    visit_elements(body, 0, &mut free, &mut scopes, 0)?;
     Ok(free)
 }
 
@@ -65,32 +68,46 @@ fn visit(
         };
     }
 
-    // `(quote …)` at code level is data — skip.
-    if quote_depth == 0
-        && let Ok(car) = obj.car()
-        && let Ok(name) = car.as_symbol()
-        && name == "quote"
-    {
-        return Ok(());
+    // Inside a backquote a list is a template: only what an unquote in
+    // it runs is code.
+    if quote_depth > 0 {
+        return visit_elements(obj, 0, free, scopes, quote_depth);
     }
-
-    // Special scoping forms we need to understand.
-    if quote_depth == 0
-        && let Ok(car) = obj.car()
-        && let Ok(name) = car.as_symbol()
-    {
-        match name.as_str() {
-            "let" | "let*" => return visit_let(obj, free, scopes, quote_depth),
-            "lambda" => return visit_lambda(obj, free, scopes, quote_depth),
-            "condition-case" => return visit_condition_case(obj, free, scopes, quote_depth),
-            _ => {}
+    match FormShape::of(obj) {
+        // `(quote …)` at code level is data — skip.
+        FormShape::Quote => Ok(()),
+        FormShape::Let => visit_let(obj, free, scopes, quote_depth),
+        FormShape::Lambda => visit_lambda(obj, free, scopes, quote_depth),
+        FormShape::ConditionCase => visit_condition_case(obj, free, scopes, quote_depth),
+        // Every element of a `cond` clause is a form, its first one too.
+        FormShape::Cond => {
+            let mut clauses = obj.cdr()?.base_iter();
+            for clause in clauses.by_ref() {
+                if clause.consp() {
+                    visit_elements(&clause, 0, free, scopes, quote_depth)?;
+                }
+            }
+            clauses.take_error()
+        }
+        // The head of a call names a function, not a variable.
+        FormShape::TailCall | FormShape::Call => {
+            let skip = FormShape::names_at_start(obj);
+            visit_elements(obj, skip, free, scopes, quote_depth)
         }
     }
+}
 
-    // Generic list: walk each element, then an improper-list tail. A
-    // list that loops back is an error.
+/// Visits the elements of the list `obj` past its first `skip`, then
+/// an improper-list tail. A list that loops back is an error.
+fn visit_elements(
+    obj: &TulispObject,
+    skip: usize,
+    free: &mut Vec<TulispObject>,
+    scopes: &mut Vec<Vec<TulispObject>>,
+    quote_depth: u32,
+) -> Result<(), Error> {
     let mut items = obj.base_iter();
-    for item in items.by_ref() {
+    for item in items.by_ref().skip(skip) {
         visit(&item, free, scopes, quote_depth)?;
     }
     let tail = items.tail()?;
@@ -130,7 +147,7 @@ fn visit_let(
     }
     items.take_error()?;
     scopes.push(bound);
-    let result = visit(&body, free, scopes, quote_depth);
+    let result = visit_elements(&body, 0, free, scopes, quote_depth);
     scopes.pop();
     result
 }
@@ -157,7 +174,7 @@ fn visit_lambda(
     }
     items.take_error()?;
     scopes.push(bound);
-    let result = visit(&body, free, scopes, quote_depth);
+    let result = visit_elements(&body, 0, free, scopes, quote_depth);
     scopes.pop();
     result
 }
@@ -181,7 +198,7 @@ fn visit_condition_case(
     let mut items = handlers.base_iter();
     for handler in items.by_ref() {
         if let Ok(forms) = handler.cdr() {
-            result = visit(&forms, free, scopes, quote_depth);
+            result = visit_elements(&forms, 0, free, scopes, quote_depth);
             if result.is_err() {
                 break;
             }

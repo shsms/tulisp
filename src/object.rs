@@ -483,6 +483,16 @@ impl TulispObject {
     predicate_fn!(pub, null, "Returns True if `self` is `nil`.");
     predicate_fn!(pub, is_truthy, "Returns True if `self` is not `nil`.");
 
+    /// What `self` names as a function: a symbol that names a lexical
+    /// variable still names its symbol's function, as the lexical value
+    /// doesn't hide it. Anything else is itself.
+    pub(crate) fn function_name(&self) -> TulispObject {
+        match &self.inner_ref().0 {
+            TulispValue::LexicalBinding { binding } => binding.symbol().clone(),
+            _ => self.clone(),
+        }
+    }
+
     /// Returns True if `self` can be called like a function: a function
     /// value, a `(lambda ...)` list, or a symbol whose value is a function
     /// value. Special forms and macros are not functions, as in Emacs.
@@ -491,10 +501,7 @@ impl TulispObject {
             return crate::eval::is_lambda_list(ctx, self);
         }
         let symbol = match &self.inner_ref().0 {
-            // A symbol that names a lexical variable still names the
-            // same function: the lexical value doesn't hide it.
-            TulispValue::LexicalBinding { binding } => binding.symbol().clone(),
-            TulispValue::Symbol { .. } => self.clone(),
+            TulispValue::LexicalBinding { .. } | TulispValue::Symbol { .. } => self.function_name(),
             other => return other.is_function_value(),
         };
         // An unbound symbol names no function.

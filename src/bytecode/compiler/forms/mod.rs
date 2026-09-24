@@ -127,7 +127,7 @@ pub(super) fn compile_form(
     ctx: &mut TulispContext,
     form: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    let name = form.car()?;
+    let name = form.car()?.function_name();
     let args = form.cdr()?;
     // Every form walks its own arguments; check once here that the
     // list is proper and not circular, so no walker drops a tail.
@@ -200,8 +200,7 @@ pub(super) fn compile_form(
         }
     }
 
-    // A call to a symbol with no value yet. A lexical binding, such as
-    // a local function, has no value while compiling and is not counted.
+    // A call to a symbol with no value yet.
     if matches!(name.inner_ref().0, TulispValue::Symbol { .. }) && name.get().is_err() {
         ctx.compiler.as_mut().unwrap().unbound_calls += 1;
     }
