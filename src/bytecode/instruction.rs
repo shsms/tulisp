@@ -212,6 +212,10 @@ pub(crate) enum Instruction {
     /// bindings, and push the resulting closure (as a
     /// `TulispValue::CompiledDefun`) on the stack.
     MakeLambda(Shared<LambdaTemplate>),
+    /// Pops a function `MakeLambda` made for a `defun` that closes over
+    /// variables, and makes it what the name runs, unless a later
+    /// `defun` of the name has replaced the function of this form.
+    DefineFunction(TulispObject),
     /// `(catch TAG BODY...)`: pops the tag, runs BODY, and pushes its
     /// value, or the value of a `throw` to the tag.
     Catch {
@@ -374,6 +378,7 @@ impl Instruction {
             | Instruction::Call { .. }
             | Instruction::TailCall { .. }
             | Instruction::MakeLambda(..)
+            | Instruction::DefineFunction(..)
             | Instruction::DefVar(..)
             | Instruction::Raise(..)
             | Instruction::Funcall { .. }
@@ -520,6 +525,7 @@ impl std::fmt::Display for Instruction {
             Instruction::Call { name, .. } => write!(f, "    call {}", name),
             Instruction::TailCall { name, .. } => write!(f, "    tcall {}", name),
             Instruction::MakeLambda(_) => write!(f, "    make_lambda"),
+            Instruction::DefineFunction(name) => write!(f, "    define_function {name}"),
             Instruction::Catch { .. } => write!(f, "    catch"),
             Instruction::UnwindProtect { .. } => write!(f, "    unwind_protect"),
             Instruction::ConditionCase { .. } => write!(f, "    condition_case"),

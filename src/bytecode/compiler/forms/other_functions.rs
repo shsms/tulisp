@@ -1,22 +1,24 @@
 use crate::{
     Error, ErrorKind, TulispContext, TulispObject,
     bytecode::{
-        Instruction, Pos,
+        Instruction, LambdaTemplate, Pos,
         bytecode::CompiledDefun,
         compiler::{
             DefunParams,
             compiler::{
                 compile_expr, compile_expr_keep_result, compile_progn, compile_progn_keep_result,
             },
-            free_vars::lambda_free_vars,
+            free_vars::{classify_free_vars, lambda_free_vars},
         },
     },
     destruct_bind,
     eval::substitute_lexical_body,
     list,
-    object::wrappers::generic::SharedMut,
+    object::wrappers::generic::{Shared, SharedMut},
     parse::mark_tail_calls,
 };
+
+use super::lambda::free_var_placeholders;
 
 pub(super) fn compile_fn_print(
     ctx: &mut TulispContext,
@@ -274,9 +276,11 @@ pub(super) fn compile_fn_defun(
 }
 
 /// Compiles a function from ARGS, `(NAME PARAMS [DOC] BODY...)`, into
-/// the machine's function table under NAME. A `(lambda ...)` list is
-/// its own NAME, and only a named function, with DEFINE, is set as
-/// NAME's value.
+/// the machine's function table under NAME, and returns the code the
+/// form runs. A `(lambda ...)` list is its own NAME. Only a named
+/// function, with DEFINE, is set as NAME's value and captures the
+/// variables of the scopes around it; `compile_fn_defun_call` never
+/// passes a `(lambda ...)` head that uses such variables here.
 fn compile_defun(
     ctx: &mut TulispContext,
     defun_kw: &TulispObject,
@@ -289,6 +293,11 @@ fn compile_defun(
         rest: None,
     };
     let mut fn_name = TulispObject::nil();
+    // The parameters in declaration order, and the variables of the
+    // scopes around a named function that its body uses, each with the
+    // placeholder the body is compiled with.
+    let mut param_bindings: Vec<TulispObject> = Vec::new();
+    let mut free_vars: Vec<(TulispObject, TulispObject)> = Vec::new();
     let res = ctx.compile_2_arg_call(defun_kw, args, true, |ctx, defun_name, args, body| {
         fn_name = defun_name.clone();
         crate::builtin::check_param_list(ctx, args)?;
@@ -364,6 +373,14 @@ fn compile_defun(
             body.clone()
         };
         let body = mark_tail_calls(ctx, defun_name.clone(), body)?;
+        if define {
+            // A variable of a scope around the function is captured
+            // when the defun form runs, as a lambda captures it.
+            let (param_names, placeholders): (Vec<_>, Vec<_>) = mappings.iter().cloned().unzip();
+            param_bindings = placeholders;
+            free_vars = free_var_placeholders(ctx, classify_free_vars(&body, &param_names)?);
+            mappings.extend(free_vars.iter().cloned());
+        }
         let body = substitute_lexical_body(body, &mappings)?;
         let mut result = compile_progn_keep_result(ctx, &body)?;
         result.push(Instruction::Ret);
@@ -376,10 +393,25 @@ fn compile_defun(
     // Assemble the body at the `CompiledDefun` boundary so the
     // runtime never sees a trace marker or a label; see `assemble`.
     let (res, trace_ranges) = crate::bytecode::bytecode::assemble(res)?;
+    let trace_ranges = Shared::new(trace_ranges);
+    // A function that closes over variables is made again each time the
+    // defun form runs, from the same code; until then its variables
+    // have no value.
+    let mut result = Vec::new();
+    if !free_vars.is_empty() {
+        result.push(Instruction::MakeLambda(Shared::new(LambdaTemplate {
+            instructions: res.clone(),
+            trace_ranges: trace_ranges.clone(),
+            param_placeholders: param_bindings,
+            params: defun_params.clone(),
+            free_vars,
+        })));
+        result.push(Instruction::DefineFunction(fn_name.clone()));
+    }
     let function = CompiledDefun {
         name: fn_name.clone(),
         instructions: SharedMut::new(res),
-        trace_ranges: crate::object::wrappers::generic::Shared::new(trace_ranges),
+        trace_ranges,
         params: crate::object::wrappers::generic::Shared::new(defun_params),
     };
     if define {
@@ -398,11 +430,10 @@ fn compile_defun(
         compiler.added_functions.push(addr);
     }
     // The value of `defun` is the function's name.
-    Ok(if compiler.keep_result {
-        vec![Instruction::Push(fn_name)]
-    } else {
-        vec![]
-    })
+    if compiler.keep_result {
+        result.push(Instruction::Push(fn_name));
+    }
+    Ok(result)
 }
 
 pub(super) fn compile_fn_progn(
@@ -984,6 +1015,71 @@ mod tests {
             (
                 "(let ((y 1)) (defun f (x) (if x (list ((lambda () x))) y))) (f 2)",
                 "'(2)",
+            ),
+        ] {
+            eval_assert_equal_fresh(program, expected);
+        }
+    }
+
+    // A defun inside a let, a function or a lambda closes over the
+    // variables it uses from there, as in Emacs: running the defun form
+    // makes the function, and a later call still sees them.
+    #[test]
+    fn a_defun_closes_over_the_variables_around_it() {
+        for (program, expected) in [
+            ("(let ((y 1)) (defun f (x) (+ x y))) (f 5)", "6"),
+            ("(let ((n 0)) (defun f () (setq n (1+ n)))) (f) (f)", "2"),
+            (
+                "(let ((n 0)) (defun f () (setq n (1+ n))) (setq get (lambda () n)))
+                 (f) (funcall get)",
+                "1",
+            ),
+            ("(defun outer (a) (defun f () a)) (outer 7) (f)", "7"),
+            (
+                "(defun outer (a) (defun f () a)) (outer 1) (outer 2) (f)",
+                "2",
+            ),
+            (
+                "(let ((step 1)) (defun f (n) (if (<= n 0) 'done (f (- n step))))) (f 5)",
+                "'done",
+            ),
+            ("(funcall (lambda (k) (defun f () k)) 9) (f)", "9"),
+            (
+                "(let ((y 1)) (defun f (&optional x &rest r) (list x r y))) (f 2 3)",
+                "'(2 (3) 1)",
+            ),
+            ("(let ((y 1)) (defun f () y) (setq y 5)) (f)", "5"),
+        ] {
+            eval_assert_equal_fresh(program, expected);
+        }
+        // Called before the defun form runs, the function has no
+        // variables yet. (Emacs has no function yet.)
+        eval_assert_error_line(
+            &mut TulispContext::new(),
+            "(let ((y 1)) (f) (defun f () y))",
+            "ERR Uninitialized: Variable definition is void: y",
+        );
+    }
+
+    // A later defun of a name wins over a defun of it that closes over
+    // variables, as definitions take effect as the program compiles.
+    #[test]
+    fn a_later_defun_wins_over_one_that_closes_over_variables() {
+        for (program, expected) in [
+            ("(let ((y 1)) (defun f () y)) (defun f () 42) (f)", "42"),
+            // Emacs gives (1 42): it defines each f as its form runs.
+            (
+                "(let ((y 1)) (defun f () y)) (setq a (f)) (defun f () 42) (list a (f))",
+                "'(42 42)",
+            ),
+            // Emacs gives 1: it defines the inner f when `mk` runs.
+            (
+                "(defun mk (y) (defun f () y)) (defun f () 42) (mk 1) (f)",
+                "42",
+            ),
+            (
+                "(let ((y 1)) (defun f () y)) (let ((z 2)) (defun f () z)) (f)",
+                "2",
             ),
         ] {
             eval_assert_equal_fresh(program, expected);

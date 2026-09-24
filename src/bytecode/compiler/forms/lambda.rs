@@ -123,22 +123,7 @@ pub(super) fn compile_fn_lambda(
             }
         }
 
-        let mut free_vars: Vec<(TulispObject, TulispObject)> = Vec::with_capacity(free.len());
-        for orig in free {
-            // The placeholder is an identity token rewritten at phase
-            // 2 — its `symbol` field is not used for slot lookup.
-            // When `orig` is itself a `LexicalBinding` (because the
-            // surrounding scope's `substitute_lexical` already
-            // rewrote the body's reference), unwrap to the underlying
-            // symbol so the placeholder is single-wrapped, not
-            // doubly-wrapped.
-            let symbol_for_ph = match &orig.inner_ref().0 {
-                crate::TulispValue::LexicalBinding { binding } => binding.symbol().clone(),
-                _ => orig.clone(),
-            };
-            let ph = TulispObject::lexical_binding(ctx.lex_allocator.clone(), symbol_for_ph);
-            free_vars.push((orig, ph));
-        }
+        let free_vars = free_var_placeholders(ctx, free);
 
         // Build the substitution mapping: each original ref (param or
         // free var) maps to its placeholder, which the body-compile
@@ -176,7 +161,7 @@ pub(super) fn compile_fn_lambda(
 
         let template = LambdaTemplate {
             instructions,
-            trace_ranges,
+            trace_ranges: Shared::new(trace_ranges),
             param_placeholders,
             params: vm_params,
             free_vars,
@@ -188,6 +173,31 @@ pub(super) fn compile_fn_lambda(
         }
         Ok(result)
     })
+}
+
+/// Pairs each free variable in `free` with a placeholder for it, which
+/// the function body is compiled with.
+pub(super) fn free_var_placeholders(
+    ctx: &TulispContext,
+    free: Vec<TulispObject>,
+) -> Vec<(TulispObject, TulispObject)> {
+    free.into_iter()
+        .map(|orig| {
+            // The placeholder is an identity token rewritten at phase
+            // 2 — its `symbol` field is not used for slot lookup.
+            // When `orig` is itself a `LexicalBinding` (because the
+            // surrounding scope's `substitute_lexical` already
+            // rewrote the body's reference), unwrap to the underlying
+            // symbol so the placeholder is single-wrapped, not
+            // doubly-wrapped.
+            let symbol_for_ph = match &orig.inner_ref().0 {
+                crate::TulispValue::LexicalBinding { binding } => binding.symbol().clone(),
+                _ => orig.clone(),
+            };
+            let ph = TulispObject::lexical_binding(ctx.lex_allocator.clone(), symbol_for_ph);
+            (orig, ph)
+        })
+        .collect()
 }
 
 /// VM compiler for `(funcall fn arg1 arg2 …)`.

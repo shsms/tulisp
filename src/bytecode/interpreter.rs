@@ -701,6 +701,38 @@ fn run_impl_inner(
                 let closure = make_lambda_from_template(ctx, template)?;
                 ctx.vm.stack.push(closure);
             }
+            Instruction::DefineFunction(name) => {
+                let closure = ctx.vm.stack.pop().unwrap_or_default();
+                let TulispValue::CompiledDefun { value } = &closure.inner_ref().0 else {
+                    return Err(Error::lisp_error(
+                        "internal: define_function needs a compiled function",
+                    ));
+                };
+                // Install the new function only if the name still holds
+                // a function of this defun form: the one the form compiled
+                // to, or one an earlier run of the form made. A later
+                // defun of the name, which took effect as the program
+                // compiled, stays.
+                let addr = name.addr_as_usize();
+                let holds_this_form = ctx
+                    .vm
+                    .functions
+                    .get(&addr)
+                    .is_some_and(|current| current.trace_ranges.ptr_eq(&value.trace_ranges));
+                if holds_this_form {
+                    let function = CompiledDefun {
+                        name: name.clone(),
+                        ..value.clone()
+                    };
+                    name.set_global(
+                        TulispValue::CompiledDefun {
+                            value: function.clone(),
+                        }
+                        .into_ref(None),
+                    )?;
+                    ctx.vm.set_function(addr, function);
+                }
+            }
             Instruction::Catch { body } => {
                 let tag = ctx.vm.stack.pop().unwrap();
                 // Release the program: a recursive function re-enters it.
@@ -1104,9 +1136,8 @@ fn make_lambda_from_template(
         // PCs are unchanged by `rewrite_instruction` (it only
         // swaps placeholder objects, never adds or removes
         // instructions), so the template's trace ranges remain
-        // valid for the materialized closure. Wrap in a `Shared`
-        // since `LambdaTemplate::trace_ranges` is owned.
-        trace_ranges: crate::object::wrappers::generic::Shared::new(template.trace_ranges.clone()),
+        // valid for the materialized closure, which shares them.
+        trace_ranges: template.trace_ranges.clone(),
         params: crate::object::wrappers::generic::Shared::new(params),
     };
     Ok(TulispValue::CompiledDefun { value: cd }.into_ref(None))
@@ -1317,7 +1348,9 @@ fn rewrite_template(
     Ok(LambdaTemplate {
         instructions: new_instructions,
         // `rewrite_instruction` swaps in-place; PCs are stable so
-        // the inner template's trace ranges still apply.
+        // the inner template's trace ranges still apply. They are
+        // shared, not copied: `DefineFunction` identifies a defun form
+        // by them.
         trace_ranges: template.trace_ranges.clone(),
         param_placeholders: template.param_placeholders.clone(),
         params: template.params.clone(),

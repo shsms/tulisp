@@ -31,6 +31,11 @@ pub struct CompiledDefun {
     /// (which the `Call` handler does on every dispatch) only bumps
     /// a refcount instead of copying the vec element-wise. Empty
     /// for functions whose bytecode contains no list-form markers.
+    ///
+    /// Its allocation also identifies the form the function is compiled
+    /// from: `DefineFunction` compares it with `ptr_eq` to recognize a
+    /// function made from its own `defun` form. So each form gets a
+    /// separate allocation, even when the vec is empty.
     pub(crate) trace_ranges: Shared<Vec<TraceRange>>,
     /// Behind a `Shared` for the same reason as `trace_ranges`.
     pub(crate) params: Shared<DefunParams>,

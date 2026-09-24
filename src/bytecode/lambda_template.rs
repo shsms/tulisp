@@ -1,5 +1,5 @@
 use super::{Instruction, bytecode::TraceRange};
-use crate::{TulispObject, bytecode::compiler::DefunParams};
+use crate::{TulispObject, bytecode::compiler::DefunParams, object::wrappers::generic::Shared};
 
 /// Eagerly-compiled form of a `(lambda …)` body. The body is compiled
 /// once at VM-compile time using *placeholder* LexicalBindings for
@@ -22,7 +22,12 @@ pub(crate) struct LambdaTemplate {
     /// are stable under the rewrite pass (which only swaps placeholder
     /// objects for fresh bindings, never adds or removes instructions),
     /// so the same ranges remain valid for the materialized closure.
-    pub(crate) trace_ranges: Vec<TraceRange>,
+    ///
+    /// Every function made from the template shares this vector, and so
+    /// does the function a `defun` form compiles to, so
+    /// `DefineFunction` can tell which `defun` form a function comes
+    /// from.
+    pub(crate) trace_ranges: Shared<Vec<TraceRange>>,
     /// Param placeholders, in declaration order. Arity info mirrors
     /// this via `params`.
     pub(crate) param_placeholders: Vec<TulispObject>,
