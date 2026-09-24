@@ -133,7 +133,17 @@ fn compile_program(ctx: &mut TulispContext, value: &TulispObject) -> Result<Byte
     // subsequent compiles (e.g., REPL-style) can resolve names that
     // were defined earlier, and each `defun` is in the machine's
     // function table from the moment it compiled.
-    let output = compile_progn(ctx, value)?;
+    pre_register_defun_arities(ctx, value);
+    let keep_result = ctx.compiler.as_ref().unwrap().keep_result;
+    let mut output = vec![];
+    crate::eval::for_each_top_level_form(ctx, value, &mut |ctx, form, last| {
+        output.append(&mut compile_expr_with_keep_result(
+            ctx,
+            form,
+            last && keep_result,
+        )?);
+        Ok(())
+    })?;
     // Assemble the global instruction stream. Per-function bodies
     // were already assembled at their `CompiledDefun` boundary
     // inside `compile_fn_defun`.
@@ -272,18 +282,24 @@ fn try_pre_register_one(ctx: &mut TulispContext, expr: &TulispObject) {
         .insert(name_obj.addr_as_usize(), params_struct);
 }
 
+/// Compiles EXPR with the compiler's `keep_result` set to KEEP.
+fn compile_expr_with_keep_result(
+    ctx: &mut TulispContext,
+    expr: &TulispObject,
+    keep: bool,
+) -> Result<Vec<Instruction>, Error> {
+    let compiler = ctx.compiler.as_mut().unwrap();
+    let keep_result = std::mem::replace(&mut compiler.keep_result, keep);
+    let ret = compile_expr(ctx, expr);
+    ctx.compiler.as_mut().unwrap().keep_result = keep_result;
+    ret
+}
+
 pub(crate) fn compile_expr_keep_result(
     ctx: &mut TulispContext,
     expr: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    let compiler = ctx.compiler.as_mut().unwrap();
-    let keep_result = compiler.keep_result;
-    compiler.keep_result = true;
-    #[allow(dropping_references)]
-    drop(compiler);
-    let ret = compile_expr(ctx, expr);
-    ctx.compiler.as_mut().unwrap().keep_result = keep_result;
-    ret
+    compile_expr_with_keep_result(ctx, expr, true)
 }
 
 /// Compile a progn whose value is dropped, such as a loop body.

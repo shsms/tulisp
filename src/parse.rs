@@ -729,10 +729,7 @@ impl Parser<'_, '_> {
                     }
                 };
                 Ok(Some(
-                    TulispValue::Unquote {
-                        value: macroexpand(self.ctx, next)?,
-                    }
-                    .into_ref(Some(span)),
+                    TulispValue::Unquote { value: next }.into_ref(Some(span)),
                 ))
             }
             Token::Splice { span } => {
@@ -785,7 +782,7 @@ impl Parser<'_, '_> {
         while let Some(next) = self.parse_value()? {
             builder.push(next);
         }
-        macroexpand(self.ctx, builder.build())
+        Ok(builder.build())
     }
 }
 

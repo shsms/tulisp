@@ -879,7 +879,7 @@ mod tests {
         // `mark_tail_calls` now also marks tail calls to other VM defuns
         // as `Bounce`, so mutual recursion compiles to `Instruction::TailCall`
         // (loop-style unwind) rather than nested `Instruction::Call`
-        // (per-cycle Rust frame). A pre-pass in `compile_progn` registers
+        // (per-cycle Rust frame). `pre_register_defun_arities` registers
         // every top-level `(defun NAME PARAMS …)`'s arity before
         // compiling any body, so cycles get full TCO without forward
         // declarations.

@@ -62,6 +62,7 @@ intern_from_obarray! {
         amp_optional: "&optional",
         amp_rest: "&rest",
         lambda: "lambda",
+        progn: "progn",
     }
 }
 
@@ -868,7 +869,12 @@ impl TulispContext {
             #[cfg(feature = "etags")]
             false,
         )?;
-        crate::eval::tw_eval_progn(self, &vv)
+        let mut value = TulispObject::nil();
+        crate::eval::for_each_top_level_form(self, &vv, &mut |ctx, form, _| {
+            value = crate::eval::tw_eval(ctx, form)?;
+            Ok(())
+        })?;
+        Ok(value)
     }
 
     /// Evaluates each form in SEQ, and returns the value of the last

@@ -563,6 +563,11 @@ pub fn macroexpand(ctx: &mut TulispContext, inp: TulispObject) -> Result<TulispO
     macroexpand_depth(ctx, inp, 0, 0)
 }
 
+/// The error for code nested deeper than LIMIT, `max-nesting-depth`.
+fn nesting_exceeded(limit: u32) -> Error {
+    Error::lisp_error(format!("Lisp nesting exceeds max-nesting-depth ({limit})"))
+}
+
 /// Expands FORM once when its head names a macro. `None` when it does
 /// not.
 fn macroexpand_1(
@@ -606,10 +611,7 @@ fn macroexpand_depth(
 ) -> Result<TulispObject, Error> {
     let limit = ctx.max_nesting_depth();
     if depth > limit {
-        return Err(Error::lisp_error(format!(
-            "Lisp nesting exceeds max-nesting-depth ({})",
-            limit
-        )));
+        return Err(nesting_exceeded(limit));
     }
     if !inp.consp() {
         return macroexpand_operand(ctx, inp, depth, quote_depth, false);
@@ -649,6 +651,62 @@ fn macroexpand_operand(
         }
         None => Ok(obj),
     }
+}
+
+/// Runs F on each top-level form of FORMS, in order. Each form's macros
+/// are expanded just before, by the macros defined so far. A form that
+/// expands to a `progn` is entered, and its forms are handled one at a
+/// time. F's flag is true for the form whose value is the program's;
+/// for a last `progn` with no forms, F gets nil.
+pub(crate) fn for_each_top_level_form(
+    ctx: &mut TulispContext,
+    forms: &TulispObject,
+    f: &mut dyn FnMut(&mut TulispContext, &TulispObject, bool) -> Result<(), Error>,
+) -> Result<(), Error> {
+    walk_top_level_forms(ctx, forms, true, 0, f)
+}
+
+/// The walk of [`for_each_top_level_form`]. LAST says whether FORMS
+/// hold the program's value. DEPTH counts the macro expansions and the
+/// `progn`s the walk went through to reach FORMS; past
+/// `max-nesting-depth` it is an error.
+fn walk_top_level_forms(
+    ctx: &mut TulispContext,
+    forms: &TulispObject,
+    last: bool,
+    depth: u32,
+    f: &mut dyn FnMut(&mut TulispContext, &TulispObject, bool) -> Result<(), Error>,
+) -> Result<(), Error> {
+    if last && forms.null() {
+        return f(ctx, &TulispObject::nil(), true);
+    }
+    let mut forms = forms.base_iter().peekable();
+    while let Some(form) = forms.next() {
+        let is_last = last && forms.peek().is_none();
+        let limit = ctx.max_nesting_depth();
+        let mut expanded = form.clone();
+        let mut depth = depth;
+        while let Some(expansion) = macroexpand_1(ctx, &expanded)? {
+            depth += 1;
+            if depth > limit {
+                return Err(nesting_exceeded(limit).with_trace(form));
+            }
+            expanded = expansion;
+        }
+        if expanded.consp() && expanded.car()?.eq(&ctx.keywords.progn) {
+            let body = expanded.cdr()?;
+            crate::lists::length(&body).map_err(|e| e.with_trace(expanded.clone()))?;
+            depth += 1;
+            if depth > limit {
+                return Err(nesting_exceeded(limit).with_trace(form));
+            }
+            walk_top_level_forms(ctx, &body, is_last, depth, f)?;
+        } else {
+            let expanded = with_call_span(macroexpand(ctx, expanded)?, &form);
+            f(ctx, &expanded, is_last)?;
+        }
+    }
+    Ok(())
 }
 
 /// Expands a call to a macro defined in Lisp: runs its body, compiled
@@ -2014,7 +2072,7 @@ mod tests {
             ("(defmacro er2 () (if)) (er2)", "at (er2)"),
             (
                 "(defmacro m (x) `(progn ,x)) (m (car 5))",
-                "1.30-1.40:  at (progn (car 5))",
+                "1.33-1.39:  at (car 5)",
             ),
         ] {
             for result in [ctx.tw_eval_string(program), ctx.eval_string(program)] {
@@ -2022,6 +2080,96 @@ mod tests {
                 assert!(err.contains(needle), "{program}: {err}");
             }
         }
+    }
+
+    // A function body is expanded before its variables are resolved
+    // and its tail calls marked, the code inside an unquote too.
+    #[test]
+    fn a_function_body_is_expanded_before_it_compiles() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(defun h (x) (dolist (x '(1 2) x) x)) (h 5)", "5");
+        eval_assert_equal(ctx, "(let ((a 1)) (when-let ((a (+ a 1))) a))", "2");
+        eval_assert_equal(
+            ctx,
+            "(defmacro get-x () 'x) (defun gx (x) (get-x)) (gx 4)",
+            "4",
+        );
+        eval_assert_equal(
+            ctx,
+            "(defun lp (n) (when (> n 0) (lp (- n 1)))) (lp 100000)",
+            "nil",
+        );
+        eval_assert_equal(
+            ctx,
+            "(defun bx (x) `(v ,(get-x) ,@(when x (list x)))) (bx 4)",
+            "'(v 4 4)",
+        );
+    }
+
+    // Each top-level form expands with the macros defined by the forms
+    // before it, one a macro's expansion defined too.
+    #[test]
+    fn a_macro_a_macro_defines_expands_in_later_forms() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(defmacro def-get-y () '(defmacro get-y () 'y))
+             (def-get-y)
+             (defun gy (y) (get-y))
+             (gy 4)",
+            "4",
+        );
+        eval_assert_equal(
+            ctx,
+            "(defmacro two-defs () '(progn (defmacro sm2 () 3) (defun sf2 () (sm2))))
+             (two-defs)
+             (sf2)",
+            "3",
+        );
+    }
+
+    // A top-level `progn` is entered one form at a time and keeps the
+    // value `progn` gives.
+    #[test]
+    fn a_top_level_progn_keeps_its_value() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(progn)", "nil");
+        eval_assert_equal(ctx, "", "nil");
+        eval_assert_equal(ctx, "(defmacro nothing () '(progn)) 1 (nothing)", "nil");
+        eval_assert_equal(ctx, "(progn 1 (progn 2 3))", "3");
+        eval_assert_equal(ctx, "(progn 1 (progn 2 (progn)))", "nil");
+    }
+
+    // The tree-walker expands a macro call when it runs it, so a
+    // function body may use a macro defined after the function.
+    #[test]
+    fn a_function_body_may_use_a_later_macro_in_the_tree_walker() {
+        let ctx = &mut TulispContext::new();
+        let got = ctx
+            .tw_eval_string("(defun uses-m () (m2)) (defmacro m2 () 1) (uses-m)")
+            .unwrap();
+        assert_eq!(got.to_string(), "1");
+    }
+
+    // A macro that keeps expanding to a `progn` that uses it again is
+    // an error, not a stack overflow.
+    #[test]
+    fn a_macro_expanding_to_itself_in_a_progn_is_an_error() {
+        let ctx = &mut TulispContext::new();
+        ctx.set_max_eval_depth(10);
+        eval_assert_error_line(
+            ctx,
+            "(defmacro inf () '(progn 1 (inf))) (inf)",
+            "ERR LispError: Lisp nesting exceeds max-nesting-depth (40)",
+        );
+        // One expansion to `progn`s nested past the limit.
+        eval_assert_error_line(
+            ctx,
+            "(defmacro deep ()
+               (let ((x 1)) (dotimes (_ 50) (setq x (list 'progn x))) x))
+             (deep)",
+            "ERR LispError: Lisp nesting exceeds max-nesting-depth (40)",
+        );
     }
 
     // `macroexpand` expands the code an unquote or a splice runs, and

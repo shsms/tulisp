@@ -195,8 +195,8 @@ pub(super) fn compile_form(
                 );
             }
             (TulispValue::Defmacro { .. }, _) | (TulispValue::Macro(..), _) => {
-                // TODO: this should not be necessary, this should be
-                // handled in the parser instead.
+                // A macro call the top-level expansion did not see, such
+                // as one to a macro defined earlier in the same form.
                 let form = macroexpand(ctx, form.clone())?;
                 return compile_expr(ctx, &form);
             }
