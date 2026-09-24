@@ -622,7 +622,7 @@ impl TulispContext {
     /// Evaluates the given value and returns the result.
     #[inline(always)]
     pub fn eval(&mut self, value: &TulispObject) -> Result<TulispObject, Error> {
-        eval_basic(self, value).map(|x| x.into_owned())
+        crate::eval::tw_eval(self, value)
     }
 
     /// Evaluates the given value, run the given function on the result of the
@@ -783,28 +783,14 @@ impl TulispContext {
             #[cfg(feature = "etags")]
             false,
         )?;
-        self.eval_progn(&vv)
+        crate::eval::tw_eval_progn(self, &vv)
     }
 
     /// Evaluates each item in the given sequence, and returns the value of the
     /// last one.
     #[inline(always)]
     pub fn eval_progn(&mut self, seq: &TulispObject) -> Result<TulispObject, Error> {
-        let mut ret = None;
-
-        let mut forms = seq.base_iter();
-        for val in forms.by_ref() {
-            match eval_basic(self, &val)? {
-                std::borrow::Cow::Borrowed(_) => {
-                    ret = Some(val);
-                }
-                std::borrow::Cow::Owned(o) => {
-                    ret = Some(o);
-                }
-            };
-        }
-        forms.take_error()?;
-        Ok(ret.unwrap_or_else(TulispObject::nil))
+        crate::eval::tw_eval_progn(self, seq)
     }
 
     /// Evaluates each item in the given sequence, and returns the value of
@@ -956,7 +942,37 @@ impl Drop for FrameGuard<'_> {
 #[cfg(test)]
 mod tests {
     use crate::test_utils::{eval_assert, eval_assert_equal, eval_assert_not};
-    use crate::{Error, TulispContext, TulispObject};
+    use crate::{Error, TulispContext, TulispObject, TulispValue};
+
+    // The tree-walker path the test helpers compare against stays a
+    // tree-walker path: its lambdas are tree-walker lambdas.
+    #[test]
+    fn tw_eval_string_stays_in_the_tree_walker() {
+        let ctx = &mut TulispContext::new();
+        for program in [
+            "(lambda (x) x)",
+            "(progn (lambda (x) x))",
+            "(if t (lambda (x) x))",
+            "(let ((y 1)) (lambda (x) x))",
+            "(catch 'tag (lambda (x) x))",
+            "(condition-case nil (lambda (x) x) (error nil))",
+            "(funcall (lambda () (lambda (x) x)))",
+        ] {
+            let value = ctx.tw_eval_string(program).unwrap();
+            assert!(
+                matches!(&value.inner_ref().0, TulispValue::Lambda { .. }),
+                "{program}: {value}"
+            );
+        }
+        // An unquoted expression inside a backquote too.
+        for program in ["`(,(lambda (x) x))", "`(,@(list (lambda (x) x)))"] {
+            let value = ctx.tw_eval_string(program).unwrap().car().unwrap();
+            assert!(
+                matches!(&value.inner_ref().0, TulispValue::Lambda { .. }),
+                "{program}: {value}"
+            );
+        }
+    }
 
     // The Rust API resolves a function the way `funcall` does: a
     // symbol or a lambda list is looked up, any other list is not

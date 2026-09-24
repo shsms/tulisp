@@ -10,6 +10,7 @@ use crate::eval::EvalInto;
 use crate::eval::resolve_function;
 use crate::eval::substitute_lexical;
 use crate::eval::{WrappedOperand, wrapped_operand};
+use crate::eval::{tw_eval, tw_eval_progn};
 use crate::list;
 use crate::object::wrappers::generic::{Shared, SharedMut};
 use crate::value::{DefunParams, LexAllocator};
@@ -236,7 +237,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defspecial("while", |ctx, args| {
         destruct_bind!((condition &rest rest) = args);
         while condition.eval_into(ctx)? {
-            ctx.eval_progn(&rest)?;
+            tw_eval_progn(ctx, &rest)?;
         }
         Ok(TulispObject::nil())
     });
@@ -255,7 +256,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                         "setq requires exactly 2 arguments".to_string(),
                     ));
                 }
-                args.car_and_then(|arg| ctx.eval(arg))
+                args.car_and_then(|arg| tw_eval(ctx, arg))
             })
         })?;
         args.car_and_then(|name| name.set(value.clone()))?;
@@ -324,7 +325,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                     ));
                 }
                 let value_expr = substitute_lexical(value, &mappings)?;
-                let initial = ctx.eval(&value_expr)?;
+                let initial = tw_eval(ctx, &value_expr)?;
                 (name, initial)
             } else {
                 return Err(Error::syntax_error(format!(
@@ -348,12 +349,12 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         varitems.take_error()?;
 
         let rewritten = substitute_lexical(body, &mappings)?;
-        ctx.eval_progn(&rewritten)
+        tw_eval_progn(ctx, &rewritten)
     }
     ctx.defspecial("let", impl_let);
     ctx.defspecial("let*", impl_let);
 
-    ctx.defspecial("progn", |ctx, args| ctx.eval_progn(args));
+    ctx.defspecial("progn", tw_eval_progn);
 
     ctx.defspecial("defun", |ctx, args| {
         destruct_bind!((name params &rest rest) = args);
@@ -594,13 +595,13 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             ));
         }
         destruct_bind!((name &rest rest) = args);
-        let name = ctx.eval(&name)?;
+        let name = tw_eval(ctx, &name)?;
         let name = resolve_function(ctx, &name)?;
 
         let mut evaluated: Vec<TulispObject> = Vec::new();
         let mut arg_forms = rest.base_iter();
         for arg in arg_forms.by_ref() {
-            evaluated.push(ctx.eval(&arg)?);
+            evaluated.push(tw_eval(ctx, &arg)?);
         }
         arg_forms.take_error()?;
         let Some(final_list) = evaluated.pop() else {
@@ -641,7 +642,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     ctx.defspecial("funcall", |ctx, args| {
         destruct_bind!((name &rest rest) = args);
-        let name = ctx.eval(&name)?;
+        let name = tw_eval(ctx, &name)?;
         let name = resolve_function(ctx, &name)?;
         // Lambda / Defun / CompiledDefun all expect their args to be
         // already-evaluated values. Pass through `Eval` so the rest
@@ -801,7 +802,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         // the flag is set even if initval errors.
         name.set_special()?;
         if !name.boundp() {
-            let val = ctx.eval(&initval)?;
+            let val = tw_eval(ctx, &initval)?;
             name.set(val)?;
         }
         Ok(name)

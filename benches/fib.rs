@@ -33,9 +33,9 @@ fn main() -> Result<(), Error> {
     {
         let mut ctx = TulispContext::new();
         ctx.tw_eval_string(FIB_INT_DEFUN)?;
-        let program = ctx.tw_eval_string(&format!("'(fib {})", FIB_N))?;
+        let fib = ctx.intern("fib");
         results.push(common::run("fib_int_tw_call", || {
-            let result: i64 = ctx.eval(&program)?.try_into()?;
+            let result: i64 = ctx.funcall(&fib, (FIB_N,))?.try_into()?;
             Ok(black_box(result).to_string())
         })?);
     }
@@ -71,9 +71,9 @@ fn main() -> Result<(), Error> {
     {
         let mut ctx = TulispContext::new();
         ctx.tw_eval_string(FIB_FLOAT_DEFUN)?;
-        let program = ctx.tw_eval_string(&format!("'(fib {})", FIB_N))?;
+        let fib = ctx.intern("fib");
         results.push(common::run("fib_float_tw_call", || {
-            let result: f64 = ctx.eval(&program)?.try_into()?;
+            let result: f64 = ctx.funcall(&fib, (FIB_N,))?.try_into()?;
             Ok(black_box(result).to_string())
         })?);
     }

@@ -1,4 +1,5 @@
 use crate::eval::EvalInto;
+use crate::eval::{tw_eval, tw_eval_progn};
 
 use crate::{
     Error, TulispContext, TulispObject, destruct_bind,
@@ -12,9 +13,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defspecial("if", |ctx, args| {
         destruct_bind!((cond then &rest body) = args);
         if cond.eval_into(ctx)? {
-            ctx.eval(&then)
+            tw_eval(ctx, &then)
         } else {
-            ctx.eval_progn(&body)
+            tw_eval_progn(ctx, &body)
         }
     });
 
@@ -35,7 +36,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defspecial("cond", |ctx, args| {
         for item in args.base_iter() {
             if item.car_and_then(|x| x.eval_into(ctx))? {
-                return item.cdr_and_then(|x| ctx.eval_progn(x));
+                return item.cdr_and_then(|x| tw_eval_progn(ctx, x));
             }
         }
         Ok(TulispObject::nil())

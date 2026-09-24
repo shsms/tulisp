@@ -1,6 +1,7 @@
 use crate::{
     Error, ErrorKind, TulispContext, TulispObject, TulispValue, destruct_bind,
-    eval::substitute_lexical, object::wrappers::generic::SharedMut,
+    eval::{substitute_lexical, tw_eval, tw_eval_progn},
+    object::wrappers::generic::SharedMut,
 };
 
 pub(crate) fn add(ctx: &mut TulispContext) {
@@ -10,8 +11,8 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     ctx.defspecial("catch", |ctx, args| {
         destruct_bind!((tag &rest body) = args);
-        let tag = ctx.eval(&tag)?;
-        ctx.eval_progn(&body).or_else(|err| catch_throw(err, &tag))
+        let tag = tw_eval(ctx, &tag)?;
+        tw_eval_progn(ctx, &body).or_else(|err| catch_throw(err, &tag))
     });
 
     ctx.defun(
@@ -34,8 +35,8 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     // error when cleanup is `Err`, otherwise the BODYFORM's `result`.
     ctx.defspecial("unwind-protect", |ctx, args| {
         destruct_bind!((bodyform &rest unwindforms) = args);
-        let result = ctx.eval(&bodyform);
-        let cleanup = ctx.eval_progn(&unwindforms);
+        let result = tw_eval(ctx, &bodyform);
+        let cleanup = tw_eval_progn(ctx, &unwindforms);
         cleanup.and(result)
     });
 
@@ -53,7 +54,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         destruct_bind!((var protected_form &rest handlers) = args);
         check_condition_case_var(&var)?;
         let handlers = parse_handlers(&handlers)?;
-        let err = match ctx.eval(&protected_form) {
+        let err = match tw_eval(ctx, &protected_form) {
             Ok(value) => return Ok(value),
             Err(err) => err,
         };
@@ -65,13 +66,13 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 continue;
             }
             if var.null() {
-                return ctx.eval_progn(&body);
+                return tw_eval_progn(ctx, &body);
             }
             crate::builtin::check_settable_target(&var)?;
             let data = error_data(ctx, kind_sym, &err);
             if var.is_special() {
                 var.set_scope(data)?;
-                let result = ctx.eval_progn(&body);
+                let result = tw_eval_progn(ctx, &body);
                 let _ = var.unset();
                 return result;
             }
@@ -81,7 +82,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 SharedMut::new(data),
             );
             let body = substitute_lexical(body, &[(var.clone(), lex)])?;
-            return ctx.eval_progn(&body);
+            return tw_eval_progn(ctx, &body);
         }
         Err(err)
     });

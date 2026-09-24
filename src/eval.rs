@@ -152,7 +152,7 @@ fn eval_function<E: Evaluator>(
     for val in vals {
         guard.push(val);
     }
-    ctx.eval_progn(body)
+    tw_eval_progn(ctx, body)
 }
 
 #[inline(always)]
@@ -231,7 +231,7 @@ pub(crate) fn resolve_function(
     let resolved = if func.symbolp() {
         func.get()?
     } else if is_lambda_list(ctx, func) {
-        ctx.eval(func)?
+        tw_eval(ctx, func)?
     } else {
         func.clone()
     };
@@ -276,7 +276,7 @@ pub(crate) fn funcall<E: Evaluator>(
         }
         TulispValue::Macro(_) | TulispValue::Defmacro { .. } => {
             let expanded = macroexpand(ctx, list!(func.clone() ,@args.clone())?)?;
-            ctx.eval(&expanded)
+            tw_eval(ctx, &expanded)
         }
         _ => Err(Error::undefined(format!("function is void: {}", func))),
     }
@@ -289,7 +289,7 @@ pub(crate) fn eval_form<E: Evaluator>(
 ) -> Result<TulispObject, Error> {
     let func = match val.ctxobj() {
         Some(func) => func,
-        None => val.car_and_then(|name| ctx.eval(name))?,
+        None => val.car_and_then(|name| tw_eval(ctx, name))?,
     };
     funcall::<E>(ctx, &func, &val.cdr()?)
 }
@@ -318,8 +318,7 @@ fn eval_back_quote(
             if depth == 1 {
                 let v = value.clone();
                 drop(inner);
-                return ctx
-                    .eval(&v)
+                return tw_eval(ctx, &v)
                     .map_err(|e| e.with_trace(vv.clone()))
                     .map(|x| x.with_span(v.span()));
             }
@@ -336,8 +335,7 @@ fn eval_back_quote(
                 // the last argument of `append` is.
                 let v = value.clone();
                 drop(inner);
-                return ctx
-                    .eval(&v)
+                return tw_eval(ctx, &v)
                     .map_err(|e| e.with_trace(vv.clone()))
                     .map(|val| val.with_span(v.span()));
             }
@@ -381,8 +379,7 @@ fn eval_back_quote(
         if depth == 1
             && let TulispValue::Splice { value } = &first.inner_ref().0
         {
-            let value = ctx
-                .eval(value)
+            let value = tw_eval(ctx, value)
                 .map_err(|e| e.with_trace(first.clone()))?
                 .with_span(value.span());
             pieces.push((value, Some(first.clone())));
@@ -444,12 +441,38 @@ fn eval_back_quote_operand(
     if depth == 1
         && let TulispValue::Splice { value } = &x.inner_ref().0
     {
-        return ctx
-            .eval(value)
+        return tw_eval(ctx, value)
             .and_then(|list| crate::lists::sole_element(&list, empty_is_nil))
             .map_err(|e| e.with_trace(x.clone()));
     }
     eval_back_quote(ctx, x.clone(), depth)
+}
+
+/// Evaluates VALUE in the tree-walker.
+#[inline(always)]
+pub(crate) fn tw_eval(
+    ctx: &mut TulispContext,
+    value: &TulispObject,
+) -> Result<TulispObject, Error> {
+    eval_basic(ctx, value).map(Cow::into_owned)
+}
+
+/// Evaluates each form in SEQ in the tree-walker, and returns the value
+/// of the last one, or nil for none.
+pub(crate) fn tw_eval_progn(
+    ctx: &mut TulispContext,
+    seq: &TulispObject,
+) -> Result<TulispObject, Error> {
+    let mut ret = None;
+    let mut forms = seq.base_iter();
+    for val in forms.by_ref() {
+        match eval_basic(ctx, &val)? {
+            Cow::Borrowed(_) => ret = Some(val),
+            Cow::Owned(o) => ret = Some(o),
+        };
+    }
+    forms.take_error()?;
+    Ok(ret.unwrap_or_else(TulispObject::nil))
 }
 
 #[inline(always)]

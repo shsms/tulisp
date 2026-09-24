@@ -642,7 +642,7 @@ impl Parser<'_, '_> {
             }
 
             inner = macroexpand(self.ctx, inner)?;
-            self.ctx.eval(&inner)?;
+            crate::eval::tw_eval(self.ctx, &inner)?;
             // recursively update ctx obj in case it is a recursive function.
             recursive_update_ctxobj(&inner)?;
         }
