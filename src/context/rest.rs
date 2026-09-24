@@ -1,4 +1,4 @@
-use crate::{TulispConvertible, TulispObject};
+use crate::TulispObject;
 
 /// A variadic tail argument in a [`defun`](crate::TulispContext::defun) function.
 ///
@@ -25,10 +25,7 @@ impl From<Rest<TulispObject>> for TulispObject {
     }
 }
 
-impl<T> FromIterator<T> for Rest<T>
-where
-    T: TulispConvertible + 'static,
-{
+impl<T> FromIterator<T> for Rest<T> {
     // Every `T` collects into a `Vec`, `TulispObject` too: building
     // a list here would cost one cons cell per argument on every
     // call, and most callers only iterate.
@@ -39,14 +36,23 @@ where
     }
 }
 
-impl<T> IntoIterator for Rest<T>
-where
-    T: TulispConvertible,
-{
+impl<T> IntoIterator for Rest<T> {
     type Item = T;
     type IntoIter = std::vec::IntoIter<T>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.values.into_iter()
+    }
+}
+
+impl Rest<crate::Form> {
+    /// Evaluates each form in order, and returns the value of the last
+    /// one, or nil for none.
+    pub fn eval_progn(&self, ctx: &mut crate::TulispContext) -> Result<TulispObject, crate::Error> {
+        let mut value = TulispObject::nil();
+        for form in &self.values {
+            value = form.eval(ctx)?;
+        }
+        Ok(value)
     }
 }

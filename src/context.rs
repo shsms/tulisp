@@ -1,4 +1,5 @@
 pub(crate) mod callable;
+pub(crate) mod special;
 
 mod rest;
 pub use rest::Rest;
@@ -633,8 +634,9 @@ impl TulispContext {
     /// other VALUE is compiled and run in the VM on every call; to run
     /// the same code often, compile it once, for example as a lambda,
     /// and [`funcall`](Self::funcall) it. VALUE sees global and special
-    /// variables. It sees the lexical variables of the code calling this
-    /// only through an object that holds them.
+    /// variables. It sees the lexical variables of the calling code only
+    /// in a [`Form::source`](crate::Form::source), while the call runs; a
+    /// quoted list sees only global and special variables.
     pub fn eval(&mut self, value: &TulispObject) -> Result<TulispObject, Error> {
         if value.symbolp() || value.is_symbol_variant() {
             return value.get();
