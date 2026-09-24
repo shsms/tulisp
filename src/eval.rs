@@ -663,18 +663,21 @@ pub(crate) fn for_each_top_level_form(
     forms: &TulispObject,
     f: &mut dyn FnMut(&mut TulispContext, &TulispObject, bool) -> Result<(), Error>,
 ) -> Result<(), Error> {
-    walk_top_level_forms(ctx, forms, true, 0, f)
+    walk_top_level_forms(ctx, forms, true, 0, None, f)
 }
 
 /// The walk of [`for_each_top_level_form`]. LAST says whether FORMS
 /// hold the program's value. DEPTH counts the macro expansions and the
 /// `progn`s the walk went through to reach FORMS; past
-/// `max-nesting-depth` it is an error.
+/// `max-nesting-depth` it is an error. CALL is the `progn`, or the
+/// macro call, that FORMS came from: an error in an atom or in a form
+/// without a source location points at it.
 fn walk_top_level_forms(
     ctx: &mut TulispContext,
     forms: &TulispObject,
     last: bool,
     depth: u32,
+    call: Option<&TulispObject>,
     f: &mut dyn FnMut(&mut TulispContext, &TulispObject, bool) -> Result<(), Error>,
 ) -> Result<(), Error> {
     if last && forms.null() {
@@ -684,25 +687,45 @@ fn walk_top_level_forms(
     while let Some(form) = forms.next() {
         let is_last = last && forms.peek().is_none();
         let limit = ctx.max_nesting_depth();
+        // A symbol's span is not its own: one symbol is shared by every
+        // place it is read. Other atoms are treated the same way.
+        let site = call
+            .filter(|_| !form.consp() || form.span().is_none())
+            .unwrap_or(&form)
+            .clone();
+        let at_site = |e: Error| {
+            if site.eq_ptr(&form) {
+                e
+            } else {
+                e.with_trace(site.clone())
+            }
+        };
         let mut expanded = form.clone();
         let mut depth = depth;
-        while let Some(expansion) = macroexpand_1(ctx, &expanded)? {
+        while let Some(expansion) = macroexpand_1(ctx, &expanded).map_err(at_site)? {
             depth += 1;
             if depth > limit {
-                return Err(nesting_exceeded(limit).with_trace(form));
+                return Err(nesting_exceeded(limit).with_trace(site));
             }
             expanded = expansion;
         }
         if expanded.consp() && expanded.car()?.eq(&ctx.keywords.progn) {
             let body = expanded.cdr()?;
-            crate::lists::length(&body).map_err(|e| e.with_trace(expanded.clone()))?;
+            crate::lists::length(&body)
+                .map_err(|e| e.with_trace(with_call_span(expanded.clone(), &site)))?;
             depth += 1;
             if depth > limit {
-                return Err(nesting_exceeded(limit).with_trace(form));
+                return Err(nesting_exceeded(limit).with_trace(site));
             }
-            walk_top_level_forms(ctx, &body, is_last, depth, f)?;
+            walk_top_level_forms(ctx, &body, is_last, depth, Some(&site), f)?;
         } else {
-            let expanded = with_call_span(macroexpand(ctx, expanded)?, &form);
+            let mut expanded = macroexpand(ctx, expanded).map_err(at_site)?;
+            // An atom from a `progn` runs in a `progn` that has the site's
+            // location.
+            if !expanded.consp() && !site.eq_ptr(&form) && site.span().is_some() {
+                expanded = list!(ctx.keywords.progn.clone(), expanded)?.with_span(site.span());
+            }
+            let expanded = with_call_span(expanded, &site);
             f(ctx, &expanded, is_last)?;
         }
     }
@@ -2170,6 +2193,25 @@ mod tests {
              (deep)",
             "ERR LispError: Lisp nesting exceeds max-nesting-depth (40)",
         );
+    }
+
+    // An error in a form of an entered `progn` points at the `progn`,
+    // or at the macro call that produced it.
+    #[test]
+    fn an_error_in_an_entered_progn_is_traced_to_it() {
+        let ctx = &mut TulispContext::new();
+        for program in [
+            "(defmacro m (a) `(progn (defun zz () 1) (car ,a)))\n(m 5)",
+            "(defmacro m () (list 'progn (list 'car 5)))\n(m)",
+            "(defmacro dp () (cons 'progn 7))\n(dp)",
+            "(defmacro ua () (list 'progn 1 'unbound-zz))\n(ua)",
+            "\n(progn 1 unbound-zz)",
+        ] {
+            for result in [ctx.tw_eval_string(program), ctx.eval_string(program)] {
+                let err = result.unwrap_err().format(ctx);
+                assert!(err.contains("<eval_string>:2.1-2."), "{program}: {err}");
+            }
+        }
     }
 
     // `macroexpand` expands the code an unquote or a splice runs, and
