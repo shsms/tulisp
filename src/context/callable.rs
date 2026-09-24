@@ -13,6 +13,11 @@ pub enum ParamKind {
     /// Every remaining argument, as keyword/value pairs in a
     /// [`Plist<T>`].
     Plist,
+    /// One argument at this position, passed unevaluated as a `Form`;
+    /// `required` is false for `Option<Form>`.
+    Form { required: bool },
+    /// Every remaining argument, unevaluated, as a `Rest<Form>`.
+    RestForm,
 }
 
 /// A parameter of a function registered with
@@ -102,12 +107,14 @@ pub(crate) fn arity(kinds: &[ParamKind]) -> DefunArity {
     let mut has_rest = false;
     for (index, kind) in kinds.iter().enumerate() {
         match kind {
-            ParamKind::Positional { required: true } => {
+            ParamKind::Positional { required: true } | ParamKind::Form { required: true } => {
                 required = index + 1;
                 positional = index + 1;
             }
-            ParamKind::Positional { required: false } => positional = index + 1,
-            ParamKind::Rest | ParamKind::Plist => has_rest = true,
+            ParamKind::Positional { required: false } | ParamKind::Form { required: false } => {
+                positional = index + 1
+            }
+            ParamKind::Rest | ParamKind::Plist | ParamKind::RestForm => has_rest = true,
         }
     }
     DefunArity {
@@ -184,6 +191,17 @@ mod tests {
     use crate::test_utils::{eval_assert, eval_assert_equal, eval_assert_error};
     use crate::value::DefunArity;
     use crate::{Error, Plist, Rest, TulispContext, TulispObject};
+
+    #[test]
+    fn arity_counts_forms_as_positions() {
+        let a = arity(&[
+            ParamKind::Positional { required: true },
+            ParamKind::Form { required: true },
+            ParamKind::Form { required: false },
+            ParamKind::RestForm,
+        ]);
+        assert_eq!((a.required, a.optional, a.has_rest), (2, 1, true));
+    }
 
     #[test]
     fn a_missing_required_position_is_an_error() {
