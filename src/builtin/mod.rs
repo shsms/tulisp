@@ -298,4 +298,52 @@ mod tests {
             "'(45 30 20 15 10)",
         );
     }
+
+    #[test]
+    fn prog1_and_prog2_are_prelude_macros() {
+        let ctx = &mut TulispContext::new();
+        // prog1 returns FIRST, evaluates BODY for side effects.
+        eval_assert_equal(
+            ctx,
+            "(let ((trace nil))
+           (prog1 (progn (setq trace (cons 1 trace)) 'first)
+                  (setq trace (cons 2 trace))
+                  (setq trace (cons 3 trace))))",
+            "'first",
+        );
+        // Order of evaluation is FIRST, then BODY left-to-right.
+        eval_assert_equal(
+            ctx,
+            "(let ((trace nil))
+           (prog1 (progn (setq trace (cons 1 trace)) 'first)
+                  (setq trace (cons 2 trace))
+                  (setq trace (cons 3 trace)))
+           (reverse trace))",
+            "'(1 2 3)",
+        );
+        // prog1 with no body still returns FIRST.
+        eval_assert_equal(ctx, "(prog1 42)", "42");
+        // prog2 returns SECOND.
+        eval_assert_equal(ctx, "(prog2 1 2 3 4)", "2");
+        // prog2 evaluates FIRST, then SECOND, then BODY.
+        eval_assert_equal(
+            ctx,
+            "(let ((trace nil))
+           (prog2 (setq trace (cons 1 trace))
+                  (setq trace (cons 2 trace))
+                  (setq trace (cons 3 trace)))
+           (reverse trace))",
+            "'(1 2 3)",
+        );
+        // Hygiene: a user variable named `prog1-result` doesn't collide
+        // with the macro's internal gensym.
+        eval_assert_equal(
+            ctx,
+            "(let ((prog1-result 'outer))
+           (prog1 'returned
+                  (setq prog1-result 'mutated))
+           prog1-result)",
+            "'mutated",
+        );
+    }
 }

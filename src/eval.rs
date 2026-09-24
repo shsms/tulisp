@@ -1736,4 +1736,78 @@ mod tests {
             "22",
         );
     }
+
+    #[test]
+    fn defmacro_expands_and_checks_arity() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(defmacro num ()  4) (macroexpand '(num))", "4");
+        eval_assert_equal(
+            ctx,
+            r##"
+        (defmacro inc (var)
+          "Have a docstring"
+          (list 'setq var (list '+ 1 var)))
+
+        (macroexpand '(inc x))
+        "##,
+            "'(setq x (+ 1 x))",
+        );
+        eval_assert_equal(
+            ctx,
+            "(defmacro inc (var)  (list 'setq var (list '+ 1 var))) (let ((x 4)) (inc x))",
+            "5",
+        );
+        eval_assert_error(
+            ctx,
+            "(defmacro inc (var)  (list 'setq var (list '+ 1 var))) (let ((x 4)) (inc))",
+            r#"ERR ArityMismatch: Too few arguments
+<eval_string>:1.69-1.73:  at (inc)
+"#,
+        );
+        eval_assert_error(
+            ctx,
+            "(defmacro inc (var)  (list 'setq var (list '+ 1 var))) (let ((x 4)) (inc 4 5))",
+            r#"ERR ArityMismatch: Too many arguments
+<eval_string>:1.69-1.77:  at (inc 4 5)
+"#,
+        );
+    }
+
+    #[test]
+    fn macroexpand_runs_a_macro_body() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            r#"
+        (defmacro make (alist)
+          (setq make-args alist)
+          t)
+
+        (eval (list 'make `(,(cons 'a 1) ,(cons 'b 2))))
+
+        make-args
+        "#,
+            r#"'((a . 1) (b . 2))"#,
+        );
+
+        eval_assert_equal(
+            ctx,
+            r#"
+        (macroexpand '(make ((a . 1) (b . 2) (c . 3))))
+
+        make-args
+        "#,
+            r#"'((a . 1) (b . 2) (c . 3))"#,
+        );
+
+        eval_assert_equal(
+            ctx,
+            r#"
+        (make ((a . 1) (b . 2) (c . 3) (d . 4)))
+
+        make-args
+        "#,
+            r#"'((a . 1) (b . 2) (c . 3) (d . 4))"#,
+        );
+    }
 }

@@ -250,36 +250,6 @@ fn test_defun() -> Result<(), Error> {
 "#
     }
     tulisp_assert! {
-        program: "(defmacro num ()  4) (macroexpand '(num))",
-        result: "4",
-    }
-    tulisp_assert! {
-        program: r##"
-        (defmacro inc (var)
-          "Have a docstring"
-          (list 'setq var (list '+ 1 var)))
-
-        (macroexpand '(inc x))
-        "##,
-        result: "'(setq x (+ 1 x))",
-    }
-    tulisp_assert! {
-        program: "(defmacro inc (var)  (list 'setq var (list '+ 1 var))) (let ((x 4)) (inc x))",
-        result: "5",
-    }
-    tulisp_assert! {
-        program: "(defmacro inc (var)  (list 'setq var (list '+ 1 var))) (let ((x 4)) (inc))",
-        error: r#"ERR ArityMismatch: Too few arguments
-<eval_string>:1.69-1.73:  at (inc)
-"#
-    }
-    tulisp_assert! {
-        program: "(defmacro inc (var)  (list 'setq var (list '+ 1 var))) (let ((x 4)) (inc 4 5))",
-        error: r#"ERR ArityMismatch: Too many arguments
-<eval_string>:1.69-1.77:  at (inc 4 5)
-"#
-    }
-    tulisp_assert! {
         program: "((lambda (v1 v2) (+ v1 v2)) 10 20)",
         result: "30",
     }
@@ -2470,46 +2440,6 @@ tests/bad-load.lisp:1.9-1.9:  at nil
 }
 
 #[test]
-fn test_macroexpand() -> Result<(), Error> {
-    let mut ctx = TulispContext::new();
-    tulisp_assert! {
-        ctx: ctx,
-        program: r#"
-        (defmacro make (alist)
-          (setq make-args alist)
-          t)
-
-        (eval (list 'make `(,(cons 'a 1) ,(cons 'b 2))))
-
-        make-args
-        "#,
-        result: r#"'((a . 1) (b . 2))"#,
-    }
-
-    tulisp_assert! {
-        ctx: ctx,
-        program: r#"
-        (macroexpand '(make ((a . 1) (b . 2) (c . 3))))
-
-        make-args
-        "#,
-        result: r#"'((a . 1) (b . 2) (c . 3))"#,
-    }
-
-    tulisp_assert! {
-        ctx: ctx,
-        program: r#"
-        (make ((a . 1) (b . 2) (c . 3) (d . 4)))
-
-        make-args
-        "#,
-        result: r#"'((a . 1) (b . 2) (c . 3) (d . 4))"#,
-    }
-
-    Ok(())
-}
-
-#[test]
 fn test_hash_table() -> Result<(), Error> {
     tulisp_assert! {
         program: r#"
@@ -2626,50 +2556,6 @@ fn test_funcall_shadowing_keeps_namespaces_separate() -> Result<(), Error> {
             .to_string(),
         "\"rust-global\"",
     );
-    Ok(())
-}
-
-#[test]
-fn test_prog1_prog2() -> Result<(), Error> {
-    // prog1 returns FIRST, evaluates BODY for side effects.
-    tulisp_assert! { program:
-        "(let ((trace nil))
-           (prog1 (progn (setq trace (cons 1 trace)) 'first)
-                  (setq trace (cons 2 trace))
-                  (setq trace (cons 3 trace))))",
-        result: "'first"
-    }
-    // Order of evaluation is FIRST, then BODY left-to-right.
-    tulisp_assert! { program:
-        "(let ((trace nil))
-           (prog1 (progn (setq trace (cons 1 trace)) 'first)
-                  (setq trace (cons 2 trace))
-                  (setq trace (cons 3 trace)))
-           (reverse trace))",
-        result: "'(1 2 3)"
-    }
-    // prog1 with no body still returns FIRST.
-    tulisp_assert! { program: "(prog1 42)", result: "42" }
-    // prog2 returns SECOND.
-    tulisp_assert! { program: "(prog2 1 2 3 4)", result: "2" }
-    // prog2 evaluates FIRST, then SECOND, then BODY.
-    tulisp_assert! { program:
-        "(let ((trace nil))
-           (prog2 (setq trace (cons 1 trace))
-                  (setq trace (cons 2 trace))
-                  (setq trace (cons 3 trace)))
-           (reverse trace))",
-        result: "'(1 2 3)"
-    }
-    // Hygiene: a user variable named `prog1-result` doesn't collide
-    // with the macro's internal gensym.
-    tulisp_assert! { program:
-        "(let ((prog1-result 'outer))
-           (prog1 'returned
-                  (setq prog1-result 'mutated))
-           prog1-result)",
-        result: "'mutated"
-    }
     Ok(())
 }
 
