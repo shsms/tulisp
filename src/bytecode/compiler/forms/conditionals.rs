@@ -121,15 +121,25 @@ pub(super) fn compile_fn_cond(
             &mut ctx
                 .compile_1_arg_call(&"cond-branch".into(), &branch, true, |ctx, cond, body| {
                     let mut result = compile_expr_keep_result(ctx, cond)?;
+                    let end = Pos::Label(cond_end.clone());
+                    // A clause with no body gives its condition's value.
+                    if body.null() {
+                        result.push(if ctx.compiler.as_ref().unwrap().keep_result {
+                            Instruction::JumpIfNotNilElsePop(end)
+                        } else {
+                            Instruction::JumpIfNotNil(end)
+                        });
+                        return Ok(result);
+                    }
                     let mut body = compile_progn(ctx, body)?;
 
                     push_jump_if_nil(&mut result, Pos::Rel(body.len() as isize + 1));
                     result.append(&mut body);
+                    result.push(Instruction::Jump(end));
                     Ok(result)
                 })
                 .map_err(|err| err.with_trace(branch))?,
         );
-        result.push(Instruction::Jump(Pos::Label(cond_end.clone())));
     }
     let compiler = ctx.compiler.as_mut().unwrap();
     if compiler.keep_result {
@@ -432,6 +442,27 @@ mod tests {
             &mut ctx,
             "(progn (defun f (n) (if (<= n 2) 1 (+ (f (- n 1)) (f (- n 2))))) (f 10))",
             "55",
+        );
+    }
+
+    // A `cond` clause with no body gives the value of its condition,
+    // which runs once.
+    #[test]
+    fn a_cond_clause_without_a_body_gives_its_condition() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(cond (5))", "5");
+        eval_assert_equal(ctx, "(cond (nil) ((+ 1 2)))", "3");
+        eval_assert_equal(ctx, "(let ((n 0)) (cond ((setq n (1+ n)))) n)", "1");
+        eval_assert_equal(
+            ctx,
+            "(let ((n 0)) (list (cond ((progn (setq n (1+ n)) nil)) (t 7)) n))",
+            "'(7 1)",
+        );
+        eval_assert_equal(ctx, "(cond (nil))", "nil");
+        eval_assert_equal(
+            ctx,
+            "(defun f (x) (cond ((car x)) (t 'none))) (list (f '(4)) (f nil))",
+            "'(4 none)",
         );
     }
 
