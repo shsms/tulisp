@@ -25,6 +25,14 @@ pub(crate) fn classify_free_vars(
     Ok(free)
 }
 
+/// The free variables of `lambda`, a whole `(lambda PARAMS BODY...)`
+/// form.
+pub(crate) fn lambda_free_vars(lambda: &TulispObject) -> Result<Vec<TulispObject>, Error> {
+    let mut free = Vec::new();
+    visit(lambda, &mut free, &mut Vec::new(), 0)?;
+    Ok(free)
+}
+
 fn is_bound(scopes: &[Vec<TulispObject>], sym: &TulispObject) -> bool {
     scopes.iter().any(|scope| scope.iter().any(|b| b.eq(sym)))
 }

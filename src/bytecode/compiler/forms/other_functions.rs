@@ -8,6 +8,7 @@ use crate::{
             compiler::{
                 compile_expr, compile_expr_keep_result, compile_progn, compile_progn_keep_result,
             },
+            free_vars::lambda_free_vars,
         },
     },
     destruct_bind,
@@ -221,6 +222,14 @@ pub(super) fn compile_fn_defun_call(
     let mut result = vec![];
     let mut args_count = 0;
     if crate::eval::is_lambda_list(ctx, name) {
+        // A `(lambda ...)` head that uses variables of the scopes around
+        // it is compiled as a `funcall` of it, which makes a closure
+        // that captures them on each call. One that uses none is
+        // compiled once, as a function of its own.
+        if !lambda_free_vars(name)?.is_empty() {
+            let form = TulispObject::cons(name.clone(), args.clone());
+            return super::lambda::compile_fn_funcall(ctx, name, &form);
+        }
         compile_defun(
             ctx,
             &name.car()?,
@@ -958,6 +967,27 @@ mod tests {
         );
 
         Ok(())
+    }
+
+    // A call with a `(lambda ...)` head sees the variables of the
+    // scopes around it, as in Emacs.
+    #[test]
+    fn a_lambda_head_sees_the_variables_around_it() {
+        for (program, expected) in [
+            ("(funcall (lambda (x) ((lambda () x))) 2)", "2"),
+            ("(let ((y 1)) ((lambda (a) (+ a y)) 2))", "3"),
+            ("(defun f (x) ((lambda (a) (+ a x)) 2)) (f 1)", "3"),
+            (
+                "(funcall (lambda (x) ((lambda (&optional a &rest r) (list a r x)) 1 2 3)) 0)",
+                "'(1 (2 3) 0)",
+            ),
+            (
+                "(let ((y 1)) (defun f (x) (if x (list ((lambda () x))) y))) (f 2)",
+                "'(2)",
+            ),
+        ] {
+            eval_assert_equal_fresh(program, expected);
+        }
     }
 
     // A tail call is marked for the compiler in a way that neither a
