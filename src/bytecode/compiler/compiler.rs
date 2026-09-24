@@ -131,8 +131,8 @@ fn compile_program(ctx: &mut TulispContext, value: &TulispObject) -> Result<Byte
     // The returned `Bytecode` carries only the defuns this compile
     // defined or redefined. The compiler itself keeps accumulating so
     // subsequent compiles (e.g., REPL-style) can resolve names that
-    // were defined earlier, and the machine's own function table grows
-    // on each run.
+    // were defined earlier, and each `defun` is in the machine's
+    // function table from the moment it compiled.
     let output = compile_progn(ctx, value)?;
     // Assemble the global instruction stream. Per-function bodies
     // were already assembled at their `CompiledDefun` boundary

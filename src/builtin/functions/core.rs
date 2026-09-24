@@ -14,14 +14,9 @@ use crate::object::wrappers::generic::{Shared, SharedMut};
 use crate::value::{DefunParams, LexAllocator};
 use std::convert::TryInto;
 
-// `mark_tail_calls` lives in `crate::parse` (single canonical
-// implementation, used by both this TW defspecial and the VM
-// `compile_fn_defun`). The VM version's extra `is_known_vm_defun`
-// check is a no-op for the TW path — it widens the "is it a tail
-// call I can `Bounce`?" predicate to include known VM-compiled
-// defuns; in TW we only ever produced `Lambda` values, so the new
-// check returns false and the existing `Lambda` arm wins as
-// before.
+// `mark_tail_calls` lives in `crate::parse`, shared by the tree-walker's
+// `defun` and the VM's `compile_defun`; see `docs/tco.md` for which
+// tail calls it marks.
 
 /// Defines the macro a `(defmacro NAME PARAMS [DOC] BODY...)` form's
 /// ARGS describe, and returns NAME. The parameter list is checked now;

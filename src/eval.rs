@@ -285,8 +285,7 @@ pub(crate) fn funcall<E: Evaluator>(
         }
         TulispValue::Lambda { params, body } => eval_lambda::<E>(ctx, params, body, args),
         TulispValue::CompiledDefun { value } => {
-            // A function the VM compiled: an anonymous lambda, or the
-            // compiled copy of a named `defun` that a host call runs.
+            // A function the VM compiled: a lambda, or a named `defun`.
             // Evaluate args honoring &optional / &rest layout, then
             // dispatch to `bytecode::run_lambda`.
             let value = value.clone();

@@ -758,7 +758,7 @@ impl TulispContext {
         args: impl FuncallArgs,
     ) -> Result<TulispObject, Error> {
         let args = args.into_args(self);
-        let function = self.resolve_for_call(func)?;
+        let function = resolve_function(self, func)?;
         self.call_with(&function, args)
     }
 
@@ -786,21 +786,8 @@ impl TulispContext {
         args: impl ApplyArgs,
     ) -> Result<TulispObject, Error> {
         let args = args.into_args(self)?;
-        let function = self.resolve_for_call(func)?;
-        self.call_with(&function, args)
-    }
-
-    /// The function a call from Rust runs for `func`: the VM's compiled
-    /// copy when `func` names a `defun` compiled from the definition it
-    /// holds now, and the resolved function otherwise.
-    fn resolve_for_call(&mut self, func: &TulispObject) -> Result<TulispObject, Error> {
         let function = resolve_function(self, func)?;
-        if func.is_symbol_variant()
-            && let Some(compiled) = self.vm.compiled_copy(func, &function)
-        {
-            return Ok(TulispValue::CompiledDefun { value: compiled }.into_ref(None));
-        }
-        Ok(function)
+        self.call_with(&function, args)
     }
 
     /// Calls `function` with `args`, which are passed as they are.
@@ -815,7 +802,7 @@ impl TulispContext {
 
     /// Maps the given function over the given sequence, and returns the result.
     pub fn map(&mut self, func: &TulispObject, seq: &TulispObject) -> Result<TulispObject, Error> {
-        let function = self.resolve_for_call(func)?;
+        let function = resolve_function(self, func)?;
         let mut builder = crate::cons::ListBuilder::new();
         for item in seq.base_iter() {
             builder.push(self.call_with(&function, vec![item])?);
@@ -830,7 +817,7 @@ impl TulispContext {
         func: &TulispObject,
         seq: &TulispObject,
     ) -> Result<TulispObject, Error> {
-        let function = self.resolve_for_call(func)?;
+        let function = resolve_function(self, func)?;
         let mut builder = crate::cons::ListBuilder::new();
         for item in seq.base_iter() {
             if self.call_with(&function, vec![item.clone()])?.is_truthy() {
@@ -848,7 +835,7 @@ impl TulispContext {
         seq: &TulispObject,
         initial_value: &TulispObject,
     ) -> Result<TulispObject, Error> {
-        let function = self.resolve_for_call(func)?;
+        let function = resolve_function(self, func)?;
         let mut ret = initial_value.clone();
         for item in seq.base_iter() {
             ret = self.call_with(&function, vec![ret, item])?;

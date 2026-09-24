@@ -177,16 +177,9 @@ impl Machine {
         }
     }
 
-    /// The compiled copy of the `defun` that `name` holds as `function`,
-    /// if this machine has one compiled from that same definition.
-    pub(crate) fn compiled_copy(
-        &self,
-        name: &TulispObject,
-        function: &TulispObject,
-    ) -> Option<CompiledDefun> {
-        let compiled = self.functions.get(&name.addr_as_usize())?;
-        let source = compiled.source.as_ref()?;
-        source.eq_ptr(function).then(|| compiled.clone())
+    /// Makes FUNCTION what a compiled call to the name at ADDR runs.
+    pub(crate) fn set_function(&mut self, addr: usize, function: CompiledDefun) {
+        self.functions.insert(addr, function);
     }
 }
 
@@ -228,18 +221,9 @@ impl Drop for RunGuard<'_> {
 }
 
 pub fn run(ctx: &mut TulispContext, bytecode: Bytecode) -> Result<TulispObject, Error> {
-    // Each symbol holds the definition of the compiled copy the machine
-    // loads for it.
-    for function in bytecode.functions.values() {
-        if let Some(source) = &function.source {
-            function.name.set_global(source.clone())?;
-        }
-    }
-    ctx.vm.functions.extend(bytecode.functions);
     // A re-entrant run (a Rust callable evaluating a program
-    // mid-run) shares the machine with its caller. The function
-    // table is a namespace an inner run extends for good; the guard
-    // gives back only the stack.
+    // mid-run) shares the machine with its caller; the guard gives
+    // back only the stack.
     let mut guard = RunGuard::new(ctx);
     let tail = run_impl(
         guard.ctx,
@@ -1131,7 +1115,6 @@ fn make_lambda_from_template(
 
     let cd = CompiledDefun {
         name: TulispObject::nil(),
-        source: None,
         instructions: SharedMut::new(instructions),
         // PCs are unchanged by `rewrite_instruction` (it only
         // swaps placeholder objects, never adds or removes
@@ -1370,30 +1353,37 @@ mod tests {
     use super::{ast_contains_placeholder, rewrite_ast, run};
     use crate::bytecode::{Bytecode, Instruction, Pos};
     use crate::test_utils::eval_assert_equal;
-    use crate::{Error, Form, Rest, TulispContext, TulispObject};
+    use crate::{Error, Form, Rest, TulispContext, TulispObject, TulispValue};
     use std::collections::HashMap;
 
+    // A `defun` leaves its compiled function on its symbol, and a call
+    // from Rust runs it.
     #[test]
-    fn a_host_call_runs_the_compiled_copy_of_a_named_defun() {
+    fn a_host_call_runs_the_compiled_function_of_a_defun() {
         let mut ctx = TulispContext::new();
-        ctx.eval_string("(defun f (&rest _) nil) (defun g (&rest _) t)")
+        ctx.eval_string("(defun f (&rest xs) (cons 'compiled xs))")
             .unwrap();
         let f = ctx.intern("f");
-        let g = ctx.intern("g");
-        let f_value = f.get().unwrap();
-        assert!(ctx.vm.compiled_copy(&f, &f_value).is_some());
-        // File g's compiled body under f, as compiled from f's current
-        // definition: only a call that runs the compiled copy sees t.
-        let mut swapped = ctx.vm.functions[&g.addr_as_usize()].clone();
-        swapped.source = Some(f_value);
-        ctx.vm.functions.insert(f.addr_as_usize(), swapped);
+        assert!(matches!(
+            f.get().unwrap().inner_ref().0,
+            TulispValue::CompiledDefun { .. }
+        ));
         let zero = ctx.eval_string("'(0)").unwrap();
-        assert_eq!(ctx.funcall(&f, (0i64,)).unwrap().to_string(), "t");
-        assert_eq!(ctx.apply(&f, vec![0i64]).unwrap().to_string(), "t");
-        assert_eq!(ctx.map(&f, &zero).unwrap().to_string(), "(t)");
+        assert_eq!(
+            ctx.funcall(&f, (0i64,)).unwrap().to_string(),
+            "(compiled 0)"
+        );
+        assert_eq!(
+            ctx.apply(&f, vec![0i64]).unwrap().to_string(),
+            "(compiled 0)"
+        );
+        assert_eq!(ctx.map(&f, &zero).unwrap().to_string(), "((compiled 0))");
         assert_eq!(ctx.filter(&f, &zero).unwrap().to_string(), "(0)");
         let nil = TulispObject::nil();
-        assert_eq!(ctx.reduce(&f, &zero, &nil).unwrap().to_string(), "t");
+        assert_eq!(
+            ctx.reduce(&f, &zero, &nil).unwrap().to_string(),
+            "(compiled nil 0)"
+        );
     }
 
     // Arguments from Rust reach a tree-walker lambda unevaluated. A
@@ -1424,33 +1414,19 @@ mod tests {
         }
     }
 
+    // A call from Rust runs whatever the symbol holds now.
     #[test]
-    fn a_host_call_skips_a_compiled_copy_the_symbol_no_longer_holds() {
+    fn a_host_call_runs_what_the_symbol_holds() {
         let mut ctx = TulispContext::new();
         ctx.eval_string("(defun f (x) (* x 10))").unwrap();
         let f = ctx.intern("f");
         assert_eq!(ctx.funcall(&f, (2i64,)).unwrap().to_string(), "20");
         ctx.tw_eval_string("(defun f (x) (+ x 1))").unwrap();
-        assert!(ctx.vm.compiled_copy(&f, &f.get().unwrap()).is_none());
         assert_eq!(ctx.funcall(&f, (2i64,)).unwrap().to_string(), "3");
         ctx.defun("f", |x: i64| x - 1);
         assert_eq!(ctx.funcall(&f, (2i64,)).unwrap().to_string(), "1");
         ctx.eval_string("(defun f (x) (* x 100))").unwrap();
-        assert!(ctx.vm.compiled_copy(&f, &f.get().unwrap()).is_some());
         assert_eq!(ctx.apply(&f, vec![2i64]).unwrap().to_string(), "200");
-    }
-
-    // The parse evaluates a quoted `defun` too, so after this second
-    // program the symbol holds its lambda, which has no compiled copy:
-    // a host call runs it, as `(funcall 'f)` does.
-    #[test]
-    fn a_host_call_skips_a_compiled_copy_of_a_different_defun_form() {
-        let mut ctx = TulispContext::new();
-        ctx.eval_string("(defun f (x) 1)").unwrap();
-        ctx.eval_string("(setq data '(defun f (x) 2))").unwrap();
-        let f = ctx.intern("f");
-        assert_eq!(ctx.eval_string("(funcall 'f 0)").unwrap().to_string(), "2");
-        assert_eq!(ctx.funcall(&f, (0i64,)).unwrap().to_string(), "2");
     }
 
     // `assemble` removes every trace marker and label, and resolves
@@ -1621,9 +1597,9 @@ mod tests {
     fn test_vm_reentry_during_run() -> Result<(), Error> {
         // VM re-entry from inside a VM run. The outer `eval_string`
         // is mid-run on `ctx.vm` when the `eval` defun receives the
-        // quoted form and hands it to `ctx.eval` (TW); TW's `funcall`
-        // arm reaches a callable defined on the same context and
-        // dispatches it, ultimately landing back in the VM. The inner
+        // quoted form and hands it to `ctx.eval`, which compiles and
+        // runs it in the same machine: its `funcall` reaches a callable
+        // defined on the same context and runs it there. The inner
         // and outer runs share the same machine — the inner sees the
         // outer's function table and pushes/pops on the shared stack.
         //
@@ -1634,9 +1610,8 @@ mod tests {
         // `ctx.vm` field makes re-entry transparent.
 
         // Lambda case: `f` holds a `CompiledDefun` (anonymous lambda
-        // materialized by `Instruction::MakeLambda`). TW funcall hits
-        // the `CompiledDefun` arm in `eval::funcall`, which calls
-        // `bytecode::run_lambda` — that's the inner VM run.
+        // materialized by `Instruction::MakeLambda`). The inner run's
+        // `funcall` runs it through `bytecode::run_lambda`.
         let mut ctx = TulispContext::new();
         let result: i64 = ctx
             .eval_string(
@@ -1648,14 +1623,10 @@ mod tests {
             .try_into()?;
         assert_eq!(result, 42);
 
-        // Defun case: top-level `(defun g …)` registers a
-        // `CompiledDefun` in `ctx.vm.functions` and stores a
-        // `TulispValue::Lambda` on the symbol's function slot. TW
-        // funcall on the symbol resolves to the `Lambda` (not the
-        // `CompiledDefun`), dispatches via `eval::funcall`'s `Lambda`
-        // arm, and the body call eventually reaches the VM-registered
-        // function — exercising the same re-entry pathway with a
-        // different setup shape.
+        // Defun case: top-level `(defun g …)` leaves a
+        // `CompiledDefun` on `g`. The inner run's `funcall` on the
+        // symbol runs it through `bytecode::run_lambda`, in the machine
+        // the outer run is using.
         let mut ctx = TulispContext::new();
         let result: i64 = ctx
             .eval_string(
@@ -1693,8 +1664,8 @@ mod tests {
         // VM-eval: `inner-fn` ends up holding a `CompiledDefun`
         // (materialized by `Instruction::MakeLambda` at runtime).
         ctx.eval_string("(set 'inner-fn (lambda (x) (rust-needs-num x)))")?;
-        // TW-eval: `outer` has no compiled copy, so calling it through
-        // `ctx.funcall` runs the TW path.
+        // TW-eval: `outer` holds a tree-walker lambda, so calling it
+        // through `ctx.funcall` runs the TW path.
         ctx.tw_eval_string(
             r#"
         (defun outer (id v)

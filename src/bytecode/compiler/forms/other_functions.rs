@@ -294,23 +294,11 @@ fn compile_defun(
         rest: None,
     };
     let mut fn_name = TulispObject::nil();
-    let mut source = None;
     let res = ctx.compile_2_arg_call(defun_kw, args, true, |ctx, defun_name, args, body| {
         fn_name = defun_name.clone();
         let _: crate::value::DefunParams = args.clone().try_into()?;
         if define {
             defun_name.check_global_settable()?;
-        }
-        // The tree-walker's lambda for this same form, which `run`
-        // installs on the symbol when it loads this compiled copy. A
-        // constant name, which a macro can produce, gets none.
-        if defun_name.is_symbol_variant() && !defun_name.keywordp() {
-            source = Some(crate::eval::defun_lambda(
-                ctx,
-                defun_name,
-                args,
-                body.clone(),
-            )?);
         }
         let compiler = ctx.compiler.as_mut().unwrap();
         compiler
@@ -394,14 +382,22 @@ fn compile_defun(
     // runtime never sees a trace marker or a label; see `assemble`.
     let (res, trace_ranges) = crate::bytecode::bytecode::assemble(res)?;
     let function = CompiledDefun {
-        source,
         name: fn_name.clone(),
         instructions: SharedMut::new(res),
         trace_ranges: crate::object::wrappers::generic::Shared::new(trace_ranges),
         params: crate::object::wrappers::generic::Shared::new(defun_params),
     };
-    let compiler = ctx.compiler.as_mut().unwrap();
+    if define {
+        fn_name.set_global(
+            crate::TulispValue::CompiledDefun {
+                value: function.clone(),
+            }
+            .into_ref(None),
+        )?;
+    }
     let addr = fn_name.addr_as_usize();
+    ctx.vm.set_function(addr, function.clone());
+    let compiler = ctx.compiler.as_mut().unwrap();
     compiler.bytecode.functions.insert(addr, function);
     if !compiler.added_functions.contains(&addr) {
         compiler.added_functions.push(addr);
@@ -615,6 +611,21 @@ mod tests {
         );
     }
 
+    // A `defun` sets its name to the compiled function as it compiles,
+    // so every way of calling it by name runs that.
+    #[test]
+    fn a_defun_holds_its_compiled_function() {
+        let ctx = &mut TulispContext::new();
+        let got = ctx
+            .eval_string(
+                "(defun hf (x) (* x 3))
+                 (list (format \"%s\" (symbol-value 'hf)) (mapcar 'hf '(1 2))
+                       (funcall 'hf 2) (apply 'hf '(3)) (funcall #'hf 4))",
+            )
+            .unwrap();
+        assert_eq!(got.to_string(), r#"("CompiledDefun" (3 6) 6 9 12)"#);
+    }
+
     // A name that `set` refuses is refused before the body compiles,
     // also for a `defun` built at run time.
     #[test]
@@ -644,6 +655,18 @@ mod tests {
         ] {
             eval_assert_error_line(ctx, program, line);
         }
+    }
+
+    #[test]
+    fn a_defun_compiled_inside_a_macro_expansion_is_defined() {
+        let ctx = &mut TulispContext::new();
+        let got = ctx
+            .eval_string(
+                "(defmacro mk-at-expand () (eval '(defun made-at-expand () 5)) 1)
+                 (list (mk-at-expand) (made-at-expand))",
+            )
+            .unwrap();
+        assert_eq!(got.to_string(), "(1 5)");
     }
 
     #[test]
