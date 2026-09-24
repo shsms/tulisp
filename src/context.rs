@@ -476,13 +476,13 @@ impl TulispContext {
     /// Drop any compile-time call-dispatch entry recorded for `addr`.
     ///
     /// A name first introduced by a Lisp `defun` (notably the built-in
-    /// prelude) wires `addr -> compile_fn_defun_call` into
-    /// `vm_compilers.functions` and stores its `CompiledDefun` in
-    /// `bytecode.functions`. `compile_form` consults that map *before*
-    /// the symbol's global cell, so a later Rust `defun` / `defspecial`
-    /// — which only writes the global cell — would be silently
-    /// shadowed. Evicting both entries makes subsequent user code
-    /// compile against the freshly-registered global binding.
+    /// prelude) has an entry in `vm_compilers.functions`,
+    /// `bytecode.functions` and `defun_args`. `compile_form` consults
+    /// the first before the symbol's value, and `mark_tail_calls` turns
+    /// a tail call to a name in `defun_args` into a `TailCall`. So a
+    /// later Rust `defun` / `defspecial`, which writes only the
+    /// symbol's value, would be shadowed. Evicting the entries makes
+    /// code compiled later use the new value.
     ///
     /// No-op while the compiler is still being built (during
     /// `TulispContext::new`, the Rust built-ins register before the
@@ -491,6 +491,7 @@ impl TulispContext {
         if let Some(compiler) = self.compiler.as_mut() {
             compiler.vm_compilers.functions.remove(&addr);
             compiler.bytecode.functions.remove(&addr);
+            compiler.defun_args.remove(&addr);
         }
     }
 
@@ -1486,6 +1487,44 @@ mod tests {
             assert!(inner.enter_frame().is_err());
         }
         assert_eq!(ctx.eval_depth, 0);
+    }
+
+    // A Rust function that replaces a Lisp `defun` is what code
+    // compiled later reaches, through a tail call too. A call compiled
+    // earlier still runs.
+    #[test]
+    fn a_rust_defun_replacing_a_lisp_defun_is_what_later_code_calls() {
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string("(defun rl-h (x) (list 'lisp x)) (defun rl-early (x) (rl-h x))")
+            .unwrap();
+        ctx.defun("rl-h", |x: i64| x * 100);
+        let got = ctx
+            .eval_string("(defun rl-tail (x) (rl-h x)) (list (rl-tail 3) (rl-h 4))")
+            .unwrap();
+        assert_eq!(got.to_string(), "(300 400)");
+        assert!(ctx.eval_string("(rl-early 3)").is_ok());
+    }
+
+    // A Rust function that replaces a `defun` while that defun's body
+    // compiles is no reason for the compile to fail.
+    #[test]
+    fn replacing_a_defun_while_it_compiles() {
+        let ctx = &mut TulispContext::new();
+        ctx.defun("rereg", |ctx: &mut TulispContext, name: String| -> bool {
+            ctx.defun(&name, |x: i64| x * 100);
+            true
+        });
+        ctx.set_max_eval_depth(20);
+        let got = ctx
+            .eval_string(
+                r#"(defun rr (n)
+                     (defmacro rr-m () (rereg "rr") 1)
+                     (rr-m)
+                     (if (= n 0) 0 (rr (- n 1))))
+                   (rr 1000)"#,
+            )
+            .unwrap();
+        assert_eq!(got.to_string(), "0");
     }
 
     #[test]

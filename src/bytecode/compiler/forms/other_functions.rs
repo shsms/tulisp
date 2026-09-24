@@ -110,9 +110,15 @@ fn compile_fn_defun_bounce_call(
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
     let compiler = ctx.compiler.as_mut().unwrap();
-    let is_self = compiler.current_defun.as_ref().is_some_and(|n| n.eq(name));
+    // A name evicted while its own body compiles has no arity entry,
+    // and its tail calls go through the general path.
+    let self_params = compiler
+        .current_defun
+        .as_ref()
+        .filter(|n| n.eq(name))
+        .and_then(|_| compiler.defun_args.get(&name.addr_as_usize()).cloned());
 
-    if !is_self {
+    let Some(params) = self_params else {
         let mut result = vec![];
         let mut args_count = 0;
         // cdr twice: first skips `Bounce`, second skips the function identity.
@@ -165,10 +171,9 @@ fn compile_fn_defun_bounce_call(
             rest_count: 0,
         });
         return Ok(result);
-    }
+    };
 
     let mut result = vec![];
-    let params = compiler.defun_args[&name.addr_as_usize()].clone();
     let mut args_count = 0;
     // cdr twice: first skips `Bounce`, second skips the function identity.
     for arg in args.cdr()?.cdr()?.base_iter() {
