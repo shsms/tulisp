@@ -1558,14 +1558,6 @@ tests/bad-load.lisp:1.9-1.9:  at nil
         Ok(())
     }
 
-    /// The parser caches a callable resolution on every list it builds
-    /// to skip the symbol → function lookup at runtime. The previous
-    /// implementation cached unconditionally, which meant a list-shaped
-    /// car (a cond predicate, an IIFE head, a let binding init) got
-    /// *evaluated* at parse time — side effects fired before the
-    /// surrounding form was ever called. Now the cache is gated on
-    /// the car being a symbol other than nil or t; list cars rebuild
-    /// the callable at runtime instead.
     /// Emacs Lisp keeps function bindings and value bindings in separate
     /// namespaces. A `(let ((f x))` introduces a *value* binding on `f`;
     /// `(funcall 'f)` resolves the *function* binding (because the

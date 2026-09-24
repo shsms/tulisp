@@ -325,10 +325,7 @@ pub(crate) fn eval_form<E: Evaluator>(
     ctx: &mut TulispContext,
     val: &TulispObject,
 ) -> Result<TulispObject, Error> {
-    let func = match val.ctxobj() {
-        Some(func) => func,
-        None => val.car_and_then(|name| tw_eval(ctx, name))?,
-    };
+    let func = val.car_and_then(|name| tw_eval(ctx, name))?;
     funcall::<E>(ctx, &func, &val.cdr()?)
 }
 
@@ -956,7 +953,6 @@ fn walk_tail_substitute(
     quote_depth: u32,
 ) -> Result<TulispObject, Error> {
     let span = body.span();
-    let ctxobj = body.ctxobj();
     let mut builder = crate::cons::ListBuilder::new();
     let mut items = body.base_iter();
     let mut count: usize = 0;
@@ -979,7 +975,7 @@ fn walk_tail_substitute(
         };
         builder.append(new_tail)?;
     }
-    Ok(builder.build().with_span(span).with_ctxobj(ctxobj))
+    Ok(builder.build().with_span(span))
 }
 
 /// If `name` is a binding-introducing form (lambda, let, let*,
@@ -1016,7 +1012,6 @@ fn substitute_binding_form(
 
             let new_varlist = if varlist.consp() {
                 let varlist_span = varlist.span();
-                let varlist_ctxobj = varlist.ctxobj();
                 let mut vl_builder = crate::cons::ListBuilder::new();
                 let mut varitems = varlist.base_iter();
                 for varitem in varitems.by_ref() {
@@ -1030,16 +1025,12 @@ fn substitute_binding_form(
                     vl_builder.push(new_varitem);
                 }
                 varitems.take_error()?;
-                vl_builder
-                    .build()
-                    .with_span(varlist_span)
-                    .with_ctxobj(varlist_ctxobj)
+                vl_builder.build().with_span(varlist_span)
             } else {
                 varlist
             };
 
             let body_span = body.span();
-            let body_ctxobj = body.ctxobj();
             let mut builder = crate::cons::ListBuilder::new();
             builder.push(head);
             builder.push(new_varlist);
@@ -1052,19 +1043,13 @@ fn substitute_binding_form(
             if !tail.null() {
                 builder.append(substitute_lexical_inner(tail, mappings, quote_depth)?)?;
             }
-            Ok(Some(
-                builder
-                    .build()
-                    .with_span(body_span)
-                    .with_ctxobj(body_ctxobj),
-            ))
+            Ok(Some(builder.build().with_span(body_span)))
         }
         // (condition-case VAR BODYFORM HANDLERS...)
         // Leave VAR and each handler's condition alone; substitute
         // BODYFORM and the handler bodies.
         "condition-case" => {
             let span = body.span();
-            let ctxobj = body.ctxobj();
             let mut builder = crate::cons::ListBuilder::new();
             let mut items = body.base_iter();
             for (index, item) in items.by_ref().enumerate() {
@@ -1083,7 +1068,7 @@ fn substitute_binding_form(
             if !tail.null() {
                 builder.append(tail)?;
             }
-            Ok(Some(builder.build().with_span(span).with_ctxobj(ctxobj)))
+            Ok(Some(builder.build().with_span(span)))
         }
         _ => Ok(None),
     }
@@ -1145,10 +1130,6 @@ fn substitute_lexical_inner(
                     return Ok(rewritten);
                 }
             }
-            // Preserve the outer list's ctxobj — it caches the function
-            // resolved at parse time for `(fn arg ...)` forms. Dropping
-            // it here would force a symbol lookup on every call.
-            let ctxobj = body.ctxobj();
             let mut builder = crate::cons::ListBuilder::new();
             let mut items = body.base_iter();
             for car in items.by_ref() {
@@ -1163,7 +1144,7 @@ fn substitute_lexical_inner(
                 };
                 builder.append(new_tail)?;
             }
-            builder.build().with_span(span).with_ctxobj(ctxobj)
+            builder.build().with_span(span)
         }
         // Outside a backquote, `'x` is a literal symbol (e.g. an alist
         // key), not a variable use, and rewriting it to a

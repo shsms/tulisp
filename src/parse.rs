@@ -622,22 +622,6 @@ impl Parser<'_, '_> {
                 .or_default()
                 .insert(name, span.start.0);
         }
-        if inner.consp() {
-            let name = inner.car()?;
-            // Only cache a ctxobj when the car is a symbol — looking
-            // up a function binding is what the cache pays off. A
-            // list-shaped car (e.g. a cond clause `((some-fn args)
-            // body...)`, an IIFE `((lambda …) args)`, a let binding
-            // pair init) would otherwise be *invoked* by this eval
-            // at parse time, firing any side effect before the
-            // surrounding form actually runs. Symbol cars are the
-            // only static-resolvable case anyway; for list cars the
-            // runtime path rebuilds the callable on every call.
-            if name.is_symbol_variant() {
-                let ctxobj = name.get().ok();
-                inner.with_ctxobj(ctxobj);
-            }
-        }
         Ok(inner)
     }
 
@@ -645,7 +629,7 @@ impl Parser<'_, '_> {
         // Every nested list / quote re-enters here, so bounding this
         // depth bounds the parser's native recursion: deeply nested
         // input raises a catchable error instead of overflowing the
-        // stack. Downstream walks (compile, `recursive_update_ctxobj`,
+        // stack. Downstream walks (compile, `macroexpand`,
         // …) see only structure this deep, so they're bounded too.
         let limit = self.ctx.max_nesting_depth();
         if self.depth >= limit {
@@ -781,7 +765,6 @@ pub(crate) fn mark_tail_calls(
         return Ok(body);
     }
     let span = tail.span();
-    let ctxobj = tail.ctxobj();
     let tail_ident = tail.car()?;
     let tail_name_str = tail_ident.as_symbol()?;
     let is_self_call = tail_ident.eq(&name);
@@ -834,7 +817,7 @@ pub(crate) fn mark_tail_calls(
     } else {
         tail
     };
-    builder.push(new_tail.with_ctxobj(ctxobj).with_span(span));
+    builder.push(new_tail.with_span(span));
     Ok(builder.build())
 }
 
@@ -1007,8 +990,7 @@ mod tests {
            c)",
             "1",
         );
-        // IIFE — list car that's a lambda — keeps working after the
-        // cache is skipped; the runtime path rebuilds the lambda value.
+        // A list car that's a lambda is called.
         eval_assert_equal_fresh("((lambda (x) (* x 2)) 21)", "42");
         // let binding-init expressions don't fire at parse time either.
         eval_assert_equal_fresh(

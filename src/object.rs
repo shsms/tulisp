@@ -100,7 +100,6 @@ impl TulispObject {
     pub fn cons(car: TulispObject, cdr: TulispObject) -> TulispObject {
         TulispValue::List {
             cons: Cons::new(car, cdr),
-            ctxobj: None,
         }
         .into_ref(None)
     }
@@ -242,11 +241,10 @@ impl TulispObject {
             // and shares the rest of it. A non-list `other_list` becomes
             // a one-element list.
             if let Some(cons) = other_list.as_list_cons() {
-                last.assign(TulispValue::List { cons, ctxobj: None });
+                last.assign(TulispValue::List { cons });
             } else if !other_list.null() {
                 last.assign(TulispValue::List {
                     cons: Cons::new(other_list, TulispObject::nil()),
-                    ctxobj: None,
                 });
             }
             return Ok(self);
@@ -601,15 +599,6 @@ impl TulispObject {
         self.rc.borrow().0.as_list_cons()
     }
 
-    pub(crate) fn ctxobj(&self) -> Option<TulispObject> {
-        self.rc.borrow().0.ctxobj()
-    }
-
-    pub(crate) fn with_ctxobj(&self, in_ctxobj: Option<TulispObject>) -> Self {
-        self.rc.borrow_mut().0.with_ctxobj(in_ctxobj);
-        self.clone()
-    }
-
     pub(crate) fn with_span(&self, in_span: Option<Span>) -> Self {
         if self.eq_ptr(&shared_t()) {
             return self.clone();
@@ -642,9 +631,7 @@ impl TulispObject {
             return Ok(self.clone());
         }
         if !self.consp() {
-            let ret = self.clone_inner().into_ref(self.span());
-            ret.with_ctxobj(self.ctxobj());
-            return Ok(ret);
+            return Ok(self.clone_inner().into_ref(self.span()));
         }
         let mut builder = cons::ListBuilder::new();
         let mut val = self.clone(); // TODO: possible CoW optimization here
@@ -659,7 +646,7 @@ impl TulispObject {
                 // appending, etc.
                 first.clone_inner().into_ref(first.span())
             };
-            builder.push_with_meta(first, val.span(), val.ctxobj());
+            builder.push_with_meta(first, val.span());
             if !rest.consp() {
                 builder.append(rest)?;
                 break;
@@ -667,10 +654,7 @@ impl TulispObject {
             cycle.step(&rest)?;
             val = rest;
         }
-        Ok(builder
-            .build()
-            .with_span(self.span())
-            .with_ctxobj(self.ctxobj()))
+        Ok(builder.build().with_span(self.span()))
     }
 }
 

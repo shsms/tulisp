@@ -25,14 +25,13 @@ impl Cons {
     /// Adds `val` after this cell, which must be the last cell of its
     /// list.
     pub fn push(&mut self, val: TulispObject) -> Result<(), Error> {
-        self.push_with_meta(val, None, None)
+        self.push_with_meta(val, None)
     }
 
     pub(crate) fn push_with_meta(
         &mut self,
         val: TulispObject,
         span: Option<Span>,
-        ctxobj: Option<TulispObject>,
     ) -> Result<(), Error> {
         if !self.cdr.null() {
             return Err(Error::type_mismatch("Cons: unable to push".to_string()));
@@ -42,7 +41,6 @@ impl Cons {
                 car: val,
                 cdr: TulispObject::nil(),
             },
-            ctxobj,
         });
         self.cdr.with_span(span);
         Ok(())
@@ -99,9 +97,8 @@ impl Drop for Cons {
 /// symbols (`take`-ing the inner of a shared symbol `Rc` would
 /// clobber its bindings globally).
 ///
-/// Callers can attach a span / ctxobj to the resulting list with
-/// `.with_span()` / `.with_ctxobj()` after `build()` — the latter
-/// is a no-op when the resulting list is empty.
+/// Callers can attach a span to the resulting list with
+/// `.with_span()` after `build()`.
 pub(crate) struct ListBuilder {
     head: TulispObject,
     last_cons: Option<TulispObject>,
@@ -120,19 +117,13 @@ impl ListBuilder {
 
     #[inline]
     pub(crate) fn push(&mut self, val: TulispObject) {
-        self.push_with_meta(val, None, None)
+        self.push_with_meta(val, None)
     }
 
-    pub(crate) fn push_with_meta(
-        &mut self,
-        val: TulispObject,
-        span: Option<Span>,
-        ctxobj: Option<TulispObject>,
-    ) {
+    pub(crate) fn push_with_meta(&mut self, val: TulispObject, span: Option<Span>) {
         let next_nil = TulispObject::nil();
         self.tail.assign(TulispValue::List {
             cons: Cons::new(val, next_nil.clone()),
-            ctxobj,
         });
         if span.is_some() {
             self.tail.with_span(span);
@@ -159,7 +150,7 @@ impl ListBuilder {
                 let cons = val
                     .as_list_cons()
                     .unwrap_or_else(|| Cons::new(val.clone(), TulispObject::nil()));
-                self.head.assign(TulispValue::List { cons, ctxobj: None });
+                self.head.assign(TulispValue::List { cons });
                 self.walk_to_end(self.head.clone())?;
             }
             Some(last) => {
@@ -169,12 +160,10 @@ impl ListBuilder {
                 // stays untouched), then walked to update `last_cons`
                 // and `tail`.
                 let last_car = last.car()?;
-                let last_ctxobj = last.ctxobj();
                 let copy = val.deep_copy()?;
                 let copy_clone = copy.clone();
                 last.assign(TulispValue::List {
                     cons: Cons::new(last_car, copy),
-                    ctxobj: last_ctxobj,
                 });
                 if !copy_clone.consp() {
                     // Dotted tail. `last_cons` stays as `last`, but
@@ -223,10 +212,8 @@ impl ListBuilder {
             None => tail,
             Some(last) => {
                 let last_car = last.car().expect("last_cons is always a List");
-                let last_ctxobj = last.ctxobj();
                 last.assign(TulispValue::List {
                     cons: Cons::new(last_car, tail),
-                    ctxobj: last_ctxobj,
                 });
                 self.head
             }

@@ -654,7 +654,6 @@ pub enum TulispValue {
     },
     List {
         cons: Cons,
-        ctxobj: Option<TulispObject>,
     },
     Quote {
         value: TulispObject,
@@ -726,11 +725,7 @@ impl std::fmt::Debug for TulispValue {
                 .finish(),
             Self::Number { value } => f.debug_struct("Number").field("value", value).finish(),
             Self::String { value } => f.debug_struct("String").field("value", value).finish(),
-            Self::List { cons, ctxobj } => f
-                .debug_struct("List")
-                .field("cons", cons)
-                .field("ctxobj", ctxobj)
-                .finish(),
+            Self::List { cons } => f.debug_struct("List").field("cons", cons).finish(),
             Self::Quote { value } => f.debug_struct("Quote").field("value", value).finish(),
             Self::Sharpquote { value } => {
                 f.debug_struct("Sharpquote").field("value", value).finish()
@@ -1085,7 +1080,7 @@ impl TulispValue {
 
     #[inline(always)]
     pub(crate) fn push(&mut self, val: TulispObject) -> Result<(), Error> {
-        self.push_with_meta(val, None, None)
+        self.push_with_meta(val, None)
     }
 
     #[inline(always)]
@@ -1093,15 +1088,14 @@ impl TulispValue {
         &mut self,
         val: TulispObject,
         span_in: Option<Span>,
-        ctxobj: Option<TulispObject>,
     ) -> Result<(), Error> {
         if let TulispValue::List { cons, .. } = self {
-            cons.push_with_meta(val.clone(), span_in, ctxobj)
+            cons.push_with_meta(val.clone(), span_in)
                 .map_err(|e| e.with_trace(val))?;
             Ok(())
         } else if self.null() {
             let cons = Cons::new(val, TulispObject::nil());
-            *self = TulispValue::List { cons, ctxobj };
+            *self = TulispValue::List { cons };
             Ok(())
         } else {
             Err(Error::type_mismatch("unable to push".to_string()))
@@ -1315,22 +1309,6 @@ impl TulispValue {
         match self {
             TulispValue::String { value, .. } => value.to_owned(),
             s => s.to_string(),
-        }
-    }
-
-    #[inline(always)]
-    pub(crate) fn with_ctxobj(&mut self, in_ctxobj: Option<TulispObject>) -> &mut Self {
-        if let TulispValue::List { ctxobj, .. } = self {
-            *ctxobj = in_ctxobj
-        }
-        self
-    }
-
-    #[inline(always)]
-    pub(crate) fn ctxobj(&self) -> Option<TulispObject> {
-        match self {
-            TulispValue::List { ctxobj, .. } => ctxobj.to_owned(),
-            _ => None,
         }
     }
 
