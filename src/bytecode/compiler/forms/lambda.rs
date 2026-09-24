@@ -274,8 +274,8 @@ pub(super) fn compile_fn_apply(
 
 #[cfg(test)]
 mod tests {
-    use crate::TulispContext;
-    use crate::test_utils::{eval_assert_equal, eval_assert_error_line};
+    use crate::test_utils::{eval_assert_equal, eval_assert_equal_fresh, eval_assert_error_line};
+    use crate::{Error, TulispContext};
 
     // A lambda with no body gives nil, and its parameter list is
     // checked as a `defun`'s is.
@@ -317,5 +317,312 @@ mod tests {
              (f2)",
             "ERR Uninitialized: Variable definition is void: x",
         );
+    }
+
+    #[test]
+    fn lexical_binding() -> Result<(), Error> {
+        eval_assert_equal_fresh(
+            r#"
+        (setq some-var 0)
+        (setq x 2)
+        (+ x (funcall (let ((x 10)
+                       (inc-some-var (lambda () (setq some-var (+ some-var x)))))
+                   (funcall inc-some-var)
+                   (let ((x 100))
+                     (funcall inc-some-var))
+                   inc-some-var)))
+        "#,
+            "32",
+        );
+
+        eval_assert_equal_fresh(
+            r#"
+        (setq n 2)
+        (defun make-adder (n)
+          (lambda (x) (+ x n)))
+
+        (setq add2 (make-adder 2))
+        (setq add10 (make-adder 10))
+
+        (list (+ n (funcall add2 2))
+              (funcall add10 2))
+        "#,
+            "'(6 12)",
+        );
+
+        eval_assert_equal_fresh(
+            r#"
+        (setq alist '((a . 1) (b . 2)))
+        (let ((a 10) (b 20))
+          (list (alist-get 'a alist)
+                (alist-get 'b alist)))
+        "#,
+            "'(1 2)",
+        );
+
+        eval_assert_equal_fresh(
+            r#"
+        (let ((a (list '((a . nil)) '((a . t)))))
+            (seq-filter (lambda (x) (alist-get 'a x)) a))
+        "#,
+            "'(((a . t)))",
+        );
+
+        // 'symbol is a literal — a defun param with the same name must not
+        // rewrite it into a variable reference.
+        eval_assert_equal_fresh(
+            r#"
+        (defun lookup-a (a data) (alist-get 'a data))
+        (lookup-a 999 '((a . 1) (b . 2)))
+        "#,
+            "1",
+        );
+
+        // '(…) list literals stay literal even when they contain names that
+        // match lex bindings in the surrounding scope.
+        eval_assert_equal_fresh(
+            r#"
+        (defun keys-of (x) '(a b x))
+        (keys-of 42)
+        "#,
+            "'(a b x)",
+        );
+
+        // Nested closures: each inner lambda captures its own enclosing var.
+        eval_assert_equal_fresh(
+            r#"
+        (defun outer (x)
+          (lambda (y)
+            (lambda (z) (+ x y z))))
+        (funcall (funcall (outer 100) 20) 3)
+        "#,
+            "123",
+        );
+
+        // Closure invoked after outer let scope has exited — captured slot
+        // must still hold the value.
+        eval_assert_equal_fresh(
+            r#"
+        (setq g (let ((k 7)) (lambda () k)))
+        (funcall g)
+        "#,
+            "7",
+        );
+
+        // setq on a captured variable inside a closure persists across
+        // invocations (classic counter pattern).
+        eval_assert_equal_fresh(
+            r#"
+        (defun make-counter ()
+          (let ((n 0))
+            (lambda () (setq n (+ n 1)) n)))
+        (setq c (make-counter))
+        (list (funcall c) (funcall c) (funcall c))
+        "#,
+            "'(1 2 3)",
+        );
+
+        // Two counters built from the same factory are independent.
+        eval_assert_equal_fresh(
+            r#"
+        (defun make-counter ()
+          (let ((n 0))
+            (lambda () (setq n (+ n 1)) n)))
+        (setq a (make-counter))
+        (setq b (make-counter))
+        (funcall a) (funcall a) (funcall b)
+        (list (funcall a) (funcall b))
+        "#,
+            "'(3 2)",
+        );
+
+        // A lambda parameter shadows an outer lex binding of the same name.
+        eval_assert_equal_fresh(
+            r#"
+        (let ((x 100))
+          (funcall (lambda (x) (* x 2)) 7))
+        "#,
+            "14",
+        );
+
+        // let* sequential binding — later bindings see earlier ones.
+        eval_assert_equal_fresh(
+            r#"
+        (let* ((a 1) (b (+ a 10)) (c (+ a b))) (list a b c))
+        "#,
+            "'(1 11 12)",
+        );
+
+        // setq on a let-bound variable inside the let scope propagates to a
+        // closure that captured the same binding (Emacs behavior — the
+        // closure and the enclosing scope share the slot).
+        eval_assert_equal_fresh(
+            r#"
+        (let ((x 1))
+          (setq f (lambda () x))
+          (setq x 42))
+        (funcall f)
+        "#,
+            "42",
+        );
+
+        // setq on a defun parameter is visible to a closure constructed
+        // earlier inside the same defun.
+        eval_assert_equal_fresh(
+            r#"
+        (defun outer-mutating (x)
+          (let ((g (lambda () x)))
+            (setq x 99)
+            (funcall g)))
+        (outer-mutating 1)
+        "#,
+            "99",
+        );
+
+        // Two closures that captured the same let-binding share the slot,
+        // so `setq` in one is visible to the other.
+        eval_assert_equal_fresh(
+            r#"
+        (let ((n 0))
+          (setq inc (lambda () (setq n (+ n 1)) n))
+          (setq read-n (lambda () n)))
+        (funcall inc)
+        (funcall inc)
+        (funcall read-n)
+        "#,
+            "2",
+        );
+
+        // Backquote constructed in one scope, eval'd inside another
+        // function. The unquoted value is captured at construction time so
+        // the inner eval only needs to see already-resolved literals.
+        eval_assert_equal_fresh(
+            r#"
+        (defun run-eval (form) (eval form))
+        (let ((id 99))
+          (run-eval `(+ ,id 1)))
+        "#,
+            "100",
+        );
+
+        // Captured var reads the current value at capture time; later
+        // rebinding of the original symbol does not affect the closure.
+        eval_assert_equal_fresh(
+            r#"
+        (setq f (let ((x 1)) (lambda () x)))
+        (setq x 999)
+        (funcall f)
+        "#,
+            "1",
+        );
+
+        // A closure in a list can still be invoked via funcall after list
+        // operations (doesn't rely on stack-top semantics).
+        eval_assert_equal_fresh(
+            r#"
+        (setq fs (mapcar (lambda (n) (lambda () n)) '(10 20 30)))
+        (mapcar 'funcall fs)
+        "#,
+            "'(10 20 30)",
+        );
+
+        // Recursive defun sees its own lex params correctly across calls.
+        eval_assert_equal_fresh(
+            r#"
+        (defun fact (n)
+          (if (<= n 1) 1 (* n (fact (- n 1)))))
+        (fact 6)
+        "#,
+            "720",
+        );
+
+        // Regression: `(quote X)` written as a list form must not be
+        // descended into for substitution, even if X names a defun param.
+        // With the bug present, `(quote key)` would rewrite the literal
+        // `key` symbol, breaking the subsequent `(assoc 'key ...)`.
+        eval_assert_equal_fresh(
+            r#"
+        (defun pick (key alist)
+          (cdr (assoc (quote key) alist)))
+        (pick 'ignored '((key . the-key-value) (other . o)))
+        "#,
+            "'the-key-value",
+        );
+
+        // An anonymous lambda created inside a function body compiles
+        // via the two-phase scheme (MakeLambda + inline Funcall). The
+        // closure captures the enclosing defun param.
+        eval_assert_equal_fresh(
+            r#"
+        (defun make-scaler (k)
+          (lambda (x) (* k x)))
+        (funcall (make-scaler 7) 6)
+        "#,
+            "42",
+        );
+
+        // Self-recursive via funcall-of-letrec-style closure. Exercises
+        // the MakeLambda capturing its own just-bound slot.
+        eval_assert_equal_fresh(
+            r#"
+        (setq fact (lambda (n) (if (<= n 1) 1 (* n (funcall fact (- n 1))))))
+        (funcall fact 5)
+        "#,
+            "120",
+        );
+
+        // Regression: a closure captures a let-bound free var, takes a
+        // param whose name matches that of the *caller's* defun param
+        // (the caller's param is shadowed by its own let* with the same
+        // name; also calls a defun — not defspecial — whose args list
+        // carries placeholders that must be rewritten at phase 2).
+        eval_assert_equal_fresh(
+            r#"
+        (defun make-scaler (seed)
+          (let ((base (+ seed 100)))
+            (lambda (v) (floor (+ v base)))))
+        (defun wrap (id v)
+          (let* ((fn (make-scaler 0))
+                 (v (ftruncate (+ v 1))))
+            (funcall fn v)))
+        (wrap 1 5.5)
+        "#,
+            "106",
+        );
+
+        // Regression: a nested-closure scenario. An outer closure captures
+        // a let-bound inner closure via `set`/`symbol-value` indirection,
+        // and both closures take a param of the same name that is also
+        // shadowed by a let*-bound var in the caller. Exercises label
+        // registration + placeholder rewrite of the Push(args) AST inside
+        // the closure's body.
+        eval_assert_equal_fresh(
+            r#"
+        (defun sum-list (xs)
+          (let ((acc 0))
+            (dolist (x xs) (setq acc (+ acc x)))
+            acc))
+        (defun make-inner-check (xs)
+          (let ((limit (sum-list xs)))
+            (lambda (v) (<= v limit))))
+        (defun install-outer-check (sym xs)
+          (let ((inner-check (make-inner-check xs)))
+            (set sym
+              (lambda (v)
+                (and (funcall inner-check v)
+                     (> v 0))))))
+        (install-outer-check 'my-check-fn '(10 20 30))
+        (defun run-check (id v)
+          (let* ((check-fn (symbol-value 'my-check-fn))
+                 (v (ftruncate v)))
+            (if (funcall check-fn v)
+                'ok
+              'out-of-bounds)))
+        (list (run-check 1 30.5) (run-check 1 70.0) (run-check 1 -5.0))
+        "#,
+            "'(ok out-of-bounds out-of-bounds)",
+        );
+
+        Ok(())
     }
 }
