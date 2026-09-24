@@ -372,10 +372,11 @@ pub(super) fn compile_fn_defun(
         params: crate::object::wrappers::generic::Shared::new(defun_params),
     };
     let compiler = ctx.compiler.as_mut().unwrap();
-    compiler
-        .bytecode
-        .functions
-        .insert(fn_name.addr_as_usize(), function);
+    let addr = fn_name.addr_as_usize();
+    compiler.bytecode.functions.insert(addr, function);
+    if !compiler.added_functions.contains(&addr) {
+        compiler.added_functions.push(addr);
+    }
     // The value of `defun` is the function's name.
     Ok(if compiler.keep_result {
         vec![Instruction::Push(fn_name)]

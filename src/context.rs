@@ -774,7 +774,7 @@ impl TulispContext {
             #[cfg(feature = "etags")]
             false,
         )?;
-        let bytecode = compile(self, &vv)?;
+        let bytecode = compile(self, &vv, true)?;
         bytecode::run(self, bytecode)
     }
 
@@ -816,7 +816,7 @@ impl TulispContext {
     /// value. Routed through the bytecode VM.
     pub fn eval_file(&mut self, filename: &str) -> Result<TulispObject, Error> {
         let vv = self.parse_file(filename)?;
-        let bytecode = compile(self, &vv)?;
+        let bytecode = compile(self, &vv, true)?;
         bytecode::run(self, bytecode)
     }
 
@@ -849,7 +849,7 @@ impl TulispContext {
             #[cfg(feature = "etags")]
             false,
         )?;
-        let bytecode = compile(self, &vv)?;
+        let bytecode = compile(self, &vv, true)?;
         bytecode::run(self, bytecode)
     }
 
@@ -911,9 +911,7 @@ impl TulispContext {
             #[cfg(feature = "etags")]
             false,
         )?;
-        let compiler = self.compiler.as_mut().unwrap();
-        compiler.keep_result = keep_result;
-        compile(self, &vv)
+        compile(self, &vv, keep_result)
     }
 
     #[allow(dead_code)]
@@ -951,6 +949,59 @@ impl Drop for FrameGuard<'_> {
 mod tests {
     use crate::test_utils::{eval_assert, eval_assert_equal, eval_assert_not};
     use crate::{Error, TulispContext, TulispObject, TulispValue};
+
+    // A program run while a protected body compiles fails to compile
+    // as a whole, before any of it runs.
+    #[test]
+    fn eval_string_while_compiling_a_block_compiles_the_whole_program() -> Result<(), Error> {
+        let ctx = &mut TulispContext::new();
+        ctx.defun("run-string", |ctx: &mut TulispContext, program: String| {
+            ctx.eval_string(&program)
+        });
+        ctx.eval_string(
+            r#"(defvar hit nil)
+               (defmacro m ()
+                 (condition-case nil (run-string "(setq hit t) (if)") (error nil))
+                 nil)"#,
+        )?;
+        let program = ctx.eval_string("'((catch 'tag (m)) hit)")?;
+        let bytecode = crate::bytecode::compile(ctx, &program, true)?;
+        assert!(crate::bytecode::run(ctx, bytecode)?.null());
+        Ok(())
+    }
+
+    // A function redefined by a later program runs its new body.
+    #[test]
+    fn a_later_program_redefines_a_function() -> Result<(), Error> {
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string("(defun redefined () 1)")?;
+        assert_eq!(
+            ctx.eval_string("(defun redefined () 2) (redefined)")?
+                .to_string(),
+            "2"
+        );
+        assert_eq!(ctx.eval_string("(redefined)")?.to_string(), "2");
+        Ok(())
+    }
+
+    // A program run while another is compiling gets its value, even
+    // when the outer form's value is unused. The outer program is data,
+    // so its macro expands when it compiles, not when it is parsed.
+    #[test]
+    fn eval_string_while_compiling_keeps_its_value() -> Result<(), Error> {
+        let ctx = &mut TulispContext::new();
+        ctx.defun("run-string", |ctx: &mut TulispContext, program: String| {
+            ctx.eval_string(&program)
+        });
+        ctx.eval_string(
+            r#"(defvar seen nil)
+               (defmacro m () (setq seen (run-string "(+ 1 2)")) nil)"#,
+        )?;
+        let program = ctx.eval_string("'((progn (m) 'done) seen)")?;
+        let bytecode = crate::bytecode::compile(ctx, &program, true)?;
+        assert_eq!(crate::bytecode::run(ctx, bytecode)?.to_string(), "3");
+        Ok(())
+    }
 
     // The tree-walker path the test helpers compare against stays a
     // tree-walker path: its lambdas are tree-walker lambdas.

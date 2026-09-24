@@ -48,6 +48,9 @@ pub(crate) struct Compiler {
     /// the form is reached, where a handler around the block can catch
     /// it, as when the tree-walker runs the body.
     pub in_block: bool,
+    /// The names, by address, that the compile in progress defined or
+    /// redefined in `bytecode.functions`.
+    pub added_functions: Vec<usize>,
     label_counter: usize,
 }
 
@@ -61,6 +64,7 @@ impl Compiler {
             current_defun: None,
             active_let_scopes: Vec::new(),
             in_block: false,
+            added_functions: Vec::new(),
             label_counter: 0,
         }
     }
@@ -73,24 +77,58 @@ impl Compiler {
     pub fn reset_label_counter(&mut self) {
         self.label_counter = 0;
     }
+
+    /// Takes the state of the compile in progress, and leaves the state
+    /// a top-level compile starts from.
+    fn take_state(&mut self, keep_result: bool) -> CompileState {
+        CompileState {
+            keep_result: std::mem::replace(&mut self.keep_result, keep_result),
+            in_block: std::mem::replace(&mut self.in_block, false),
+            current_defun: self.current_defun.take(),
+            active_let_scopes: std::mem::take(&mut self.active_let_scopes),
+            added_functions: std::mem::take(&mut self.added_functions),
+        }
+    }
+
+    fn restore_state(&mut self, state: CompileState) {
+        self.keep_result = state.keep_result;
+        self.in_block = state.in_block;
+        self.current_defun = state.current_defun;
+        self.active_let_scopes = state.active_let_scopes;
+        self.added_functions = state.added_functions;
+    }
 }
 
-pub fn compile(ctx: &mut TulispContext, value: &TulispObject) -> Result<Bytecode, Error> {
-    // Snapshot the accumulated function set before compilation so the
-    // returned `Bytecode` carries only the defuns produced by *this*
-    // compile. The compiler itself keeps accumulating so subsequent
-    // compiles (e.g., REPL-style) can resolve names that were defined
-    // earlier, and the machine's own function table grows on each
-    // run.
-    let before: std::collections::HashSet<usize> = ctx
-        .compiler
-        .as_ref()
-        .unwrap()
-        .bytecode
-        .functions
-        .keys()
-        .copied()
-        .collect();
+/// The part of the compiler's state that belongs to one compile.
+struct CompileState {
+    keep_result: bool,
+    in_block: bool,
+    current_defun: Option<TulispObject>,
+    active_let_scopes: Vec<TulispObject>,
+    added_functions: Vec<usize>,
+}
+
+/// Compiles VALUE, a list of top-level forms. It may be called while
+/// another compile is in progress, as when a macro runs a program; the
+/// other compile's state is set aside and restored. With KEEP_RESULT
+/// the program leaves the value of its last form.
+pub fn compile(
+    ctx: &mut TulispContext,
+    value: &TulispObject,
+    keep_result: bool,
+) -> Result<Bytecode, Error> {
+    let state = ctx.compiler.as_mut().unwrap().take_state(keep_result);
+    let result = compile_program(ctx, value);
+    ctx.compiler.as_mut().unwrap().restore_state(state);
+    result
+}
+
+fn compile_program(ctx: &mut TulispContext, value: &TulispObject) -> Result<Bytecode, Error> {
+    // The returned `Bytecode` carries only the defuns this compile
+    // defined or redefined. The compiler itself keeps accumulating so
+    // subsequent compiles (e.g., REPL-style) can resolve names that
+    // were defined earlier, and the machine's own function table grows
+    // on each run.
     let output = compile_progn(ctx, value)?;
     // Assemble the global instruction stream. Per-function bodies
     // were already assembled at their `CompiledDefun` boundary
@@ -100,12 +138,9 @@ pub fn compile(ctx: &mut TulispContext, value: &TulispObject) -> Result<Bytecode
     let compiler = ctx.compiler.as_mut().unwrap();
     compiler.bytecode.global = SharedMut::new(output);
     compiler.bytecode.global_trace_ranges = global_trace_ranges.clone();
-    let new_functions = compiler
-        .bytecode
-        .functions
-        .iter()
-        .filter(|(k, _)| !before.contains(k))
-        .map(|(k, v)| (*k, v.clone()))
+    let new_functions = std::mem::take(&mut compiler.added_functions)
+        .into_iter()
+        .filter_map(|k| Some((k, compiler.bytecode.functions.get(&k)?.clone())))
         .collect();
     Ok(Bytecode {
         global: compiler.bytecode.global.clone(),
