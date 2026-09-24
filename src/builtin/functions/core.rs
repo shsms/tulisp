@@ -834,6 +834,21 @@ mod tests {
         eval_assert_equal(ctx, "(eval '(+ 1 2) nil)", "3");
     }
 
+    // `eval` compiles in the VM on both paths.
+    #[test]
+    fn eval_builtin_runs_in_the_vm() {
+        let ctx = &mut TulispContext::new();
+        for value in [
+            ctx.eval_string("(eval '(lambda (x) x))").unwrap(),
+            ctx.tw_eval_string("(eval '(lambda (x) x))").unwrap(),
+        ] {
+            assert!(matches!(
+                &value.inner_ref().0,
+                crate::TulispValue::CompiledDefun { .. }
+            ));
+        }
+    }
+
     #[test]
     fn funcall_accepts_symbols_and_lambdas() {
         let ctx = &mut TulispContext::new();

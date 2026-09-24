@@ -1177,14 +1177,9 @@ mod tests {
             r#"'`(,42)"#,
         );
 
-        // Same case but via runtime `(eval ...)` — the form is wrapped
-        // in `'` so the VM compiler doesn't see the inner backquotes;
-        // at runtime the `eval` defun receives the quoted data and
-        // hands it to `ctx.eval` (TW), which walks the nested backquote
-        // and reaches the `CompiledDefun` for `f` while the outer
-        // `eval_string` is already running on the VM. The TW
-        // `funcall::CompiledDefun` arm then re-enters via
-        // `bytecode::run_lambda`, sharing `ctx.vm` with the outer run.
+        // Same case through a runtime `(eval ...)`. The form is quoted
+        // so the outer compile does not see the inner backquotes;
+        // `eval` compiles and runs it while the outer program runs.
         eval_assert_equal(
             ctx,
             r#"
@@ -1194,9 +1189,7 @@ mod tests {
             r#"'`(,42)"#,
         );
 
-        // Top-level `(defun …)` stores a `TulispValue::Lambda` (not a
-        // `CompiledDefun`), so the same shape resolves through the TW
-        // `Lambda` arm without re-entering the VM.
+        // The same through a named function.
         eval_assert_equal(
             ctx,
             r#"

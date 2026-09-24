@@ -17,7 +17,7 @@ use crate::{
     bytecode::{self, Bytecode, Compiler, VMCompilers, compile},
     context::callable::TulispCallable,
     error::Error,
-    eval::{DummyEval, eval_basic, funcall, resolve_function},
+    eval::{DummyEval, funcall, resolve_function},
     object::wrappers::{DefunFn, TulispFn, generic::Shared},
     parse::parse,
     value::LexAllocator,
@@ -627,21 +627,32 @@ impl TulispContext {
         Ok(())
     }
 
-    /// Evaluates the given value and returns the result.
-    #[inline(always)]
+    /// Evaluates VALUE and returns the result.
+    ///
+    /// A symbol's value, a number or a string is read directly. Any
+    /// other VALUE is compiled and run in the VM on every call; to run
+    /// the same code often, compile it once, for example as a lambda,
+    /// and [`funcall`](Self::funcall) it. VALUE sees global and special
+    /// variables. It sees the lexical variables of the code calling this
+    /// only through an object that holds them.
     pub fn eval(&mut self, value: &TulispObject) -> Result<TulispObject, Error> {
-        crate::eval::tw_eval(self, value)
+        if value.symbolp() || value.is_symbol_variant() {
+            return value.get();
+        }
+        if value.numberp() || value.stringp() {
+            return Ok(value.clone());
+        }
+        self.eval_progn(&TulispObject::cons(value.clone(), TulispObject::nil()))
     }
 
-    /// Evaluates the given value, run the given function on the result of the
-    /// evaluation, and returns the result of the function.
-    #[inline(always)]
+    /// Evaluates EXPR as [`eval`](Self::eval) does, runs F on the value,
+    /// and returns what F returns.
     pub fn eval_and_then<T>(
         &mut self,
         expr: &TulispObject,
         f: impl FnOnce(&mut TulispContext, &TulispObject) -> Result<T, Error>,
     ) -> Result<T, Error> {
-        let val = eval_basic(self, expr)?;
+        let val = self.eval(expr)?;
         f(self, &val)
     }
 
@@ -765,7 +776,6 @@ impl TulispContext {
     }
 
     /// Parses and evaluates the given string, and returns the result.
-    /// Routed through the bytecode VM.
     pub fn eval_string(&mut self, string: &str) -> Result<TulispObject, Error> {
         let vv = parse(
             self,
@@ -774,8 +784,7 @@ impl TulispContext {
             #[cfg(feature = "etags")]
             false,
         )?;
-        let bytecode = compile(self, &vv, true)?;
-        bytecode::run(self, bytecode)
+        self.eval_progn(&vv)
     }
 
     /// Tree-walker variant of [`eval_string`]. Kept (`#[doc(hidden)]`)
@@ -794,30 +803,29 @@ impl TulispContext {
         crate::eval::tw_eval_progn(self, &vv)
     }
 
-    /// Evaluates each item in the given sequence, and returns the value of the
-    /// last one.
-    #[inline(always)]
+    /// Evaluates each form in SEQ, and returns the value of the last
+    /// one, or nil for none. The forms are compiled and run in the VM,
+    /// as for [`eval`](Self::eval).
     pub fn eval_progn(&mut self, seq: &TulispObject) -> Result<TulispObject, Error> {
-        crate::eval::tw_eval_progn(self, seq)
+        let bytecode = compile(self, seq, true)?;
+        bytecode::run(self, bytecode)
     }
 
-    /// Evaluates each item in the given sequence, and returns the value of
-    /// each.
-    #[inline(always)]
+    /// Evaluates each form in SEQ, as [`eval`](Self::eval) does, and
+    /// returns the list of their values.
     pub fn eval_each(&mut self, seq: &TulispObject) -> Result<TulispObject, Error> {
         let mut builder = crate::cons::ListBuilder::new();
-        for val in seq.base_iter() {
-            builder.push(self.eval(&val)?);
+        for form in seq.base_iter() {
+            builder.push(self.eval(&form)?);
         }
         Ok(builder.build())
     }
 
-    /// Parses and evaluates the contents of the given file and returns the
-    /// value. Routed through the bytecode VM.
+    /// Parses and evaluates the contents of the given file and returns
+    /// the value.
     pub fn eval_file(&mut self, filename: &str) -> Result<TulispObject, Error> {
         let vv = self.parse_file(filename)?;
-        let bytecode = compile(self, &vv, true)?;
-        bytecode::run(self, bytecode)
+        self.eval_progn(&vv)
     }
 
     /// Evaluates an embedded program string as a prelude: the program
@@ -849,8 +857,7 @@ impl TulispContext {
             #[cfg(feature = "etags")]
             false,
         )?;
-        let bytecode = compile(self, &vv, true)?;
-        bytecode::run(self, bytecode)
+        self.eval_progn(&vv)
     }
 
     /// Interns `filename` in the context's filename table and returns
@@ -1001,6 +1008,92 @@ mod tests {
         let bytecode = crate::bytecode::compile(ctx, &program, true)?;
         assert_eq!(crate::bytecode::run(ctx, bytecode)?.to_string(), "3");
         Ok(())
+    }
+
+    fn is_compiled(value: &TulispObject) -> bool {
+        matches!(&value.inner_ref().0, TulispValue::CompiledDefun { .. })
+    }
+
+    // Each entry point compiles and runs in the VM: a lambda it
+    // evaluates is a compiled one.
+    #[test]
+    fn the_eval_family_runs_in_the_vm() -> Result<(), Error> {
+        let ctx = &mut TulispContext::new();
+        let form = ctx.eval_string("'(lambda (x) x)")?;
+        let forms = TulispObject::cons(form.clone(), TulispObject::nil());
+        assert!(is_compiled(&ctx.eval(&form)?));
+        assert!(ctx.eval_and_then(&form, |_, value| Ok(is_compiled(value)))?);
+        assert!(is_compiled(&ctx.eval_progn(&forms)?));
+        assert!(is_compiled(&ctx.eval_each(&forms)?.car()?));
+        Ok(())
+    }
+
+    #[test]
+    fn the_eval_family_values() -> Result<(), Error> {
+        let ctx = &mut TulispContext::new();
+        let forms = ctx.eval_string("'((+ 1 2) (when t 4) 5)")?;
+        assert_eq!(ctx.eval_progn(&forms)?.to_string(), "5");
+        assert_eq!(ctx.eval_each(&forms)?.to_string(), "(3 4 5)");
+        assert!(ctx.eval_progn(&TulispObject::nil())?.null());
+        assert!(ctx.eval_each(&TulispObject::nil())?.null());
+        Ok(())
+    }
+
+    // A symbol, a number or a string is read without a program, with
+    // the value and the error a compiled one gives.
+    #[test]
+    fn eval_of_an_atom_matches_a_compiled_one() -> Result<(), Error> {
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string("(defvar atom-var 7)")?;
+        for program in ["'atom-var", "'nil", "'t", "':kw", "42", "1.5", "\"text\""] {
+            let form = ctx.eval_string(program)?;
+            let direct = ctx.eval(&form)?;
+            let compiled = ctx.eval_progn(&TulispObject::cons(form, TulispObject::nil()))?;
+            assert!(direct.equal(&compiled), "{program}: {direct} vs {compiled}");
+        }
+        let unbound = ctx.intern("atom-unbound");
+        let direct = ctx.eval(&unbound).unwrap_err().format(ctx);
+        let program = TulispObject::cons(unbound, TulispObject::nil());
+        let compiled = ctx.eval_progn(&program).unwrap_err().format(ctx);
+        assert_eq!(direct, compiled);
+        Ok(())
+    }
+
+    // A form that fails to compile is returned as an error.
+    #[test]
+    fn eval_returns_a_compile_error() -> Result<(), Error> {
+        let ctx = &mut TulispContext::new();
+        let form = ctx.eval_string("'(if)")?;
+        assert!(ctx.eval(&form).is_err());
+        Ok(())
+    }
+
+    // A built defun, which the parser never saw, defines its function.
+    #[test]
+    fn eval_of_a_built_defun_defines_it() -> Result<(), Error> {
+        let ctx = &mut TulispContext::new();
+        let form: TulispObject = [
+            ctx.intern("defun"),
+            ctx.intern("built-fn"),
+            TulispObject::nil(),
+            TulispObject::from(7),
+        ]
+        .into_iter()
+        .collect();
+        ctx.eval(&form)?;
+        assert_eq!(ctx.eval_string("(built-fn)")?.to_string(), "7");
+        Ok(())
+    }
+
+    // `ctx.eval` called from Rust while the VM runs returns the value.
+    #[test]
+    fn eval_while_the_vm_runs() {
+        let ctx = &mut TulispContext::new();
+        ctx.defun(
+            "host-eval",
+            |ctx: &mut TulispContext, form: TulispObject| ctx.eval(&form),
+        );
+        eval_assert_equal(ctx, "(list 1 (host-eval '(+ 1 2)) 4)", "'(1 3 4)");
     }
 
     // The tree-walker path the test helpers compare against stays a
