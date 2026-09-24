@@ -560,17 +560,49 @@ pub(crate) fn eval_basic<'a>(
 }
 
 pub fn macroexpand(ctx: &mut TulispContext, inp: TulispObject) -> Result<TulispObject, Error> {
-    macroexpand_depth(ctx, inp, 0)
+    macroexpand_depth(ctx, inp, 0, 0)
+}
+
+/// Expands FORM once when its head names a macro. `None` when it does
+/// not.
+fn macroexpand_1(
+    ctx: &mut TulispContext,
+    form: &TulispObject,
+) -> Result<Option<TulispObject>, Error> {
+    if !form.consp() {
+        return Ok(None);
+    }
+    let head = form.car()?;
+    // A head that is itself a macro, as the tree-walker builds when it
+    // runs a macro call, expands too.
+    let value = head.get().unwrap_or_else(|_| head.clone());
+    let inner = value.inner_ref();
+    let expansion = match &inner.0 {
+        TulispValue::Macro(func) => {
+            let func = func.clone();
+            drop(inner);
+            func(ctx, &form.cdr()?)
+        }
+        TulispValue::Defmacro { lambda, compiled } => {
+            let (lambda, compiled) = (lambda.clone(), compiled.clone());
+            drop(inner);
+            expand_lisp_macro(ctx, &head, &lambda, &compiled, &form.cdr()?)
+        }
+        _ => return Ok(None),
+    };
+    expansion.map(Some).map_err(|e| e.with_trace(form.clone()))
 }
 
 /// Recurses on each macro expansion and each element's car (the cdr
 /// chain is walked iteratively), so `depth` bounds the native
 /// recursion — deeply nested input raises a catchable error instead of
-/// overflowing the stack.
+/// overflowing the stack. `quote_depth` is the backquote depth, 0 being
+/// code: inside a backquote only what an unquote runs is expanded.
 fn macroexpand_depth(
     ctx: &mut TulispContext,
     inp: TulispObject,
     depth: u32,
+    quote_depth: u32,
 ) -> Result<TulispObject, Error> {
     let limit = ctx.max_nesting_depth();
     if depth > limit {
@@ -580,50 +612,42 @@ fn macroexpand_depth(
         )));
     }
     if !inp.consp() {
-        return Ok(inp);
+        return macroexpand_operand(ctx, inp, depth, quote_depth, false);
     }
-    let expr = inp.clone();
-    expr.with_ctxobj(inp.ctxobj());
-    let exp_car = expr.car()?;
-    let value = match exp_car.get() {
-        Ok(val) => val,
-        Err(_) => exp_car.clone(),
-    };
-    let inner = value.inner_ref();
-    let x = match &inner.0 {
-        TulispValue::Macro(func) => {
-            let func = func.clone();
-            drop(inner);
-            let expansion = func(ctx, &expr.cdr()?).map_err(|e| e.with_trace(inp))?;
-            with_call_span(macroexpand_depth(ctx, expansion, depth + 1)?, &expr)
-        }
-        TulispValue::Defmacro { lambda, compiled } => {
-            let (lambda, compiled) = (lambda.clone(), compiled.clone());
-            drop(inner);
-            let expansion = expand_lisp_macro(ctx, &exp_car, &lambda, &compiled, &expr.cdr()?)
-                .map_err(|e| e.with_trace(inp))?;
-            with_call_span(macroexpand_depth(ctx, expansion, depth + 1)?, &expr)
-        }
-        _ => {
-            drop(inner);
-            expr
-        }
-    };
+    if quote_depth == 0
+        && let Some(expansion) = macroexpand_1(ctx, &inp)?
+    {
+        return Ok(with_call_span(
+            macroexpand_depth(ctx, expansion, depth + 1, 0)?,
+            &inp,
+        ));
+    }
+    let mut builder = crate::cons::ListBuilder::new();
+    let mut items = inp.base_iter();
+    for item in items.by_ref() {
+        builder.push(macroexpand_depth(ctx, item, depth + 1, quote_depth)?);
+    }
+    let tail = items.tail()?;
+    if !tail.null() {
+        builder.append(macroexpand_operand(ctx, tail, depth, quote_depth, true)?)?;
+    }
+    Ok(builder.build().with_span(inp.span()))
+}
 
-    if x.consp() {
-        let span = x.span();
-        let mut builder = crate::cons::ListBuilder::new();
-        let mut items = x.base_iter();
-        for item in items.by_ref() {
-            builder.push(macroexpand_depth(ctx, item, depth + 1)?);
+/// Expands what `obj`, a non-list at backquote depth QUOTE_DEPTH, wraps
+/// that may hold code; see [`wrapped_operand`].
+fn macroexpand_operand(
+    ctx: &mut TulispContext,
+    obj: TulispObject,
+    depth: u32,
+    quote_depth: u32,
+    in_tail: bool,
+) -> Result<TulispObject, Error> {
+    match wrapped_operand(&obj, quote_depth, in_tail) {
+        Some(operand) => {
+            operand.map(|value, quote_depth| macroexpand_depth(ctx, value, depth + 1, quote_depth))
         }
-        let tail = items.tail()?;
-        if !tail.null() {
-            builder.append(tail)?;
-        }
-        Ok(builder.build().with_span(span))
-    } else {
-        Ok(x)
+        None => Ok(obj),
     }
 }
 
@@ -1998,6 +2022,17 @@ mod tests {
                 assert!(err.contains(needle), "{program}: {err}");
             }
         }
+    }
+
+    // `macroexpand` expands the code an unquote or a splice runs, and
+    // leaves the rest of a backquote's template alone.
+    #[test]
+    fn macroexpand_expands_inside_unquotes() {
+        let ctx = &mut TulispContext::new();
+        let got = ctx
+            .eval_string("(macroexpand '`(when ,@(when x (list y))))")
+            .unwrap();
+        assert_eq!(got.to_string(), "`(when ,@(if x (progn (list y))))");
     }
 
     // A macro defined at run time is there for a later program.
