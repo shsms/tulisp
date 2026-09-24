@@ -131,12 +131,97 @@ fn macroexpand_depth(
             &inp,
         ));
     }
+    if quote_depth > 0 {
+        // Inside a backquote a list is a template: only what an
+        // unquote in it runs is code.
+        return macroexpand_list(ctx, inp, depth, quote_depth, &|_| Part::Form);
+    }
+    // Only the forms in it expand, not the names it binds or its data.
+    match FormShape::of(&inp) {
+        FormShape::Quote => Ok(inp),
+        FormShape::Let => macroexpand_list(ctx, inp, depth, 0, &|index| match index {
+            0 => Part::Name,
+            1 => Part::EachFormsFrom(1),
+            _ => Part::Form,
+        }),
+        FormShape::ConditionCase => macroexpand_list(ctx, inp, depth, 0, &|index| match index {
+            0 | 1 => Part::Name,
+            2 => Part::Form,
+            _ => Part::FormsFrom(1),
+        }),
+        FormShape::Cond => macroexpand_list(ctx, inp, depth, 0, &|index| match index {
+            0 => Part::Name,
+            _ => Part::FormsFrom(0),
+        }),
+        FormShape::Lambda
+        | FormShape::Defun
+        | FormShape::Defvar
+        | FormShape::TailCall
+        | FormShape::Call => {
+            let names = FormShape::names_at_start(&inp);
+            macroexpand_list(ctx, inp, depth, 0, &forms_from(names))
+        }
+    }
+}
+
+/// What macro expansion reads an element of a list as.
+enum Part {
+    /// A name, or data: it is left alone.
+    Name,
+    /// A form.
+    Form,
+    /// A list whose elements from the given index on are forms, like
+    /// a `(VAR INIT)` of a `let` or a `cond` clause.
+    FormsFrom(usize),
+    /// A list of `FormsFrom` lists, like the varlist of a `let`.
+    EachFormsFrom(usize),
+}
+
+/// Reads the elements of a list before index `start` as names, and
+/// the rest as forms.
+fn forms_from(start: usize) -> impl Fn(usize) -> Part {
+    move |index| {
+        if index < start {
+            Part::Name
+        } else {
+            Part::Form
+        }
+    }
+}
+
+/// Expands the elements of LIST at backquote depth QUOTE_DEPTH, each
+/// as PART_OF its index says. LIST itself when nothing in it expands.
+fn macroexpand_list(
+    ctx: &mut TulispContext,
+    inp: TulispObject,
+    depth: u32,
+    quote_depth: u32,
+    part_of: &dyn Fn(usize) -> Part,
+) -> Result<TulispObject, Error> {
+    if !inp.consp() {
+        return Ok(inp);
+    }
     // The copy starts at the first element that changes.
     let mut copy: Option<crate::cons::ListBuilder> = None;
     let mut items = inp.base_iter();
     let mut count = 0;
     for item in items.by_ref() {
-        let expanded = macroexpand_depth(ctx, item.clone(), depth + 1, quote_depth)?;
+        let expanded = match part_of(count) {
+            Part::Name => item.clone(),
+            Part::Form => macroexpand_depth(ctx, item.clone(), depth + 1, quote_depth)?,
+            Part::FormsFrom(start) => macroexpand_list(
+                ctx,
+                item.clone(),
+                depth + 1,
+                quote_depth,
+                &forms_from(start),
+            )?,
+            Part::EachFormsFrom(start) => {
+                macroexpand_list(ctx, item.clone(), depth + 1, quote_depth, &|_| {
+                    Part::FormsFrom(start)
+                })?
+            }
+        };
         if copy.is_none() && !expanded.eq_ptr(&item) {
             copy = Some(builder_with_first(&inp, count));
         }
@@ -449,9 +534,10 @@ pub(crate) fn wrapped_operand(
     })
 }
 
-/// How the walkers over code (the rewrite of lexical variables and
-/// the search for a closure's free variables) read a list at code
-/// level: which of its elements are forms, and which are names.
+/// How the walkers over code (macro expansion, the rewrite of lexical
+/// variables and the search for a closure's free variables) read a
+/// list at code level: which of its elements are forms, and which are
+/// names.
 pub(crate) enum FormShape {
     /// `(quote X)`: nothing in it runs.
     Quote,
@@ -1439,6 +1525,28 @@ mod tests {
             "(let ((g (lambda () 1))) (g))",
             "ERR Uninitialized: Variable definition is void: g",
         );
+    }
+
+    // A name a form binds or defines is not code: macro expansion
+    // leaves it alone, also when it is named like a macro or a special
+    // form.
+    #[test]
+    fn names_a_form_binds_are_not_code() {
+        for (program, expected) in [
+            ("(let ((when 1)) when)", "1"),
+            ("(let* ((unless 2)) unless)", "2"),
+            ("(let ((when 1)) (cond (when 7)))", "7"),
+            ("(funcall (lambda (when) when) 3)", "3"),
+            ("(defun f (when) (when when 1)) (f t)", "1"),
+            ("(defmacro m (x) x) (let ((m 4)) m)", "4"),
+            (
+                "(let ((x 1)) (dolist (when (list 1 2)) (setq x (+ x when))) x)",
+                "4",
+            ),
+            ("(defun f (quote) quote) (f 3)", "3"),
+        ] {
+            eval_assert_equal(&mut TulispContext::new(), program, expected);
+        }
     }
 
     // A body is a list of forms: one whose first form is a symbol
