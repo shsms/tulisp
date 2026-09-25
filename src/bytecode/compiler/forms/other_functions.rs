@@ -900,13 +900,13 @@ mod tests {
 
     #[test]
     fn test_mutual_tail_recursion_is_tco() -> Result<(), Error> {
-        // `mark_tail_calls` now also marks tail calls to other VM defuns
-        // as `Bounce`, so mutual recursion compiles to `Instruction::TailCall`
+        // `mark_tail_calls` marks tail calls to other VM defuns as
+        // `Bounce`, so mutual recursion compiles to `Instruction::TailCall`
         // (loop-style unwind) rather than nested `Instruction::Call`
         // (per-cycle Rust frame). `pre_register_defun_arities` registers
-        // every top-level `(defun NAME PARAMS …)`'s arity before
-        // compiling any body, so cycles get full TCO without forward
-        // declarations.
+        // the arity of every `(defun NAME PARAMS …)` at the program's top
+        // level, or in a `progn` there, before compiling any body, so
+        // such cycles get full TCO without forward declarations.
         //
         // Pin the behavior with a depth that would blow a non-TCO Rust
         // stack: 200,000 alternations of even?/odd? = 200,000 hops.
