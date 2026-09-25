@@ -124,6 +124,14 @@ fn compile_program(ctx: &mut TulispContext, value: &TulispObject) -> Result<Byte
     // subsequent compiles (e.g., REPL-style) can resolve names that
     // were defined earlier, and each `defun` is in the machine's
     // function table from the moment it compiled.
+    //
+    // The `defun`s at the top level, and in a `progn` there, are
+    // registered before any form compiles, so they can tail-call each
+    // other in any order. A `defun` that a top-level macro call expands
+    // to, directly or in a `progn`, is registered only when the walk
+    // below reaches that call. A function compiled before that point
+    // makes an ordinary call to it, not a tail call, unless a `defun` of
+    // the same name was registered earlier.
     pre_register_defun_arities(ctx, value);
     let keep_result = ctx.compiler.as_ref().unwrap().keep_result;
     let mut output = vec![];

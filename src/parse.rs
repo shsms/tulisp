@@ -746,6 +746,13 @@ impl Parser<'_, '_> {
     }
 }
 
+/// Marks the tail calls in `body`, the body of the function `name`, as
+/// `(Bounce FN ARGS...)`, looking through `progn`, `let`, `let*`, `if`
+/// and `cond`. It marks a call to `name` itself and a call to a function
+/// already in the compiler's `defun_args`. A call to anything else,
+/// such as a function held in a variable or one not registered yet,
+/// stays an ordinary call. `compile_fn_defun_bounce_call` compiles a
+/// marked call.
 pub(crate) fn mark_tail_calls(
     ctx: &mut TulispContext,
     name: TulispObject,
@@ -772,14 +779,6 @@ pub(crate) fn mark_tail_calls(
         return Ok(body);
     };
     let is_self_call = tail_ident.eq(&name);
-    // A call to another VM-compiled defun in tail position is also
-    // a TCO opportunity. The call site uses the same `Bounce` shape
-    // as self-recursion; `compile_fn_defun_bounce_call` emits a
-    // `TailCall` for it (loop-style unwind in the caller), which
-    // gives mutual recursion bounded Rust stack usage. We can only
-    // mark when the target is already registered — forward
-    // references (callee defined after caller) miss this and fall
-    // through to a regular `Call`.
     let is_known_vm_defun = ctx
         .compiler
         .as_ref()

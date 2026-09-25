@@ -102,6 +102,13 @@ pub(super) fn compile_fn_append(
 
 /// Compiles `(Bounce NAME ARGS...)`, the marker `mark_tail_calls`
 /// puts on a tail call to a Lisp function.
+///
+/// Inside a `let` or `let*` that binds a special variable, the call
+/// stays an ordinary call: arity is checked at run time, and the call
+/// counts toward the eval depth limit. Otherwise a self call stores the
+/// arguments in the function's parameters and jumps to its start, and
+/// a call to another function becomes a `TailCall`, which
+/// `run_tail_calls` follows without growing the Rust stack.
 pub(super) fn compile_fn_defun_bounce_call(
     ctx: &mut TulispContext,
     name: &TulispObject,
