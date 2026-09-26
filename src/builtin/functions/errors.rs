@@ -531,6 +531,21 @@ mod tests {
     }
 
     #[test]
+    fn signal_with_data_that_contains_itself() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(let ((l (list 1))) (setcar l l) (condition-case e (signal 'my-error l) (t 'ok)))",
+            "'ok",
+        );
+        eval_assert_error_line(
+            ctx,
+            "(let ((l (list 1))) (setcar l l) (signal 'my-error (list 5 l)))",
+            "ERR Signal(my-error): peculiar error: 5, (#0)",
+        );
+    }
+
+    #[test]
     fn signal_from_rust() -> Result<(), crate::Error> {
         let ctx = &mut TulispContext::new();
         let data = ctx.eval_string("'(1 2)")?;

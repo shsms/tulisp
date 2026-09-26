@@ -39,9 +39,50 @@ impl Default for TulispObject {
     }
 }
 
+std::thread_local! {
+    /// The lists being printed on this thread, outermost first, so a
+    /// list that contains itself prints the repeat instead of
+    /// recursing forever.
+    static PRINTING: std::cell::RefCell<Vec<usize>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Takes a list off `PRINTING` when its printing ends, on every path.
+struct PrintingGuard;
+
+impl Drop for PrintingGuard {
+    fn drop(&mut self) {
+        PRINTING.with(|printing| printing.borrow_mut().pop());
+    }
+}
+
 impl std::fmt::Display for TulispObject {
+    /// Prints as `prin1` does. A list met again inside its own
+    /// printing prints as `#N`, N its depth among the lists being
+    /// printed, as Emacs does.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("{}", self.rc.borrow().0))
+        if !self.consp() {
+            // A quote form prints its value after letting go of the lock, as
+            // a list does, in case the value leads back here.
+            let inner = self.inner_ref();
+            let (prefix, value) = match &inner.0 {
+                TulispValue::Quote { value, .. } => ("'", value.clone()),
+                TulispValue::Backquote { value, .. } => ("`", value.clone()),
+                TulispValue::Unquote { value, .. } => (",", value.clone()),
+                TulispValue::Splice { value, .. } => (",@", value.clone()),
+                TulispValue::Sharpquote { value, .. } => ("#'", value.clone()),
+                other => return write!(f, "{other}"),
+            };
+            drop(inner);
+            return write!(f, "{prefix}{value}");
+        }
+        let addr = self.addr_as_usize();
+        let depth = PRINTING.with(|printing| printing.borrow().iter().position(|a| *a == addr));
+        if let Some(depth) = depth {
+            return write!(f, "#{depth}");
+        }
+        PRINTING.with(|printing| printing.borrow_mut().push(addr));
+        let _guard = PrintingGuard;
+        crate::value::fmt_list(self.clone(), f)
     }
 }
 
@@ -277,7 +318,10 @@ impl TulispObject {
     /// Returns a string representation of `self`, similar to the Emacs Lisp
     /// function `princ`.
     pub fn fmt_string(&self) -> String {
-        self.rc.borrow().0.fmt_string()
+        if let TulispValue::String { value, .. } = &self.inner_ref().0 {
+            return value.clone();
+        }
+        self.to_string()
     }
 
     /// Sets a value to `self` in the current scope. If there was a previous
@@ -1018,6 +1062,29 @@ mod tests {
     crate::AsSymbol! {
         #[derive(Debug, PartialEq)]
         enum Mode { Fast<"fast">, Careful<"careful"> }
+    }
+
+    #[test]
+    fn a_list_that_contains_itself_prints_the_repeat_as_its_depth() {
+        let ctx = &mut TulispContext::new();
+        // As Emacs prints them: `#N` names the list being printed N levels in
+        // from the outermost, which is `#0`.
+        for (program, expected) in [
+            (
+                r#"(let ((l (list 1 2))) (setcar (cdr l) l) (format "%S" l))"#,
+                r#""(1 #0)""#,
+            ),
+            (
+                r#"(let* ((a (list 1)) (b (list 2 a))) (setcar a b) (format "%S" (list 9 b)))"#,
+                r#""(9 (2 (#1)))""#,
+            ),
+            (
+                r#"(let ((l (list 1))) (setcar l l) (format "%s" (list l l)))"#,
+                r#""((#1) (#1))""#,
+            ),
+        ] {
+            crate::test_utils::eval_assert_equal(ctx, program, expected);
+        }
     }
 
     #[test]

@@ -603,7 +603,7 @@ impl PartialEq for TulispValue {
 /// rounds of the cycle, where the iterator notices it, instead of
 /// never ending. A tail call `mark_tail_calls` marked, `(Bounce f
 /// args...)`, prints as the call, as it was written.
-fn fmt_list(vv: TulispObject, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+pub(crate) fn fmt_list(vv: TulispObject, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     if let Ok(head) = vv.car()
         && head.is_bounce()
         && let Ok(call) = vv.cdr()
@@ -1096,14 +1096,6 @@ impl TulispValue {
                 "Expected Any(Shared<dyn TulispAny>), got: {}",
                 self
             ))),
-        }
-    }
-
-    #[inline(always)]
-    pub(crate) fn fmt_string(&self) -> String {
-        match self {
-            TulispValue::String { value, .. } => value.to_owned(),
-            s => s.to_string(),
         }
     }
 
