@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use crate::{TulispContext, TulispObject};
 
 mod table;
@@ -86,11 +88,11 @@ ErrorKind!(
 );
 
 impl ErrorKind {
-    /// Prints a kind that carries a value: a `throw` with its tag and value,
-    /// a signal with its error symbol.
+    /// Prints a kind that carries a value by its name alone: a `throw` by its
+    /// tag, a signal by its error symbol. The description shows the rest.
     fn fmt_value(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ErrorKind::Throw(pair) => write!(f, "Throw({pair})"),
+            ErrorKind::Throw(pair) => write!(f, "Throw({})", pair.car().unwrap_or_default()),
             ErrorKind::Signal { symbol, .. } => write!(f, "Signal({symbol})"),
             // Only a kind with a value comes here; one not listed above still
             // prints as something.
@@ -136,10 +138,11 @@ pub struct Error {
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.desc.is_empty() {
+        let desc = self.description();
+        if desc.is_empty() {
             write!(f, "ERR {}", self.kind)?;
         } else {
-            write!(f, "ERR {}: {}", self.kind, self.desc)?;
+            write!(f, "ERR {}: {}", self.kind, desc)?;
         }
         for span_obj in &self.backtrace {
             if span_obj.numberp() || span_obj.is_symbol_variant() || span_obj.stringp() {
@@ -180,7 +183,8 @@ impl Error {
         }
     }
 
-    /// Creates a new `Throw` error with the given tag and value.
+    /// Creates a new `Throw` error with the given tag and value. Its
+    /// description is what shows when no `catch` receives it.
     pub fn throw(tag: TulispObject, value: TulispObject) -> Self {
         Self {
             kind: ErrorKind::Throw(TulispObject::cons(tag, value)),
@@ -212,10 +216,11 @@ impl Error {
 
     /// Formats the error into a human-readable string, including backtrace information.
     pub fn format(&self, ctx: &TulispContext) -> String {
-        let mut span_str = if self.desc.is_empty() {
+        let desc = self.description();
+        let mut span_str = if desc.is_empty() {
             format!("ERR {}", self.kind)
         } else {
-            format!("ERR {}: {}", self.kind, self.desc)
+            format!("ERR {}: {}", self.kind, desc)
         };
         for span in &self.backtrace {
             let prefix = self.format_span(ctx, span);
@@ -275,7 +280,20 @@ impl Error {
 
     /// Returns the description of the error.
     pub fn desc(&self) -> String {
-        self.desc.to_owned()
+        self.description().into_owned()
+    }
+
+    /// The description. A `throw`'s is built when read, so a `throw` that a
+    /// `catch` receives prints nothing.
+    fn description(&self) -> Cow<'_, str> {
+        match &self.kind {
+            ErrorKind::Throw(pair) => Cow::Owned(format!(
+                "No catch for tag: {}, {}",
+                pair.car().unwrap_or_default(),
+                pair.cdr().unwrap_or_default()
+            )),
+            _ => Cow::Borrowed(&self.desc),
+        }
     }
 
     /// The error's data, what a `condition-case` handler sees after the error

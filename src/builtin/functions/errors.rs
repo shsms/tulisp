@@ -264,7 +264,7 @@ mod tests {
         eval_assert_error(
             &mut ctx,
             "(catch 'my-tag (throw 'other-tag 42))",
-            r#"ERR Throw((other-tag . 42))
+            r#"ERR Throw(other-tag): No catch for tag: other-tag, 42
 <eval_string>:1.16-1.36:  at (throw 'other-tag 42)
 <eval_string>:1.1-1.37:  at (catch 'my-tag (throw 'other-tag 42))
 "#,
@@ -358,7 +358,7 @@ mod tests {
         eval_assert_error(
             &mut ctx,
             "(condition-case e (throw 'tag 5) (error 'caught))",
-            r#"ERR Throw((tag . 5))
+            r#"ERR Throw(tag): No catch for tag: tag, 5
 <eval_string>:1.19-1.32:  at (throw 'tag 5)
 <eval_string>:1.1-1.49:  at (condition-case e (throw 'tag 5) (error 'caught))
 "#,
@@ -797,6 +797,15 @@ mod tests {
         let err = ctx.signal("quit", TulispObject::nil());
         assert!(err.is_a(ctx, "quit") && !err.is_a(ctx, "error"));
         Ok(())
+    }
+
+    #[test]
+    fn an_uncaught_throw_names_its_tag() {
+        let ctx = &mut TulispContext::new();
+        let err = ctx.eval_string(r#"(throw 'done "x")"#).unwrap_err();
+        assert_eq!(err.desc(), r#"No catch for tag: done, "x""#);
+        assert!(!err.is_a(ctx, "error"));
+        assert!(err.data().null());
     }
 
     #[test]
