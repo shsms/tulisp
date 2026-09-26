@@ -291,7 +291,7 @@ mod tests {
         eval_assert_equal(
             ctx,
             r#"(funcall (funcall (lambda () (condition-case e (error "a") (error (lambda () e))))))"#,
-            r#"'(error . "a")"#,
+            r#"'(error "a")"#,
         );
         // A defvar placed after the function that binds VAR leaves that
         // binding lexical, so the function that reads the variable sees

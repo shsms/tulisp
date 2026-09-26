@@ -252,4 +252,14 @@ impl Error {
     pub fn desc(&self) -> String {
         self.desc.to_owned()
     }
+
+    /// The error's data, what a `condition-case` handler sees after
+    /// the error symbol: `(DESC)` for a built-in kind, and nil for a
+    /// `throw`.
+    pub fn data(&self) -> TulispObject {
+        match &self.kind {
+            ErrorKind::Throw(_) => TulispObject::nil(),
+            _ => TulispObject::cons(TulispObject::from(self.desc.clone()), TulispObject::nil()),
+        }
+    }
 }

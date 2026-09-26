@@ -35,8 +35,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     // every built-in error; `t` catches every error. A `throw` is
     // never caught.
     //
-    // VAR holds `(error-symbol . message)` in the handler body. It is
-    // bound lexically, like a `let` variable, or dynamically when it is
+    // VAR holds `(ERROR-SYMBOL . DATA)` in the handler body, DATA a
+    // list; a built-in error's DATA is `(MESSAGE)`. It is bound
+    // lexically, like a `let` variable, or dynamically when it is
     // special. A `nil` VAR binds nothing; `t` or a keyword fails when a
     // handler binds it.
     ctx.define_special_form("condition-case");
@@ -113,9 +114,10 @@ pub(crate) fn check_condition_case_var(var: &TulispObject) -> Result<(), Error> 
     Ok(())
 }
 
-/// The value a handler's VAR holds: `(error-symbol . message)`.
-pub(crate) fn error_data(ctx: &mut TulispContext, kind_sym: &str, err: &Error) -> TulispObject {
-    TulispObject::cons(ctx.intern(kind_sym), TulispObject::from(err.desc()))
+/// What a `condition-case` handler's variable holds for ERR, whose
+/// symbol is KIND_SYM: `(KIND_SYM . DATA)`.
+pub(crate) fn error_value(ctx: &mut TulispContext, kind_sym: &str, err: &Error) -> TulispObject {
+    TulispObject::cons(ctx.intern(kind_sym), err.data())
 }
 
 /// The `(condition, body-forms)` pairs of `condition-case` HANDLERS.
@@ -185,11 +187,11 @@ mod tests {
             r#"(condition-case e (error "boom") (error 'caught))"#,
             "'caught",
         );
-        // VAR is bound to `(error-symbol . message)`.
+        // VAR is bound to `(ERROR-SYMBOL . DATA)`.
         eval_assert_equal(
             &mut ctx,
             r#"(condition-case e (error "boom") (error e))"#,
-            r#"'(error . "boom")"#,
+            r#"'(error "boom")"#,
         );
         // Specific error symbol matches its mapped ErrorKind.
         eval_assert_equal(
@@ -286,6 +288,32 @@ mod tests {
     }
 
     #[test]
+    fn a_handler_sees_the_error_data_as_a_list() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            r#"(condition-case e (error "boom") (error (cdr e)))"#,
+            r#"'("boom")"#,
+        );
+        eval_assert_equal(
+            ctx,
+            "(condition-case e (/ 1 0) (error e))",
+            r#"'(arith-error "Division by zero")"#,
+        );
+    }
+
+    #[test]
+    fn error_data_is_the_description_in_a_list() -> Result<(), crate::Error> {
+        let ctx = &mut TulispContext::new();
+        let err = ctx.eval_string("(/ 1 0)").unwrap_err();
+        let expected = ctx.eval_string(r#"'("Division by zero")"#)?;
+        assert!(err.data().equal(&expected), "{}", err.data());
+        let err = ctx.eval_string("(throw 'tag 1)").unwrap_err();
+        assert!(err.data().null());
+        Ok(())
+    }
+
+    #[test]
     fn catch_evaluates_its_tag_first() {
         let ctx = &mut TulispContext::new();
         eval_assert_equal(
@@ -327,7 +355,7 @@ mod tests {
         eval_assert_equal(
             ctx,
             r#"(funcall (condition-case e (error "boom") (error (lambda () e))))"#,
-            r#"'(error . "boom")"#,
+            r#"'(error "boom")"#,
         );
         // A function the handler calls does not see it.
         eval_assert_error_line(
@@ -347,7 +375,7 @@ mod tests {
                (defun cc-read () cc-special)
                (list (condition-case cc-special (error "a") (error (cc-read)))
                      cc-special)"#,
-            r#"'((error . "a") 1)"#,
+            r#"'((error "a") 1)"#,
         );
     }
 
@@ -390,7 +418,7 @@ mod tests {
         eval_assert_equal(
             ctx,
             r#"(condition-case e (error "x") (wrong-type-argument 'wrong) (t e))"#,
-            r#"'(error . "x")"#,
+            r#"'(error "x")"#,
         );
     }
 
