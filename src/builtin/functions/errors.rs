@@ -1,9 +1,13 @@
-use crate::{Error, ErrorKind, TulispContext, TulispObject, TulispValue};
+use super::core::format_string;
+use crate::{Error, ErrorKind, Rest, TulispContext, TulispObject, TulispValue};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    ctx.defun("error", |msg: String| -> Result<TulispObject, Error> {
-        Err(Error::lisp_error(msg))
-    });
+    ctx.defun(
+        "error",
+        |format: String, args: Rest<TulispObject>| -> Result<TulispObject, Error> {
+            Err(Error::lisp_error(format_string(&format, args)?))
+        },
+    );
 
     ctx.define_special_form("catch");
 
@@ -311,6 +315,28 @@ mod tests {
         let err = ctx.eval_string("(throw 'tag 1)").unwrap_err();
         assert!(err.data().null());
         Ok(())
+    }
+
+    #[test]
+    fn error_formats_its_message() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            r#"(condition-case e (error "no %s in %d" 'way 5) (error e))"#,
+            r#"'(error "no way in 5")"#,
+        );
+        eval_assert_error_line(ctx, r#"(error "%d%%" 5)"#, "ERR LispError: 5%");
+        // A lone string is a format string, as in Emacs.
+        eval_assert_error_line(
+            ctx,
+            r#"(error "100%")"#,
+            "ERR SyntaxError: format: unterminated % spec",
+        );
+        eval_assert_error_line(
+            ctx,
+            r#"(error "%s")"#,
+            "ERR MissingArgument: format has missing args",
+        );
     }
 
     #[test]
