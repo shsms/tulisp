@@ -1,6 +1,7 @@
 pub(crate) mod callable;
 pub(crate) mod special;
 
+mod errors;
 mod rest;
 pub use rest::Rest;
 

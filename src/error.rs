@@ -3,24 +3,26 @@ use crate::{TulispContext, TulispObject};
 mod table;
 pub(crate) use table::ErrorTable;
 
-macro_rules! replace_expr {
-    ($_t:ty, $sub:ident) => {
-        $sub
-    };
-}
-
 /// A macro for defining the `ErrorKind` enum, the `Display` implementation for
-/// it, and the constructors for the `Error` struct.
+/// it, and the constructors for the `Error` struct. The kinds before the `;`
+/// carry only a description; those after it carry a value too, and print
+/// through `ErrorKind::fmt_value`.
 macro_rules! ErrorKind {
-    ($(
-        ($kind:ident$(($param:ty))? $(, $vis:vis $ctor:ident)?)
-    ),* $(,)?) => {
+    (
+        $(($kind:ident $(, $vis:vis $ctor:ident)?)),* $(,)?
+        ;
+        $($(#[$meta:meta])* $valued:ident $fields:tt),* $(,)?
+    ) => {
         /// The kind of error that occurred.
         #[derive(Debug, Clone)]
         #[non_exhaustive]
         pub enum ErrorKind {
             $(
-                $kind$(( $param ))?,
+                $kind,
+            )*
+            $(
+                $(#[$meta])*
+                $valued $fields,
             )*
         }
 
@@ -28,14 +30,10 @@ macro_rules! ErrorKind {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 match self {
                     $(
-                        Self::$kind$((replace_expr!($param, vv)))? => {
-                            write!(
-                                f,
-                                "{}",
-                                stringify!($kind)
-                                $(.to_owned() + "(" + &replace_expr!($param, vv).to_string() + ")")?
-                            )
-                        },
+                        Self::$kind => f.write_str(stringify!($kind)),
+                    )*
+                    $(
+                        Self::$valued { .. } => self.fmt_value(f),
                     )*
                 }
             }
@@ -79,9 +77,27 @@ ErrorKind!(
     (Undefined,       pub(crate) undefined),
     (Uninitialized,   pub(crate) uninitialized),
     (ParsingError,    pub(crate) parsing_error),
-    (SyntaxError,     pub(crate) syntax_error),
-    (Throw(TulispObject)), // Custom constructor below
+    (SyntaxError,     pub(crate) syntax_error);
+    /// A `throw`, holding `(TAG . VALUE)`; see [`Error::throw`].
+    Throw(TulispObject),
+    /// An error symbol raised with its data, by `signal` or
+    /// [`TulispContext::signal`].
+    Signal { symbol: TulispObject, data: TulispObject },
 );
+
+impl ErrorKind {
+    /// Prints a kind that carries a value: a `throw` with its tag and value,
+    /// a signal with its error symbol.
+    fn fmt_value(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ErrorKind::Throw(pair) => write!(f, "Throw({pair})"),
+            ErrorKind::Signal { symbol, .. } => write!(f, "Signal({symbol})"),
+            // Only a kind with a value comes here; one not listed above still
+            // prints as something.
+            other => write!(f, "{other:?}"),
+        }
+    }
+}
 
 impl Error {
     /// The error for a call short of its required arguments.
@@ -173,6 +189,15 @@ impl Error {
         }
     }
 
+    /// Creates a `Signal` error for SYMBOL with DATA, described by DESC.
+    pub(crate) fn new_signal(symbol: TulispObject, data: TulispObject, desc: String) -> Self {
+        Self {
+            kind: ErrorKind::Signal { symbol, data },
+            desc,
+            backtrace: vec![],
+        }
+    }
+
     fn format_span(&self, ctx: &TulispContext, object: &TulispObject) -> String {
         if let Some(span) = object.span() {
             let filename = ctx.get_filename(span.file_id);
@@ -253,12 +278,13 @@ impl Error {
         self.desc.to_owned()
     }
 
-    /// The error's data, what a `condition-case` handler sees after
-    /// the error symbol: `(DESC)` for a built-in kind, and nil for a
-    /// `throw`.
+    /// The error's data, what a `condition-case` handler sees after the error
+    /// symbol: `(DESC)` for a built-in kind, the data given to `signal` for a
+    /// `Signal`, and nil for a `throw`.
     pub fn data(&self) -> TulispObject {
         match &self.kind {
             ErrorKind::Throw(_) => TulispObject::nil(),
+            ErrorKind::Signal { data, .. } => data.clone(),
             _ => TulispObject::cons(TulispObject::from(self.desc.clone()), TulispObject::nil()),
         }
     }

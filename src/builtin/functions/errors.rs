@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use super::core::format_string;
 use crate::{Error, ErrorKind, Rest, TulispContext, TulispObject, TulispValue};
 
@@ -7,6 +9,16 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         |format: String, args: Rest<TulispObject>| -> Result<TulispObject, Error> {
             Err(Error::lisp_error(format_string(&format, args)?))
         },
+    );
+
+    // `(signal SYMBOL DATA)` raises SYMBOL with DATA; a handler for SYMBOL, or
+    // for an error it is defined under, sees `(SYMBOL . DATA)`.
+    ctx.defun(
+        "signal",
+        |ctx: &mut TulispContext,
+         symbol: TulispObject,
+         data: TulispObject|
+         -> Result<TulispObject, Error> { Err(ctx.signal_symbol(symbol, data)?) },
     );
 
     ctx.define_special_form("catch");
@@ -49,8 +61,8 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
 /// The Emacs error symbol `condition-case` matches ERR against, or
 /// `None` for a `throw`, which `condition-case` never catches.
-pub(crate) fn error_symbol(err: &Error) -> Option<&'static str> {
-    Some(match err.kind_ref() {
+pub(crate) fn error_symbol(err: &Error) -> Option<Cow<'static, str>> {
+    let name = match err.kind_ref() {
         ErrorKind::TypeMismatch | ErrorKind::InvalidArgument => "wrong-type-argument",
         ErrorKind::OutOfRange => "args-out-of-range",
         ErrorKind::ArithError => "arith-error",
@@ -62,8 +74,10 @@ pub(crate) fn error_symbol(err: &Error) -> Option<&'static str> {
         ErrorKind::NotImplemented => "not-implemented",
         ErrorKind::OSError | ErrorKind::BrokenPipe => "file-error",
         ErrorKind::PlistError | ErrorKind::AlistError => "wrong-type-argument",
+        ErrorKind::Signal { symbol, .. } => return symbol.as_symbol().ok().map(Cow::Owned),
         ErrorKind::Throw(_) => return None,
-    })
+    };
+    Some(Cow::Borrowed(name))
 }
 
 /// Does CONDITION catch an error whose symbol is KIND_SYM? CONDITION is a
@@ -119,8 +133,12 @@ pub(crate) fn check_condition_case_var(var: &TulispObject) -> Result<(), Error> 
 }
 
 /// What a `condition-case` handler's variable holds for ERR, whose
-/// symbol is KIND_SYM: `(KIND_SYM . DATA)`.
+/// symbol is KIND_SYM: `(KIND_SYM . DATA)`. A `Signal` error keeps the
+/// symbol `signal` was given.
 pub(crate) fn error_value(ctx: &mut TulispContext, kind_sym: &str, err: &Error) -> TulispObject {
+    if let ErrorKind::Signal { symbol, data } = err.kind_ref() {
+        return TulispObject::cons(symbol.clone(), data.clone());
+    }
     TulispObject::cons(ctx.intern(kind_sym), err.data())
 }
 
@@ -155,7 +173,9 @@ pub(crate) fn parse_handlers(
 #[cfg(test)]
 mod tests {
     use crate::TulispContext;
-    use crate::test_utils::{eval_assert_equal, eval_assert_error, eval_assert_error_line};
+    use crate::test_utils::{
+        eval_assert, eval_assert_equal, eval_assert_error, eval_assert_error_line,
+    };
 
     #[test]
     fn test_error_handling() {
@@ -340,6 +360,111 @@ mod tests {
     }
 
     #[test]
+    fn signal_raises_a_symbol_with_data() {
+        let ctx = &mut TulispContext::new();
+        // An error symbol not in the table: only itself or `t` catch it.
+        eval_assert_equal(
+            ctx,
+            "(condition-case e (signal 'my-error '(1 2)) (error 'wrong) (my-error e))",
+            "'(my-error 1 2)",
+        );
+        eval_assert_equal(
+            ctx,
+            "(condition-case e (signal 'my-error 5) (t e))",
+            "'(my-error . 5)",
+        );
+        eval_assert_error_line(
+            ctx,
+            "(condition-case nil (signal 'my-error '(1 2)) (error 'caught))",
+            "ERR Signal(my-error): peculiar error: 1, 2",
+        );
+        // A built-in error symbol.
+        eval_assert_equal(
+            ctx,
+            "(condition-case e (signal 'arith-error '(1)) (error e))",
+            "'(arith-error 1)",
+        );
+        eval_assert_error_line(
+            ctx,
+            "(signal 'arith-error '(1))",
+            "ERR Signal(arith-error): Arithmetic error: 1",
+        );
+        eval_assert_error_line(
+            ctx,
+            r#"(signal 'error '("x" 2))"#,
+            r#"ERR Signal(error): x: 2"#,
+        );
+        // The handler sees the very symbol and data `signal` was given.
+        eval_assert(
+            ctx,
+            "(let ((s (make-symbol \"my-error\")) (d (list 1)))
+               (condition-case e (signal s d) (t (and (eq (car e) s) (eq (cdr e) d)))))",
+        );
+        eval_assert_error_line(
+            ctx,
+            "(signal 5 nil)",
+            "ERR TypeMismatch: Expected symbol, got: 5",
+        );
+    }
+
+    #[test]
+    fn signal_re_raises_a_caught_error() {
+        let ctx = &mut TulispContext::new();
+        eval_assert(
+            ctx,
+            "(let ((a (condition-case e (car 5) (error e))))
+               (equal a (condition-case e (signal (car a) (cdr a)) (error e))))",
+        );
+        eval_assert_equal(
+            ctx,
+            "(condition-case outer
+                 (condition-case e (/ 1 0) (error (signal (car e) (cdr e))))
+               (arith-error outer))",
+            r#"'(arith-error "Division by zero")"#,
+        );
+    }
+
+    #[test]
+    fn signal_with_an_improper_or_circular_data_list() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_error_line(
+            ctx,
+            "(signal 'my-error '(1 . 2))",
+            "ERR Signal(my-error): peculiar error: 1",
+        );
+        eval_assert_equal(
+            ctx,
+            "(condition-case nil
+                 (let ((l (list 1 2))) (setcdr (cdr l) l) (signal 'my-error l))
+               (my-error 'caught))",
+            "'caught",
+        );
+    }
+
+    #[test]
+    fn a_signal_error_holds_its_symbol_and_data() -> Result<(), crate::Error> {
+        let ctx = &mut TulispContext::new();
+        let data = ctx.eval_string("'(1 2)")?;
+        let err = ctx.signal("my-error", data.clone());
+        let crate::ErrorKind::Signal { symbol, data: held } = err.kind() else {
+            panic!("not a signal: {err}");
+        };
+        assert_eq!(symbol.to_string(), "my-error");
+        assert!(held.eq(&data));
+        Ok(())
+    }
+
+    #[test]
+    fn signal_from_rust() -> Result<(), crate::Error> {
+        let ctx = &mut TulispContext::new();
+        let data = ctx.eval_string("'(1 2)")?;
+        let err = ctx.signal("arith-error", data.clone());
+        assert_eq!(err.desc(), "Arithmetic error: 1, 2");
+        assert!(err.data().equal(&data));
+        Ok(())
+    }
+
+    #[test]
     fn catch_evaluates_its_tag_first() {
         let ctx = &mut TulispContext::new();
         eval_assert_equal(
@@ -470,7 +595,7 @@ mod tests {
             crate::Error::syntax_error(""),
         ] {
             let name = super::error_symbol(&err).expect("not a throw");
-            assert!(ctx.error_table.matches(name, "error"), "{name}");
+            assert!(ctx.error_table.matches(&name, "error"), "{name}");
         }
     }
 

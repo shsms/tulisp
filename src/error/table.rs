@@ -3,9 +3,10 @@
 
 use std::collections::HashMap;
 
+use crate::TulispObject;
+
 /// An error symbol's message and conditions.
 struct ErrorDef {
-    #[expect(dead_code, reason = "read by message_string, added next")]
     message: String,
     /// The symbol, then each of its ancestors, each once.
     conditions: Vec<String>,
@@ -94,6 +95,41 @@ impl ErrorTable {
             None => name == condition,
         }
     }
+
+    /// What Emacs's `error-message-string` gives for `(SYMBOL . DATA)`,
+    /// following its `print_error_message`: the message, then `: ` and DATA's
+    /// elements joined by `, `. For `error`, and for errors under `file-error`
+    /// with data, the message is DATA's first element. A symbol with no message
+    /// reads "peculiar error".
+    pub(crate) fn message_string(&self, symbol: &str, data: &TulispObject) -> String {
+        let mut items = data.base_iter().peekable();
+        let file_error = symbol != "error" && self.matches(symbol, "file-error");
+        let message = if symbol == "error" || (file_error && items.peek().is_some()) {
+            items
+                .next()
+                .filter(TulispObject::stringp)
+                .map(|first| first.fmt_string())
+        } else {
+            self.defs.get(symbol).map(|def| def.message.clone())
+        };
+        let plain = file_error || symbol == "user-error";
+        let rest = items
+            .map(|item| {
+                if plain {
+                    item.fmt_string()
+                } else {
+                    item.to_string()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let head = message.unwrap_or_else(|| "peculiar error".to_string());
+        if head.is_empty() || rest.is_empty() {
+            head + &rest
+        } else {
+            format!("{head}: {rest}")
+        }
+    }
 }
 
 #[cfg(test)]
@@ -145,5 +181,48 @@ mod tests {
         table.define("my-error", "My error", &["file-error"]);
         assert!(table.matches("my-child", "arith-error"));
         assert!(!table.matches("my-child", "file-error"));
+    }
+
+    #[test]
+    fn message_strings_follow_emacs() -> Result<(), crate::Error> {
+        let ctx = &mut crate::TulispContext::new();
+        let mut table = ErrorTable::new();
+        table.define("my-error", "My error", &["error"]);
+        table.define("my-child", "Child", &["my-error"]);
+        table.define("my-file-error", "My file error", &["file-error"]);
+        // Each expectation is what Emacs 30's `error-message-string` gives for
+        // `(SYMBOL . DATA)`.
+        for (symbol, data, expected) in [
+            ("error", r#"'("x")"#, "x"),
+            ("error", r#"'("x" 2 "y")"#, r#"x: 2, "y""#),
+            ("error", "nil", "peculiar error"),
+            ("error", "'(5)", "peculiar error"),
+            ("error", "'(5 6)", "peculiar error: 6"),
+            ("my-child", r#"'(1 "a")"#, r#"Child: 1, "a""#),
+            ("my-error", "nil", "My error"),
+            ("my-error", "5", "My error"),
+            ("my-error", "'(1 . 2)", "My error: 1"),
+            ("user-error", r#"'("a" "b")"#, "a, b"),
+            ("user-error", "nil", ""),
+            ("quit", "nil", "Quit"),
+            ("no-such-error", r#"'("a")"#, r#"peculiar error: "a""#),
+            ("file-error", r#"'("a" "b")"#, "a: b"),
+            ("file-error", "nil", "File error"),
+            ("my-file-error", r#"'("a" "b")"#, "a: b"),
+            ("arith-error", "nil", "Arithmetic error"),
+            (
+                "wrong-type-argument",
+                r#"'(numberp "x")"#,
+                r#"Wrong type argument: numberp, "x""#,
+            ),
+        ] {
+            let data = ctx.eval_string(data)?;
+            assert_eq!(
+                table.message_string(symbol, &data),
+                expected,
+                "({symbol} . {data})"
+            );
+        }
+        Ok(())
     }
 }
