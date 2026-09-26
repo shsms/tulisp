@@ -57,6 +57,19 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         },
     );
 
+    // `(error-message-string ERR)` is the message Emacs shows for ERR, an error
+    // symbol followed by its data.
+    ctx.defun(
+        "error-message-string",
+        |ctx: &mut TulispContext, err: TulispObject| -> Result<String, Error> {
+            if err.null() {
+                return Ok("peculiar error".to_string());
+            }
+            let symbol = err.car()?.as_symbol()?;
+            Ok(ctx.error_table.message_string(&symbol, &err.cdr()?))
+        },
+    );
+
     ctx.define_special_form("catch");
 
     ctx.defun(
@@ -679,6 +692,35 @@ mod tests {
         ctx.define_error("my-parent", "Parent", &[])?;
         ctx.define_error("my-child", "Child", &["my-parent"])?;
         Ok(())
+    }
+
+    #[test]
+    fn error_message_string_reads_like_emacs() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, r#"(error-message-string '(error "x" 2))"#, r#""x: 2""#);
+        eval_assert_equal(
+            ctx,
+            r#"(progn (define-error 'my-child "Child")
+                      (error-message-string '(my-child 1 "a")))"#,
+            r#""Child: 1, \"a\"""#,
+        );
+        eval_assert_equal(ctx, "(error-message-string '(quit))", r#""Quit""#);
+        eval_assert_equal(ctx, "(error-message-string nil)", r#""peculiar error""#);
+        eval_assert_equal(
+            ctx,
+            r#"(condition-case e (error "no %s" "way") (error (error-message-string e)))"#,
+            r#""no way""#,
+        );
+        eval_assert_equal(
+            ctx,
+            "(condition-case nil (error-message-string 5) (wrong-type-argument 'caught))",
+            "'caught",
+        );
+        eval_assert_equal(
+            ctx,
+            "(condition-case nil (error-message-string '(5 1)) (wrong-type-argument 'caught))",
+            "'caught",
+        );
     }
 
     #[test]
