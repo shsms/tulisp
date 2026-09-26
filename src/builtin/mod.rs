@@ -97,7 +97,8 @@ pairs. `format-seconds` formats a duration.
 
 # Errors
 
-`error`, `signal`, `throw`, `catch`, `condition-case`, `unwind-protect`.
+`error`, `signal`, `define-error`, `throw`, `catch`, `condition-case`,
+`unwind-protect`.
 */
 
 pub(crate) mod functions;

@@ -288,4 +288,12 @@ impl Error {
             _ => TulispObject::cons(TulispObject::from(self.desc.clone()), TulispObject::nil()),
         }
     }
+
+    /// Whether a `condition-case` handler for CONDITION catches this error in
+    /// CTX, following the error's parents. False for a `throw`, which no
+    /// handler catches.
+    pub fn is_a(&self, ctx: &TulispContext, condition: &str) -> bool {
+        crate::builtin::functions::errors::error_symbol(self)
+            .is_some_and(|name| ctx.error_table.matches(&name, condition))
+    }
 }

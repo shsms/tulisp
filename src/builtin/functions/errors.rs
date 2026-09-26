@@ -21,6 +21,42 @@ pub(crate) fn add(ctx: &mut TulispContext) {
          -> Result<TulispObject, Error> { Err(ctx.signal_symbol(symbol, data)?) },
     );
 
+    // `(define-error NAME MESSAGE &optional PARENT)` adds the error symbol NAME
+    // under PARENT, a symbol or a list of symbols, or under `error` when PARENT
+    // is nil. A nil MESSAGE keeps the message NAME had, and a new error then
+    // reads as a peculiar error. Returns MESSAGE.
+    ctx.defun(
+        "define-error",
+        |ctx: &mut TulispContext,
+         name: TulispObject,
+         message: TulispObject,
+         parent: Option<TulispObject>|
+         -> Result<TulispObject, Error> {
+            let name = name.as_symbol()?;
+            let text = if message.null() {
+                None
+            } else {
+                Some(message.as_string()?)
+            };
+            // A nil PARENT is the same as none: the error goes under `error`.
+            let parents = match parent.filter(|parent| !parent.null()) {
+                // Each symbol in a list of parents must be an error symbol
+                // already, as in Emacs; a lone parent need not be.
+                Some(parent) if parent.consp() => {
+                    let parents = crate::cons::collect_list(&parent, parent_name)?;
+                    let names: Vec<&str> = parents.iter().map(String::as_str).collect();
+                    ctx.check_error_parents(&names)?;
+                    parents
+                }
+                Some(parent) => vec![parent_name(parent)?],
+                None => Vec::new(),
+            };
+            let parents: Vec<&str> = parents.iter().map(String::as_str).collect();
+            ctx.define_error_any_parent(&name, text.as_deref(), &parents)?;
+            Ok(message)
+        },
+    );
+
     ctx.define_special_form("catch");
 
     ctx.defun(
@@ -78,6 +114,16 @@ pub(crate) fn error_symbol(err: &Error) -> Option<Cow<'static, str>> {
         ErrorKind::Throw(_) => return None,
     };
     Some(Cow::Borrowed(name))
+}
+
+/// The name of PARENT, a symbol, `nil` or `t`, as `define-error` reads it.
+fn parent_name(parent: TulispObject) -> Result<String, Error> {
+    parent
+        .inner_ref()
+        .0
+        .symbol_name()
+        .map(str::to_string)
+        .ok_or_else(|| Error::type_mismatch(format!("Expected symbol, got: {parent}")))
 }
 
 /// Does CONDITION catch an error whose symbol is KIND_SYM? CONDITION is a
@@ -172,10 +218,10 @@ pub(crate) fn parse_handlers(
 
 #[cfg(test)]
 mod tests {
-    use crate::TulispContext;
     use crate::test_utils::{
         eval_assert, eval_assert_equal, eval_assert_error, eval_assert_error_line,
     };
+    use crate::{TulispContext, TulispObject};
 
     #[test]
     fn test_error_handling() {
@@ -461,6 +507,177 @@ mod tests {
         let err = ctx.signal("arith-error", data.clone());
         assert_eq!(err.desc(), "Arithmetic error: 1, 2");
         assert!(err.data().equal(&data));
+        Ok(())
+    }
+
+    #[test]
+    fn define_error_puts_an_error_under_its_parents() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            r#"(define-error 'my-error "My error")"#,
+            r#""My error""#,
+        );
+        eval_assert_equal(
+            ctx,
+            r#"(define-error 'my-child "Child" 'my-error)"#,
+            r#""Child""#,
+        );
+        eval_assert_equal(
+            ctx,
+            r#"(condition-case e (signal 'my-child '(1 "a")) (my-error e))"#,
+            r#"'(my-child 1 "a")"#,
+        );
+        eval_assert_equal(
+            ctx,
+            "(condition-case nil (signal 'my-child nil) (error 'caught))",
+            "'caught",
+        );
+        eval_assert_error_line(
+            ctx,
+            r#"(signal 'my-child '(1 "a"))"#,
+            r#"ERR Signal(my-child): Child: 1, "a""#,
+        );
+        // A list of parents, and a nil parent meaning `error`.
+        eval_assert_equal(
+            ctx,
+            r#"(progn (define-error 'my-arith "Mine" 'arith-error)
+                      (define-error 'my-both "Both" '(my-error my-arith))
+                      (define-error 'my-plain "Plain" nil)
+                      (list (condition-case nil (signal 'my-both nil) (arith-error 'arith))
+                            (condition-case nil (signal 'my-both nil) (my-error 'mine))
+                            (condition-case nil (signal 'my-plain nil) (error 'error))))"#,
+            "'(arith mine error)",
+        );
+    }
+
+    #[test]
+    fn define_error_with_a_parent_not_defined() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            r#"(progn (define-error 'my-lone "Lone" 'no-such-parent)
+                      (condition-case nil (signal 'my-lone nil)
+                        (error 'wrong) (no-such-parent 'right)))"#,
+            "'right",
+        );
+        eval_assert_equal(
+            ctx,
+            r#"(progn (define-error 'my-self "Self" 'my-self)
+                      (condition-case nil (signal 'my-self nil)
+                        (error 'wrong) (my-self 'right)))"#,
+            "'right",
+        );
+    }
+
+    #[test]
+    fn define_error_refuses_an_unknown_symbol_in_a_list_of_parents() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            r#"(list (condition-case e (define-error 'my-e3 "E3" '(error no-such-parent)) (error e))
+                     (condition-case e (signal 'my-e3 nil) (error 'defined) (t 'undefined)))"#,
+            "'((error \"Unknown signal \u{2018}no-such-parent\u{2019}\") undefined)",
+        );
+    }
+
+    #[test]
+    fn define_error_refuses_a_built_in_error_and_replaces_its_own() {
+        let ctx = &mut TulispContext::new();
+        for name in ["error", "quit", "user-error", "arith-error"] {
+            eval_assert_error_line(
+                ctx,
+                &format!(r#"(define-error '{name} "Mine")"#),
+                &format!("ERR LispError: Can't redefine a built-in error: {name}"),
+            );
+        }
+        eval_assert_error_line(
+            ctx,
+            r#"(progn (define-error 'my-error "Old") (define-error 'my-error "New")
+                      (signal 'my-error nil))"#,
+            "ERR Signal(my-error): New",
+        );
+        eval_assert_error_line(
+            ctx,
+            r#"(define-error "my-error" "Mine")"#,
+            r#"ERR TypeMismatch: Expected symbol, got: "my-error""#,
+        );
+    }
+
+    #[test]
+    fn define_error_and_is_a_from_rust() -> Result<(), crate::Error> {
+        let ctx = &mut TulispContext::new();
+        ctx.define_error("my-host-error", "Host", &["arith-error"])?;
+        ctx.define_error("my-default", "Default", &[])?;
+        eval_assert_equal(
+            ctx,
+            "(condition-case nil (signal 'my-host-error nil) (arith-error 'caught))",
+            "'caught",
+        );
+        let err = ctx.eval_string("(signal 'my-host-error nil)").unwrap_err();
+        assert_eq!(err.desc(), "Host");
+        for condition in ["my-host-error", "arith-error", "error"] {
+            assert!(err.is_a(ctx, condition), "{condition}");
+        }
+        assert!(!err.is_a(ctx, "quit"));
+        let err = ctx.signal("my-default", TulispObject::nil());
+        assert!(err.is_a(ctx, "error"));
+        let err = ctx.eval_string("(car 5)").unwrap_err();
+        assert!(err.is_a(ctx, "wrong-type-argument") && err.is_a(ctx, "error"));
+        assert!(ctx.define_error("quit", "Mine", &[]).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn define_error_takes_a_t_parent_and_a_nil_message_as_emacs_does() {
+        let ctx = &mut TulispContext::new();
+        // A lone `t` parent: the error is under `t` only, not `error`.
+        eval_assert_equal(
+            ctx,
+            r#"(progn (define-error 'my-t "T" t)
+                      (condition-case nil (signal 'my-t nil) (error 'wrong) (t 'any)))"#,
+            "'any",
+        );
+        // A nil MESSAGE: the error reads as a peculiar error.
+        eval_assert_equal(ctx, "(define-error 'my-silent nil)", "nil");
+        eval_assert_error_line(
+            ctx,
+            "(signal 'my-silent '(1))",
+            "ERR Signal(my-silent): peculiar error: 1",
+        );
+        // A nil MESSAGE keeps the message of an error defined before.
+        eval_assert_error_line(
+            ctx,
+            r#"(progn (define-error 'my-kept "Kept") (define-error 'my-kept nil)
+                      (signal 'my-kept '(1)))"#,
+            "ERR Signal(my-kept): Kept: 1",
+        );
+        // `nil` or `t` in a list of parents is not an error symbol.
+        for parent in ["nil", "t"] {
+            eval_assert_error_line(
+                ctx,
+                &format!(r#"(define-error 'my-z "Z" '({parent}))"#),
+                &format!("ERR LispError: Unknown signal \u{2018}{parent}\u{2019}"),
+            );
+        }
+    }
+
+    #[test]
+    fn define_error_from_rust_refuses_an_unknown_parent() -> Result<(), crate::Error> {
+        let ctx = &mut TulispContext::new();
+        let err = ctx
+            .define_error("my-typo", "Typo", &["arith-eror"])
+            .unwrap_err();
+        assert_eq!(err.desc(), "Unknown signal \u{2018}arith-eror\u{2019}");
+        // Nothing was defined, so the name is still free.
+        eval_assert_equal(
+            ctx,
+            "(condition-case nil (signal 'my-typo nil) (error 'wrong) (t 'unknown))",
+            "'unknown",
+        );
+        // A parent defined first is accepted.
+        ctx.define_error("my-parent", "Parent", &[])?;
+        ctx.define_error("my-child", "Child", &["my-parent"])?;
         Ok(())
     }
 

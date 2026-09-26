@@ -7,7 +7,9 @@ use crate::TulispObject;
 
 /// An error symbol's message and conditions.
 struct ErrorDef {
-    message: String,
+    /// None for an error defined with a nil message, which reads as a peculiar
+    /// error, as in Emacs.
+    message: Option<String>,
     /// The symbol, then each of its ancestors, each once.
     conditions: Vec<String>,
 }
@@ -53,16 +55,35 @@ impl ErrorTable {
             defs: HashMap::new(),
         };
         for (name, message, parents) in BUILT_IN_ERRORS {
-            table.define(name, message, parents);
+            table.define(name, *message, parents);
         }
         table
     }
 
-    /// Adds NAME, or replaces it. Its conditions are NAME followed by each
-    /// parent's conditions, each condition once; a parent not in the table
-    /// counts as just itself. Errors already defined under NAME keep the
-    /// conditions they got then, as in Emacs.
-    pub(crate) fn define(&mut self, name: &str, message: &str, parents: &[&str]) {
+    /// Whether NAME is one of the error symbols every context starts with,
+    /// which `define-error` does not redefine.
+    pub(crate) fn is_built_in(name: &str) -> bool {
+        BUILT_IN_ERRORS
+            .iter()
+            .any(|(built_in, _, _)| *built_in == name)
+    }
+
+    /// Whether NAME is an error symbol in the table.
+    pub(crate) fn is_defined(&self, name: &str) -> bool {
+        self.defs.contains_key(name)
+    }
+
+    /// Adds NAME, or replaces it; with no MESSAGE, NAME keeps the message it
+    /// had, as in Emacs. Its conditions are NAME followed by each parent's
+    /// conditions, each condition once; a parent not in the table counts as
+    /// just itself. Errors already defined under NAME keep the conditions they
+    /// got then, as in Emacs.
+    pub(crate) fn define<'m>(
+        &mut self,
+        name: &str,
+        message: impl Into<Option<&'m str>>,
+        parents: &[&str],
+    ) {
         let mut conditions = vec![name.to_string()];
         for parent in parents {
             for condition in self.conditions(parent) {
@@ -71,10 +92,14 @@ impl ErrorTable {
                 }
             }
         }
+        let message = message
+            .into()
+            .map(str::to_string)
+            .or_else(|| self.defs.get(name).and_then(|def| def.message.clone()));
         self.defs.insert(
             name.to_string(),
             ErrorDef {
-                message: message.to_string(),
+                message,
                 conditions,
             },
         );
@@ -110,7 +135,7 @@ impl ErrorTable {
                 .filter(TulispObject::stringp)
                 .map(|first| first.fmt_string())
         } else {
-            self.defs.get(symbol).map(|def| def.message.clone())
+            self.defs.get(symbol).and_then(|def| def.message.clone())
         };
         let plain = file_error || symbol == "user-error";
         let rest = items
