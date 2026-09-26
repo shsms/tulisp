@@ -335,7 +335,7 @@ fn run_handler(
         return Err(err);
     };
     for handler in handlers {
-        if condition_matches(&handler.condition, kind_sym)? {
+        if condition_matches(ctx, &handler.condition, kind_sym)? {
             let data = binds.then(|| error_data(ctx, kind_sym, &err));
             return run_block_with_reserve(ctx, &handler.body, data);
         }

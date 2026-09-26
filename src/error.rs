@@ -1,5 +1,8 @@
 use crate::{TulispContext, TulispObject};
 
+mod table;
+pub(crate) use table::ErrorTable;
+
 macro_rules! replace_expr {
     ($_t:ty, $sub:ident) => {
         $sub

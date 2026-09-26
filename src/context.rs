@@ -128,6 +128,8 @@ pub struct TulispContext {
     /// The macros whose bodies are compiling, by the address of their
     /// cache, so a macro used in its own body is refused.
     pub(crate) compiling_macros: Vec<usize>,
+    /// The error symbols `condition-case`, `signal` and `define-error` know.
+    pub(crate) error_table: crate::error::ErrorTable,
     #[cfg(feature = "etags")]
     pub(crate) tags_table: HashMap<String, HashMap<String, usize>>,
 }
@@ -154,6 +156,7 @@ impl TulispContext {
             eval_depth: 0,
             reserve_frames: 0,
             compiling_macros: Vec::new(),
+            error_table: crate::error::ErrorTable::new(),
             max_eval_depth: DEFAULT_MAX_EVAL_DEPTH,
             #[cfg(feature = "etags")]
             tags_table: HashMap::new(),

@@ -30,8 +30,10 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     // `(condition-case VAR PROTECTED-FORM HANDLER...)` runs
     // PROTECTED-FORM; on an error, it runs the first HANDLER whose
     // CONDITION matches. Each HANDLER is `(CONDITION BODY...)`, where
-    // CONDITION is a symbol or a list of symbols; `error` and `t` match
-    // every error. A `throw` is never caught.
+    // CONDITION is a symbol or a list of symbols. A symbol catches its
+    // own error and every error defined under it, so `error` catches
+    // every built-in error; `t` catches every error. A `throw` is
+    // never caught.
     //
     // VAR holds `(error-symbol . message)` in the handler body. It is
     // bound lexically, like a `let` variable, or dynamically when it is
@@ -59,10 +61,14 @@ pub(crate) fn error_symbol(err: &Error) -> Option<&'static str> {
     })
 }
 
-/// Does CONDITION match `kind_sym`? CONDITION is either a single
-/// symbol or a list of symbols; `error` or `t` matches any non-throw
-/// kind.
-pub(crate) fn condition_matches(cond: &TulispObject, kind_sym: &str) -> Result<bool, Error> {
+/// Does CONDITION catch an error whose symbol is KIND_SYM? CONDITION is a
+/// symbol or a list of symbols. `t` catches every error; a symbol catches its
+/// own error and every error defined under it.
+pub(crate) fn condition_matches(
+    ctx: &TulispContext,
+    cond: &TulispObject,
+    kind_sym: &str,
+) -> Result<bool, Error> {
     let matches_one = |c: &TulispObject| -> Result<bool, Error> {
         if matches!(c.inner_ref().0, TulispValue::T) {
             return Ok(true);
@@ -70,8 +76,10 @@ pub(crate) fn condition_matches(cond: &TulispObject, kind_sym: &str) -> Result<b
         if !c.is_symbol_variant() {
             return Ok(false);
         }
-        let name = c.as_symbol()?;
-        Ok(name == "error" || name == kind_sym)
+        Ok(c.inner_ref()
+            .0
+            .symbol_name()
+            .is_some_and(|name| ctx.error_table.matches(kind_sym, name)))
     };
     if cond.consp() {
         for c in cond.base_iter() {
@@ -256,6 +264,28 @@ mod tests {
     }
 
     #[test]
+    fn a_handler_catches_errors_defined_under_its_symbol() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(condition-case nil (car 5) (arith-error 'wrong) (error 'other))",
+            "'other",
+        );
+        // Put `wrong-type-argument` under `arith-error`, which it is not in the
+        // built-in table, to show matching reads the table.
+        ctx.error_table.define(
+            "wrong-type-argument",
+            "Wrong type argument",
+            &["arith-error"],
+        );
+        eval_assert_equal(
+            ctx,
+            "(condition-case nil (car 5) (arith-error 'caught))",
+            "'caught",
+        );
+    }
+
+    #[test]
     fn catch_evaluates_its_tag_first() {
         let ctx = &mut TulispContext::new();
         eval_assert_equal(
@@ -362,6 +392,32 @@ mod tests {
             r#"(condition-case e (error "x") (wrong-type-argument 'wrong) (t e))"#,
             r#"'(error . "x")"#,
         );
+    }
+
+    #[test]
+    fn error_catches_every_built_in_kind() {
+        let ctx = TulispContext::new();
+        for err in [
+            crate::Error::arith_error(""),
+            crate::Error::invalid_argument(""),
+            crate::Error::lisp_error(""),
+            crate::Error::not_implemented(""),
+            crate::Error::out_of_range(""),
+            crate::Error::os_error(""),
+            crate::Error::broken_pipe(""),
+            crate::Error::type_mismatch(""),
+            crate::Error::plist_error(""),
+            crate::Error::alist_error(""),
+            crate::Error::missing_argument(""),
+            crate::Error::arity_mismatch(""),
+            crate::Error::undefined(""),
+            crate::Error::uninitialized(""),
+            crate::Error::parsing_error(""),
+            crate::Error::syntax_error(""),
+        ] {
+            let name = super::error_symbol(&err).expect("not a throw");
+            assert!(ctx.error_table.matches(name, "error"), "{name}");
+        }
     }
 
     #[test]
