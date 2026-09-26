@@ -335,7 +335,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 }
 
 /// Formats IN_STRING with ARGS as Emacs's `format` does, for the specs Tulisp
-/// supports.
+/// supports. A format string it cannot use, one that asks for more ARGS than
+/// there are, or a spec whose argument has the wrong type is an `error`, with
+/// Emacs's text.
 pub(crate) fn format_string(
     in_string: &str,
     args: impl IntoIterator<Item = TulispObject>,
@@ -387,23 +389,23 @@ pub(crate) fn format_string(
             }
             precision = Some(p);
         }
-        let type_char = match in_chars.next() {
-            Some(c) => c,
-            None => {
-                return Err(Error::syntax_error(
-                    "format: unterminated % spec".to_string(),
-                ));
-            }
+        let Some(type_char) = in_chars.next() else {
+            return Err(Error::lisp_error(
+                "Format string ends in middle of format specifier",
+            ));
         };
         if type_char == '%' {
             output.push('%');
             continue;
         }
         let Some(next_arg) = args.next() else {
-            return Err(Error::missing_argument(
-                "format has missing args".to_string(),
-            ));
+            return Err(Error::lisp_error("Not enough arguments for format string"));
         };
+        if matches!(type_char, 'd' | 'f') && !next_arg.numberp() {
+            return Err(Error::lisp_error(
+                "Format specifier doesn\u{2019}t match argument type",
+            ));
+        }
         let formatted = match type_char {
             's' => next_arg.fmt_string(),
             'S' => next_arg.to_string(),
@@ -416,9 +418,8 @@ pub(crate) fn format_string(
                 }
             }
             _ => {
-                return Err(Error::syntax_error(format!(
-                    "Invalid format operation: %{}",
-                    type_char
+                return Err(Error::lisp_error(format!(
+                    "Invalid format operation %{type_char}"
                 )));
             }
         };
@@ -452,6 +453,44 @@ mod tests {
         eval_assert_error_line,
     };
     use crate::{Error, TulispContext};
+
+    // A format string `format` cannot use is an `error`, as in Emacs.
+    #[test]
+    fn a_bad_format_string_is_an_error() {
+        let ctx = &mut TulispContext::new();
+        // Each text is Emacs 30's.
+        for (program, text) in [
+            (
+                r#"(format "100%")"#,
+                "Format string ends in middle of format specifier",
+            ),
+            (r#"(format "%q" 1)"#, "Invalid format operation %q"),
+            (r#"(format "%s")"#, "Not enough arguments for format string"),
+            (
+                r#"(format "%d" "x")"#,
+                "Format specifier doesn\u{2019}t match argument type",
+            ),
+            (
+                r#"(format "%f" "x")"#,
+                "Format specifier doesn\u{2019}t match argument type",
+            ),
+        ] {
+            eval_assert_error_line(ctx, program, &format!("ERR LispError: {text}"));
+            eval_assert_equal(
+                ctx,
+                &format!("(condition-case e {program} (error (car e)))"),
+                "'error",
+            );
+        }
+        // A float too large for %d is an arith-error from the conversion, not
+        // the argument-type error. Emacs prints the integer; tulisp has no
+        // bignums.
+        eval_assert_equal(
+            ctx,
+            r#"(condition-case nil (format "%d" 1e30) (arith-error 'arith))"#,
+            "'arith",
+        );
+    }
 
     // A built-in special form's symbol holds a marker that is not a
     // function, and not `equal` to another special form's.

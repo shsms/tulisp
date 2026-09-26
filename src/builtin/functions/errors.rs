@@ -415,12 +415,12 @@ mod tests {
         eval_assert_error_line(
             ctx,
             r#"(error "100%")"#,
-            "ERR SyntaxError: format: unterminated % spec",
+            "ERR LispError: Format string ends in middle of format specifier",
         );
         eval_assert_error_line(
             ctx,
             r#"(error "%s")"#,
-            "ERR MissingArgument: format has missing args",
+            "ERR LispError: Not enough arguments for format string",
         );
     }
 
@@ -1059,7 +1059,7 @@ mod tests {
             ("cc-undefined-variable", "void-variable"),
             ("(cc-undefined-function)", "void-variable"),
             ("(funcall 5)", "void-function"),
-            (r#"(format "%q" 1)"#, "invalid-read-syntax"),
+            (r#"(load "tests/bad-load.lisp")"#, "invalid-read-syntax"),
             (r#"(load "/nonexistent/cc.lisp")"#, "file-error"),
         ] {
             eval_assert_equal(
