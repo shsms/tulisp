@@ -111,36 +111,22 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                         prefix.push(ch);
                         continue;
                     }
-                    '.' => {
-                        if !prefix.is_empty() || has_comma || has_dot {
-                            return Err(Error::syntax_error(
-                                "Invalid format operation: '.' allowed only in the first place."
-                                    .to_string(),
-                            ));
-                        }
-                        has_dot = true;
-                        continue;
-                    }
-                    ',' => {
-                        if !prefix.is_empty() || has_comma || has_dot {
-                            return Err(Error::syntax_error(
-                                "Invalid format operation: ',' allowed only in the first place."
-                                    .to_string(),
-                            ));
-                        }
-                        has_comma = true;
+                    // A `.` or `,` is taken only first in a spec; anywhere else
+                    // it is a bad spec.
+                    '.' | ',' if prefix.is_empty() && !has_dot && !has_comma => {
+                        has_dot |= ch == '.';
+                        has_comma |= ch == ',';
                         continue;
                     }
                     _ => {
-                        return Err(Error::syntax_error(format!(
-                            "Invalid format operation: %{}",
-                            ch
+                        return Err(Error::lisp_error(format!(
+                            "Bad format specifier: \u{2018}{ch}\u{2019}"
                         )));
                     }
                 };
                 let padding = if !prefix.is_empty() {
                     prefix.parse::<usize>().map_err(|_| {
-                        Error::syntax_error(format!("Invalid padding number: {}", prefix))
+                        Error::lisp_error(format!("Invalid padding number: {prefix}"))
                     })?
                 } else {
                     0
@@ -184,7 +170,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 mod tests {
     use crate::{
         Error, TulispContext,
-        test_utils::{eval_assert, eval_assert_equal, eval_assert_not},
+        test_utils::{eval_assert, eval_assert_equal, eval_assert_error_line, eval_assert_not},
     };
 
     #[test]
@@ -398,6 +384,51 @@ mod tests {
         );
 
         Ok(())
+    }
+
+    #[test]
+    fn format_seconds_with_a_bad_spec_is_an_error() {
+        let ctx = &mut TulispContext::new();
+        super::add(ctx);
+        for (program, text) in [
+            (
+                r#"(format-seconds "%q" 1)"#,
+                "Bad format specifier: \u{2018}q\u{2019}",
+            ),
+            // A `.` or `,` anywhere but first in a spec is a bad spec.
+            (
+                r#"(format-seconds "%1.y" 1)"#,
+                "Bad format specifier: \u{2018}.\u{2019}",
+            ),
+            (
+                r#"(format-seconds "%1,y" 1)"#,
+                "Bad format specifier: \u{2018},\u{2019}",
+            ),
+            (
+                r#"(format-seconds "%..y" 1)"#,
+                "Bad format specifier: \u{2018}.\u{2019}",
+            ),
+            (
+                r#"(format-seconds "%,,y" 1)"#,
+                "Bad format specifier: \u{2018},\u{2019}",
+            ),
+        ] {
+            eval_assert_error_line(ctx, program, &format!("ERR LispError: {text}"));
+            eval_assert_equal(
+                ctx,
+                &format!("(condition-case e {program} (error (car e)))"),
+                "'error",
+            );
+        }
+    }
+
+    #[test]
+    fn format_seconds_pads_with_zeros_after_a_dot() {
+        let ctx = &mut TulispContext::new();
+        super::add(ctx);
+        // As Emacs 30 gives them.
+        eval_assert_equal(ctx, r#"(format-seconds "%.2s" 5)"#, r#""05""#);
+        eval_assert_equal(ctx, r#"(format-seconds "%.3h" 3600)"#, r#""001""#);
     }
 
     #[test]
