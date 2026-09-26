@@ -110,109 +110,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defun(
         "format",
         |in_string: String, rest: crate::Rest<TulispObject>| -> Result<String, Error> {
-            let rest: Vec<TulispObject> = rest.into_iter().collect();
-            let mut args = rest.iter();
-            let mut output = String::new();
-            let mut in_chars = in_string.chars().peekable();
-            // Supports `%[-][0]WIDTH[.PRECISION]TYPE` where TYPE is one of
-            // `s S d f`, plus `%%` for a literal percent. The `-` flag
-            // left-aligns and the `0` flag pads numerics with zeros.
-            // PRECISION applies to `%f` (digits after the decimal point).
-            // See the Emacs manual for the full format-spec grammar:
-            // https://www.gnu.org/software/emacs/manual/html_node/elisp/Formatting-Strings.html
-            while let Some(ch) = in_chars.next() {
-                if ch != '%' {
-                    output.push(ch);
-                    continue;
-                }
-                let mut left_align = false;
-                let mut zero_pad = false;
-                let mut width: usize = 0;
-                loop {
-                    match in_chars.peek() {
-                        Some('-') => {
-                            left_align = true;
-                            in_chars.next();
-                        }
-                        Some('0') if width == 0 => {
-                            zero_pad = true;
-                            in_chars.next();
-                        }
-                        Some(c) if c.is_ascii_digit() => {
-                            width = width * 10 + (*c as usize - '0' as usize);
-                            in_chars.next();
-                        }
-                        _ => break,
-                    }
-                }
-                let mut precision: Option<usize> = None;
-                if in_chars.peek() == Some(&'.') {
-                    in_chars.next();
-                    let mut p: usize = 0;
-                    while let Some(c) = in_chars.peek() {
-                        if !c.is_ascii_digit() {
-                            break;
-                        }
-                        p = p * 10 + (*c as usize - '0' as usize);
-                        in_chars.next();
-                    }
-                    precision = Some(p);
-                }
-                let type_char = match in_chars.next() {
-                    Some(c) => c,
-                    None => {
-                        return Err(Error::syntax_error(
-                            "format: unterminated % spec".to_string(),
-                        ));
-                    }
-                };
-                if type_char == '%' {
-                    output.push('%');
-                    continue;
-                }
-                let Some(next_arg) = args.next() else {
-                    return Err(Error::missing_argument(
-                        "format has missing args".to_string(),
-                    ));
-                };
-                let formatted = match type_char {
-                    's' => next_arg.fmt_string(),
-                    'S' => next_arg.to_string(),
-                    'd' => next_arg.try_int()?.to_string(),
-                    'f' => {
-                        let v = next_arg.try_float()?;
-                        match precision {
-                            Some(p) => format!("{v:.*}", p),
-                            None => v.to_string(),
-                        }
-                    }
-                    _ => {
-                        return Err(Error::syntax_error(format!(
-                            "Invalid format operation: %{}",
-                            type_char
-                        )));
-                    }
-                };
-                let len = formatted.chars().count();
-                if width > len {
-                    let pad_char = if zero_pad && !left_align && matches!(type_char, 'd' | 'f') {
-                        '0'
-                    } else {
-                        ' '
-                    };
-                    let pad = pad_char.to_string().repeat(width - len);
-                    if left_align {
-                        output.push_str(&formatted);
-                        output.push_str(&pad);
-                    } else {
-                        output.push_str(&pad);
-                        output.push_str(&formatted);
-                    }
-                } else {
-                    output.push_str(&formatted);
-                }
-            }
-            Ok(output)
+            format_string(&in_string, rest)
         },
     );
 
@@ -434,6 +332,116 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.define_special_form("declare");
 
     ctx.define_special_form("defvar");
+}
+
+/// Formats IN_STRING with ARGS as Emacs's `format` does, for the specs Tulisp
+/// supports.
+pub(crate) fn format_string(
+    in_string: &str,
+    args: impl IntoIterator<Item = TulispObject>,
+) -> Result<String, Error> {
+    let mut args = args.into_iter();
+    let mut output = String::new();
+    let mut in_chars = in_string.chars().peekable();
+    // Supports `%[-][0]WIDTH[.PRECISION]TYPE` where TYPE is one of `s S d f`,
+    // plus `%%` for a literal percent. The `-` flag left-aligns and the `0`
+    // flag pads numerics with zeros. PRECISION applies to `%f` (digits after
+    // the decimal point). See the Emacs manual for the full format-spec
+    // grammar:
+    // https://www.gnu.org/software/emacs/manual/html_node/elisp/Formatting-Strings.html
+    while let Some(ch) = in_chars.next() {
+        if ch != '%' {
+            output.push(ch);
+            continue;
+        }
+        let mut left_align = false;
+        let mut zero_pad = false;
+        let mut width: usize = 0;
+        loop {
+            match in_chars.peek() {
+                Some('-') => {
+                    left_align = true;
+                    in_chars.next();
+                }
+                Some('0') if width == 0 => {
+                    zero_pad = true;
+                    in_chars.next();
+                }
+                Some(c) if c.is_ascii_digit() => {
+                    width = width * 10 + (*c as usize - '0' as usize);
+                    in_chars.next();
+                }
+                _ => break,
+            }
+        }
+        let mut precision: Option<usize> = None;
+        if in_chars.peek() == Some(&'.') {
+            in_chars.next();
+            let mut p: usize = 0;
+            while let Some(c) = in_chars.peek() {
+                if !c.is_ascii_digit() {
+                    break;
+                }
+                p = p * 10 + (*c as usize - '0' as usize);
+                in_chars.next();
+            }
+            precision = Some(p);
+        }
+        let type_char = match in_chars.next() {
+            Some(c) => c,
+            None => {
+                return Err(Error::syntax_error(
+                    "format: unterminated % spec".to_string(),
+                ));
+            }
+        };
+        if type_char == '%' {
+            output.push('%');
+            continue;
+        }
+        let Some(next_arg) = args.next() else {
+            return Err(Error::missing_argument(
+                "format has missing args".to_string(),
+            ));
+        };
+        let formatted = match type_char {
+            's' => next_arg.fmt_string(),
+            'S' => next_arg.to_string(),
+            'd' => next_arg.try_int()?.to_string(),
+            'f' => {
+                let v = next_arg.try_float()?;
+                match precision {
+                    Some(p) => format!("{v:.*}", p),
+                    None => v.to_string(),
+                }
+            }
+            _ => {
+                return Err(Error::syntax_error(format!(
+                    "Invalid format operation: %{}",
+                    type_char
+                )));
+            }
+        };
+        let len = formatted.chars().count();
+        if width > len {
+            let pad_char = if zero_pad && !left_align && matches!(type_char, 'd' | 'f') {
+                '0'
+            } else {
+                ' '
+            };
+            let pad = pad_char.to_string().repeat(width - len);
+            if left_align {
+                output.push_str(&formatted);
+                output.push_str(&pad);
+            } else {
+                output.push_str(&pad);
+                output.push_str(&formatted);
+            }
+        } else {
+            output.push_str(&formatted);
+        }
+    }
+    Ok(output)
 }
 
 #[cfg(test)]
