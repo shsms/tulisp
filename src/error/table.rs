@@ -20,8 +20,11 @@ pub(crate) struct ErrorTable {
 }
 
 /// The error symbols every context starts with: each name, its message and its
-/// parents. The built-in error kinds report `error` and the symbols from
-/// `wrong-type-argument` on (see `Error::symbol_name`).
+/// parents, parents first. The built-in error kinds report `error` and the
+/// symbols from `wrong-type-argument` to `file-error` (see
+/// `Error::symbol_name`); `throw` raises `no-catch`. The rest are some of
+/// Emacs's standard errors, so Lisp code that signals or handles them by name
+/// finds them under `error` with Emacs's messages.
 const BUILT_IN_ERRORS: &[(&str, &str, &[&str])] = &[
     ("error", "error", &[]),
     ("quit", "Quit", &[]),
@@ -48,6 +51,53 @@ const BUILT_IN_ERRORS: &[(&str, &str, &[&str])] = &[
     ("not-implemented", "Not implemented", &["error"]),
     ("file-error", "File error", &["error"]),
     ("no-catch", "No catch for tag", &["error"]),
+    ("range-error", "Arithmetic range error", &["arith-error"]),
+    (
+        "overflow-error",
+        "Arithmetic overflow error",
+        &["range-error"],
+    ),
+    (
+        "underflow-error",
+        "Arithmetic underflow error",
+        &["range-error"],
+    ),
+    ("domain-error", "Arithmetic domain error", &["arith-error"]),
+    (
+        "singularity-error",
+        "Arithmetic singularity error",
+        &["domain-error"],
+    ),
+    ("circular-list", "List contains a loop", &["error"]),
+    (
+        "cyclic-function-indirection",
+        "Symbol's chain of function indirections contains a loop",
+        &["error"],
+    ),
+    (
+        "cyclic-variable-indirection",
+        "Symbol's chain of variable indirections contains a loop",
+        &["error"],
+    ),
+    ("end-of-file", "End of file during parsing", &["error"]),
+    ("invalid-function", "Invalid function", &["error"]),
+    (
+        "setting-constant",
+        "Attempt to set a constant symbol",
+        &["error"],
+    ),
+    ("wrong-length-argument", "Wrong length argument", &["error"]),
+    ("file-missing", "File is missing", &["file-error"]),
+    (
+        "file-already-exists",
+        "File already exists",
+        &["file-error"],
+    ),
+    (
+        "permission-denied",
+        "Cannot access file or directory",
+        &["file-error"],
+    ),
 ];
 
 impl ErrorTable {
@@ -138,7 +188,7 @@ impl ErrorTable {
         } else {
             self.defs.get(symbol).and_then(|def| def.message.clone())
         };
-        let plain = file_error || symbol == "user-error";
+        let plain = file_error || symbol == "user-error" || symbol == "end-of-file";
         let rest = items
             .map(|item| {
                 if plain {
@@ -161,6 +211,7 @@ impl ErrorTable {
 #[cfg(test)]
 mod tests {
     use super::{BUILT_IN_ERRORS, ErrorTable};
+    use crate::TulispObject;
 
     #[test]
     fn every_built_in_error_but_quit_is_an_error() {
@@ -168,6 +219,69 @@ mod tests {
         for (name, _, _) in BUILT_IN_ERRORS {
             assert!(table.matches(name, name), "{name}");
             assert_eq!(table.matches(name, "error"), *name != "quit", "{name}");
+        }
+    }
+
+    #[test]
+    fn emacs_standard_errors_have_emacs_conditions_and_messages() {
+        let table = ErrorTable::new();
+        // Each row is the symbol's `error-conditions` and `error-message` in
+        // Emacs 30.
+        for (conditions, message) in [
+            (
+                &["overflow-error", "range-error", "arith-error", "error"][..],
+                "Arithmetic overflow error",
+            ),
+            (
+                &["range-error", "arith-error", "error"],
+                "Arithmetic range error",
+            ),
+            (
+                &["domain-error", "arith-error", "error"],
+                "Arithmetic domain error",
+            ),
+            (
+                &["singularity-error", "domain-error", "arith-error", "error"],
+                "Arithmetic singularity error",
+            ),
+            (
+                &["underflow-error", "range-error", "arith-error", "error"],
+                "Arithmetic underflow error",
+            ),
+            (&["circular-list", "error"], "List contains a loop"),
+            (
+                &["cyclic-function-indirection", "error"],
+                "Symbol's chain of function indirections contains a loop",
+            ),
+            (
+                &["cyclic-variable-indirection", "error"],
+                "Symbol's chain of variable indirections contains a loop",
+            ),
+            (&["end-of-file", "error"], "End of file during parsing"),
+            (&["invalid-function", "error"], "Invalid function"),
+            (
+                &["setting-constant", "error"],
+                "Attempt to set a constant symbol",
+            ),
+            (&["wrong-length-argument", "error"], "Wrong length argument"),
+            (&["file-missing", "file-error", "error"], "File is missing"),
+            (
+                &["file-already-exists", "file-error", "error"],
+                "File already exists",
+            ),
+            (
+                &["permission-denied", "file-error", "error"],
+                "Cannot access file or directory",
+            ),
+            (&["no-catch", "error"], "No catch for tag"),
+        ] {
+            assert_eq!(table.conditions(conditions[0]), conditions);
+            assert_eq!(
+                table.message_string(conditions[0], &TulispObject::nil()),
+                message,
+                "{}",
+                conditions[0]
+            );
         }
     }
 
@@ -230,6 +344,11 @@ mod tests {
             ("my-error", "'(1 . 2)", "My error: 1"),
             ("user-error", r#"'("a" "b")"#, "a, b"),
             ("user-error", "nil", ""),
+            (
+                "end-of-file",
+                r#"'("a" 5)"#,
+                "End of file during parsing: a, 5",
+            ),
             ("quit", "nil", "Quit"),
             ("no-such-error", r#"'("a")"#, r#"peculiar error: "a""#),
             ("file-error", r#"'("a" "b")"#, "a: b"),

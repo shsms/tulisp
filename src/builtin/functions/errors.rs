@@ -888,6 +888,31 @@ mod tests {
     }
 
     #[test]
+    fn emacs_standard_errors_are_errors_with_emacs_messages() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(condition-case nil (signal 'end-of-file nil) (error 'caught))",
+            "'caught",
+        );
+        eval_assert_equal(
+            ctx,
+            "(condition-case nil (signal 'overflow-error nil) (arith-error 'caught))",
+            "'caught",
+        );
+        eval_assert_equal(
+            ctx,
+            "(error-message-string '(setting-constant x))",
+            r#""Attempt to set a constant symbol: x""#,
+        );
+        eval_assert_equal(
+            ctx,
+            r#"(error-message-string '(file-missing "Opening input file" "No such file" "/x"))"#,
+            r#""Opening input file: No such file, /x""#,
+        );
+    }
+
+    #[test]
     fn catch_evaluates_its_tag_first() {
         let ctx = &mut TulispContext::new();
         eval_assert_equal(
