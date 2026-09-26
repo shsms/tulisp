@@ -150,11 +150,20 @@ impls expose `from_plist` / `from_alist` directly.
 Tulisp covers the standard Emacs Lisp shapes — control flow, bindings,
 functions and macros, list / string / arithmetic / hash-table
 operations, threading macros, backquote / unquote, error handling
-(`error`, `signal`, `define-error`, `error-message-string`, `catch`,
-`throw`, `condition-case`, `unwind-protect`),
+(`error`, `signal`, `define-error`, `error-message-string`,
+`user-error`, `catch`, `throw`, `condition-case`, `unwind-protect`),
 tail-call optimisation, and lexical scoping.  See the
 [`builtin`](https://docs.rs/tulisp/latest/tulisp/builtin) module for
 the full list of forms and functions.
+
+Errors are error symbols, as in Emacs: `define-error` adds one under a parent,
+and a `condition-case` handler for a symbol catches every error defined under
+it. `quit` is not under `error`, so a handler for `error` lets it through. From
+Rust, `TulispContext::signal` and `TulispContext::define_error` raise and define
+them, and `Error::is_a` tests which handler would catch an error. An error
+raised with `signal`, even a built-in error caught and raised again, has the
+kind `ErrorKind::Signal`, so use `is_a` rather than the kind to tell errors
+apart.
 
 A macro defined in Lisp with `defmacro` compiles its body on its first
 expansion. It keeps the compiled body, unless that expansion failed or

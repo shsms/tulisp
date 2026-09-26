@@ -11,6 +11,23 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         },
     );
 
+    // `(user-error FORMAT &rest ARGS)` is an error meant for the user rather
+    // than a bug: `error` catches it, and its message is the formatted text
+    // alone.
+    ctx.defun(
+        "user-error",
+        |ctx: &mut TulispContext,
+         format: String,
+         args: Rest<TulispObject>|
+         -> Result<TulispObject, Error> {
+            let text = format_string(&format, args)?;
+            Err(ctx.signal(
+                "user-error",
+                TulispObject::cons(TulispObject::from(text), TulispObject::nil()),
+            ))
+        },
+    );
+
     // `(signal SYMBOL DATA)` raises SYMBOL with DATA; a handler for SYMBOL, or
     // for an error it is defined under, sees `(SYMBOL . DATA)`.
     ctx.defun(
@@ -96,9 +113,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     // PROTECTED-FORM; on an error, it runs the first HANDLER whose
     // CONDITION matches. Each HANDLER is `(CONDITION BODY...)`, where
     // CONDITION is a symbol or a list of symbols. A symbol catches its
-    // own error and every error defined under it, so `error` catches
-    // every built-in error; `t` catches every error. A `throw` is
-    // never caught.
+    // own error and every error defined under it; `quit`, and a symbol
+    // not defined under `error`, escape `error`. `t` catches every
+    // error. A `throw` is never caught.
     //
     // VAR holds `(ERROR-SYMBOL . DATA)` in the handler body, DATA a
     // list; a built-in error's DATA is `(MESSAGE)`. It is bound
@@ -721,6 +738,65 @@ mod tests {
             "(condition-case nil (error-message-string '(5 1)) (wrong-type-argument 'caught))",
             "'caught",
         );
+    }
+
+    #[test]
+    fn user_error_is_an_error_with_a_plain_message() -> Result<(), crate::Error> {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            r#"(condition-case e (user-error "no %s" "way") (error e))"#,
+            r#"'(user-error "no way")"#,
+        );
+        eval_assert_equal(
+            ctx,
+            r#"(condition-case nil (user-error "x") (user-error 'caught))"#,
+            "'caught",
+        );
+        let err = ctx
+            .eval_string(r#"(user-error "no %s" "way")"#)
+            .unwrap_err();
+        assert_eq!(err.desc(), "no way");
+        assert!(err.is_a(ctx, "user-error") && err.is_a(ctx, "error"));
+        Ok(())
+    }
+
+    #[test]
+    fn quit_is_not_an_error() -> Result<(), crate::Error> {
+        let ctx = &mut TulispContext::new();
+        eval_assert_error_line(
+            ctx,
+            "(condition-case nil (signal 'quit nil) (error 'caught))",
+            "ERR Signal(quit): Quit",
+        );
+        eval_assert_equal(
+            ctx,
+            "(condition-case nil (signal 'quit nil) (quit 'q))",
+            "'q",
+        );
+        eval_assert_equal(
+            ctx,
+            "(condition-case nil (signal 'quit nil) (t 'any))",
+            "'any",
+        );
+        eval_assert_equal(
+            ctx,
+            "(condition-case nil (signal 'quit nil) ((error quit) 'either))",
+            "'either",
+        );
+        // Cleanups run as a quit passes, and the quit goes on.
+        eval_assert_equal(
+            ctx,
+            "(progn (setq log nil)
+                    (list (condition-case nil
+                              (unwind-protect (signal 'quit nil) (setq log 'done))
+                            (quit 'q))
+                          log))",
+            "'(q done)",
+        );
+        let err = ctx.signal("quit", TulispObject::nil());
+        assert!(err.is_a(ctx, "quit") && !err.is_a(ctx, "error"));
+        Ok(())
     }
 
     #[test]
