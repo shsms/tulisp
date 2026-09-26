@@ -131,6 +131,9 @@ pub struct TulispContext {
     pub(crate) compiling_macros: Vec<usize>,
     /// The error symbols `condition-case`, `signal` and `define-error` know.
     pub(crate) error_table: crate::error::ErrorTable,
+    /// The tags of the `catch` forms running now, innermost last, so a `throw`
+    /// with none for its tag can raise `no-catch` instead.
+    pub(crate) catch_tags: Vec<TulispObject>,
     #[cfg(feature = "etags")]
     pub(crate) tags_table: HashMap<String, HashMap<String, usize>>,
 }
@@ -158,6 +161,7 @@ impl TulispContext {
             reserve_frames: 0,
             compiling_macros: Vec::new(),
             error_table: crate::error::ErrorTable::new(),
+            catch_tags: Vec::new(),
             max_eval_depth: DEFAULT_MAX_EVAL_DEPTH,
             #[cfg(feature = "etags")]
             tags_table: HashMap::new(),

@@ -184,7 +184,9 @@ impl Error {
     }
 
     /// Creates a new `Throw` error with the given tag and value. Its
-    /// description is what shows when no `catch` receives it.
+    /// description is what shows when no `catch` receives it. Unlike Lisp's
+    /// `throw`, it does not check for a running `catch` for the tag: with
+    /// none, it reaches the host as a `Throw`, not a `no-catch` error.
     pub fn throw(tag: TulispObject, value: TulispObject) -> Self {
         Self {
             kind: ErrorKind::Throw(TulispObject::cons(tag, value)),
@@ -298,7 +300,8 @@ impl Error {
 
     /// The error's data, what a `condition-case` handler sees after the error
     /// symbol: `(DESC)` for a built-in kind, the data given to `signal` for a
-    /// `Signal`, and nil for a `throw`.
+    /// `Signal`, and nil for a `throw` (a Lisp `throw` with no `catch` for its
+    /// tag is a `no-catch` signal instead, whose data is `(TAG VALUE)`).
     pub fn data(&self) -> TulispObject {
         match &self.kind {
             ErrorKind::Throw(_) => TulispObject::nil(),
@@ -309,7 +312,8 @@ impl Error {
 
     /// Whether a `condition-case` handler for CONDITION catches this error in
     /// CTX, following the error's parents. False for a `throw`, which no
-    /// handler catches.
+    /// handler catches; a Lisp `throw` with no `catch` for its tag is a
+    /// `no-catch` error instead, under `error`.
     pub fn is_a(&self, ctx: &TulispContext, condition: &str) -> bool {
         self.symbol_name()
             .is_some_and(|name| ctx.error_table.matches(&name, condition))

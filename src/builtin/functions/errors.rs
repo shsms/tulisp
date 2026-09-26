@@ -87,10 +87,21 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     ctx.define_special_form("catch");
 
+    // `(throw TAG VALUE)` returns VALUE from the innermost running `catch` for
+    // TAG. With none running, it raises `no-catch` with data `(TAG VALUE)`, as
+    // Emacs does, which `error` handlers catch.
     ctx.defun(
         "throw",
-        |tag: TulispObject, value: TulispObject| -> Result<TulispObject, Error> {
-            Err(Error::throw(tag, value))
+        |ctx: &mut TulispContext,
+         tag: TulispObject,
+         value: TulispObject|
+         -> Result<TulispObject, Error> {
+            // No `catch` receives a nil tag, as in Emacs.
+            if !tag.null() && ctx.catch_tags.iter().rev().any(|running| running.eq(&tag)) {
+                return Err(Error::throw(tag, value));
+            }
+            let data = TulispObject::cons(tag, TulispObject::cons(value, TulispObject::nil()));
+            Err(ctx.signal("no-catch", data))
         },
     );
 
@@ -113,7 +124,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     // CONDITION is a symbol or a list of symbols. A symbol catches its
     // own error and every error defined under it; `quit`, and a symbol
     // not defined under `error`, escape `error`. `t` catches every
-    // error. A `throw` is never caught.
+    // error. A `throw` is never caught: a Lisp `throw` with no running
+    // `catch` for its tag raises `no-catch` instead, but one returned
+    // from Rust stays a `throw`.
     //
     // VAR holds `(ERROR-SYMBOL . DATA)` in the handler body, DATA a
     // list; a built-in error's DATA is `(MESSAGE)`. It is bound
@@ -165,9 +178,10 @@ pub(crate) fn condition_matches(
 }
 
 /// The value thrown to TAG when ERR is a `throw` to TAG, or ERR
-/// itself otherwise.
+/// itself otherwise. A nil TAG receives nothing, as in Emacs.
 pub(crate) fn catch_throw(err: Error, tag: &TulispObject) -> Result<TulispObject, Error> {
     if let ErrorKind::Throw(obj) = err.kind_ref()
+        && !tag.null()
         && obj.car_and_then(|thrown_tag| Ok(thrown_tag.eq(tag)))?
     {
         return obj.cdr();
@@ -241,7 +255,7 @@ mod tests {
         eval_assert_error(
             &mut ctx,
             "(catch 'my-tag (throw 'other-tag 42))",
-            r#"ERR Throw(other-tag): No catch for tag: other-tag, 42
+            r#"ERR Signal(no-catch): No catch for tag: other-tag, 42
 <eval_string>:1.16-1.36:  at (throw 'other-tag 42)
 <eval_string>:1.1-1.37:  at (catch 'my-tag (throw 'other-tag 42))
 "#,
@@ -330,15 +344,12 @@ mod tests {
 <eval_string>:1.1-1.62:  at (condition-case e (error "boom") (wrong-type-argument 'wrong))
 "#,
         );
-        // `throw` bypasses condition-case (catch/throw stays its own
-        // mechanism).
-        eval_assert_error(
+        // A `throw` with no `catch` for its tag is a `no-catch` error, which
+        // `error` catches.
+        eval_assert_equal(
             &mut ctx,
             "(condition-case e (throw 'tag 5) (error 'caught))",
-            r#"ERR Throw(tag): No catch for tag: tag, 5
-<eval_string>:1.19-1.32:  at (throw 'tag 5)
-<eval_string>:1.1-1.49:  at (condition-case e (throw 'tag 5) (error 'caught))
-"#,
+            "'caught",
         );
     }
 
@@ -386,7 +397,8 @@ mod tests {
         let expected = ctx.eval_string(r#"'("Division by zero")"#)?;
         assert!(err.data().equal(&expected), "{}", err.data());
         let err = ctx.eval_string("(throw 'tag 1)").unwrap_err();
-        assert!(err.data().null());
+        let expected = ctx.eval_string("'(tag 1)")?;
+        assert!(err.data().equal(&expected), "{}", err.data());
         Ok(())
     }
 
@@ -792,12 +804,87 @@ mod tests {
     }
 
     #[test]
-    fn an_uncaught_throw_names_its_tag() {
+    fn a_throw_from_rust_that_no_catch_receives_names_its_tag() {
         let ctx = &mut TulispContext::new();
-        let err = ctx.eval_string(r#"(throw 'done "x")"#).unwrap_err();
+        ctx.defun(
+            "host-throw",
+            |tag: TulispObject, value: TulispObject| -> Result<TulispObject, crate::Error> {
+                Err(crate::Error::throw(tag, value))
+            },
+        );
+        eval_assert_equal(ctx, "(catch 'done (host-throw 'done 1))", "1");
+        eval_assert_error_line(
+            ctx,
+            "(catch nil (host-throw nil 1))",
+            "ERR Throw(nil): No catch for tag: nil, 1",
+        );
+        let err = ctx.eval_string(r#"(host-throw 'done "x")"#).unwrap_err();
         assert_eq!(err.desc(), r#"No catch for tag: done, "x""#);
-        assert!(!err.is_a(ctx, "error"));
+        assert_eq!(
+            err.to_string().lines().next(),
+            Some(r#"ERR Throw(done): No catch for tag: done, "x""#)
+        );
+        assert!(!err.is_a(ctx, "error") && !err.is_a(ctx, "no-catch"));
         assert!(err.data().null());
+    }
+
+    #[test]
+    fn a_throw_with_no_catch_is_a_no_catch_error() -> Result<(), crate::Error> {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(condition-case e (throw 'done 1) (error e))",
+            "'(no-catch done 1)",
+        );
+        // A `catch` for the tag outside the handler still receives it.
+        eval_assert_equal(
+            ctx,
+            "(catch 'done (condition-case e (throw 'done 1) (error (list 'caught e))))",
+            "1",
+        );
+        // A `catch` for another tag does not count.
+        eval_assert_equal(
+            ctx,
+            "(condition-case e (catch 'other (throw 'done 1)) (error e))",
+            "'(no-catch done 1)",
+        );
+        // Tags are matched with `eq`: an equal string is another tag.
+        eval_assert_equal(
+            ctx,
+            r#"(condition-case e (catch "a" (throw "a" 2)) (error e))"#,
+            r#"'(no-catch "a" 2)"#,
+        );
+        // Only a running `catch` counts: a closure made inside one and called
+        // after it returned finds none.
+        eval_assert_equal(
+            ctx,
+            "(let ((f (catch 'done (lambda () (throw 'done 1)))))
+               (condition-case e (funcall f) (error e)))",
+            "'(no-catch done 1)",
+        );
+        // No `catch` receives a nil tag, as in Emacs.
+        eval_assert_equal(
+            ctx,
+            "(condition-case e (catch nil (throw nil 1)) (error e))",
+            "'(no-catch nil 1)",
+        );
+        // A cleanup that throws while its `catch` runs reaches it.
+        eval_assert_equal(
+            ctx,
+            "(catch 'done (unwind-protect (throw 'done 1)
+                            (condition-case e (throw 'done 2) (error (list 'caught e)))))",
+            "2",
+        );
+        eval_assert_error_line(
+            ctx,
+            "(throw 'done 42)",
+            "ERR Signal(no-catch): No catch for tag: done, 42",
+        );
+        let err = ctx.eval_string("(throw 'done 42)").unwrap_err();
+        assert!(err.is_a(ctx, "no-catch") && err.is_a(ctx, "error"));
+        let expected = ctx.eval_string("'(done 42)")?;
+        assert!(err.data().equal(&expected), "{}", err.data());
+        Ok(())
     }
 
     #[test]

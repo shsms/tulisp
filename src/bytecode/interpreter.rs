@@ -738,8 +738,11 @@ fn run_impl_inner(
                 // Release the program: a recursive function re-enters it.
                 let body = body.clone();
                 drop(instr_ref);
-                let result = run_block(ctx, &body, None)
-                    .or_else(|err| crate::builtin::functions::errors::catch_throw(err, &tag));
+                ctx.catch_tags.push(tag.clone());
+                let result = run_block(ctx, &body, None);
+                ctx.catch_tags.pop();
+                let result =
+                    result.or_else(|err| crate::builtin::functions::errors::catch_throw(err, &tag));
                 instr_ref = program.borrow_mut();
                 ctx.vm.stack.push(result?);
             }

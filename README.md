@@ -163,7 +163,8 @@ Rust, `TulispContext::signal` and `TulispContext::define_error` raise and define
 them, and `Error::is_a` tests which handler would catch an error. An error
 raised with `signal`, even a built-in error caught and raised again, has the
 kind `ErrorKind::Signal`, so use `is_a` rather than the kind to tell errors
-apart.
+apart. A `throw` with no `catch` for its tag running is a `no-catch` error, as
+in Emacs.
 
 A macro defined in Lisp with `defmacro` compiles its body on its first
 expansion. It keeps the compiled body, unless that expansion failed or

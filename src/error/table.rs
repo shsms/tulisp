@@ -47,6 +47,7 @@ const BUILT_IN_ERRORS: &[(&str, &str, &[&str])] = &[
     ("invalid-read-syntax", "Invalid read syntax", &["error"]),
     ("not-implemented", "Not implemented", &["error"]),
     ("file-error", "File error", &["error"]),
+    ("no-catch", "No catch for tag", &["error"]),
 ];
 
 impl ErrorTable {
