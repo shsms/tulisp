@@ -330,8 +330,8 @@ fn run_handler(
     handlers: &[Handler],
     err: Error,
 ) -> Result<TulispObject, Error> {
-    use crate::builtin::functions::errors::{condition_matches, error_symbol, error_value};
-    let Some(kind_sym) = error_symbol(&err) else {
+    use crate::builtin::functions::errors::{condition_matches, error_value};
+    let Some(kind_sym) = err.symbol_name() else {
         return Err(err);
     };
     for handler in handlers {

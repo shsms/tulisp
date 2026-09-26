@@ -1,5 +1,3 @@
-use std::borrow::Cow;
-
 use super::core::format_string;
 use crate::{Error, ErrorKind, Rest, TulispContext, TulispObject, TulispValue};
 
@@ -123,27 +121,6 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     // special. A `nil` VAR binds nothing; `t` or a keyword fails when a
     // handler binds it.
     ctx.define_special_form("condition-case");
-}
-
-/// The Emacs error symbol `condition-case` matches ERR against, or
-/// `None` for a `throw`, which `condition-case` never catches.
-pub(crate) fn error_symbol(err: &Error) -> Option<Cow<'static, str>> {
-    let name = match err.kind_ref() {
-        ErrorKind::TypeMismatch | ErrorKind::InvalidArgument => "wrong-type-argument",
-        ErrorKind::OutOfRange => "args-out-of-range",
-        ErrorKind::ArithError => "arith-error",
-        ErrorKind::LispError => "error",
-        ErrorKind::MissingArgument | ErrorKind::ArityMismatch => "wrong-number-of-arguments",
-        ErrorKind::Undefined => "void-function",
-        ErrorKind::Uninitialized => "void-variable",
-        ErrorKind::ParsingError | ErrorKind::SyntaxError => "invalid-read-syntax",
-        ErrorKind::NotImplemented => "not-implemented",
-        ErrorKind::OSError | ErrorKind::BrokenPipe => "file-error",
-        ErrorKind::PlistError | ErrorKind::AlistError => "wrong-type-argument",
-        ErrorKind::Signal { symbol, .. } => return symbol.as_symbol().ok().map(Cow::Owned),
-        ErrorKind::Throw(_) => return None,
-    };
-    Some(Cow::Borrowed(name))
 }
 
 /// The name of PARENT, a symbol, `nil` or `t`, as `define-error` reads it.
@@ -953,7 +930,7 @@ mod tests {
             crate::Error::parsing_error(""),
             crate::Error::syntax_error(""),
         ] {
-            let name = super::error_symbol(&err).expect("not a throw");
+            let name = err.symbol_name().expect("not a throw");
             assert!(ctx.error_table.matches(&name, "error"), "{name}");
         }
     }

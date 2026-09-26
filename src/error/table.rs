@@ -21,7 +21,7 @@ pub(crate) struct ErrorTable {
 
 /// The error symbols every context starts with: each name, its message and its
 /// parents. The built-in error kinds report `error` and the symbols from
-/// `wrong-type-argument` on (see `error_symbol`).
+/// `wrong-type-argument` on (see `Error::symbol_name`).
 const BUILT_IN_ERRORS: &[(&str, &str, &[&str])] = &[
     ("error", "error", &[]),
     ("quit", "Quit", &[]),

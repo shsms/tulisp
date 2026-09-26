@@ -311,7 +311,28 @@ impl Error {
     /// CTX, following the error's parents. False for a `throw`, which no
     /// handler catches.
     pub fn is_a(&self, ctx: &TulispContext, condition: &str) -> bool {
-        crate::builtin::functions::errors::error_symbol(self)
+        self.symbol_name()
             .is_some_and(|name| ctx.error_table.matches(&name, condition))
+    }
+
+    /// The Emacs error symbol `condition-case` matches this error against,
+    /// or `None` for a `throw`, which `condition-case` never catches.
+    pub(crate) fn symbol_name(&self) -> Option<Cow<'static, str>> {
+        let name = match &self.kind {
+            ErrorKind::TypeMismatch | ErrorKind::InvalidArgument => "wrong-type-argument",
+            ErrorKind::OutOfRange => "args-out-of-range",
+            ErrorKind::ArithError => "arith-error",
+            ErrorKind::LispError => "error",
+            ErrorKind::MissingArgument | ErrorKind::ArityMismatch => "wrong-number-of-arguments",
+            ErrorKind::Undefined => "void-function",
+            ErrorKind::Uninitialized => "void-variable",
+            ErrorKind::ParsingError | ErrorKind::SyntaxError => "invalid-read-syntax",
+            ErrorKind::NotImplemented => "not-implemented",
+            ErrorKind::OSError | ErrorKind::BrokenPipe => "file-error",
+            ErrorKind::PlistError | ErrorKind::AlistError => "wrong-type-argument",
+            ErrorKind::Signal { symbol, .. } => return symbol.as_symbol().ok().map(Cow::Owned),
+            ErrorKind::Throw(_) => return None,
+        };
+        Some(Cow::Borrowed(name))
     }
 }
