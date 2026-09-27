@@ -154,22 +154,25 @@ macro_rules! jump_if_binary {
 
 macro_rules! jump_to_pos {
     ($ctx: ident, $pc:ident, $pos:ident) => {
-        $pc = {
-            match $pos {
-                Pos::Abs(p) => *p,
-                Pos::Rel(p) => {
-                    let abs_pos = ($pc as isize + *p + 1) as usize;
-                    *$pos = Pos::Abs(abs_pos);
-                    abs_pos
-                }
-                Pos::Label(_) => {
-                    return Err(Error::lisp_error(
-                        "internal: label jump reached the interpreter; \
-                         assemble should have resolved it",
-                    ));
-                }
+        let target = match $pos {
+            Pos::Abs(p) => *p,
+            Pos::Rel(p) => {
+                let abs_pos = ($pc as isize + *p + 1) as usize;
+                *$pos = Pos::Abs(abs_pos);
+                abs_pos
             }
+            Pos::Label(_) => {
+                return Err(Error::lisp_error(
+                    "internal: label jump reached the interpreter; \
+                     assemble should have resolved it",
+                ));
+            }
+        };
+        // A backward jump is a loop turn.
+        if target <= $pc {
+            $ctx.interrupt_checkpoint()?;
         }
+        $pc = target;
     };
 }
 

@@ -5,15 +5,15 @@ use std::sync::{Mutex, PoisonError};
 use crate::{Error, TulispContext, TulispObject, object::wrappers::InterruptCheckFn};
 
 /// How many checkpoints pass between two calls of the interrupt check. A
-/// checkpoint is each run of compiled Lisp code: a function body, a protected
-/// body, a handler, a cleanup, a top-level program.
+/// checkpoint is each run of compiled Lisp code (a function body, a protected
+/// body, a handler, a cleanup, a top-level program) and each backward jump.
 pub(super) const INTERRUPT_CHECK_INTERVAL: u32 = 1024;
 
 impl TulispContext {
     /// Sets CHECK, a closure `FnMut() -> bool`, for stopping a running
     /// evaluation. While Lisp code runs, the check is called after about every
-    /// 1024 Lisp function calls and other runs of compiled Lisp code, such as
-    /// a `catch` body or a macro's expansion, counted together.
+    /// 1024 Lisp function calls, loop turns and other runs of compiled Lisp
+    /// code, such as a `catch` body or a macro's expansion, counted together.
     /// When it returns true, the evaluation raises `quit`, which
     /// `condition-case` handlers for `error` do not catch; [`Error::is_a`] with
     /// `"quit"` tells it apart. The check may read a flag, a signal state or a
@@ -85,6 +85,9 @@ mod tests {
     /// Two functions that tail-call each other N times.
     const PING_PONG: &str =
         "(defun ping (n) (if (> n 0) (pong (1- n)) n)) (defun pong (n) (ping n))";
+
+    /// Counts to a million in a loop.
+    const COUNT: &str = "(let ((i 0)) (while (< i 1000000) (setq i (1+ i))) i)";
 
     #[track_caller]
     fn assert_quits(ctx: &mut TulispContext, program: &str) {
@@ -203,5 +206,69 @@ mod tests {
     fn a_context_with_a_check_keeps_its_auto_traits() {
         fn auto_traits<T: Send + Sync + std::panic::UnwindSafe + std::panic::RefUnwindSafe>() {}
         auto_traits::<TulispContext>();
+    }
+
+    #[test]
+    fn a_check_stops_a_loop() {
+        let ctx = &mut TulispContext::new();
+        quit_at(ctx, 2);
+        assert_quits(ctx, COUNT);
+    }
+
+    #[test]
+    fn a_check_stops_a_self_tail_recursive_loop() -> Result<(), Error> {
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string("(defun spin (n) (if (> n 0) (spin (1- n)) n))")?;
+        quit_at(ctx, 2);
+        assert_quits(ctx, "(spin 1000000)");
+        Ok(())
+    }
+
+    #[test]
+    fn a_check_stops_a_loop_in_a_mapped_function() {
+        let ctx = &mut TulispContext::new();
+        quit_at(ctx, 2);
+        assert_quits(
+            ctx,
+            "(mapcar (lambda (n) (let ((i 0)) (while (< i n) (setq i (1+ i))) i)) '(1000000))",
+        );
+    }
+
+    #[test]
+    fn a_quit_runs_unwind_protect_cleanups() -> Result<(), Error> {
+        let ctx = &mut TulispContext::new();
+        quit_at(ctx, 2);
+        ctx.eval_string("(setq cleaned nil)")?;
+        assert_quits(ctx, &format!("(unwind-protect {COUNT} (setq cleaned t))"));
+        eval_assert_equal(ctx, "cleaned", "t");
+        Ok(())
+    }
+
+    #[test]
+    fn a_quit_in_a_cleanup_reaches_the_host() -> Result<(), Error> {
+        let ctx = &mut TulispContext::new();
+        quit_at(ctx, 2);
+        assert_quits(ctx, &format!("(unwind-protect nil {COUNT})"));
+        ctx.clear_interrupt_check();
+        eval_assert_equal(
+            ctx,
+            "(let ((i 0)) (while (< i 4096) (setq i (1+ i))) i)",
+            "4096",
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_forward_jump_is_not_a_checkpoint() {
+        let ctx = &mut TulispContext::new();
+        let polls = quit_at(ctx, u32::MAX);
+        // Each turn also takes a forward jump, into the `if`'s else branch.
+        let turns = 8 * super::INTERRUPT_CHECK_INTERVAL;
+        eval_assert_equal(
+            ctx,
+            &format!("(let ((i 0)) (while (< i {turns}) (setq i (if (< i 0) 0 (1+ i)))) i)"),
+            &turns.to_string(),
+        );
+        assert_eq!(polls.load(Ordering::Relaxed), 8);
     }
 }
