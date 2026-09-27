@@ -2,6 +2,7 @@ pub(crate) mod callable;
 pub(crate) mod special;
 
 mod errors;
+mod interrupt;
 mod rest;
 pub use rest::Rest;
 
@@ -20,7 +21,7 @@ use crate::{
     context::callable::TulispCallable,
     error::Error,
     eval::resolve_function,
-    object::wrappers::{DefunFn, TulispFn, generic::Shared},
+    object::wrappers::{DefunFn, InterruptCheckFn, TulispFn, generic::Shared},
     parse::parse,
     value::LexAllocator,
 };
@@ -134,6 +135,14 @@ pub struct TulispContext {
     /// The tags of the `catch` forms running now, innermost last, so a `throw`
     /// with none for its tag can raise `no-catch` instead.
     pub(crate) catch_tags: Vec<TulispObject>,
+    /// The host's check for stopping a running evaluation. With the `sync`
+    /// feature, the mutex keeps the context `Sync` and unwind-safe, although
+    /// the check only has to be `Send`. It is never locked, only reached
+    /// through `&mut self`, so it never poisons: a check that panics stays set
+    /// and is called again in the state the panic left it in.
+    interrupt_check: Option<std::sync::Mutex<Box<dyn InterruptCheckFn>>>,
+    /// Checkpoints left before `interrupt_check` is called again.
+    interrupt_countdown: u32,
     #[cfg(feature = "etags")]
     pub(crate) tags_table: HashMap<String, HashMap<String, usize>>,
 }
@@ -162,6 +171,8 @@ impl TulispContext {
             compiling_macros: Vec::new(),
             error_table: crate::error::ErrorTable::new(),
             catch_tags: Vec::new(),
+            interrupt_check: None,
+            interrupt_countdown: interrupt::INTERRUPT_CHECK_INTERVAL,
             max_eval_depth: DEFAULT_MAX_EVAL_DEPTH,
             #[cfg(feature = "etags")]
             tags_table: HashMap::new(),

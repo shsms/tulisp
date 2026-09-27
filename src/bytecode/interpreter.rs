@@ -403,6 +403,7 @@ fn run_impl_inner(
     let program_size = program.borrow().len();
     let mut instr_ref = program.borrow_mut();
     let mut active = ActiveScopes::new();
+    ctx.interrupt_checkpoint()?;
     while pc < program_size {
         // Mirror the loop's `pc` into the caller's pc_out so
         // that `run_impl` knows which instruction was active

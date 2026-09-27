@@ -1,0 +1,207 @@
+//! Stopping a running evaluation from the host.
+
+use std::sync::{Mutex, PoisonError};
+
+use crate::{Error, TulispContext, TulispObject, object::wrappers::InterruptCheckFn};
+
+/// How many checkpoints pass between two calls of the interrupt check. A
+/// checkpoint is each run of compiled Lisp code: a function body, a protected
+/// body, a handler, a cleanup, a top-level program.
+pub(super) const INTERRUPT_CHECK_INTERVAL: u32 = 1024;
+
+impl TulispContext {
+    /// Sets CHECK, a closure `FnMut() -> bool`, for stopping a running
+    /// evaluation. While Lisp code runs, the check is called after about every
+    /// 1024 Lisp function calls and other runs of compiled Lisp code, such as
+    /// a `catch` body or a macro's expansion, counted together.
+    /// When it returns true, the evaluation raises `quit`, which
+    /// `condition-case` handlers for `error` do not catch; [`Error::is_a`] with
+    /// `"quit"` tells it apart. The check may read a flag, a signal state or a
+    /// clock.
+    ///
+    /// Like Emacs, which clears `quit-flag` when it raises `quit`, the check
+    /// should clear what made it return true: a check that stays true also
+    /// stops `unwind-protect` cleanups and `quit` handlers that run long, and
+    /// later evaluations as they reach the next check. A Rust function that
+    /// runs long (a builtin, or one added with `defun`) is not stopped while it
+    /// runs, only once it returns to Lisp or calls into it. Unlike in Emacs,
+    /// binding `inhibit-quit` does not hold the check off. With the `sync`
+    /// feature, the check must be `Send`.
+    pub fn set_interrupt_check(&mut self, check: impl InterruptCheckFn) {
+        self.interrupt_check = Some(Mutex::new(Box::new(check)));
+    }
+
+    /// Removes the check set by
+    /// [`set_interrupt_check`](Self::set_interrupt_check).
+    pub fn clear_interrupt_check(&mut self) {
+        self.interrupt_check = None;
+    }
+
+    /// Counts one checkpoint, calling the interrupt check every
+    /// `INTERRUPT_CHECK_INTERVAL` of them.
+    #[inline(always)]
+    pub(crate) fn interrupt_checkpoint(&mut self) -> Result<(), Error> {
+        self.interrupt_countdown -= 1;
+        if self.interrupt_countdown == 0 {
+            return self.poll_interrupt();
+        }
+        Ok(())
+    }
+
+    #[inline(never)]
+    fn poll_interrupt(&mut self) -> Result<(), Error> {
+        self.interrupt_countdown = INTERRUPT_CHECK_INTERVAL;
+        let stop = self.interrupt_check.as_mut().is_some_and(|check| {
+            let check = check.get_mut().unwrap_or_else(PoisonError::into_inner);
+            check()
+        });
+        if stop {
+            return Err(self.signal("quit", TulispObject::nil()));
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicU32, Ordering},
+    };
+
+    use crate::{Error, TulispContext, TulispObject, test_utils::eval_assert_equal};
+
+    /// Sets a check on CTX that returns true from poll FROM_POLL on, and
+    /// returns its poll count.
+    fn quit_at(ctx: &mut TulispContext, from_poll: u32) -> Arc<AtomicU32> {
+        let polls = Arc::new(AtomicU32::new(0));
+        let count = polls.clone();
+        ctx.set_interrupt_check(move || count.fetch_add(1, Ordering::Relaxed) + 1 >= from_poll);
+        polls
+    }
+
+    /// Makes 2^(N+1) - 1 calls, N deep.
+    const TREE: &str = "(defun tree (n) (if (> n 0) (+ (tree (1- n)) (tree (1- n))) 1))";
+    /// Two functions that tail-call each other N times.
+    const PING_PONG: &str =
+        "(defun ping (n) (if (> n 0) (pong (1- n)) n)) (defun pong (n) (ping n))";
+
+    #[track_caller]
+    fn assert_quits(ctx: &mut TulispContext, program: &str) {
+        let err = ctx.eval_string(program).expect_err(program);
+        assert!(err.is_a(ctx, "quit"), "{program}: {}", err.format(ctx));
+    }
+
+    #[test]
+    fn a_check_stops_a_recursion_of_many_calls() -> Result<(), Error> {
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string(TREE)?;
+        quit_at(ctx, 2);
+        assert_quits(ctx, "(tree 12)");
+        Ok(())
+    }
+
+    #[test]
+    fn a_check_stops_a_loop_of_tail_calls() -> Result<(), Error> {
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string(PING_PONG)?;
+        quit_at(ctx, 2);
+        assert_quits(ctx, "(ping 1000000)");
+        Ok(())
+    }
+
+    #[test]
+    fn an_error_handler_does_not_catch_quit() -> Result<(), Error> {
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string(PING_PONG)?;
+        quit_at(ctx, 2);
+        assert_quits(ctx, "(condition-case nil (ping 1000000) (error 'caught))");
+        Ok(())
+    }
+
+    #[test]
+    fn a_quit_or_t_handler_catches_quit() -> Result<(), Error> {
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string(PING_PONG)?;
+        quit_at(ctx, 2);
+        eval_assert_equal(
+            ctx,
+            "(condition-case nil (ping 1000000) (quit 'stopped))",
+            "'stopped",
+        );
+        eval_assert_equal(
+            ctx,
+            "(condition-case nil (ping 1000000) (t 'stopped))",
+            "'stopped",
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_check_that_stays_false_changes_nothing() -> Result<(), Error> {
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string(TREE)?;
+        let polls = quit_at(ctx, u32::MAX);
+        eval_assert_equal(ctx, "(tree 12)", "4096");
+        assert!(polls.load(Ordering::Relaxed) > 0);
+        Ok(())
+    }
+
+    #[test]
+    fn a_cleared_check_is_not_called() -> Result<(), Error> {
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string(TREE)?;
+        let polls = quit_at(ctx, 1);
+        ctx.clear_interrupt_check();
+        eval_assert_equal(ctx, "(tree 12)", "4096");
+        assert_eq!(polls.load(Ordering::Relaxed), 0);
+        Ok(())
+    }
+
+    #[test]
+    fn a_check_that_clears_itself_stops_one_evaluation() -> Result<(), Error> {
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string(TREE)?;
+        let pending = Arc::new(AtomicBool::new(true));
+        let flag = pending.clone();
+        ctx.set_interrupt_check(move || flag.swap(false, Ordering::Relaxed));
+        assert_quits(ctx, "(tree 12)");
+        eval_assert_equal(ctx, "(tree 12)", "4096");
+        Ok(())
+    }
+
+    // A `Receiver` is `Send` but not `Sync`.
+    #[test]
+    fn a_check_need_not_be_sync() -> Result<(), Error> {
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string(PING_PONG)?;
+        let (stop, stopped) = std::sync::mpsc::channel();
+        ctx.set_interrupt_check(move || stopped.try_recv().is_ok());
+        stop.send(()).unwrap();
+        assert_quits(ctx, "(ping 1000000)");
+        Ok(())
+    }
+
+    #[test]
+    fn a_check_stops_a_rust_function_that_calls_lisp() {
+        let ctx = &mut TulispContext::new();
+        ctx.defun(
+            "call-n-times",
+            |ctx: &mut TulispContext, func: TulispObject, n: i64| -> Result<TulispObject, Error> {
+                for _ in 0..n {
+                    ctx.funcall(&func, ())?;
+                }
+                Ok(TulispObject::nil())
+            },
+        );
+        quit_at(ctx, 2);
+        assert_quits(ctx, "(call-n-times (lambda () nil) 1000000)");
+    }
+
+    #[cfg(feature = "sync")]
+    #[test]
+    fn a_context_with_a_check_keeps_its_auto_traits() {
+        fn auto_traits<T: Send + Sync + std::panic::UnwindSafe + std::panic::RefUnwindSafe>() {}
+        auto_traits::<TulispContext>();
+    }
+}
