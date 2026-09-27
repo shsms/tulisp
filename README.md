@@ -166,6 +166,14 @@ kind `ErrorKind::Signal`, so use `is_a` rather than the kind to tell errors
 apart. A `throw` with no `catch` for its tag running is a `no-catch` error, as
 in Emacs.
 
+A host can stop Lisp code that runs too long:
+`TulispContext::set_interrupt_check` takes a closure that tulisp calls every so
+often while Lisp code runs, and when it returns true the evaluation raises
+`quit`. The closure can read a flag another thread sets, a pending signal or a
+deadline. It should clear what made it return true. A closure that keeps
+returning true also stops cleanups and handlers that run long, and later
+evaluations when they reach the next check.
+
 A macro defined in Lisp with `defmacro` compiles its body on its first
 expansion. It keeps the compiled body, unless that expansion failed or
 the body has a call to a name that had no value yet. The macros a kept
