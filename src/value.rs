@@ -603,38 +603,6 @@ impl PartialEq for TulispValue {
     }
 }
 
-/// Formats a list without recursing down its cdr. An improper tail
-/// prints as ` . tail`. A circular list ends with ` ...` after a few
-/// rounds of the cycle, where the iterator notices it, instead of
-/// never ending. A tail call `mark_tail_calls` marked, `(Bounce f
-/// args...)`, prints as the call, as it was written.
-pub(crate) fn fmt_list(vv: TulispObject, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    if let Ok(head) = vv.car()
-        && head.is_bounce()
-        && let Ok(call) = vv.cdr()
-    {
-        return fmt_list(call, f);
-    }
-    f.write_char('(')?;
-    let mut iter = vv.base_iter();
-    let mut add_space = false;
-    for car in iter.by_ref() {
-        if add_space {
-            f.write_char(' ')?;
-        } else {
-            add_space = true;
-        }
-        write!(f, "{}", car)?;
-    }
-    match iter.tail() {
-        Ok(tail) if !tail.null() => write!(f, " . {}", tail)?,
-        Ok(_) => {}
-        Err(_) => f.write_str(" ...")?,
-    }
-    f.write_char(')')?;
-    Ok(())
-}
-
 impl std::fmt::Display for TulispValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -661,7 +629,9 @@ impl std::fmt::Display for TulispValue {
                 }
                 f.write_char('"')
             }
-            vv @ TulispValue::List { .. } => fmt_list(vv.clone().into_ref(None), f),
+            vv @ TulispValue::List { .. } => {
+                crate::object::print_copy(&vv.clone().into_ref(None), f)
+            }
             TulispValue::Quote { value, .. } => f.write_fmt(format_args!("'{}", value)),
             TulispValue::Backquote { value, .. } => f.write_fmt(format_args!("`{}", value)),
             TulispValue::Unquote { value, .. } => f.write_fmt(format_args!(",{}", value)),

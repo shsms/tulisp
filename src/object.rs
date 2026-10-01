@@ -1,4 +1,6 @@
 pub(crate) mod conversions;
+mod print;
+pub(crate) use print::print_copy;
 mod release;
 pub(crate) use release::release;
 pub mod wrappers;
@@ -41,50 +43,12 @@ impl Default for TulispObject {
     }
 }
 
-std::thread_local! {
-    /// The lists being printed on this thread, outermost first, so a
-    /// list that contains itself prints the repeat instead of
-    /// recursing forever.
-    static PRINTING: std::cell::RefCell<Vec<usize>> = const { std::cell::RefCell::new(Vec::new()) };
-}
-
-/// Takes a list off `PRINTING` when its printing ends, on every path.
-struct PrintingGuard;
-
-impl Drop for PrintingGuard {
-    fn drop(&mut self) {
-        PRINTING.with(|printing| printing.borrow_mut().pop());
-    }
-}
-
 impl std::fmt::Display for TulispObject {
     /// Prints as `prin1` does. A list met again inside its own
     /// printing prints as `#N`, N its depth among the lists being
     /// printed, as Emacs does.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if !self.consp() {
-            // A quote form prints its value after letting go of the lock, as
-            // a list does, in case the value leads back here.
-            let inner = self.inner_ref();
-            let (prefix, value) = match &inner.0 {
-                TulispValue::Quote { value, .. } => ("'", value.clone()),
-                TulispValue::Backquote { value, .. } => ("`", value.clone()),
-                TulispValue::Unquote { value, .. } => (",", value.clone()),
-                TulispValue::Splice { value, .. } => (",@", value.clone()),
-                TulispValue::Sharpquote { value, .. } => ("#'", value.clone()),
-                other => return write!(f, "{other}"),
-            };
-            drop(inner);
-            return write!(f, "{prefix}{value}");
-        }
-        let addr = self.addr_as_usize();
-        let depth = PRINTING.with(|printing| printing.borrow().iter().position(|a| *a == addr));
-        if let Some(depth) = depth {
-            return write!(f, "#{depth}");
-        }
-        PRINTING.with(|printing| printing.borrow_mut().push(addr));
-        let _guard = PrintingGuard;
-        crate::value::fmt_list(self.clone(), f)
+        print::print(self, f)
     }
 }
 
