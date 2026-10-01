@@ -166,6 +166,11 @@ pub mod generic {
         pub fn strong_count(&self) -> usize {
             std::rc::Rc::strong_count(&self.0)
         }
+
+        /// The value, when this is its only reference.
+        pub(crate) fn get_mut(&mut self) -> Option<&mut T> {
+            std::rc::Rc::get_mut(&mut self.0).map(std::cell::RefCell::get_mut)
+        }
     }
 
     impl<T: Default> Default for SharedMut<T> {
@@ -304,6 +309,14 @@ pub mod generic {
 
         pub fn strong_count(&self) -> usize {
             std::sync::Arc::strong_count(&self.0)
+        }
+
+        /// The value, when this is its only reference.
+        pub(crate) fn get_mut(&mut self) -> Option<&mut T> {
+            std::sync::Arc::get_mut(&mut self.0).map(|lock| {
+                lock.get_mut()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+            })
         }
     }
 

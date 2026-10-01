@@ -63,18 +63,42 @@ impl Cons {
     }
 }
 
+impl Cons {
+    /// Lets go of the car when it is the cdr too, so the cdr is the last
+    /// reference to it, which `drop_cdrs` frees.
+    #[inline]
+    fn let_go_of_shared_car(&mut self) {
+        if self.car.eq_ptr(&self.cdr) {
+            self.let_go_of_car();
+        }
+    }
+
+    #[cold]
+    fn let_go_of_car(&mut self) {
+        self.car = TulispObject::nil();
+    }
+}
+
 impl Drop for Cons {
     fn drop(&mut self) {
-        if self.cdr.strong_count() > 1 || !self.cdr.consp() {
-            return;
+        self.let_go_of_shared_car();
+        crate::object::release(&mut self.car);
+        if self.cdr.strong_count() == 1 && self.cdr.consp() {
+            drop_cdrs(self.cdr.take());
         }
-        let mut cdr = self.cdr.take();
-        while let TulispValue::List { cons, .. } = cdr {
-            if cons.cdr.strong_count() > 1 {
-                break;
-            }
-            cdr = cons.cdr.take();
+    }
+}
+
+/// Frees the cells of the list CDR, the value of a cell's cdr that nothing else
+/// held, in a loop down its cdrs.
+#[inline(never)]
+fn drop_cdrs(mut cdr: TulispValue) {
+    while let TulispValue::List { mut cons, .. } = cdr {
+        cons.let_go_of_shared_car();
+        if cons.cdr.strong_count() > 1 {
+            break;
         }
+        cdr = cons.cdr.take();
     }
 }
 
