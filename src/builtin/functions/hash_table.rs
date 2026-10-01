@@ -23,50 +23,82 @@ struct HashKey {
     test: HashTest,
 }
 
-/// Hashes `obj` the same way `equal` compares it: strings by
-/// contents, numbers by kind and value, cons cells and quote forms
-/// by their contents, `nil` and `t` by fixed tags (each is a fresh
-/// object on every read, so it has no fixed address), host values by
-/// shared payload, everything else by object identity.
+/// How many levels into a key `equal_hash` looks, as in Emacs's `sxhash-equal`.
+const HASH_MAX_DEPTH: u32 = 3;
+
+/// How many elements of a list `equal_hash` looks at. Emacs's `sxhash-equal`
+/// also hashes the rest of the list, one level deeper; `equal_hash` leaves it
+/// out.
+const HASH_MAX_LEN: usize = 7;
+
+/// Hashes `obj` the same way `equal` compares it: strings by contents, numbers
+/// by kind and value, cons cells and quote forms by their contents, `nil` and
+/// `t` by fixed tags (each is a fresh object on every read, so it has no fixed
+/// address), host values by shared payload, everything else by object identity.
+/// Of a list it hashes the first few elements, a few levels deep, so it takes a
+/// key of any length or depth, or one that loops back.
 fn equal_hash<H: Hasher>(obj: &TulispObject, state: &mut H) {
-    if let Ok(s) = obj.as_string() {
-        state.write_u8(1);
-        s.hash(state);
-    } else if let Ok(i) = obj.as_int() {
-        state.write_u8(2);
-        i.hash(state);
-    } else if let Ok(f) = obj.as_float() {
-        state.write_u8(3);
-        f.to_bits().hash(state);
-    } else if obj.consp() {
+    equal_hash_at(obj, state, 0);
+}
+
+/// `equal_hash` on `obj`, `depth` levels into the key.
+fn equal_hash_at<H: Hasher>(obj: &TulispObject, state: &mut H, depth: u32) {
+    if depth > HASH_MAX_DEPTH {
+        return;
+    }
+    if obj.consp() {
         state.write_u8(4);
-        if let (Ok(car), Ok(cdr)) = (obj.car(), obj.cdr()) {
-            equal_hash(&car, state);
-            equal_hash(&cdr, state);
+        let mut rest = obj.clone();
+        for _ in 0..HASH_MAX_LEN {
+            let (Ok(car), Ok(cdr)) = (rest.car(), rest.cdr()) else {
+                break;
+            };
+            equal_hash_at(&car, state, depth + 1);
+            rest = cdr;
+            if !rest.consp() {
+                equal_hash_at(&rest, state, depth + 1);
+                break;
+            }
         }
     } else {
         match &obj.inner_ref().0 {
+            TulispValue::String { value } => {
+                state.write_u8(1);
+                value.hash(state);
+            }
+            TulispValue::Number {
+                value: Number::Int(i),
+            } => {
+                state.write_u8(2);
+                i.hash(state);
+            }
+            TulispValue::Number {
+                value: Number::Float(f),
+            } => {
+                state.write_u8(3);
+                f.to_bits().hash(state);
+            }
             TulispValue::Nil => state.write_u8(5),
             TulispValue::T => state.write_u8(6),
             TulispValue::Quote { value } => {
                 state.write_u8(7);
-                equal_hash(value, state);
+                equal_hash_at(value, state, depth + 1);
             }
             TulispValue::Sharpquote { value } => {
                 state.write_u8(8);
-                equal_hash(value, state);
+                equal_hash_at(value, state, depth + 1);
             }
             TulispValue::Backquote { value } => {
                 state.write_u8(9);
-                equal_hash(value, state);
+                equal_hash_at(value, state, depth + 1);
             }
             TulispValue::Unquote { value } => {
                 state.write_u8(10);
-                equal_hash(value, state);
+                equal_hash_at(value, state, depth + 1);
             }
             TulispValue::Splice { value } => {
                 state.write_u8(11);
-                equal_hash(value, state);
+                equal_hash_at(value, state, depth + 1);
             }
             TulispValue::Any(value) => {
                 state.write_u8(13);
@@ -521,5 +553,36 @@ mod tests {
             "(gethash 1 2)",
             "ERR TypeMismatch: Expected hash-table, got: 2\n<eval_string>:1.1-1.13:  at (gethash 1 2)\n",
         );
+    }
+
+    #[test]
+    fn equal_table_takes_deep_long_and_circular_keys() -> Result<(), Error> {
+        // Hashing a key looks only a few levels into it, as Emacs's does, so a
+        // key of any size or shape hashes.
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string(
+            "(defun deep (n) (let (l) (dotimes (i n) (setq l (list l))) l))
+             (defun long (n) (let (l) (dotimes (i n) (setq l (cons i l))) l))
+             (setq h (make-hash-table :test 'equal))
+             (setq c (list 1 2)) (setcdr (cdr c) c)",
+        )?;
+        eval_assert_equal(
+            ctx,
+            "(progn (puthash (deep 100000) 'deep h) (gethash (deep 100000) h))",
+            "'deep",
+        );
+        eval_assert_equal(
+            ctx,
+            "(progn (puthash (long 100000) 'long h) (gethash (long 100000) h))",
+            "'long",
+        );
+        eval_assert_equal(
+            ctx,
+            "(progn (puthash c 'circular h) (gethash c h))",
+            "'circular",
+        );
+        eval_assert_equal(ctx, "(gethash (deep 99999) h 'missing)", "'missing");
+        eval_assert_equal(ctx, "(gethash (long 99999) h 'missing)", "'missing");
+        Ok(())
     }
 }
