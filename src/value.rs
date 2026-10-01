@@ -288,6 +288,10 @@ struct LexBindingInner {
 impl Drop for LexBindingInner {
     fn drop(&mut self) {
         self.allocator.free(self.id);
+        // The captured value may be a closure that captured another.
+        if let Some(value) = self.captured.as_mut().and_then(SharedMut::get_mut) {
+            crate::object::release(value);
+        }
     }
 }
 

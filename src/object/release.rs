@@ -1,9 +1,10 @@
 //! Freeing values nested deeper than the stack would allow.
 //!
 //! Dropping a value drops the values it holds, each one level further down the
-//! stack. A list a million cars deep would overflow it. The drops that would
-//! recurse hand the inner value to [`release`] instead, which queues it while a
-//! drop further up this thread's stack frees the queue one value at a time.
+//! stack. A list a million cars deep, or a million closures that each captured
+//! the one before, would overflow it. The drops that would recurse hand the
+//! inner value to [`release`] instead, which queues it while a drop further up
+//! this thread's stack frees the queue one value at a time.
 
 use std::cell::{Cell, RefCell};
 use std::mem::ManuallyDrop;
@@ -106,7 +107,7 @@ impl Drop for PendingGuard {
 
 #[cfg(test)]
 mod tests {
-    use crate::TulispObject;
+    use crate::{Error, TulispContext, TulispObject};
 
     /// Deeper than any thread's stack could free one level per frame.
     const DEPTH: usize = 1_000_000;
@@ -173,6 +174,28 @@ mod tests {
         })
         .join()
         .expect("the thread ends");
+    }
+
+    #[test]
+    fn a_chain_of_closures_frees() -> Result<(), Error> {
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string(
+            "(let ((f nil))
+               (dotimes (i 100000)
+                 (let ((g f)) (setq f (lambda () g)))))",
+        )?;
+        Ok(())
+    }
+
+    #[test]
+    fn closures_in_lists_in_closures_free() -> Result<(), Error> {
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string(
+            "(let ((f nil))
+               (dotimes (i 100000)
+                 (let ((g (list f))) (setq f (lambda () g)))))",
+        )?;
+        Ok(())
     }
 
     #[test]
