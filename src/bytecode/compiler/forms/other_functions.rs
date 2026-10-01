@@ -380,8 +380,7 @@ fn compile_defun(
         // actually nested in.
         let prev_scopes = std::mem::take(&mut compiler.active_let_scopes);
 
-        // TODO: replace with `is_string`
-        let body = if body.car()?.as_string().is_ok() {
+        let body = if body.car()?.stringp() {
             body.cdr()?
         } else {
             body.clone()

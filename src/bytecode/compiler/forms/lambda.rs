@@ -30,7 +30,7 @@ pub(super) fn compile_fn_lambda(
     ctx.compile_1_arg_call(name, args, true, |ctx, params, body| {
         crate::builtin::check_param_list(ctx, params)?;
         // Strip an optional docstring as the first body form.
-        let body = if body.car()?.as_string().is_ok() {
+        let body = if body.car()?.stringp() {
             body.cdr()?
         } else {
             body.clone()
