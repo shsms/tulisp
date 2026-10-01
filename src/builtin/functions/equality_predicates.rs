@@ -140,11 +140,15 @@ mod tests {
 
     /// A list nested DEPTH levels deep in its cars, around LEAF.
     fn nested(depth: usize, leaf: i64) -> TulispObject {
-        let mut list = TulispObject::from(leaf);
+        nested_in(leaf.into(), depth)
+    }
+
+    /// INNER nested DEPTH levels deep in the cars of lists.
+    fn nested_in(mut inner: TulispObject, depth: usize) -> TulispObject {
         for _ in 0..depth {
-            list = TulispObject::cons(list, TulispObject::nil());
+            inner = TulispObject::cons(inner, TulispObject::nil());
         }
-        list
+        inner
     }
 
     /// The list (0 1 ... LEN-2 LAST).
@@ -240,5 +244,47 @@ mod tests {
         };
         assert!(tree(1).equal(&tree(1)));
         assert!(!tree(1).equal(&tree(2)));
+    }
+
+    #[test]
+    fn equal_compares_a_deep_shared_list_once_per_pair() {
+        // Each cell holds the list below it as both car and cdr, deeper than
+        // the walk recurses, so it leaves pairs to compare later.
+        let shared = |depth: usize, leaf: i64| {
+            let mut list = TulispObject::cons(leaf.into(), TulispObject::nil());
+            for _ in 0..depth {
+                list = TulispObject::cons(list.clone(), list);
+            }
+            list
+        };
+        assert!(shared(20_000, 1).equal(&shared(20_000, 1)));
+        assert!(!shared(20_000, 1).equal(&shared(20_000, 2)));
+    }
+
+    #[test]
+    fn equal_finds_a_loop_through_pairs_it_entered_before() {
+        let circular = |a: TulispObject, b: TulispObject| {
+            let err = a.try_equal(&b).expect_err("the cdrs loop back");
+            assert_eq!(err.to_string(), "ERR OutOfRange: Circular list");
+        };
+        // x1 = (nested x0 . x0) and x0 = (1 . x1): the walk records x1 before
+        // the walk under its car comes round to x0.
+        let build = || {
+            let x0 = TulispObject::cons(1.into(), TulispObject::nil());
+            let x1 = TulispObject::cons(nested_in(x0.clone(), 40), x0.clone());
+            x0.set_cdr(x1.clone()).unwrap();
+            nested_in(x1, 64)
+        };
+        circular(build(), build());
+        // (nested x1, x0) with x0 = (1 . x1) and x1 = (2 . x0): the walk leaves
+        // x1 for later, when it has walked x0 already.
+        let build = || {
+            let x1 = TulispObject::cons(2.into(), TulispObject::nil());
+            let x0 = TulispObject::cons(1.into(), x1.clone());
+            x1.set_cdr(x0.clone()).unwrap();
+            let rest = TulispObject::cons(x0, TulispObject::nil());
+            TulispObject::cons(nested_in(x1, 127), rest)
+        };
+        circular(build(), build());
     }
 }

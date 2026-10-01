@@ -192,6 +192,9 @@ struct EqualWalk {
     error: Option<Error>,
     entered: usize,
     seen: Option<std::collections::HashSet<(usize, usize)>>,
+    /// The pairs of lists whose walk down the cdrs has reached the end, once
+    /// `seen` records pairs.
+    finished: Option<std::collections::HashSet<(usize, usize)>>,
 }
 
 impl EqualWalk {
@@ -199,12 +202,13 @@ impl EqualWalk {
     /// the pairs nested deeper to `pending`.
     const MAX_DEPTH: u32 = 128;
 
-    /// Lists entered before `seen` starts to record them, as Emacs compares a
-    /// few levels before it does.
-    const UNRECORDED: usize = 64;
+    /// How many lists the walk enters before `seen` starts to record their
+    /// pairs, as Emacs compares a few levels before it does.
+    const RECORD_AFTER: usize = 64;
 
     /// Compares A and B, DEPTH levels into the pair `equal_walk` popped, and
-    /// pushes the pairs nested deeper than `MAX_DEPTH` onto `pending`.
+    /// pushes the pairs nested deeper than `MAX_DEPTH` onto `pending`, once
+    /// each when `seen` records them.
     fn compare(&mut self, a: &TulispObject, b: &TulispObject, depth: u32) -> bool {
         if a.eq_ptr(b) {
             return true;
@@ -221,15 +225,15 @@ impl EqualWalk {
                 }
             }
         };
-        if depth >= Self::MAX_DEPTH {
-            self.pending.push((a.clone(), b.clone()));
-            return true;
-        }
-        if let Some((a, b)) = quoted {
-            return self.compare(&a, &b, depth + 1);
+        if let Some((quoted_a, quoted_b)) = quoted {
+            if depth >= Self::MAX_DEPTH {
+                self.pending.push((a.clone(), b.clone()));
+                return true;
+            }
+            return self.compare(&quoted_a, &quoted_b, depth + 1);
         }
         self.entered += 1;
-        if self.entered > Self::UNRECORDED
+        if self.entered > Self::RECORD_AFTER
             && !self
                 .seen
                 .get_or_insert_default()
@@ -237,12 +241,19 @@ impl EqualWalk {
         {
             return true;
         }
+        if depth >= Self::MAX_DEPTH {
+            self.pending.push((a.clone(), b.clone()));
+            return true;
+        }
         self.compare_lists(a.clone(), b.clone(), depth)
     }
 
-    /// Compares the lists A and B along their cdrs in a loop.
+    /// Compares the lists A and B along their cdrs in a loop, up to the end or
+    /// to a pair of lists whose walk has reached the end. A and B may also be
+    /// the pair of quote forms `compare` leaves on `pending`.
     fn compare_lists(&mut self, mut a: TulispObject, mut b: TulispObject, depth: u32) -> bool {
         let mut cdrs = CdrLoop::new();
+        let mut walked = Vec::new();
         loop {
             let (a_cdr, b_cdr) = {
                 let (a_inner, b_inner) = (a.inner_ref(), b.inner_ref());
@@ -250,21 +261,47 @@ impl EqualWalk {
                     (&a_inner.0, &b_inner.0)
                 else {
                     drop((a_inner, b_inner));
-                    return self.compare(&a, &b, depth + 1);
+                    let equal = self.compare(&a, &b, depth + 1);
+                    if equal {
+                        self.finish(walked);
+                    }
+                    return equal;
                 };
+                if self.entered > Self::RECORD_AFTER {
+                    walked.push((a.addr_as_usize(), b.addr_as_usize()));
+                }
                 if !self.compare(a_cons.car(), b_cons.car(), depth + 1) {
                     return false;
                 }
                 (a_cons.cdr().clone(), b_cons.cdr().clone())
             };
             if a_cdr.eq_ptr(&b_cdr) {
+                self.finish(walked);
                 return true;
             }
             if cdrs.step(&a_cdr) {
                 self.error = Some(Error::circular_list());
                 return false;
             }
+            // From a pair whose walk reached the end, this one reaches it too.
+            let pair = (a_cdr.addr_as_usize(), b_cdr.addr_as_usize());
+            if self
+                .finished
+                .as_ref()
+                .is_some_and(|finished| finished.contains(&pair))
+            {
+                self.finish(walked);
+                return true;
+            }
             (a, b) = (a_cdr, b_cdr);
+        }
+    }
+
+    /// Records that the walks down the cdrs from the pairs in WALKED have
+    /// reached the end.
+    fn finish(&mut self, walked: Vec<(usize, usize)>) {
+        if !walked.is_empty() {
+            self.finished.get_or_insert_default().extend(walked);
         }
     }
 }
@@ -363,7 +400,7 @@ impl TulispObject {
         let mut walk = EqualWalk::default();
         let mut equal = walk.compare(self, other, 0);
         while equal && let Some((a, b)) = walk.pending.pop() {
-            equal = walk.compare(&a, &b, 0);
+            equal = walk.compare_lists(a, b, 0);
         }
         match walk.error {
             Some(error) => Err(error),
