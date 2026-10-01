@@ -89,15 +89,28 @@ pub fn last(list: &TulispObject, n: Option<i64>) -> Result<TulispObject, Error> 
     Ok(list.clone())
 }
 
-/// Repeatedly takes the the CDR of the list n-times, and returns the n-th cdr
-/// of the given list.
+/// Takes the cdr of LIST N times and returns it.
+///
+/// In a list whose cdrs loop back, as in Emacs, it counts the cells of the loop
+/// and skips the full rounds, so the time it takes grows with the list's
+/// length, not with N.
 pub fn nthcdr(n: i64, list: TulispObject) -> Result<TulispObject, Error> {
     let mut next = list;
-    for _ in 0..n {
+    let mut cycle = CycleCheck::new();
+    let mut step = 0;
+    while step < n {
         if next.null() {
             return Ok(next);
         }
         next = next.cdr()?;
+        step += 1;
+        if let Some(loop_len) = cycle.looped(&next) {
+            let steps_left = (n - step) % i64::from(loop_len);
+            for _ in 0..steps_left {
+                next = next.cdr()?;
+            }
+            return Ok(next);
+        }
     }
     Ok(next)
 }

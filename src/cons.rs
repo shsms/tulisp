@@ -272,16 +272,26 @@ impl CycleCheck {
     /// Records a step to `next`; errors if the walk has been there.
     #[inline]
     pub(crate) fn step(&mut self, next: &TulispObject) -> Result<(), Error> {
+        match self.looped(next) {
+            Some(_) => Err(Error::circular_list()),
+            None => Ok(()),
+        }
+    }
+
+    /// Records a step to `next`; the number of cells in the loop if the walk
+    /// has been there.
+    #[inline]
+    pub(crate) fn looped(&mut self, next: &TulispObject) -> Option<u32> {
         self.steps += 1;
         if self.saved.as_ref().is_some_and(|saved| next.eq_ptr(saved)) {
-            return Err(Error::circular_list());
+            return Some(self.steps);
         }
         if self.steps == self.limit {
             self.saved = Some(next.clone());
             self.steps = 0;
             self.limit = self.limit.saturating_mul(2);
         }
-        Ok(())
+        None
     }
 }
 
