@@ -53,3 +53,26 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         cdaddr, cddaar, cddadr, cdddar, cddddr
     );
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::TulispContext;
+    use crate::test_utils::eval_assert_equal;
+
+    #[test]
+    fn nth_and_nthcdr_index_a_list() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(let ((items '(4 20 3 22 55)))
+               (list (nth 0 items) (nth 2 items) (nth 4 items) (nth 5 items)))",
+            "'(4 3 55 nil)",
+        );
+        eval_assert_equal(
+            ctx,
+            "(let ((items '(4 20 3 22 55)))
+               (list (nthcdr 0 items) (nthcdr 2 items) (nthcdr 4 items) (nthcdr 5 items)))",
+            "'((4 20 3 22 55) (3 22 55) (55) nil)",
+        );
+    }
+}
