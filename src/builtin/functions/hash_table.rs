@@ -178,6 +178,21 @@ pub(crate) struct HashTable {
     test: HashTest,
 }
 
+impl Drop for HashTable {
+    fn drop(&mut self) {
+        // A key or value may be another table, as in a chain of tables. Each
+        // is let go of before the next is released, so the last reference to an
+        // object that is in the table twice is released.
+        if let Some(entries) = self.inner.get_mut() {
+            for (mut key, mut value) in std::mem::take(entries) {
+                crate::object::release(&mut key.obj);
+                drop(key);
+                crate::object::release(&mut value);
+            }
+        }
+    }
+}
+
 impl HashTable {
     fn key(&self, obj: TulispObject) -> HashKey {
         HashKey {

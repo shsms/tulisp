@@ -90,6 +90,17 @@ pub struct SymbolBindings {
     items: Vec<TulispObject>,
 }
 
+impl Drop for SymbolBindings {
+    fn drop(&mut self) {
+        // A value may be a symbol that holds another, as in a chain of
+        // uninterned symbols. Each is let go of before the next is released, as
+        // in `HashTable`'s drop.
+        for mut item in self.items.drain(..) {
+            crate::object::release(&mut item);
+        }
+    }
+}
+
 impl SymbolBindings {
     /// Debug-only: number of values currently pushed onto this
     /// symbol's stack. Used by `TulispContext::debug_special_stacks_total`

@@ -206,4 +206,26 @@ mod tests {
         }
         drop(list);
     }
+
+    #[test]
+    fn a_chain_of_hash_tables_frees() -> Result<(), Error> {
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string(
+            "(let ((h nil))
+               (dotimes (i 100000)
+                 (let ((n (make-hash-table))) (puthash 1 h n) (puthash h 1 n) (setq h n))))",
+        )?;
+        Ok(())
+    }
+
+    #[test]
+    fn a_chain_of_uninterned_symbols_frees() -> Result<(), Error> {
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string(
+            "(let ((s nil))
+               (dotimes (i 100000)
+                 (let ((n (make-symbol \"x\"))) (set n s) (setq s n))))",
+        )?;
+        Ok(())
+    }
 }
