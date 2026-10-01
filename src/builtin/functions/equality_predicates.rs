@@ -15,7 +15,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 #[cfg(test)]
 mod tests {
     use crate::test_utils::{eval_assert, eval_assert_not};
-    use crate::{Shared, TulispContext, TulispObject};
+    use crate::{Error, Shared, TulispContext, TulispObject};
 
     #[test]
     fn test_eq() {
@@ -135,5 +135,67 @@ mod tests {
         let c: TulispObject = Shared::new(Host).into();
         assert!(a.equal(&b));
         assert!(!a.equal(&c));
+    }
+
+    /// A list nested DEPTH levels deep in its cars, around LEAF.
+    fn nested(depth: usize, leaf: i64) -> TulispObject {
+        let mut list = TulispObject::from(leaf);
+        for _ in 0..depth {
+            list = TulispObject::cons(list, TulispObject::nil());
+        }
+        list
+    }
+
+    /// The list (0 1 ... LEN-2 LAST).
+    fn long(len: i64, last: i64) -> TulispObject {
+        (0..len - 1)
+            .map(TulispObject::from)
+            .chain([last.into()])
+            .collect()
+    }
+
+    #[test]
+    fn equal_compares_lists_nested_a_million_deep() {
+        assert!(nested(1_000_000, 1).equal(&nested(1_000_000, 1)));
+        assert!(!nested(1_000_000, 1).equal(&nested(1_000_000, 2)));
+        assert!(!nested(1_000_000, 1).equal(&nested(999_999, 1)));
+    }
+
+    #[test]
+    fn equal_compares_lists_a_million_long() {
+        assert!(long(1_000_000, 7).equal(&long(1_000_000, 7)));
+        assert!(!long(1_000_000, 7).equal(&long(1_000_000, 8)));
+        assert!(!long(1_000_000, 7).equal(&long(999_999, 7)));
+    }
+
+    #[test]
+    fn equal_on_lists_whose_cars_loop_back() -> Result<(), Error> {
+        // Emacs compares a pair of lists it meets again inside their own
+        // comparison as equal.
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string(
+            "(setq d (list 1)) (setcar d d)
+             (setq e (list 1)) (setcar e e)
+             (setq f (list 1 2)) (setcar f f)",
+        )?;
+        eval_assert(ctx, "(equal d e)");
+        eval_assert_not(ctx, "(equal d f)");
+        eval_assert_not(ctx, "(equal d (list (list 1)))");
+        Ok(())
+    }
+
+    #[test]
+    fn equal_compares_a_shared_tree_once_per_pair() {
+        // Each level holds the level below twice, so a walk that did not
+        // remember the pairs it compared would take 2^60 steps.
+        let tree = |leaf: i64| {
+            let mut tree = TulispObject::from(leaf);
+            for _ in 0..60 {
+                tree = TulispObject::cons(tree.clone(), tree);
+            }
+            tree
+        };
+        assert!(tree(1).equal(&tree(1)));
+        assert!(!tree(1).equal(&tree(2)));
     }
 }

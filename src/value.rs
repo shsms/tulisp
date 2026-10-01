@@ -571,8 +571,9 @@ impl std::fmt::Debug for TulispValue {
     }
 }
 
-/// Structural equality for `equal`. Numbers match by kind and value,
-/// strings and lists by contents, host values by shared payload.
+/// Structural equality. Numbers match by kind and value, strings and
+/// lists by contents, host values by shared payload. `equal` compares
+/// atoms through it, and lists and quote forms on its own.
 /// Other opaque values compare false here; `TulispObject::equal`
 /// checks object identity first, so a value still equals itself.
 /// Symbols never reach this: `equal` sends them through `eq`. `eq`

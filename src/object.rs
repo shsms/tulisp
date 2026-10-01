@@ -88,6 +88,170 @@ impl std::fmt::Display for TulispObject {
     }
 }
 
+/// Brent's check for a loop along the cdrs of a list, as `cons::CycleCheck`
+/// does it, by address: while `equal` compares two lists, no Lisp code runs
+/// that could change or free their cells.
+#[derive(Clone, Copy)]
+struct CdrLoop {
+    /// The address of a cell the walk passed; 0 for none.
+    saved: usize,
+    /// Steps taken since `saved` last moved.
+    steps: u32,
+    /// Steps after which `saved` moves again.
+    limit: u32,
+}
+
+impl CdrLoop {
+    const fn new() -> Self {
+        CdrLoop {
+            saved: 0,
+            steps: 0,
+            limit: 8,
+        }
+    }
+
+    /// Records a step to NEXT; true if the walk has been there.
+    #[inline]
+    fn step(&mut self, next: &TulispObject) -> bool {
+        let addr = next.addr_as_usize();
+        self.steps += 1;
+        if addr == self.saved {
+            return true;
+        }
+        if self.steps == self.limit {
+            self.saved = addr;
+            self.steps = 0;
+            self.limit = self.limit.saturating_mul(2);
+        }
+        false
+    }
+}
+
+/// The forms A and B quote, when they are quote forms of one kind.
+fn quoted_pair<'a>(
+    a: &'a TulispValue,
+    b: &'a TulispValue,
+) -> Option<(&'a TulispObject, &'a TulispObject)> {
+    match (a, b) {
+        (TulispValue::Quote { value: a }, TulispValue::Quote { value: b })
+        | (TulispValue::Sharpquote { value: a }, TulispValue::Sharpquote { value: b })
+        | (TulispValue::Backquote { value: a }, TulispValue::Backquote { value: b })
+        | (TulispValue::Unquote { value: a }, TulispValue::Unquote { value: b })
+        | (TulispValue::Splice { value: a }, TulispValue::Splice { value: b }) => Some((a, b)),
+        _ => None,
+    }
+}
+
+/// How `equal` goes on with a pair of objects.
+enum EqualPair {
+    /// Decided without looking further.
+    Done(bool),
+    /// Both lists.
+    Lists,
+    /// Quote forms of one kind, of these forms.
+    Quoted(TulispObject, TulispObject),
+}
+
+impl EqualPair {
+    #[inline]
+    fn of(a: &TulispObject, b: &TulispObject) -> EqualPair {
+        if a.eq_ptr(b) {
+            return EqualPair::Done(true);
+        }
+        let (a_inner, b_inner) = (a.inner_ref(), b.inner_ref());
+        let (a_value, b_value) = (&a_inner.0, &b_inner.0);
+        if a_value.consp() && b_value.consp() {
+            return EqualPair::Lists;
+        }
+        if let Some((a, b)) = quoted_pair(a_value, b_value) {
+            return EqualPair::Quoted(a.clone(), b.clone());
+        }
+        if !a_value.symbolp() {
+            // Pairs of lists are matched above, so this compares no nested
+            // values.
+            return EqualPair::Done(a_value == b_value);
+        }
+        drop((a_inner, b_inner));
+        EqualPair::Done(a.eq(b))
+    }
+}
+
+/// The state of one `equal_walk`: the pairs left to compare, and the pairs of
+/// lists it has entered, once there have been enough of them that the lists may
+/// loop back through their cars.
+#[derive(Default)]
+struct EqualWalk {
+    pending: Vec<(TulispObject, TulispObject)>,
+    /// The error that stopped the walk, which then compares as unequal.
+    error: Option<Error>,
+    entered: usize,
+    seen: Option<std::collections::HashSet<(usize, usize)>>,
+}
+
+impl EqualWalk {
+    /// How deep `compare` recurses into the lists it compares, before it leaves
+    /// the pairs nested deeper to `pending`.
+    const MAX_DEPTH: u32 = 128;
+
+    /// Lists entered before `seen` starts to record them, as Emacs compares a
+    /// few levels before it does.
+    const UNRECORDED: usize = 64;
+
+    /// Compares A and B, DEPTH levels into the pair `equal_walk` popped, and
+    /// pushes the pairs nested deeper than `MAX_DEPTH` onto `pending`.
+    fn compare(&mut self, a: &TulispObject, b: &TulispObject, depth: u32) -> bool {
+        let pair = EqualPair::of(a, b);
+        if let EqualPair::Done(equal) = pair {
+            return equal;
+        }
+        if depth >= Self::MAX_DEPTH {
+            self.pending.push((a.clone(), b.clone()));
+            return true;
+        }
+        if let EqualPair::Quoted(a, b) = pair {
+            return self.compare(&a, &b, depth + 1);
+        }
+        self.entered += 1;
+        if self.entered > Self::UNRECORDED
+            && !self
+                .seen
+                .get_or_insert_default()
+                .insert((a.addr_as_usize(), b.addr_as_usize()))
+        {
+            return true;
+        }
+        self.compare_lists(a.clone(), b.clone(), depth)
+    }
+
+    /// Compares the lists A and B along their cdrs in a loop.
+    fn compare_lists(&mut self, mut a: TulispObject, mut b: TulispObject, depth: u32) -> bool {
+        let mut cdrs = CdrLoop::new();
+        loop {
+            let (a_cdr, b_cdr) = {
+                let (a_inner, b_inner) = (a.inner_ref(), b.inner_ref());
+                let (TulispValue::List { cons: a_cons }, TulispValue::List { cons: b_cons }) =
+                    (&a_inner.0, &b_inner.0)
+                else {
+                    drop((a_inner, b_inner));
+                    return self.compare(&a, &b, depth + 1);
+                };
+                if !self.compare(a_cons.car(), b_cons.car(), depth + 1) {
+                    return false;
+                }
+                (a_cons.cdr().clone(), b_cons.cdr().clone())
+            };
+            if a_cdr.eq_ptr(&b_cdr) {
+                return true;
+            }
+            if cdrs.step(&a_cdr) {
+                self.error = Some(Error::circular_list());
+                return false;
+            }
+            (a, b) = (a_cdr, b_cdr);
+        }
+    }
+}
+
 macro_rules! predicate_fn {
     ($visibility: vis, $name: ident $(, $doc: literal)?) => {
         $(#[doc=$doc])?
@@ -147,18 +311,32 @@ impl TulispObject {
         .into_ref(None)
     }
 
-    /// Returns true if `self` and `other` have the same structure:
-    /// numbers by kind and value, strings and lists by contents.
-    /// Lambdas, hash tables and other opaque values are `equal` only
-    /// to themselves.
+    /// Returns true if `self` and `other` have the same structure: numbers by
+    /// kind and value, strings and lists by contents. Lambdas, hash tables and
+    /// other opaque values are `equal` only to themselves. A list whose cdrs
+    /// loop back is not `equal` to another object.
     ///
     /// Read more about Emacs equality predicates
     /// [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Equality-Predicates.html).
     pub fn equal(&self, other: &TulispObject) -> bool {
-        if self.symbolp() {
-            self.eq(other)
-        } else {
-            self.eq_ptr(other) || self.eq_val(other)
+        self.equal_walk(other).unwrap_or(false)
+    }
+
+    /// `equal` by a walk that loops along the cdrs and leaves the pairs nested
+    /// deeper than `EqualWalk::MAX_DEPTH` levels on a list of its own, so it
+    /// takes no more stack however deep the lists are nested. As in Emacs, a
+    /// list whose cdrs loop back is an error once the walk along `self` comes
+    /// round to an earlier cell, unless the two differ before then, and a pair
+    /// of lists met again inside their own comparison counts as equal.
+    fn equal_walk(&self, other: &TulispObject) -> Result<bool, Error> {
+        let mut walk = EqualWalk::default();
+        let mut equal = walk.compare(self, other, 0);
+        while equal && let Some((a, b)) = walk.pending.pop() {
+            equal = walk.compare(&a, &b, 0);
+        }
+        match walk.error {
+            Some(error) => Err(error),
+            None => Ok(equal),
         }
     }
 
@@ -614,11 +792,6 @@ impl TulispObject {
     #[inline(always)]
     pub(crate) fn eq_ptr(&self, other: &TulispObject) -> bool {
         self.rc.ptr_eq(&other.rc)
-    }
-
-    #[inline(always)]
-    pub(crate) fn eq_val(&self, other: &TulispObject) -> bool {
-        self.inner_ref().0.eq(&other.inner_ref().0)
     }
 
     pub(crate) fn addr_as_usize(&self) -> usize {
