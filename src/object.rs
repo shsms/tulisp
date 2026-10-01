@@ -110,8 +110,9 @@ fn equal_within(
         return Some(true);
     }
     let (a_inner, b_inner) = (a.inner_ref(), b.inner_ref());
-    match (&a_inner.0, &b_inner.0) {
-        (TulispValue::List { cons: a_cons }, TulispValue::List { cons: b_cons }) => {
+    match EqualPair::of(&a_inner.0, &b_inner.0) {
+        EqualPair::Done(equal) => Some(equal),
+        EqualPair::Lists(a_cons, b_cons) => {
             *budget = budget.checked_sub(1)?;
             if !equal_within(a_cons.car(), b_cons.car(), budget, &mut CdrLoop::new())? {
                 return Some(false);
@@ -121,16 +122,11 @@ fn equal_within(
             }
             equal_within(a_cons.cdr(), b_cons.cdr(), budget, cdrs)
         }
-        (a_value, b_value) => {
-            if let Some((a, b)) = quoted_pair(a_value, b_value) {
-                *budget = budget.checked_sub(1)?;
-                return equal_within(a, b, budget, &mut CdrLoop::new());
-            }
-            if !a_value.symbolp() {
-                // Pairs of lists are matched above, so this compares no nested
-                // values.
-                return Some(a_value == b_value);
-            }
+        EqualPair::Quoted(a, b) => {
+            *budget = budget.checked_sub(1)?;
+            equal_within(a, b, budget, &mut CdrLoop::new())
+        }
+        EqualPair::Symbol => {
             drop((a_inner, b_inner));
             Some(a.eq(b))
         }
@@ -152,37 +148,37 @@ fn quoted_pair<'a>(
     }
 }
 
-/// How `equal` goes on with a pair of objects.
-enum EqualPair {
+/// How `equal` goes on with a pair of values.
+enum EqualPair<'a> {
     /// Decided without looking further.
     Done(bool),
-    /// Both lists.
-    Lists,
+    /// Both lists, of these cells.
+    Lists(&'a Cons, &'a Cons),
     /// Quote forms of one kind, of these forms.
-    Quoted(TulispObject, TulispObject),
+    Quoted(&'a TulispObject, &'a TulispObject),
+    /// The first is a symbol other than `nil` and `t`, which `equal`
+    /// compares by `eq`.
+    Symbol,
 }
 
-impl EqualPair {
+impl<'a> EqualPair<'a> {
     #[inline]
-    fn of(a: &TulispObject, b: &TulispObject) -> EqualPair {
-        if a.eq_ptr(b) {
-            return EqualPair::Done(true);
+    fn of(a: &'a TulispValue, b: &'a TulispValue) -> Self {
+        if let (TulispValue::List { cons: a }, TulispValue::List { cons: b }) = (a, b) {
+            return EqualPair::Lists(a, b);
         }
-        let (a_inner, b_inner) = (a.inner_ref(), b.inner_ref());
-        let (a_value, b_value) = (&a_inner.0, &b_inner.0);
-        if a_value.consp() && b_value.consp() {
-            return EqualPair::Lists;
+        if let Some((a, b)) = quoted_pair(a, b) {
+            return EqualPair::Quoted(a, b);
         }
-        if let Some((a, b)) = quoted_pair(a_value, b_value) {
-            return EqualPair::Quoted(a.clone(), b.clone());
+        if matches!(
+            a,
+            TulispValue::Symbol { .. } | TulispValue::LexicalBinding { .. }
+        ) {
+            return EqualPair::Symbol;
         }
-        if !a_value.symbolp() {
-            // Pairs of lists are matched above, so this compares no nested
-            // values.
-            return EqualPair::Done(a_value == b_value);
-        }
-        drop((a_inner, b_inner));
-        EqualPair::Done(a.eq(b))
+        // Pairs of lists are matched above, so this compares no nested
+        // values.
+        EqualPair::Done(a == b)
     }
 }
 
@@ -210,15 +206,26 @@ impl EqualWalk {
     /// Compares A and B, DEPTH levels into the pair `equal_walk` popped, and
     /// pushes the pairs nested deeper than `MAX_DEPTH` onto `pending`.
     fn compare(&mut self, a: &TulispObject, b: &TulispObject, depth: u32) -> bool {
-        let pair = EqualPair::of(a, b);
-        if let EqualPair::Done(equal) = pair {
-            return equal;
+        if a.eq_ptr(b) {
+            return true;
         }
+        let quoted = {
+            let (a_inner, b_inner) = (a.inner_ref(), b.inner_ref());
+            match EqualPair::of(&a_inner.0, &b_inner.0) {
+                EqualPair::Done(equal) => return equal,
+                EqualPair::Lists(..) => None,
+                EqualPair::Quoted(a, b) => Some((a.clone(), b.clone())),
+                EqualPair::Symbol => {
+                    drop((a_inner, b_inner));
+                    return a.eq(b);
+                }
+            }
+        };
         if depth >= Self::MAX_DEPTH {
             self.pending.push((a.clone(), b.clone()));
             return true;
         }
-        if let EqualPair::Quoted(a, b) = pair {
+        if let Some((a, b)) = quoted {
             return self.compare(&a, &b, depth + 1);
         }
         self.entered += 1;
