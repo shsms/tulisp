@@ -1,9 +1,10 @@
 use crate::{TulispContext, TulispObject};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    ctx.defun("equal", |a: TulispObject, b: TulispObject| -> bool {
-        a.equal(&b)
-    });
+    ctx.defun(
+        "equal",
+        |a: TulispObject, b: TulispObject| -> Result<bool, crate::Error> { a.try_equal(&b) },
+    );
     ctx.defun("eq", |a: TulispObject, b: TulispObject| -> bool {
         a.eq(&b)
     });
@@ -14,7 +15,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_utils::{eval_assert, eval_assert_not};
+    use crate::test_utils::{eval_assert, eval_assert_error_line, eval_assert_not};
     use crate::{Error, Shared, TulispContext, TulispObject};
 
     #[test]
@@ -166,6 +167,35 @@ mod tests {
         assert!(long(1_000_000, 7).equal(&long(1_000_000, 7)));
         assert!(!long(1_000_000, 7).equal(&long(1_000_000, 8)));
         assert!(!long(1_000_000, 7).equal(&long(999_999, 7)));
+    }
+
+    #[test]
+    fn equal_on_lists_whose_cdrs_loop_back() -> Result<(), Error> {
+        // Emacs raises circular-list once the walk of the first list loops
+        // back, unless they differ before it does.
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string(
+            "(setq a (list 1 2)) (setcdr (cdr a) a)
+             (setq b (list 1 2)) (setcdr (cdr b) b)",
+        )?;
+        eval_assert(ctx, "(equal a a)");
+        eval_assert_not(ctx, "(equal a (list 1 2 3))");
+        eval_assert_not(ctx, "(equal a (list 1 2 1 3))");
+        for program in [
+            "(equal a b)",
+            "(funcall #'equal a b)",
+            "(if (equal a b) 1 2)",
+            "(if (not (equal a b)) 1 2)",
+            "(member b (list a))",
+            "(assoc b (list (cons a 1)))",
+        ] {
+            eval_assert_error_line(ctx, program, "ERR OutOfRange: Circular list");
+        }
+        // From Rust, a list that loops back is not equal to another.
+        let a = ctx.intern("a").get()?;
+        let b = ctx.intern("b").get()?;
+        assert!(!a.equal(&b));
+        Ok(())
     }
 
     #[test]

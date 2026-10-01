@@ -39,7 +39,7 @@ pub fn assoc(
         };
         assoc_find(key, alist, testfn)
     } else {
-        let testfn = |_1: &TulispObject, _2: &TulispObject| Ok(_1.equal(_2));
+        let testfn = |_1: &TulispObject, _2: &TulispObject| _1.try_equal(_2);
         assoc_find(key, alist, testfn)
     }
 }

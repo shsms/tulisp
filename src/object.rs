@@ -314,12 +314,19 @@ impl TulispObject {
     /// Returns true if `self` and `other` have the same structure: numbers by
     /// kind and value, strings and lists by contents. Lambdas, hash tables and
     /// other opaque values are `equal` only to themselves. A list whose cdrs
-    /// loop back is not `equal` to another object.
+    /// loop back is not `equal` to another object, where Lisp's `equal` raises
+    /// an error.
     ///
     /// Read more about Emacs equality predicates
     /// [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Equality-Predicates.html).
     pub fn equal(&self, other: &TulispObject) -> bool {
-        self.equal_walk(other).unwrap_or(false)
+        self.try_equal(other).unwrap_or(false)
+    }
+
+    /// `equal` as Lisp code sees it: a list whose cdrs loop back is an error,
+    /// as `equal_walk` describes.
+    pub(crate) fn try_equal(&self, other: &TulispObject) -> Result<bool, Error> {
+        self.equal_walk(other)
     }
 
     /// `equal` by a walk that loops along the cdrs and leaves the pairs nested

@@ -508,9 +508,9 @@ fn run_impl_inner(
             }
             Instruction::JumpIfNeq(pos) => jump_if_binary!(ctx, pc, pos, |a, b| Ok(!a.eq(b))),
             Instruction::JumpIfEq(pos) => jump_if_binary!(ctx, pc, pos, |a, b| Ok(a.eq(b))),
-            Instruction::JumpIfEqual(pos) => jump_if_binary!(ctx, pc, pos, |a, b| Ok(a.equal(b))),
+            Instruction::JumpIfEqual(pos) => jump_if_binary!(ctx, pc, pos, |a, b| a.try_equal(b)),
             Instruction::JumpIfNotEqual(pos) => {
-                jump_if_binary!(ctx, pc, pos, |a, b| Ok(!a.equal(b)))
+                jump_if_binary!(ctx, pc, pos, |a, b| a.try_equal(b).map(|equal| !equal))
             }
             Instruction::JumpIfLt(pos) => {
                 jump_if_binary!(ctx, pc, pos, |a, b| compare_op(a, b, |a, b| a < b))
@@ -559,7 +559,7 @@ fn run_impl_inner(
                 jump_to_pos!(ctx, pc, pos);
                 continue;
             }
-            Instruction::Equal => compare_binary!(ctx, |a, b| Ok(a.equal(b))),
+            Instruction::Equal => compare_binary!(ctx, |a, b| a.try_equal(b)),
             Instruction::Eq => compare_binary!(ctx, |a, b| Ok(a.eq(b))),
             Instruction::Lt => compare_binary!(ctx, |a, b| compare_op(a, b, |a, b| a < b)),
             Instruction::LtEq => compare_binary!(ctx, |a, b| compare_op(a, b, |a, b| a <= b)),

@@ -134,12 +134,12 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     fn member_with(
         list: TulispObject,
         elt: &TulispObject,
-        eq: impl Fn(&TulispObject, &TulispObject) -> bool,
+        eq: impl Fn(&TulispObject, &TulispObject) -> Result<bool, Error>,
     ) -> Result<TulispObject, Error> {
         let mut cur = list;
         let mut cycle = CycleCheck::new();
         while cur.consp() {
-            if cur.car_and_then(|car| Ok(eq(car, elt)))? {
+            if cur.car_and_then(|car| eq(car, elt))? {
                 return Ok(cur);
             }
             cur = cur.cdr()?;
@@ -154,15 +154,15 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     }
 
     ctx.defun("memq", |elt: TulispObject, list: TulispObject| {
-        member_with(list, &elt, |a, b| a.eq(b))
+        member_with(list, &elt, |a, b| Ok(a.eq(b)))
     });
 
     ctx.defun("memql", |elt: TulispObject, list: TulispObject| {
-        member_with(list, &elt, |a, b| a.eql(b))
+        member_with(list, &elt, |a, b| Ok(a.eql(b)))
     });
 
     ctx.defun("member", |elt: TulispObject, list: TulispObject| {
-        member_with(list, &elt, |a, b| a.equal(b))
+        member_with(list, &elt, |a, b| a.try_equal(b))
     });
 }
 
