@@ -167,13 +167,36 @@ mod tests {
                 list = TulispObject::cons(list, TulispObject::nil());
             }
             KEPT.with(|kept| *kept.borrow_mut() = Some(list));
-            drop(TulispObject::cons(
-                TulispObject::cons(1.into(), TulispObject::nil()),
-                TulispObject::nil(),
-            ));
+            // Deep enough that its drop uses the queue.
+            let mut list = TulispObject::nil();
+            for _ in 0..1000 {
+                list = TulispObject::cons(list, TulispObject::nil());
+            }
+            drop(list);
         })
         .join()
         .expect("the thread ends");
+    }
+
+    #[test]
+    fn a_list_whose_car_is_further_down_its_cdrs_frees() {
+        // Each list is (x x), its car held again by the cell after it.
+        let mut list = TulispObject::nil();
+        for _ in 0..DEPTH {
+            let tail = TulispObject::cons(list.clone(), TulispObject::nil());
+            list = TulispObject::cons(list, tail);
+        }
+        drop(list);
+        // Each cell's car is the cell two further down its cdrs.
+        let mut cells = vec![TulispObject::nil(), TulispObject::nil()];
+        for i in 0..DEPTH {
+            let car = cells[i].clone();
+            let cdr = cells[i + 1].clone();
+            cells.push(TulispObject::cons(car, cdr));
+        }
+        let list = cells.pop();
+        drop(cells);
+        drop(list);
     }
 
     #[test]
@@ -183,6 +206,17 @@ mod tests {
             "(let ((f nil))
                (dotimes (i 100000)
                  (let ((g f)) (setq f (lambda () g)))))",
+        )?;
+        Ok(())
+    }
+
+    #[test]
+    fn lists_of_closures_that_captured_their_cdrs_free() -> Result<(), Error> {
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string(
+            "(let ((f nil))
+               (dotimes (i 100000)
+                 (let ((g f)) (setq f (cons (lambda () g) g)))))",
         )?;
         Ok(())
     }

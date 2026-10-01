@@ -85,6 +85,8 @@ impl Drop for Cons {
         crate::object::release(&mut self.car);
         if self.cdr.strong_count() == 1 && self.cdr.consp() {
             drop_cdrs(self.cdr.take());
+            // The cdrs may have held the car too.
+            crate::object::release(&mut self.car);
         }
     }
 }
@@ -96,7 +98,11 @@ fn drop_cdrs(mut cdr: TulispValue) {
     while let TulispValue::List { cons, .. } = &mut cdr {
         cons.let_go_of_shared_car();
         if cons.cdr.strong_count() > 1 {
-            break;
+            // The car may hold the cdr, as a closure can.
+            crate::object::release(&mut cons.car);
+            if cons.cdr.strong_count() > 1 {
+                break;
+            }
         }
         let next = cons.cdr.take();
         cdr = next;
