@@ -454,6 +454,26 @@ mod tests {
     };
     use crate::{Error, TulispContext};
 
+    #[test]
+    fn format_fills_in_and_pads_its_specs() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            r#"(format "Hello, %s! %%%d %f %s %d" "world" 22.8 22.8 10 10)"#,
+            r#""Hello, world! %22 22.8 10 10""#,
+        );
+        // Width: right-aligned by default, left-aligned with `-`.
+        eval_assert_equal(ctx, r#"(format "[%10s]" "hi")"#, r#""[        hi]""#);
+        eval_assert_equal(ctx, r#"(format "[%-10s]" "hi")"#, r#""[hi        ]""#);
+        // Zero-pad for numerics.
+        eval_assert_equal(ctx, r#"(format "%05d" 42)"#, r#""00042""#);
+        // Shorter than width stays as-is (no truncation).
+        eval_assert_equal(ctx, r#"(format "[%3s]" "hello")"#, r#""[hello]""#);
+        // Width applies to %d too.
+        eval_assert_equal(ctx, r#"(format "[%5d]" 7)"#, r#""[    7]""#);
+        eval_assert_equal(ctx, r#"(format "[%-5d]" 7)"#, r#""[7    ]""#);
+    }
+
     // A format string `format` cannot use is an `error`, as in Emacs.
     #[test]
     fn a_bad_format_string_is_an_error() {
