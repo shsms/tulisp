@@ -215,6 +215,19 @@ mod tests {
     }
 
     #[test]
+    fn equal_finds_a_loop_however_long_the_other_list() -> Result<(), Error> {
+        // Whether `equal` notices that A loops back does not depend on how far
+        // it could get along B.
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string("(setq a (list 1)) (setcdr a a)")?;
+        for n in [20, 100, 199, 250, 1000] {
+            let program = format!("(let ((b (list 2))) (dotimes (i {n}) (push 1 b)) (equal a b))");
+            eval_assert_error_line(ctx, &program, "ERR OutOfRange: Circular list");
+        }
+        Ok(())
+    }
+
+    #[test]
     fn equal_compares_a_shared_tree_once_per_pair() {
         // Each level holds the level below twice, so a walk that did not
         // remember the pairs it compared would take 2^60 steps.

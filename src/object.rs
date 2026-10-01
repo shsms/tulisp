@@ -127,6 +127,52 @@ impl CdrLoop {
     }
 }
 
+/// How many lists and quote forms `equal_within` enters before it gives up for
+/// `EqualWalk`, which bounds both how deep it recurses and how long it takes,
+/// as on a tree that holds one subtree many times.
+const EQUAL_BUDGET: u32 = 1000;
+
+/// `equal` on A and B by plain recursion, which is the quickest way for the
+/// small values most comparisons see. `None` when the values hold more than
+/// BUDGET lists and quote forms, or the cdrs of A, walked with CDRS, loop back:
+/// `EqualWalk` then compares them.
+fn equal_within(
+    a: &TulispObject,
+    b: &TulispObject,
+    budget: &mut u32,
+    cdrs: &mut CdrLoop,
+) -> Option<bool> {
+    if a.eq_ptr(b) {
+        return Some(true);
+    }
+    let (a_inner, b_inner) = (a.inner_ref(), b.inner_ref());
+    match (&a_inner.0, &b_inner.0) {
+        (TulispValue::List { cons: a_cons }, TulispValue::List { cons: b_cons }) => {
+            *budget = budget.checked_sub(1)?;
+            if !equal_within(a_cons.car(), b_cons.car(), budget, &mut CdrLoop::new())? {
+                return Some(false);
+            }
+            if cdrs.step(a_cons.cdr()) {
+                return None;
+            }
+            equal_within(a_cons.cdr(), b_cons.cdr(), budget, cdrs)
+        }
+        (a_value, b_value) => {
+            if let Some((a, b)) = quoted_pair(a_value, b_value) {
+                *budget = budget.checked_sub(1)?;
+                return equal_within(a, b, budget, &mut CdrLoop::new());
+            }
+            if !a_value.symbolp() {
+                // Pairs of lists are matched above, so this compares no nested
+                // values.
+                return Some(a_value == b_value);
+            }
+            drop((a_inner, b_inner));
+            Some(a.eq(b))
+        }
+    }
+}
+
 /// The forms A and B quote, when they are quote forms of one kind.
 fn quoted_pair<'a>(
     a: &'a TulispValue,
@@ -324,9 +370,15 @@ impl TulispObject {
     }
 
     /// `equal` as Lisp code sees it: a list whose cdrs loop back is an error,
-    /// as `equal_walk` describes.
+    /// as `equal_walk` describes. Values that hold up to `EQUAL_BUDGET` lists
+    /// and quote forms, and whose cdrs do not loop back, compare by plain
+    /// recursion; the rest go to `equal_walk`.
     pub(crate) fn try_equal(&self, other: &TulispObject) -> Result<bool, Error> {
-        self.equal_walk(other)
+        let mut budget = EQUAL_BUDGET;
+        match equal_within(self, other, &mut budget, &mut CdrLoop::new()) {
+            Some(equal) => Ok(equal),
+            None => self.equal_walk(other),
+        }
     }
 
     /// `equal` by a walk that loops along the cdrs and leaves the pairs nested
@@ -335,6 +387,7 @@ impl TulispObject {
     /// list whose cdrs loop back is an error once the walk along `self` comes
     /// round to an earlier cell, unless the two differ before then, and a pair
     /// of lists met again inside their own comparison counts as equal.
+    #[inline(never)]
     fn equal_walk(&self, other: &TulispObject) -> Result<bool, Error> {
         let mut walk = EqualWalk::default();
         let mut equal = walk.compare(self, other, 0);
