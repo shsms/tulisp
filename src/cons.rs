@@ -93,12 +93,13 @@ impl Drop for Cons {
 /// held, in a loop down its cdrs.
 #[inline(never)]
 fn drop_cdrs(mut cdr: TulispValue) {
-    while let TulispValue::List { mut cons, .. } = cdr {
+    while let TulispValue::List { cons, .. } = &mut cdr {
         cons.let_go_of_shared_car();
         if cons.cdr.strong_count() > 1 {
             break;
         }
-        cdr = cons.cdr.take();
+        let next = cons.cdr.take();
+        cdr = next;
     }
 }
 

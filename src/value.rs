@@ -543,6 +543,21 @@ pub enum TulispValue {
     Bounce,
 }
 
+impl Drop for TulispValue {
+    fn drop(&mut self) {
+        // The form a quote form quotes may be another quote form, as in a
+        // chain of them.
+        match self {
+            TulispValue::Quote { value }
+            | TulispValue::Sharpquote { value }
+            | TulispValue::Backquote { value }
+            | TulispValue::Unquote { value }
+            | TulispValue::Splice { value } => crate::object::release(value),
+            _ => {}
+        }
+    }
+}
+
 impl std::fmt::Debug for TulispValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
