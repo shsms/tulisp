@@ -1130,7 +1130,7 @@ fn make_lambda_from_template(
     let params = DefunParams {
         required: template.params.required.iter().map(&rewrite_obj).collect(),
         optional: template.params.optional.iter().map(&rewrite_obj).collect(),
-        rest: template.params.rest.as_ref().map(&rewrite_obj),
+        rest: template.params.rest.as_ref().map(rewrite_obj),
     };
 
     let cd = CompiledDefun {
