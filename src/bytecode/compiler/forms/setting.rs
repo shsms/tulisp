@@ -148,22 +148,16 @@ fn compile_let_star(
         }
     }
     varitems.take_error()?;
-    // Track the special bindings on the compiler: a tail call inside
-    // the body would skip the trailing `EndScope`s, so while any is in
-    // force, a tail call compiles as an ordinary call. A lexical
-    // variable's slot needs no such care: the frame goes with the call.
-    let scope_depth = ctx.compiler.as_ref().unwrap().active_let_scopes.len();
-    ctx.compiler
-        .as_mut()
-        .unwrap()
-        .active_let_scopes
-        .extend(params.iter().cloned());
+    // The special variables are counted while the body compiles. A
+    // lexical variable's slot needs no such care: the frame goes with
+    // the call.
+    let compiler = ctx.compiler.as_mut().unwrap();
+    compiler.count_special_lets(params.len(), true);
     let body_result = compile_progn(ctx, body);
     ctx.compiler
         .as_mut()
         .unwrap()
-        .active_let_scopes
-        .truncate(scope_depth);
+        .count_special_lets(params.len(), false);
     let mut body = body_result?;
     // The initialisers in `result` may have side effects, so they are
     // kept even when the body compiles to nothing (a body of `t`, or a

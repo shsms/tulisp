@@ -104,15 +104,7 @@ pub(super) fn compile_fn_lambda(
             }
         }
 
-        // The body is its own function frame at runtime, so escapes
-        // inside it unwind to *this* lambda — they shouldn't see let
-        // scopes from whatever surrounding code is being compiled.
-        // Stash and clear `active_let_scopes` for the body compile,
-        // then restore it.
-        let prev_scopes = std::mem::take(&mut ctx.compiler.as_mut().unwrap().active_let_scopes);
-        let compiled = compile_function_body(ctx, &param_names, &body);
-        ctx.compiler.as_mut().unwrap().active_let_scopes = prev_scopes;
-        let (instructions, scope) = compiled?;
+        let (instructions, scope) = compile_function_body(ctx, &param_names, &body)?;
 
         // Assemble the body so the lambda's runtime path pays
         // nothing for trace markers or labels.

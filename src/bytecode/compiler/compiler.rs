@@ -35,16 +35,6 @@ pub(crate) struct Compiler {
     pub bytecode: Bytecode,
     pub keep_result: bool,
     pub current_defun: Option<TulispObject>,
-    /// The special variables the enclosing `let` / `let*` forms bind, in
-    /// source order. A self call's `Jump(Pos::Abs(0))` and a `TailCall`
-    /// skip the `EndScope`s that `compile_fn_let_star` puts after the
-    /// body, so they first emit an `EndScope` for each binding here,
-    /// innermost first. While this list is not empty, a tail call that
-    /// `mark_tail_calls` marked compiles as an ordinary call. A lexical
-    /// variable's slot needs neither: the frame goes with the call. The
-    /// list starts empty in each call to `compile`, in each function or
-    /// lambda body, and in each block that `compile_block` compiles.
-    pub active_let_scopes: Vec<TulispObject>,
     /// The names, by address, that the compile in progress defined or
     /// redefined in `bytecode.functions`.
     pub added_functions: Vec<usize>,
@@ -65,7 +55,6 @@ impl Compiler {
             bytecode: Bytecode::default(),
             keep_result: true,
             current_defun: None,
-            active_let_scopes: Vec::new(),
             added_functions: Vec::new(),
             functions: Vec::new(),
             unbound_calls: 0,
@@ -88,7 +77,6 @@ impl Compiler {
         CompileState {
             keep_result: std::mem::replace(&mut self.keep_result, keep_result),
             current_defun: self.current_defun.take(),
-            active_let_scopes: std::mem::take(&mut self.active_let_scopes),
             added_functions: std::mem::take(&mut self.added_functions),
             functions: std::mem::take(&mut self.functions),
         }
@@ -97,7 +85,6 @@ impl Compiler {
     fn restore_state(&mut self, state: CompileState) {
         self.keep_result = state.keep_result;
         self.current_defun = state.current_defun;
-        self.active_let_scopes = state.active_let_scopes;
         self.added_functions = state.added_functions;
         self.functions = state.functions;
     }
@@ -107,7 +94,6 @@ impl Compiler {
 struct CompileState {
     keep_result: bool,
     current_defun: Option<TulispObject>,
-    active_let_scopes: Vec<TulispObject>,
     added_functions: Vec<usize>,
     functions: Vec<FunctionScope>,
 }
@@ -364,8 +350,7 @@ pub(crate) enum BlockBinding {
 
 /// Compiles FORMS as a block whose value is kept. With BINDING, the
 /// block first binds it to the value its runner pushes, and unbinds it
-/// at the end. Forms in a block are never in tail position, so the
-/// enclosing `let` scopes are hidden while it compiles.
+/// at the end.
 pub(crate) fn compile_block(
     ctx: &mut TulispContext,
     forms: &TulispObject,
@@ -385,10 +370,8 @@ pub(crate) fn compile_block(
         }
         None => {}
     }
-    let scopes = std::mem::take(&mut compiler.active_let_scopes);
     let compiled = compile_progn_keep_result(ctx, forms);
     let compiler = ctx.compiler.as_mut().unwrap();
-    compiler.active_let_scopes = scopes;
     // The variable leaves the scope, and its slot is free again, on
     // every path out.
     let closed = match slot {

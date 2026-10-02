@@ -36,6 +36,11 @@ pub(crate) struct FunctionScope {
     /// The label after the function's prologue, where a self tail call
     /// jumps once it has rebound the parameters.
     pub(crate) body_start: Option<TulispObject>,
+    /// How many special variables the `let`s around the code being
+    /// compiled bind. A tail call would leave them bound, as it skips
+    /// the `EndScope`s after a `let`'s body, so while any is, a tail
+    /// call compiles as an ordinary call.
+    pub(crate) special_lets: usize,
 }
 
 impl crate::bytecode::Compiler {
@@ -74,6 +79,26 @@ impl crate::bytecode::Compiler {
         };
         let len = function.vars.len().saturating_sub(n);
         function.vars.split_off(len)
+    }
+
+    /// Adds N special `let` bindings to the count of the function being
+    /// compiled, or with IN_FORCE false takes them away.
+    pub(crate) fn count_special_lets(&mut self, n: usize, in_force: bool) {
+        if let Some(function) = self.functions.last_mut() {
+            function.special_lets = if in_force {
+                function.special_lets + n
+            } else {
+                function.special_lets.saturating_sub(n)
+            };
+        }
+    }
+
+    /// Whether a special `let` binding is in force in the code being
+    /// compiled.
+    pub(crate) fn in_special_let(&self) -> bool {
+        self.functions
+            .last()
+            .is_some_and(|function| function.special_lets > 0)
     }
 
     /// The slot the next variable of the function being compiled takes.

@@ -113,7 +113,7 @@ pub(super) fn compile_fn_defun_bounce_call(
     // A tail call leaves the function's `let` scopes before it runs. A
     // special variable one of them binds must still be bound for the
     // callee, so such a call is an ordinary call.
-    if !compiler.active_let_scopes.is_empty() {
+    if compiler.in_special_let() {
         return compile_fn_defun_call(ctx, name, &call_args);
     }
     // A name evicted while its own body compiles has no arity entry,
@@ -151,12 +151,6 @@ pub(super) fn compile_fn_defun_bounce_call(
                 ))
             })?;
         }
-        // Tail-call escape: `TailCall` returns from `run_impl`
-        // directly, skipping the `EndScope`s the enclosing
-        // `let` / `let*` would otherwise emit after this instruction.
-        // Drain those scopes here so their bindings don't get stuck on
-        // the symbols' stacks for the rest of the program. LIFO order.
-        push_active_scope_endscopes(ctx, &mut result);
         result.push(Instruction::TailCall {
             name: name.clone(),
             // The marked call, at the span of the source call (see
@@ -214,11 +208,6 @@ pub(super) fn compile_fn_defun_bounce_call(
     for ii in (0..required).rev() {
         result.push(Instruction::BindLocal(slot(ii)?));
     }
-    // Self-recursion escape: the jump back to the start of the body
-    // skips the trailing `EndScope`s of any enclosing `let` / `let*`.
-    // Drain them here in LIFO order so the bindings don't accumulate on
-    // the symbols' stacks across recursion depths.
-    push_active_scope_endscopes(ctx, &mut result);
     let body_start = ctx
         .compiler
         .as_ref()
@@ -229,17 +218,6 @@ pub(super) fn compile_fn_defun_bounce_call(
         .ok_or_else(|| Error::lisp_error("internal: a self call outside a function body"))?;
     result.push(Instruction::Jump(Pos::Label(body_start)));
     Ok(result)
-}
-
-/// Emit `EndScope` instructions for every special variable an
-/// enclosing `let` / `let*` binds, newest first. Called at
-/// function-escaping sites so those bindings don't leak past the
-/// escape.
-fn push_active_scope_endscopes(ctx: &TulispContext, out: &mut Vec<Instruction>) {
-    let compiler = ctx.compiler.as_ref().unwrap();
-    for binding in compiler.active_let_scopes.iter().rev() {
-        out.push(Instruction::EndScope(binding.clone()));
-    }
 }
 
 pub(super) fn compile_fn_defun_call(
@@ -444,12 +422,6 @@ fn compile_defun(
             .defun_args
             .insert(defun_name.addr_as_usize(), defun_params.clone());
         let prev_defun = compiler.current_defun.replace(defun_name.clone());
-        // The body starts a fresh function frame — escapes inside it
-        // unwind to *this* defun, not whatever surrounding scope was
-        // being compiled. Stash and clear `active_let_scopes` so the
-        // body's tail-call sites only see the let scopes they're
-        // actually nested in.
-        let prev_scopes = std::mem::take(&mut compiler.active_let_scopes);
 
         let body = if body.car()?.stringp() {
             body.cdr()?
@@ -463,7 +435,6 @@ fn compile_defun(
 
         let compiler = ctx.compiler.as_mut().unwrap();
         compiler.current_defun = prev_defun;
-        compiler.active_let_scopes = prev_scopes;
         let (result, scope) = compiled?;
         captures = scope.captures;
         slot_count = scope.slot_count;
@@ -1271,8 +1242,8 @@ mod tests {
     fn test_self_tail_recursion_arity_checked_at_compile_time() -> Result<(), Error> {
         // `mark_tail_calls` rewrites self-recursive tail calls into
         // `(Bounce f args …)`, which `compile_fn_defun_bounce_call`
-        // compiles into the in-place arg-rebind + `Jump(Pos::Abs(0))`
-        // shape (no `Instruction::Call`). That path arity-checks against
+        // compiles into the in-place arg-rebind and a jump to the start
+        // of the body (no `Instruction::Call`). That path arity-checks against
         // `compiler.defun_args[name]` at compile time and reports the
         // mismatch instead of silently wrapping a usize subtraction.
 
@@ -1764,11 +1735,8 @@ mod tests {
 
     #[test]
     fn test_missing_optional_does_not_leak_bindings() -> Result<(), Error> {
-        // Regression: `init_defun_args` used to set_scope(nil) for a
-        // missing `&optional` param then `continue` without pushing onto
-        // `set_params`, so `SetParams::drop` never unset the binding.
-        // Each call leaked one binding per missing optional. Arguments
-        // now go into the frame's slots.
+        // A call that leaves `&optional` arguments out leaves no binding
+        // behind, call after call.
         let cases: &[(&str, &str, &str)] = &[
             (
                 "one_missing_optional",
