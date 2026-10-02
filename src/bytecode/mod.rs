@@ -16,7 +16,7 @@ mod frame;
 pub(crate) use frame::{Captures, FrameState, Slot};
 
 mod interpreter;
-pub(crate) use interpreter::{Machine, call_function, run, run_block};
+pub(crate) use interpreter::{Machine, call_function, run, run_block_in_frame};
 
 mod compiler;
 pub(crate) use compiler::{Compiler, VMCompilers, compile};

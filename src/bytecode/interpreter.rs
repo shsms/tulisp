@@ -122,6 +122,8 @@ pub struct Machine {
     pub(crate) base: usize,
     /// The cells of the closure the running call runs.
     pub(crate) captures: Captures,
+    /// Tells this machine from any other, for `Form`.
+    pub(crate) id: u64,
 }
 
 /// Pops two operands and gives whether `$cmp` holds for them. `$b` is
@@ -191,6 +193,7 @@ impl Machine {
             locals: Vec::new(),
             base: 0,
             captures: Captures::default(),
+            id: next_machine_id(),
         }
     }
 
@@ -229,6 +232,11 @@ impl Machine {
             self.generation += 1;
         }
     }
+}
+
+fn next_machine_id() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
 /// Leaves a frame on drop, on any path out, a panic included.
@@ -353,6 +361,37 @@ pub(crate) fn run_block(
     arg: Option<TulispObject>,
 ) -> Result<TulispObject, Error> {
     run_block_impl(ctx, block, arg, false)
+}
+
+/// Runs BLOCK in FRAME, the frame of the code that holds it, and then
+/// goes back to the running frame. Frames above FRAME's `base` may be
+/// live, so `locals` is left as it is.
+pub(crate) fn run_block_in_frame(
+    ctx: &mut TulispContext,
+    block: &Block,
+    frame: &FrameState,
+) -> Result<TulispObject, Error> {
+    struct Restore<'a> {
+        ctx: &'a mut TulispContext,
+        saved: Option<FrameState>,
+    }
+    impl Drop for Restore<'_> {
+        fn drop(&mut self) {
+            if let Some(saved) = self.saved.take() {
+                self.ctx.vm.base = saved.base;
+                self.ctx.vm.captures = saved.captures;
+            }
+        }
+    }
+    let saved = FrameState {
+        base: std::mem::replace(&mut ctx.vm.base, frame.base),
+        captures: std::mem::replace(&mut ctx.vm.captures, frame.captures.clone()),
+    };
+    let restore = Restore {
+        ctx,
+        saved: Some(saved),
+    };
+    run_block(restore.ctx, block, None)
 }
 
 /// Like `run_block`, for a cleanup or handler: it, and the calls it
@@ -901,7 +940,13 @@ fn run_impl_inner(
             } => {
                 let split_at = ctx.vm.stack.len() - *eager_count;
                 let values: Vec<TulispObject> = ctx.vm.stack.drain(split_at..).collect();
-                let call_forms = crate::context::special::CallForms::new();
+                let call_forms = crate::context::special::CallForms::new(
+                    ctx.vm.id,
+                    FrameState {
+                        base: ctx.vm.base,
+                        captures: ctx.vm.captures.clone(),
+                    },
+                );
                 let forms = blocks
                     .iter()
                     .map(|arg| call_forms.form(arg.block.clone(), arg.source.clone()))

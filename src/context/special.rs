@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::bytecode::Block;
+use crate::bytecode::{Block, FrameState};
 use crate::object::wrappers::generic::{Shared, SyncSend};
 use crate::{
     Error, Param, ParamKind, PositionalParam, Rest, Return, TulispContext, TulispConvertible,
@@ -11,8 +11,9 @@ use crate::{
 /// [`defspecial`](TulispContext::defspecial).
 ///
 /// A `Form` reads the lexical variables of the code around the call,
-/// so it is valid only while the call runs. Evaluating it after the
-/// special form returned is an error.
+/// so it is valid only while the call runs, and only with the context
+/// that made it. Evaluating it after the special form returned, or with
+/// another context, is an error.
 ///
 /// Only a special form takes a `Form`; a function cannot:
 ///
@@ -25,6 +26,9 @@ pub struct Form {
     source: TulispObject,
     block: Block,
     live: Shared<AtomicBool>,
+    /// The machine of the call, and its frame.
+    machine: u64,
+    frame: FrameState,
 }
 
 impl Form {
@@ -37,7 +41,13 @@ impl Form {
                     .with_trace(self.source.clone()),
             );
         }
-        crate::bytecode::run_block(ctx, &self.block, None)
+        if ctx.vm.id != self.machine {
+            return Err(
+                Error::lisp_error("a form ran in a context other than its own")
+                    .with_trace(self.source.clone()),
+            );
+        }
+        crate::bytecode::run_block_in_frame(ctx, &self.block, &self.frame)
     }
 
     /// Evaluates the form and converts the value, as a
@@ -59,12 +69,17 @@ impl Form {
 /// returns or unwinds, makes them invalid.
 pub(crate) struct CallForms {
     live: Shared<AtomicBool>,
+    machine: u64,
+    frame: FrameState,
 }
 
 impl CallForms {
-    pub(crate) fn new() -> Self {
+    /// The forms of a call that MACHINE runs in FRAME.
+    pub(crate) fn new(machine: u64, frame: FrameState) -> Self {
         CallForms {
             live: Shared::new(AtomicBool::new(true)),
+            machine,
+            frame,
         }
     }
 
@@ -73,6 +88,8 @@ impl CallForms {
             source,
             block,
             live: self.live.clone(),
+            machine: self.machine,
+            frame: self.frame.clone(),
         }
     }
 }
@@ -534,5 +551,54 @@ mod tests {
         let program = "(defvar k 0) (setq k 0) (list (add-twice (+ 1 2) (setq k (+ k 1))) k)";
         let got = ctx.eval_string(program).unwrap();
         assert_eq!(got.to_string(), "(5 2)");
+    }
+
+    // A form belongs to the context that made it; another context has
+    // none of its caller's variables.
+    #[test]
+    fn a_form_run_with_another_context_is_an_error() {
+        let ctx = &mut with_forms();
+        let result: Arc<Mutex<Option<String>>> = Arc::default();
+        let seen = result.clone();
+        ctx.defspecial("in-other", move |form: Form| {
+            let mut other = TulispContext::new();
+            let outcome = match form.eval(&mut other) {
+                Ok(value) => value.to_string(),
+                Err(err) => err
+                    .to_string()
+                    .lines()
+                    .next()
+                    .unwrap_or_default()
+                    .to_string(),
+            };
+            *seen.lock().unwrap() = Some(outcome);
+        });
+        ctx.eval_string("(let ((x 5)) (in-other (+ x 1)))").unwrap();
+        assert_eq!(
+            result.lock().unwrap().as_deref(),
+            Some("ERR LispError: a form ran in a context other than its own")
+        );
+    }
+
+    // A form run from inside a nested Lisp call still reads the
+    // variables of the code around its special form.
+    #[test]
+    fn a_form_reads_its_caller_variables_from_a_nested_call() {
+        let ctx = &mut with_forms();
+        ctx.defspecial(
+            "via-lisp",
+            |ctx: &mut TulispContext, form: Form| -> Result<TulispObject, Error> {
+                ctx.defun("run-it-now", move |ctx: &mut TulispContext| form.eval(ctx));
+                let runner = ctx.intern("run-it");
+                ctx.funcall(&runner, ())
+            },
+        );
+        eval_assert_equal(
+            ctx,
+            "(defun run-it () (let ((y 100)) (run-it-now)))
+             (defun outer (x) (via-lisp (list x x)))
+             (outer 7)",
+            "'(7 7)",
+        );
     }
 }
