@@ -6,6 +6,7 @@ use crate::{
     object::wrappers::generic::SharedMut,
 };
 
+use super::cells::swap_to_cells;
 use super::forms::{VMCompilers, compile_form};
 use super::scope::{FunctionScope, Resolved, resolve};
 
@@ -34,14 +35,14 @@ pub(crate) struct Compiler {
     pub bytecode: Bytecode,
     pub keep_result: bool,
     pub current_defun: Option<TulispObject>,
-    /// The bindings the enclosing `let` / `let*` forms make, in source
-    /// order: a lexical binding, or the symbol itself for a special
-    /// variable. A self call's `Jump(Pos::Abs(0))` and a `TailCall` skip
-    /// the `EndScope`s that `compile_fn_let_star` puts after the body,
-    /// so they first emit an `EndScope` for each binding here, innermost
-    /// first. While this list holds a special variable, a tail call that
-    /// `mark_tail_calls` marked compiles as an ordinary call. The list
-    /// starts empty in each call to `compile`, in each function or
+    /// The special variables the enclosing `let` / `let*` forms bind, in
+    /// source order. A self call's `Jump(Pos::Abs(0))` and a `TailCall`
+    /// skip the `EndScope`s that `compile_fn_let_star` puts after the
+    /// body, so they first emit an `EndScope` for each binding here,
+    /// innermost first. While this list is not empty, a tail call that
+    /// `mark_tail_calls` marked compiles as an ordinary call. A lexical
+    /// variable's slot needs neither: the frame goes with the call. The
+    /// list starts empty in each call to `compile`, in each function or
     /// lambda body, and in each block that `compile_block` compiles.
     pub active_let_scopes: Vec<TulispObject>,
     /// The names, by address, that the compile in progress defined or
@@ -164,6 +165,7 @@ fn compile_program(ctx: &mut TulispContext, value: &TulispObject) -> Result<Byte
     let (output, global_trace_ranges) = crate::bytecode::bytecode::assemble(output)?;
     let global_trace_ranges = crate::object::wrappers::generic::Shared::new(global_trace_ranges);
     let compiler = ctx.compiler.as_mut().unwrap();
+    let global_slot_count = compiler.functions.last().map_or(0, |f| f.slot_count);
     compiler.bytecode.global = SharedMut::new(output);
     compiler.bytecode.global_trace_ranges = global_trace_ranges.clone();
     let new_functions = std::mem::take(&mut compiler.added_functions)
@@ -174,7 +176,7 @@ fn compile_program(ctx: &mut TulispContext, value: &TulispObject) -> Result<Byte
         global: compiler.bytecode.global.clone(),
         global_trace_ranges,
         functions: new_functions,
-        global_slot_count: 0,
+        global_slot_count,
     })
 }
 
@@ -352,6 +354,15 @@ pub(crate) fn compile_progn_keep_result(
     ret
 }
 
+/// The variable a block binds to the value its runner pushes.
+pub(crate) enum BlockBinding {
+    /// A special variable, bound on its symbol's own stack.
+    Dynamic(TulispObject),
+    /// A lexical variable in this slot of the function's frame, already
+    /// in scope.
+    Slot(u16),
+}
+
 /// Compiles FORMS as a block whose value is kept. With BINDING, the
 /// block first binds it to the value its runner pushes, and unbinds it
 /// at the end. Forms in a block are never in tail position, so the
@@ -359,7 +370,7 @@ pub(crate) fn compile_progn_keep_result(
 pub(crate) fn compile_block(
     ctx: &mut TulispContext,
     forms: &TulispObject,
-    binding: Option<&TulispObject>,
+    binding: Option<BlockBinding>,
 ) -> Result<crate::bytecode::Block, Error> {
     let compiler = ctx.compiler.as_mut().unwrap();
     let scopes = std::mem::take(&mut compiler.active_let_scopes);
@@ -367,12 +378,28 @@ pub(crate) fn compile_block(
     let compiler = ctx.compiler.as_mut().unwrap();
     compiler.active_let_scopes = scopes;
     let mut instructions = Vec::new();
-    if let Some(binding) = binding {
-        instructions.push(Instruction::BeginScope(binding.clone()));
+    match &binding {
+        Some(BlockBinding::Dynamic(symbol)) => {
+            instructions.push(Instruction::BeginScope(symbol.clone()))
+        }
+        Some(BlockBinding::Slot(slot)) => instructions.push(Instruction::BindLocal(*slot)),
+        None => {}
     }
     instructions.append(&mut compiled?);
-    if let Some(binding) = binding {
-        instructions.push(Instruction::EndScope(binding.clone()));
+    match &binding {
+        Some(BlockBinding::Dynamic(symbol)) => {
+            instructions.push(Instruction::EndScope(symbol.clone()))
+        }
+        Some(BlockBinding::Slot(slot)) => {
+            instructions.push(Instruction::ClearLocals {
+                from: *slot,
+                to: *slot + 1,
+            });
+            if compiler.slot_captured(*slot) {
+                swap_to_cells(&mut instructions, *slot);
+            }
+        }
+        None => {}
     }
     crate::bytecode::Block::new(instructions, binding.is_some())
 }
@@ -607,6 +634,14 @@ pub(crate) fn compile_expr(
             drop(expr_ref);
             Ok(vec![match resolve(ctx, expr)? {
                 Resolved::Object(object) => Instruction::Load(object),
+                Resolved::Slot {
+                    slot,
+                    captured: false,
+                } => Instruction::LoadLocal(slot),
+                Resolved::Slot {
+                    slot,
+                    captured: true,
+                } => Instruction::LoadCell(slot),
                 Resolved::Capture(index) => Instruction::LoadCapture(index),
             }])
         }

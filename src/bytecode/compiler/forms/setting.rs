@@ -1,5 +1,6 @@
 use crate::{
     Error, ErrorKind, TulispContext, TulispObject,
+    bytecode::compiler::cells::swap_to_cells,
     bytecode::compiler::scope::{Binding, Resolved, resolve},
     bytecode::{
         Instruction,
@@ -28,6 +29,34 @@ pub(super) fn compile_fn_setq(
         result.push(match (resolve(ctx, &target)?, keep) {
             (Resolved::Object(object), true) => Instruction::Store(object),
             (Resolved::Object(object), false) => Instruction::StorePop(object),
+            (
+                Resolved::Slot {
+                    slot,
+                    captured: false,
+                },
+                true,
+            ) => Instruction::StoreLocal(slot),
+            (
+                Resolved::Slot {
+                    slot,
+                    captured: false,
+                },
+                false,
+            ) => Instruction::StorePopLocal(slot),
+            (
+                Resolved::Slot {
+                    slot,
+                    captured: true,
+                },
+                true,
+            ) => Instruction::StoreCell(slot),
+            (
+                Resolved::Slot {
+                    slot,
+                    captured: true,
+                },
+                false,
+            ) => Instruction::StorePopCell(slot),
             (Resolved::Capture(index), true) => Instruction::StoreCapture(index),
             (Resolved::Capture(index), false) => Instruction::StorePopCapture(index),
         });
@@ -61,11 +90,14 @@ pub(super) fn compile_fn_let_star(
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
     ctx.compile_1_arg_call(name, args, true, |ctx, varlist, body| {
-        // The variables this `let` puts in scope leave it again on every
-        // path out, an error included.
+        // The variables this `let` puts in scope leave it, and their
+        // slots are free again, on every path out, an error included.
+        let first_slot = ctx.compiler.as_ref().unwrap().next_slot();
         let mut in_scope = 0;
         let result = compile_let_star(ctx, varlist, body, &mut in_scope);
-        ctx.compiler.as_mut().unwrap().unbind(in_scope);
+        let compiler = ctx.compiler.as_mut().unwrap();
+        compiler.unbind(in_scope);
+        compiler.free_slots_to(first_slot);
         result
     })
 }
@@ -79,7 +111,11 @@ fn compile_let_star(
     in_scope: &mut usize,
 ) -> Result<Vec<Instruction>, Error> {
     let mut result = vec![];
+    // The special variables bound, for their `EndScope`s.
     let mut params: Vec<TulispObject> = Vec::new();
+    // The lexical variables bound: each one's slot, and where in
+    // `result` its binding is.
+    let mut slots: Vec<(u16, usize)> = Vec::new();
     let mut varitems = varlist.base_iter();
     for varitem in varitems.by_ref() {
         crate::builtin::check_not_nil_or_t(&varitem)?;
@@ -128,28 +164,33 @@ fn compile_let_star(
         // A dynamic (special) variable binds on the symbol's own stack,
         // so `set` and dynamic references see the let-bound value; it
         // does not enter the scope, so it hides no lexical variable.
-        let binding = if name.is_special() {
-            name.clone()
+        if name.is_special() {
+            result.push(Instruction::BeginScope(name.clone()));
+            params.push(name);
         } else {
-            let binding = TulispObject::lexical_binding(ctx.lex_allocator.clone(), name.clone());
-            ctx.compiler
-                .as_mut()
-                .unwrap()
-                .bind(name, Binding::Lex(binding.clone()));
+            let compiler = ctx.compiler.as_mut().unwrap();
+            let slot = compiler.alloc_slot()?;
+            compiler.bind(
+                name,
+                Binding::Slot {
+                    slot,
+                    captured: false,
+                },
+            );
             *in_scope += 1;
-            binding
-        };
-        result.push(Instruction::BeginScope(binding.clone()));
-        params.push(binding);
+            slots.push((slot, result.len()));
+            result.push(Instruction::BindLocal(slot));
+        }
     }
     varitems.take_error()?;
-    // Track the bindings on the compiler so anything inside the
-    // body that emits a function-escaping instruction (`TailCall`,
-    // self-recursion's `Jump(Pos::Abs(0))`) can prepend
-    // `EndScope`s for the active scopes. The trailing `EndScope`s
-    // appended below are unreachable on the escape path, so
-    // without this push/pop the bindings stay stuck on
-    // `LEX_STACKS` forever.
+    // Track the special bindings on the compiler so anything inside
+    // the body that emits a function-escaping instruction
+    // (`TailCall`, self-recursion's `Jump(Pos::Abs(0))`) can prepend
+    // `EndScope`s for them. The trailing `EndScope`s appended below
+    // are unreachable on the escape path, so without this push/pop
+    // the bindings stay stuck on the symbols' stacks forever. A
+    // lexical variable's slot needs no such care: the frame goes
+    // with the call.
     let scope_depth = ctx.compiler.as_ref().unwrap().active_let_scopes.len();
     ctx.compiler
         .as_mut()
@@ -170,6 +211,19 @@ fn compile_let_star(
     for param in params {
         result.push(Instruction::EndScope(param));
     }
+    if let (Some((from, _)), Some((last, _))) = (slots.first(), slots.last()) {
+        result.push(Instruction::ClearLocals {
+            from: *from,
+            to: *last + 1,
+        });
+    }
+    // A variable a closure captured is a cell from its binding on.
+    let compiler = ctx.compiler.as_ref().unwrap();
+    for (slot, bind_at) in slots {
+        if compiler.slot_captured(slot) {
+            swap_to_cells(&mut result[bind_at..], slot);
+        }
+    }
     Ok(result)
 }
 
@@ -177,6 +231,7 @@ fn compile_let_star(
 mod tests {
     use crate::test_utils::{
         eval_assert_equal, eval_assert_equal_fresh, eval_assert_error, eval_assert_error_line,
+        listing,
     };
     use crate::{Error, TulispContext};
 
@@ -360,6 +415,113 @@ mod tests {
             ctx,
             "(let ((:k 1)) :k)",
             "ERR TypeMismatch: Can't set constant symbol: :k",
+        );
+    }
+
+    #[test]
+    fn let_variables_compile_to_slots() {
+        let ctx = &mut TulispContext::new();
+        let l = listing(ctx, "(defun f (a) (let ((x a) (y 2)) (setq y (+ x y)) y))");
+        assert!(
+            l.contains("bind_local 0") && l.contains("load_local 0"),
+            "{l}"
+        );
+        assert!(l.contains("store_pop_local 1"), "{l}");
+        assert!(!l.contains("begin_scope"), "{l}");
+        let l = listing(ctx, "(defvar dv 1) (defun g () (let ((dv 2)) dv))");
+        assert!(l.contains("begin_scope dv") && l.contains("load dv"), "{l}");
+    }
+
+    #[test]
+    fn a_captured_let_variable_compiles_to_a_cell() {
+        let ctx = &mut TulispContext::new();
+        let l = listing(ctx, "(defun f () (let ((n 0)) (setq n 1) (lambda () n)))");
+        assert!(
+            l.contains("bind_cell 0") && l.contains("store_pop_cell 0"),
+            "{l}"
+        );
+        assert!(!l.contains("load_local 0"), "{l}");
+    }
+
+    // The swap to cells starts at the variable's binding: an earlier
+    // variable that used the same slot stays a plain one.
+    #[test]
+    fn the_swap_to_cells_leaves_an_earlier_user_of_the_slot_alone() {
+        eval_assert_equal_fresh(
+            "(defun f () (let ((a 0) (x (let ((z 1)) z))) (lambda () x))) (funcall (f))",
+            "1",
+        );
+    }
+
+    #[test]
+    fn a_variable_used_before_its_closure_is_shared() {
+        eval_assert_equal_fresh(
+            "(defun f ()
+               (let ((y 1))
+                 (setq y 5)
+                 (let ((g (lambda () (setq y (* y 2))))) (funcall g) y)))
+             (f)",
+            "10",
+        );
+    }
+
+    #[test]
+    fn closures_from_a_loop_in_a_recursive_function_keep_their_values() {
+        eval_assert_equal_fresh(
+            "(defun collect (n acc)
+               (if (= n 0) acc
+                 (let ((fs nil))
+                   (dotimes (i 2)
+                     (let ((v (+ (* n 10) i))) (setq fs (cons (lambda () v) fs))))
+                   (collect (- n 1) (append acc (mapcar #'funcall fs))))))
+             (collect 2 nil)",
+            "'(21 20 11 10)",
+        );
+    }
+
+    #[test]
+    fn a_slot_reused_after_a_caught_error_holds_the_new_value() {
+        eval_assert_equal_fresh(
+            "(defun f ()
+               (catch 'k (let ((a 'old)) (throw 'k a)))
+               (let ((b 'new)) b))
+             (f)",
+            "'new",
+        );
+    }
+
+    #[test]
+    fn a_captured_condition_case_variable() {
+        eval_assert_equal_fresh(
+            "(defun f () (condition-case e (error \"boom\") (error (lambda () (cadr e)))))
+             (funcall (f))",
+            "\"boom\"",
+        );
+    }
+
+    #[test]
+    fn a_lambda_from_a_late_macro_captures_a_let_variable() {
+        eval_assert_equal_fresh(
+            "(let ((x 1))
+               (defmacro getter () '(lambda () x))
+               (let ((g (getter))) (setq x 2) (funcall g)))",
+            "2",
+        );
+    }
+
+    // A function needing more slots than a u16 holds does not compile.
+    #[test]
+    fn too_many_live_variables_is_a_compile_error() {
+        let mut program = String::from("(defun big () (let* (");
+        for i in 0..65_537 {
+            program.push_str(&format!("(v{i} {i}) "));
+        }
+        program.push_str(") v0))");
+        let ctx = &mut TulispContext::new();
+        let err = ctx.eval_string(&program).unwrap_err();
+        assert!(
+            err.to_string().contains("more than 65535 variables"),
+            "{err}"
         );
     }
 }

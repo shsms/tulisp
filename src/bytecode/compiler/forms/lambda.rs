@@ -132,7 +132,7 @@ pub(super) fn compile_fn_lambda(
         let body_result = compile_progn_keep_result(ctx, &body);
         let compiler = ctx.compiler.as_mut().unwrap();
         compiler.active_let_scopes = prev_scopes;
-        let captures = compiler.pop_function().captures;
+        let scope = compiler.pop_function();
         let mut instructions = body_result?;
         instructions.push(Instruction::Ret);
 
@@ -146,10 +146,10 @@ pub(super) fn compile_fn_lambda(
                 instructions: SharedMut::new(instructions),
                 trace_ranges: Shared::new(trace_ranges),
                 params: Shared::new(vm_params),
-                slot_count: 0,
+                slot_count: scope.slot_count,
                 captures: Captures::default(),
             },
-            captures,
+            captures: scope.captures,
         };
 
         let mut result = Vec::with_capacity(1);

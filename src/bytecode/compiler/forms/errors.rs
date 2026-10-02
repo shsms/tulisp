@@ -6,7 +6,7 @@ use crate::{
     bytecode::compiler::scope::Binding,
     bytecode::{
         Block, Handler, Instruction,
-        compiler::compiler::{compile_block, compile_expr_keep_result},
+        compiler::compiler::{BlockBinding, compile_block, compile_expr_keep_result},
     },
     object::wrappers::generic::Shared,
 };
@@ -72,13 +72,21 @@ pub(super) fn compile_fn_condition_case(
             } else if !binds {
                 compile_block(ctx, &forms, None)?
             } else if var.is_special() {
-                compile_block(ctx, &forms, Some(var))?
+                compile_block(ctx, &forms, Some(BlockBinding::Dynamic(var.clone())))?
             } else {
-                let binding = TulispObject::lexical_binding(ctx.lex_allocator.clone(), var.clone());
                 let compiler = ctx.compiler.as_mut().unwrap();
-                compiler.bind(var.clone(), Binding::Lex(binding.clone()));
-                let block = compile_block(ctx, &forms, Some(&binding));
-                ctx.compiler.as_mut().unwrap().unbind(1);
+                let slot = compiler.alloc_slot()?;
+                compiler.bind(
+                    var.clone(),
+                    Binding::Slot {
+                        slot,
+                        captured: false,
+                    },
+                );
+                let block = compile_block(ctx, &forms, Some(BlockBinding::Slot(slot)));
+                let compiler = ctx.compiler.as_mut().unwrap();
+                compiler.unbind(1);
+                compiler.free_slots_to(slot);
                 block?
             };
             compiled.push(Handler {

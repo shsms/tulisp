@@ -109,6 +109,25 @@ pub(crate) enum Instruction {
     StorePop(TulispObject),
     Store(TulispObject),
     Load(TulispObject),
+    /// Pop a value into the running frame's slot `n`: a lexical
+    /// variable's binding.
+    BindLocal(u16),
+    /// Pop a value into a fresh cell in slot `n`: the binding of a
+    /// variable a closure captures.
+    BindCell(u16),
+    /// Read or write the value in slot `n`.
+    LoadLocal(u16),
+    StoreLocal(u16),
+    StorePopLocal(u16),
+    /// Read or write through the cell in slot `n`.
+    LoadCell(u16),
+    StoreCell(u16),
+    StorePopCell(u16),
+    /// Let go of the values in slots `from..to`, at the end of a `let`.
+    ClearLocals {
+        from: u16,
+        to: u16,
+    },
     /// Read or write the running closure's captured cell at this index.
     LoadCapture(u16),
     StoreCapture(u16),
@@ -345,6 +364,15 @@ impl Instruction {
             | Instruction::StorePop(..)
             | Instruction::Store(..)
             | Instruction::Load(..)
+            | Instruction::BindLocal(..)
+            | Instruction::BindCell(..)
+            | Instruction::LoadLocal(..)
+            | Instruction::StoreLocal(..)
+            | Instruction::StorePopLocal(..)
+            | Instruction::LoadCell(..)
+            | Instruction::StoreCell(..)
+            | Instruction::StorePopCell(..)
+            | Instruction::ClearLocals { .. }
             | Instruction::LoadCapture(..)
             | Instruction::StoreCapture(..)
             | Instruction::StorePopCapture(..)
@@ -490,6 +518,15 @@ impl std::fmt::Display for Instruction {
             Instruction::StorePop(obj) => write!(f, "    store_pop {}", obj),
             Instruction::Store(obj) => write!(f, "    store {}", obj),
             Instruction::Load(obj) => write!(f, "    load {}", obj),
+            Instruction::BindLocal(n) => write!(f, "    bind_local {}", n),
+            Instruction::BindCell(n) => write!(f, "    bind_cell {}", n),
+            Instruction::LoadLocal(n) => write!(f, "    load_local {}", n),
+            Instruction::StoreLocal(n) => write!(f, "    store_local {}", n),
+            Instruction::StorePopLocal(n) => write!(f, "    store_pop_local {}", n),
+            Instruction::LoadCell(n) => write!(f, "    load_cell {}", n),
+            Instruction::StoreCell(n) => write!(f, "    store_cell {}", n),
+            Instruction::StorePopCell(n) => write!(f, "    store_pop_cell {}", n),
+            Instruction::ClearLocals { from, to } => write!(f, "    clear_locals {}..{}", from, to),
             Instruction::LoadCapture(i) => write!(f, "    load_capture {}", i),
             Instruction::StoreCapture(i) => write!(f, "    store_capture {}", i),
             Instruction::StorePopCapture(i) => write!(f, "    store_pop_capture {}", i),

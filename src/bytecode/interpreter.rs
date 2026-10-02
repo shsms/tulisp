@@ -68,17 +68,16 @@ impl Drop for SetParams {
     }
 }
 
-/// Per-frame Drop guard for `BeginScope` bindings — `let` / `let*` / inline
-/// `lambda` body bindings. Mirrors `SetParams` (function params).
+/// Per-frame Drop guard for `BeginScope` bindings: a `let` / `let*` of
+/// a special variable, or a `condition-case` handler binding one.
 ///
 /// On clean execution every `BeginScope` is matched by an `EndScope`,
 /// which removes the entry from the guard, so `Drop` finds the Vec
 /// empty. On error escape, `?` propagates out of `run_impl_inner`
 /// before the trailing `EndScope`s run; `Drop` then unsets whatever
-/// is still pending. Without this guard, `(let ((y 5)) (error …))`
-/// inside a defun leaked one `LEX_STACKS` entry per call (and the
-/// defvar variant leaked onto `SymbolBindings::items`); a 1000-call
-/// loop in a persistent `TulispContext` was visibly bleeding memory.
+/// is still pending. Without this guard, a `let` of a `defvar`
+/// variable that errors inside a defun leaked onto
+/// `SymbolBindings::items` once per call.
 struct ActiveScopes(Vec<TulispObject>);
 
 impl ActiveScopes {
@@ -703,6 +702,53 @@ fn run_impl_inner(
                 let a = obj.get().map_err(|e| e.with_trace(obj.clone()))?;
                 ctx.vm.stack.push(a);
             }
+            Instruction::BindLocal(n) => {
+                let value = ctx.vm.stack.pop().ok_or_else(empty_stack)?;
+                *slot_mut(&mut ctx.vm, *n)? = Slot::Value(value);
+            }
+            Instruction::BindCell(n) => {
+                let value = ctx.vm.stack.pop().ok_or_else(empty_stack)?;
+                *slot_mut(&mut ctx.vm, *n)? = Slot::Cell(SharedMut::new(Some(value)));
+            }
+            Instruction::LoadLocal(n) => {
+                let Slot::Value(value) = slot_mut(&mut ctx.vm, *n)? else {
+                    return Err(Error::lisp_error(
+                        "internal: a cell where a value was expected",
+                    ));
+                };
+                let value = value.clone();
+                ctx.vm.stack.push(value);
+            }
+            Instruction::StoreLocal(n) => {
+                let value = ctx.vm.stack.last().cloned().ok_or_else(empty_stack)?;
+                *slot_mut(&mut ctx.vm, *n)? = Slot::Value(value);
+            }
+            Instruction::StorePopLocal(n) => {
+                let value = ctx.vm.stack.pop().ok_or_else(empty_stack)?;
+                *slot_mut(&mut ctx.vm, *n)? = Slot::Value(value);
+            }
+            Instruction::LoadCell(n) => {
+                // `BindCell` always stores a value, so an empty cell
+                // here is a compiler bug.
+                let value = slot_cell(&mut ctx.vm, *n)?
+                    .borrow()
+                    .clone()
+                    .ok_or_else(|| Error::lisp_error("internal: an empty cell in a slot"))?;
+                ctx.vm.stack.push(value);
+            }
+            Instruction::StoreCell(n) => {
+                let value = ctx.vm.stack.last().cloned().ok_or_else(empty_stack)?;
+                *slot_cell(&mut ctx.vm, *n)?.borrow_mut() = Some(value);
+            }
+            Instruction::StorePopCell(n) => {
+                let value = ctx.vm.stack.pop().ok_or_else(empty_stack)?;
+                *slot_cell(&mut ctx.vm, *n)?.borrow_mut() = Some(value);
+            }
+            Instruction::ClearLocals { from, to } => {
+                for n in *from..*to {
+                    *slot_mut(&mut ctx.vm, n)? = Slot::default();
+                }
+            }
             Instruction::LoadCapture(index) => {
                 let captured = capture(&ctx.vm.captures, *index)?;
                 let value = captured.cell.borrow().clone();
@@ -1222,6 +1268,14 @@ fn make_lambda(ctx: &TulispContext, template: &LambdaTemplate) -> Result<TulispO
                     ));
                 }
             },
+            CaptureSource::Local(n) => match ctx.vm.locals.get(ctx.vm.base + usize::from(*n)) {
+                Some(Slot::Cell(cell)) => cell.clone(),
+                _ => {
+                    return Err(Error::lisp_error(
+                        "internal: a capture of a slot that holds no cell",
+                    ));
+                }
+            },
             CaptureSource::Capture(index) => capture(&ctx.vm.captures, *index)?.cell.clone(),
         };
         cells.push(Captured {
@@ -1234,6 +1288,26 @@ fn make_lambda(ctx: &TulispContext, template: &LambdaTemplate) -> Result<TulispO
         ..template.function.clone()
     };
     Ok(TulispValue::CompiledDefun { value: function }.into_ref(None))
+}
+
+/// Slot N of the running frame.
+#[inline(always)]
+fn slot_mut(vm: &mut Machine, n: u16) -> Result<&mut Slot, Error> {
+    let index = vm.base + usize::from(n);
+    vm.locals
+        .get_mut(index)
+        .ok_or_else(|| Error::lisp_error("internal: a slot past the frame"))
+}
+
+/// The cell in slot N of the running frame.
+#[inline(always)]
+fn slot_cell(vm: &mut Machine, n: u16) -> Result<&crate::bytecode::Cell, Error> {
+    match slot_mut(vm, n)? {
+        Slot::Cell(cell) => Ok(cell),
+        Slot::Value(_) => Err(Error::lisp_error(
+            "internal: a value where a cell was expected",
+        )),
+    }
 }
 
 fn empty_stack() -> Error {
@@ -1623,5 +1697,59 @@ mod tests {
         assert!(caught.is_err());
         assert_eq!(ctx.debug_locals_len(), 0);
         eval_assert_equal(&mut ctx, "(defun h (x) x) (h 1)", "1");
+    }
+
+    // A tail-call loop replaces its frame each turn, so the machine's
+    // slots stay the same size.
+    #[test]
+    fn a_tail_call_loop_keeps_locals_constant() {
+        use std::sync::{Arc, Mutex};
+        let ctx = &mut TulispContext::new();
+        let seen: Arc<Mutex<Vec<usize>>> = Arc::default();
+        let log = seen.clone();
+        ctx.defun("note-locals", move |ctx: &mut TulispContext| {
+            log.lock().unwrap().push(ctx.debug_locals_len());
+        });
+        ctx.eval_string(
+            "(defun spin (n) (let ((a n)) (note-locals) (if (= n 0) 0 (spin (- n 1)))))
+             (spin 50)",
+        )
+        .unwrap();
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 51);
+        assert!(seen.windows(2).all(|w| w[0] == w[1]), "{seen:?}");
+    }
+
+    // A `let` lets go of its values when it ends, not when its function
+    // returns.
+    #[test]
+    fn a_let_lets_go_of_its_values_when_it_ends() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        #[derive(Clone)]
+        struct Token(Arc<AtomicUsize>);
+        impl Drop for Token {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+        impl std::fmt::Display for Token {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("#<token>")
+            }
+        }
+        impl crate::TulispAny for Token {}
+
+        let dropped = Arc::new(AtomicUsize::new(0));
+        let ctx = &mut TulispContext::new();
+        let made = dropped.clone();
+        ctx.defun("make-token", move || Token(made.clone()));
+        let seen = dropped.clone();
+        ctx.defun("tokens-dropped", move || seen.load(Ordering::SeqCst) as i64);
+        eval_assert_equal(
+            ctx,
+            "(defun f () (let ((x (make-token))) nil) (tokens-dropped)) (f)",
+            "1",
+        );
     }
 }

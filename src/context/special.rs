@@ -595,4 +595,40 @@ mod tests {
             "'(7 7)",
         );
     }
+
+    // Two forms of one call keep their own variables, also when one
+    // runs while the other is running.
+    #[test]
+    fn forms_of_one_call_keep_their_own_variables() {
+        use crate::object::wrappers::generic::SharedMut;
+        let ctx = &mut TulispContext::new();
+        let stored: SharedMut<Option<Form>> = SharedMut::new(None);
+        let keep = stored.clone();
+        ctx.defspecial(
+            "with-callback",
+            move |ctx: &mut TulispContext,
+                  callback: Form,
+                  body: Form|
+                  -> Result<TulispObject, Error> {
+                *keep.borrow_mut() = Some(callback);
+                body.eval(ctx)
+            },
+        );
+        ctx.defun(
+            "fire",
+            move |ctx: &mut TulispContext| -> Result<TulispObject, Error> {
+                let form = stored.borrow().clone();
+                match form {
+                    Some(form) => form.eval(ctx),
+                    None => Err(Error::lisp_error("no callback")),
+                }
+            },
+        );
+        eval_assert_equal(
+            ctx,
+            "(defun t1 () (with-callback (let ((b 2)) b) (let ((a 1)) (list (fire) a))))
+             (t1)",
+            "'(2 1)",
+        );
+    }
 }

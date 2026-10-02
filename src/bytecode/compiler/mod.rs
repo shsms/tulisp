@@ -1,3 +1,4 @@
+mod cells;
 #[allow(clippy::module_inception)]
 mod compiler;
 mod forms;

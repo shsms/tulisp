@@ -116,7 +116,7 @@ pub(super) fn compile_fn_defun_bounce_call(
     // A tail call leaves the function's `let` scopes before it runs. A
     // special variable one of them binds must still be bound for the
     // callee, so such a call is an ordinary call.
-    if compiler.active_let_scopes.iter().any(|b| b.is_special()) {
+    if !compiler.active_let_scopes.is_empty() {
         return compile_fn_defun_call(ctx, name, &call_args);
     }
     // A name evicted while its own body compiles has no arity entry,
@@ -158,7 +158,7 @@ pub(super) fn compile_fn_defun_bounce_call(
         // directly, skipping the `EndScope`s the enclosing
         // `let` / `let*` would otherwise emit after this instruction.
         // Drain those scopes here so their bindings don't get stuck on
-        // `LEX_STACKS` for the rest of the program. LIFO order.
+        // the symbols' stacks for the rest of the program. LIFO order.
         push_active_scope_endscopes(ctx, &mut result);
         result.push(Instruction::TailCall {
             name: name.clone(),
@@ -208,17 +208,17 @@ pub(super) fn compile_fn_defun_bounce_call(
     // Self-recursion escape: `Jump(Pos::Abs(0))` jumps back to the
     // start of the function, skipping the trailing `EndScope`s of any
     // enclosing `let` / `let*`. Drain them here in LIFO order so the
-    // bindings don't accumulate on `LEX_STACKS` across recursion
-    // depths.
+    // bindings don't accumulate on the symbols' stacks across
+    // recursion depths.
     push_active_scope_endscopes(ctx, &mut result);
     result.push(Instruction::Jump(Pos::Abs(0)));
     Ok(result)
 }
 
-/// Emit `EndScope` instructions for every active `let` / `let*`
-/// binding tracked on the compiler, in LIFO order (newest first).
-/// Called at function-escaping sites so bindings introduced by
-/// enclosing let-forms don't leak past the escape.
+/// Emit `EndScope` instructions for every special variable an
+/// enclosing `let` / `let*` binds, newest first. Called at
+/// function-escaping sites so those bindings don't leak past the
+/// escape.
 fn push_active_scope_endscopes(ctx: &TulispContext, out: &mut Vec<Instruction>) {
     let compiler = ctx.compiler.as_ref().unwrap();
     for binding in compiler.active_let_scopes.iter().rev() {
@@ -360,6 +360,7 @@ fn compile_defun(
     // placeholder the body is compiled with.
     let mut param_bindings: Vec<TulispObject> = Vec::new();
     let mut captures = Vec::new();
+    let mut slot_count = 0;
     let res = ctx.compile_2_arg_call(defun_kw, args, true, |ctx, defun_name, args, body| {
         fn_name = defun_name.clone();
         crate::builtin::check_param_list(ctx, args)?;
@@ -445,7 +446,9 @@ fn compile_defun(
         let result = compile_progn_keep_result(ctx, &body);
 
         let compiler = ctx.compiler.as_mut().unwrap();
-        captures = compiler.pop_function().captures;
+        let scope = compiler.pop_function();
+        captures = scope.captures;
+        slot_count = scope.slot_count;
         compiler.current_defun = prev_defun;
         compiler.active_let_scopes = prev_scopes;
         let mut result = result?;
@@ -461,7 +464,7 @@ fn compile_defun(
         instructions: SharedMut::new(res),
         trace_ranges,
         params: Shared::new(defun_params),
-        slot_count: 0,
+        slot_count,
         captures: Captures::default(),
     };
     // A function that closes over variables is made again each time the
