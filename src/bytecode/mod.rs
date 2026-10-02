@@ -12,6 +12,9 @@ pub(crate) use lambda_template::LambdaTemplate;
 mod block;
 pub(crate) use block::{Block, FormBlock, Handler};
 
+mod frame;
+pub(crate) use frame::{Captures, FrameState, Slot};
+
 mod interpreter;
 pub(crate) use interpreter::{Machine, call_function, run, run_block};
 

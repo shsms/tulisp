@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fmt};
 
-use super::Instruction;
+use super::{Captures, Instruction};
 use crate::{
     Error, TulispObject,
     bytecode::compiler::DefunParams,
@@ -39,6 +39,10 @@ pub struct CompiledDefun {
     pub(crate) trace_ranges: Shared<Vec<TraceRange>>,
     /// Behind a `Shared` for the same reason as `trace_ranges`.
     pub(crate) params: Shared<DefunParams>,
+    /// How many slots a call reserves for its lexical variables.
+    pub(crate) slot_count: u16,
+    /// The cells a closure captured; empty for a plain function.
+    pub(crate) captures: Captures,
 }
 
 #[derive(Clone)]
@@ -46,6 +50,8 @@ pub(crate) struct Bytecode {
     pub(crate) global: SharedMut<Vec<Instruction>>,
     /// Trace ranges paired with `global`; see `TraceRange`.
     pub(crate) global_trace_ranges: Shared<Vec<TraceRange>>,
+    /// How many slots the top-level program reserves.
+    pub(crate) global_slot_count: u16,
     pub(crate) functions: HashMap<usize, CompiledDefun>, // key: fn_name.addr_as_usize()
 }
 
@@ -55,6 +61,7 @@ impl Default for Bytecode {
             global: SharedMut::default(),
             global_trace_ranges: Shared::new(Vec::new()),
             functions: HashMap::default(),
+            global_slot_count: 0,
         }
     }
 }

@@ -164,6 +164,7 @@ fn compile_program(ctx: &mut TulispContext, value: &TulispObject) -> Result<Byte
         global: compiler.bytecode.global.clone(),
         global_trace_ranges,
         functions: new_functions,
+        global_slot_count: 0,
     })
 }
 

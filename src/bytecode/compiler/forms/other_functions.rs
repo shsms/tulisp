@@ -426,6 +426,8 @@ fn compile_defun(
         instructions: SharedMut::new(res),
         trace_ranges,
         params: crate::object::wrappers::generic::Shared::new(defun_params),
+        slot_count: 0,
+        captures: crate::bytecode::Captures::default(),
     };
     if define {
         fn_name.set_global(

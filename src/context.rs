@@ -296,6 +296,13 @@ impl TulispContext {
         }
     }
 
+    /// Debug-only: how many lexical-variable slots the machine holds.
+    /// Zero between runs, and bounded while a tail-call loop runs.
+    #[doc(hidden)]
+    pub fn debug_locals_len(&self) -> usize {
+        self.vm.locals.len()
+    }
+
     /// Debug-only: sum of `SymbolBindings::items.len()` across every
     /// symbol in the obarray. Counterpart to `debug_lex_stacks_total`,
     /// but for ~defvar~-declared (special / dynamic) variables. Steady

@@ -1,6 +1,6 @@
 use super::{
-    Block, FormBlock, Handler, Instruction, LambdaTemplate, bytecode::Bytecode,
-    bytecode::CompiledDefun, bytecode::TraceRange, compiler::DefunParams,
+    Block, Captures, FormBlock, FrameState, Handler, Instruction, LambdaTemplate, Slot,
+    bytecode::Bytecode, bytecode::CompiledDefun, bytecode::TraceRange, compiler::DefunParams,
 };
 use crate::{
     Error, ErrorKind, Number, TulispContext, TulispObject, TulispValue, bytecode::Pos,
@@ -116,6 +116,12 @@ pub struct Machine {
     /// a call keeps only one it found, so adding a name leaves every
     /// kept target valid.
     generation: u64,
+    /// The lexical variables of every running call, one stretch per
+    /// call; the running call's stretch starts at `base`.
+    pub(crate) locals: Vec<Slot>,
+    pub(crate) base: usize,
+    /// The cells of the closure the running call runs.
+    pub(crate) captures: Captures,
 }
 
 /// Pops two operands and gives whether `$cmp` holds for them. `$b` is
@@ -182,13 +188,69 @@ impl Machine {
             stack: Vec::new(),
             functions: HashMap::new(),
             generation: 0,
+            locals: Vec::new(),
+            base: 0,
+            captures: Captures::default(),
         }
+    }
+
+    /// Starts a frame of SLOT_COUNT slots above the running one, with
+    /// CAPTURES, and gives back what to restore on leaving it.
+    pub(crate) fn enter_frame_state(&mut self, slot_count: u16, captures: Captures) -> FrameState {
+        let saved = FrameState {
+            base: self.base,
+            captures: std::mem::replace(&mut self.captures, captures),
+        };
+        self.base = self.locals.len();
+        self.locals
+            .resize_with(self.base + usize::from(slot_count), Slot::default);
+        saved
+    }
+
+    /// Ends the running frame and goes back to SAVED.
+    pub(crate) fn leave_frame_state(&mut self, saved: FrameState) {
+        self.locals.truncate(self.base);
+        self.base = saved.base;
+        self.captures = saved.captures;
+    }
+
+    /// Makes the running frame one of SLOT_COUNT slots with CAPTURES,
+    /// for a tail call that replaces it.
+    fn replace_frame(&mut self, slot_count: u16, captures: Captures) {
+        self.locals.truncate(self.base);
+        self.locals
+            .resize_with(self.base + usize::from(slot_count), Slot::default);
+        self.captures = captures;
     }
 
     /// Makes FUNCTION what a compiled call to the name at ADDR runs.
     pub(crate) fn set_function(&mut self, addr: usize, function: CompiledDefun) {
         if self.functions.insert(addr, function).is_some() {
             self.generation += 1;
+        }
+    }
+}
+
+/// Leaves a frame on drop, on any path out, a panic included.
+struct FrameScope<'a> {
+    ctx: &'a mut TulispContext,
+    saved: Option<FrameState>,
+}
+
+impl<'a> FrameScope<'a> {
+    fn new(ctx: &'a mut TulispContext, slot_count: u16, captures: Captures) -> Self {
+        let saved = ctx.vm.enter_frame_state(slot_count, captures);
+        FrameScope {
+            ctx,
+            saved: Some(saved),
+        }
+    }
+}
+
+impl Drop for FrameScope<'_> {
+    fn drop(&mut self) {
+        if let Some(saved) = self.saved.take() {
+            self.ctx.vm.leave_frame_state(saved);
         }
     }
 }
@@ -235,12 +297,15 @@ pub fn run(ctx: &mut TulispContext, bytecode: Bytecode) -> Result<TulispObject, 
     // mid-run) shares the machine with its caller; the guard gives
     // back only the stack.
     let mut guard = RunGuard::new(ctx);
-    let tail = run_impl(
-        guard.ctx,
-        &bytecode.global,
-        bytecode.global_trace_ranges.as_slice(),
-        false,
-    )?;
+    let tail = {
+        let scope = FrameScope::new(guard.ctx, bytecode.global_slot_count, Captures::default());
+        run_impl(
+            scope.ctx,
+            &bytecode.global,
+            bytecode.global_trace_ranges.as_slice(),
+            false,
+        )?
+    };
     if tail.is_some() {
         return Err(Error::lisp_error(
             "internal: tail call outside a function body",
@@ -1008,17 +1073,29 @@ fn init_defun_args(ctx: &mut TulispContext, call: &TailCallInfo) -> Result<SetPa
 /// follows its tail calls until one returns a value, so a chain of
 /// tail calls costs no native stack.
 fn run_tail_calls(ctx: &mut TulispContext, mut call: TailCallInfo) -> Result<(), Error> {
+    let scope = FrameScope::new(
+        ctx,
+        call.function.slot_count,
+        call.function.captures.clone(),
+    );
     loop {
-        let params = init_defun_args(ctx, &call)?;
+        let params = init_defun_args(scope.ctx, &call)?;
         let tail = run_impl(
-            ctx,
+            scope.ctx,
             &call.function.instructions,
             call.function.trace_ranges.as_slice(),
             false,
         )?;
         drop(params);
         match tail {
-            Some(next) => call = next,
+            Some(next) => {
+                call = next;
+                // The next function replaces this one's frame.
+                scope
+                    .ctx
+                    .vm
+                    .replace_frame(call.function.slot_count, call.function.captures.clone());
+            }
             None => return Ok(()),
         }
     }
@@ -1150,6 +1227,8 @@ fn make_lambda_from_template(
         // valid for the materialized closure, which shares them.
         trace_ranges: template.trace_ranges.clone(),
         params: crate::object::wrappers::generic::Shared::new(params),
+        slot_count: 0,
+        captures: Captures::default(),
     };
     Ok(TulispValue::CompiledDefun { value: cd }.into_ref(None))
 }
@@ -1714,5 +1793,54 @@ mod tests {
             result
         );
         Ok(())
+    }
+
+    // Every way out of a run leaves the machine's slots as it found
+    // them.
+    #[test]
+    fn locals_are_empty_after_every_run() {
+        let ctx = &mut TulispContext::new();
+        for program in [
+            "(defun f (n) (if (= n 0) 0 (f (- n 1)))) (f 100)",
+            "(let ((a 1)) (let ((b 2)) (+ a b)))",
+            "(condition-case nil (let ((a 1)) (error \"x\")) (error 2))",
+            "(catch 'k (let ((a 1)) (throw 'k a)))",
+            "(funcall (lambda (x) (let ((y x)) y)) 3)",
+            "(let ((a 1)) (error \"escapes\"))",
+        ] {
+            let _ = ctx.eval_string(program);
+            assert_eq!(ctx.debug_locals_len(), 0, "{program}");
+        }
+    }
+
+    #[test]
+    fn locals_are_empty_after_the_depth_limit_error() {
+        // On an 8 MiB stack, as the depth tests in `context.rs` run.
+        std::thread::Builder::new()
+            .stack_size(8 * 1024 * 1024)
+            .spawn(|| {
+                let ctx = &mut TulispContext::new();
+                ctx.set_max_eval_depth(50);
+                let err = ctx
+                    .eval_string("(defun deep (n) (let ((m n)) (+ 1 (deep m)))) (deep 1)")
+                    .unwrap_err();
+                assert!(err.to_string().contains("depth"), "{err}");
+                assert_eq!(ctx.debug_locals_len(), 0);
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    #[test]
+    fn locals_are_empty_after_a_caught_panic() {
+        let mut ctx = TulispContext::new();
+        ctx.defun("boom", || -> i64 { panic!("boom") });
+        let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = ctx.eval_string("(defun g (x) (let ((y x)) (boom))) (g 1)");
+        }));
+        assert!(caught.is_err());
+        assert_eq!(ctx.debug_locals_len(), 0);
+        eval_assert_equal(&mut ctx, "(defun h (x) x) (h 1)", "1");
     }
 }
