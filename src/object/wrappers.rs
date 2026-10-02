@@ -26,11 +26,11 @@ impl<T> DefunFn for T where
 }
 
 /// A check the host gives [`TulispContext::set_interrupt_check`]: a closure
-/// that returns true to stop the running evaluation. With the `sync` feature it
-/// must be `Send`, as it moves with the context, but need not be `Sync`, as
-/// only the context calls it.
-pub trait InterruptCheckFn: FnMut() -> bool + generic::SendIfSync + 'static {}
-impl<T> InterruptCheckFn for T where T: FnMut() -> bool + generic::SendIfSync + 'static {}
+/// that returns an [`Interrupt`](crate::Interrupt), or a `bool`, to stop the
+/// running evaluation. With the `sync` feature it must be `Send`, as it moves
+/// with the context, but need not be `Sync`, as only the context calls it.
+pub trait InterruptCheckFn<R>: FnMut() -> R + generic::SendIfSync + 'static {}
+impl<T, R> InterruptCheckFn<R> for T where T: FnMut() -> R + generic::SendIfSync + 'static {}
 
 /// The closure of a special form: the evaluated arguments, and the
 /// unevaluated ones as forms, each in order.

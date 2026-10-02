@@ -18,7 +18,7 @@ pub use context::callable::{Param, ParamKind, PositionalParam, Return};
 #[doc(hidden)]
 pub use context::special::SpecialCallable;
 pub use context::special::{Form, SpecialArgs, SpecialParam, SpecialPositionalParam};
-pub use context::{Rest, TulispContext};
+pub use context::{Interrupt, Rest, TulispContext};
 
 mod error;
 pub use error::{Error, ErrorKind};

@@ -4,30 +4,59 @@ use std::sync::{Mutex, PoisonError};
 
 use crate::{Error, TulispContext, TulispObject, object::wrappers::InterruptCheckFn};
 
+/// What the interrupt check asks of the running evaluation. A check that
+/// returns a `bool` asks for `Quit` with true.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Interrupt {
+    /// Go on running.
+    Continue,
+    /// Raise `quit`, as Emacs does when the user types `C-g`. A
+    /// `condition-case` handler for `quit` or `t` catches it.
+    Quit,
+    /// Stop the evaluation with an [`ErrorKind::Interrupted`] error that no
+    /// `condition-case` or `catch` catches, with the string as its description.
+    /// `unwind-protect` cleanups still run as it passes. A Rust function can
+    /// end the evaluation the same way by returning [`Error::interrupted`].
+    ///
+    /// [`ErrorKind::Interrupted`]: crate::ErrorKind::Interrupted
+    Stop(String),
+}
+
+impl From<bool> for Interrupt {
+    fn from(quit: bool) -> Self {
+        if quit { Self::Quit } else { Self::Continue }
+    }
+}
+
 /// How many checkpoints pass between two calls of the interrupt check. A
 /// checkpoint is each run of compiled Lisp code (a function body, a protected
 /// body, a handler, a cleanup, a top-level program) and each backward jump.
 pub(super) const INTERRUPT_CHECK_INTERVAL: u32 = 1024;
 
 impl TulispContext {
-    /// Sets CHECK, a closure `FnMut() -> bool`, for stopping a running
-    /// evaluation. While Lisp code runs, the check is called after about every
-    /// 1024 Lisp function calls, loop turns and other runs of compiled Lisp
-    /// code, such as a `catch` body or a macro's expansion, counted together.
-    /// When it returns true, the evaluation raises `quit`, which
-    /// `condition-case` handlers for `error` do not catch; [`Error::is_a`] with
-    /// `"quit"` tells it apart. The check may read a flag, a signal state or a
-    /// clock.
+    /// Sets CHECK, a closure that returns an [`Interrupt`] or a `bool`, for
+    /// stopping a running evaluation. While Lisp code runs, the check is called
+    /// after about every 1024 Lisp function calls, loop turns and other runs of
+    /// compiled Lisp code, such as a `catch` body or a macro's expansion,
+    /// counted together. The check may read a flag, a signal state or a clock.
+    ///
+    /// When it returns [`Interrupt::Quit`] or true, the evaluation raises
+    /// `quit`, which `condition-case` handlers for `error` do not catch;
+    /// [`Error::is_a`] with `"quit"` tells it apart. Handlers for `quit` or `t`
+    /// do, so code that catches `quit` and goes on can run past every check.
+    /// [`Interrupt::Stop`] stops even that code: no handler catches it.
     ///
     /// Like Emacs, which clears `quit-flag` when it raises `quit`, the check
-    /// should clear what made it return true: a check that stays true also
-    /// stops `unwind-protect` cleanups and `quit` handlers that run long, and
-    /// later evaluations as they reach the next check. A Rust function that
-    /// runs long (a builtin, or one added with `defun`) is not stopped while it
-    /// runs, only once it returns to Lisp or calls into it. Unlike in Emacs,
-    /// binding `inhibit-quit` does not hold the check off. With the `sync`
-    /// feature, the check must be `Send`.
-    pub fn set_interrupt_check(&mut self, check: impl InterruptCheckFn) {
+    /// should clear what made it quit or stop the evaluation: a check that
+    /// keeps doing so also stops `unwind-protect` cleanups and handlers that
+    /// run long, and later evaluations as they reach the next check. A Rust
+    /// function that runs long (a builtin, or one added with `defun`) is not
+    /// stopped while it runs, only once it returns to Lisp or calls into it.
+    /// Unlike in Emacs, binding `inhibit-quit` does not hold the check off.
+    /// With the `sync` feature, the check must be `Send`.
+    pub fn set_interrupt_check<R: Into<Interrupt>>(&mut self, mut check: impl InterruptCheckFn<R>) {
+        let check = move || check().into();
         self.interrupt_check = Some(Mutex::new(Box::new(check)));
     }
 
@@ -51,14 +80,14 @@ impl TulispContext {
     #[inline(never)]
     fn poll_interrupt(&mut self) -> Result<(), Error> {
         self.interrupt_countdown = INTERRUPT_CHECK_INTERVAL;
-        let stop = self.interrupt_check.as_mut().is_some_and(|check| {
-            let check = check.get_mut().unwrap_or_else(PoisonError::into_inner);
-            check()
-        });
-        if stop {
-            return Err(self.signal("quit", TulispObject::nil()));
+        let Some(check) = self.interrupt_check.as_mut() else {
+            return Ok(());
+        };
+        match check.get_mut().unwrap_or_else(PoisonError::into_inner)() {
+            Interrupt::Continue => Ok(()),
+            Interrupt::Quit => Err(self.signal("quit", TulispObject::nil())),
+            Interrupt::Stop(message) => Err(Error::interrupted(message)),
         }
-        Ok(())
     }
 }
 
@@ -69,15 +98,43 @@ mod tests {
         atomic::{AtomicBool, AtomicU32, Ordering},
     };
 
-    use crate::{Error, TulispContext, TulispObject, test_utils::eval_assert_equal};
+    use super::Interrupt;
+    use crate::{
+        Error, TulispContext, TulispObject,
+        test_utils::{eval_assert_equal, eval_assert_error_line},
+    };
 
-    /// Sets a check on CTX that returns true from poll FROM_POLL on, and
+    /// Sets a check on CTX that asks for INTERRUPT from poll FROM_POLL on, and
     /// returns its poll count.
-    fn quit_at(ctx: &mut TulispContext, from_poll: u32) -> Arc<AtomicU32> {
+    fn interrupt_at(
+        ctx: &mut TulispContext,
+        from_poll: u32,
+        interrupt: Interrupt,
+    ) -> Arc<AtomicU32> {
         let polls = Arc::new(AtomicU32::new(0));
         let count = polls.clone();
-        ctx.set_interrupt_check(move || count.fetch_add(1, Ordering::Relaxed) + 1 >= from_poll);
+        ctx.set_interrupt_check(move || {
+            if count.fetch_add(1, Ordering::Relaxed) + 1 >= from_poll {
+                interrupt.clone()
+            } else {
+                Interrupt::Continue
+            }
+        });
         polls
+    }
+
+    /// Sets a check on CTX that raises `quit` from poll FROM_POLL on, and
+    /// returns its poll count.
+    fn quit_at(ctx: &mut TulispContext, from_poll: u32) -> Arc<AtomicU32> {
+        interrupt_at(ctx, from_poll, Interrupt::Quit)
+    }
+
+    /// The description of the stop `stop_at` asks for.
+    const OVER_TIME: &str = "over time";
+
+    /// Sets a check on CTX that asks for a stop from poll FROM_POLL on.
+    fn stop_at(ctx: &mut TulispContext, from_poll: u32) {
+        interrupt_at(ctx, from_poll, Interrupt::Stop(OVER_TIME.to_string()));
     }
 
     /// Makes 2^(N+1) - 1 calls, N deep.
@@ -93,6 +150,11 @@ mod tests {
     fn assert_quits(ctx: &mut TulispContext, program: &str) {
         let err = ctx.eval_string(program).expect_err(program);
         assert!(err.is_a(ctx, "quit"), "{program}: {}", err.format(ctx));
+    }
+
+    #[track_caller]
+    fn assert_stops(ctx: &mut TulispContext, program: &str) {
+        eval_assert_error_line(ctx, program, &format!("ERR Interrupted: {OVER_TIME}"));
     }
 
     #[test]
@@ -270,5 +332,38 @@ mod tests {
             &turns.to_string(),
         );
         assert_eq!(polls.load(Ordering::Relaxed), 8);
+    }
+
+    #[test]
+    fn no_handler_catches_a_stop() -> Result<(), Error> {
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string(PING_PONG)?;
+        stop_at(ctx, 2);
+        for handler in ["error", "quit", "t", "(error quit)"] {
+            assert_stops(
+                ctx,
+                &format!("(condition-case nil (ping 1000000) ({handler} 'caught))"),
+            );
+        }
+        assert_stops(ctx, "(catch 'done (ping 1000000))");
+        Ok(())
+    }
+
+    #[test]
+    fn a_stop_ends_code_that_catches_quit_and_goes_on() {
+        let ctx = &mut TulispContext::new();
+        stop_at(ctx, 2);
+        assert_stops(ctx, "(while t (condition-case nil (while t) (quit nil)))");
+    }
+
+    #[test]
+    fn a_stop_runs_unwind_protect_cleanups() -> Result<(), Error> {
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string("(setq cleaned nil)")?;
+        stop_at(ctx, 2);
+        assert_stops(ctx, &format!("(unwind-protect {COUNT} (setq cleaned t))"));
+        ctx.clear_interrupt_check();
+        eval_assert_equal(ctx, "cleaned", "t");
+        Ok(())
     }
 }

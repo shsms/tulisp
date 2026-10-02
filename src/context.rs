@@ -3,6 +3,7 @@ pub(crate) mod special;
 
 mod errors;
 mod interrupt;
+pub use interrupt::Interrupt;
 mod rest;
 pub use rest::Rest;
 
@@ -140,7 +141,7 @@ pub struct TulispContext {
     /// the check only has to be `Send`. It is never locked, only reached
     /// through `&mut self`, so it never poisons: a check that panics stays set
     /// and is called again in the state the panic left it in.
-    interrupt_check: Option<std::sync::Mutex<Box<dyn InterruptCheckFn>>>,
+    interrupt_check: Option<std::sync::Mutex<Box<dyn InterruptCheckFn<Interrupt>>>>,
     /// Checkpoints left before `interrupt_check` is called again.
     interrupt_countdown: u32,
     #[cfg(feature = "etags")]

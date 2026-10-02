@@ -79,7 +79,8 @@ ErrorKind!(
     (Undefined,       pub(crate) undefined),
     (Uninitialized,   pub(crate) uninitialized),
     (ParsingError,    pub(crate) parsing_error),
-    (SyntaxError,     pub(crate) syntax_error);
+    (SyntaxError,     pub(crate) syntax_error),
+    (Interrupted,     pub interrupted);
     /// A `throw`, holding `(TAG . VALUE)`; see [`Error::throw`].
     Throw(TulispObject),
     /// An error symbol raised with its data, by `signal` or
@@ -313,14 +314,15 @@ impl Error {
     /// Whether a `condition-case` handler for CONDITION catches this error in
     /// CTX, following the error's parents. False for a `throw`, which no
     /// handler catches; a Lisp `throw` with no `catch` for its tag is a
-    /// `no-catch` error instead, under `error`.
+    /// `no-catch` error instead, under `error`. False too for an `Interrupted`
+    /// error, from [`Interrupt::Stop`](crate::Interrupt::Stop).
     pub fn is_a(&self, ctx: &TulispContext, condition: &str) -> bool {
         self.symbol_name()
             .is_some_and(|name| ctx.error_table.matches(&name, condition))
     }
 
-    /// The Emacs error symbol `condition-case` matches this error against,
-    /// or `None` for a `throw`, which `condition-case` never catches.
+    /// The Emacs error symbol `condition-case` matches this error against, or
+    /// `None` for a `throw` or a stop, which `condition-case` never catches.
     pub(crate) fn symbol_name(&self) -> Option<Cow<'static, str>> {
         let name = match &self.kind {
             ErrorKind::TypeMismatch | ErrorKind::InvalidArgument => "wrong-type-argument",
@@ -335,7 +337,7 @@ impl Error {
             ErrorKind::OSError | ErrorKind::BrokenPipe => "file-error",
             ErrorKind::PlistError | ErrorKind::AlistError => "wrong-type-argument",
             ErrorKind::Signal { symbol, .. } => return symbol.as_symbol().ok().map(Cow::Owned),
-            ErrorKind::Throw(_) => return None,
+            ErrorKind::Throw(_) | ErrorKind::Interrupted => return None,
         };
         Some(Cow::Borrowed(name))
     }

@@ -126,7 +126,8 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     // not defined under `error`, escape `error`. `t` catches every
     // error. A `throw` is never caught: a Lisp `throw` with no running
     // `catch` for its tag raises `no-catch` instead, but one returned
-    // from Rust stays a `throw`.
+    // from Rust stays a `throw`. Nor is a stop from the host's interrupt
+    // check (`Interrupt::Stop`).
     //
     // VAR holds `(ERROR-SYMBOL . DATA)` in the handler body, DATA a
     // list; a built-in error's DATA is `(MESSAGE)`. It is bound
