@@ -307,8 +307,8 @@ fn run_lambda(
 ) -> Result<TulispObject, Error> {
     let (optional_count, rest_count) = compiled.params.arity().split(args.len())?;
 
-    // Push args in order; `init_defun_args` pops them in reverse
-    // to match `params.required` + `params.optional` + `rest` layout.
+    // Push args in order; `init_defun_args` moves them into the
+    // frame's slots, in the same order.
     let mut guard = RunGuard::new(ctx);
     guard.ctx.vm.stack.extend(args);
 

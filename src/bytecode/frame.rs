@@ -1,9 +1,5 @@
 //! A call's frame: its stretch of the machine's `locals`, and the
 //! cells of the closure it runs.
-#![expect(
-    dead_code,
-    reason = "the slot and capture instructions that read these come in later commits"
-)]
 
 use crate::TulispObject;
 use crate::object::wrappers::generic::{Shared, SharedMut};
@@ -80,11 +76,6 @@ impl Captures {
     pub(crate) fn get(&self, i: usize) -> Option<&Captured> {
         let list: &CaptureList = &self.0;
         list.0.get(i)
-    }
-
-    pub(crate) fn len(&self) -> usize {
-        let list: &CaptureList = &self.0;
-        list.0.len()
     }
 }
 

@@ -63,9 +63,8 @@ fn main() -> Result<(), Error> {
         })?);
     }
 
-    // Defun whose body is a long flat literal — exercises
-    // `substitute_lexical_inner` (per top-level form during
-    // defun preprocessing).
+    // Defun whose body is a long flat literal — exercises compiling a
+    // long body.
     {
         let mut src = String::with_capacity(N * 4 + 64);
         src.push_str("(defun bench-fn () '(");
