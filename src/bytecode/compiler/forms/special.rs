@@ -22,6 +22,7 @@ fn compile_arguments(
     let mut end = ctx.compiler.as_ref().unwrap().next_slot();
     for (index, arg) in args.base_iter().enumerate() {
         if takes_form(kinds, index) {
+            let start = end;
             let compiler = ctx.compiler.as_mut().unwrap();
             compiler.free_slots_to(end);
             let count = compiler.replace_slot_count(end);
@@ -33,6 +34,7 @@ fn compile_arguments(
             blocks.push(FormBlock {
                 block: block?,
                 source: arg,
+                slots: start..end,
             });
         } else {
             result.append(&mut compile_expr_keep_result(ctx, &arg)?);

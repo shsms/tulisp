@@ -363,14 +363,60 @@ pub(crate) fn run_block(
 
 /// Runs BLOCK in FRAME, the frame of the code that holds it, and then
 /// goes back to the running frame. Frames above FRAME's `base` may be
-/// live, so `locals` is left as it is.
+/// live, so `locals` is left as it is. SLOTS are the slots of FRAME the
+/// block binds its variables in: when the block runs inside a run of
+/// its own, they hold the outer run's variables, which are set aside
+/// and put back.
 pub(crate) fn run_block_in_frame(
     ctx: &mut TulispContext,
     block: &Block,
     frame: &FrameState,
+    slots: std::ops::Range<u16>,
 ) -> Result<TulispObject, Error> {
     let scope = FrameScope::in_frame(ctx, frame.clone());
-    run_block(scope.ctx, block, None)
+    let start = frame.base + usize::from(slots.start);
+    let end = frame.base + usize::from(slots.end);
+    let in_use = scope
+        .ctx
+        .vm
+        .locals
+        .get(start..end)
+        .ok_or_else(slot_past_frame)?
+        .iter()
+        .any(|slot| !matches!(slot, Slot::Empty));
+    if !in_use {
+        return run_block(scope.ctx, block, None);
+    }
+    let saved = scope.ctx.vm.locals[start..end]
+        .iter_mut()
+        .map(std::mem::take)
+        .collect();
+    let restore = SetAside {
+        ctx: scope.ctx,
+        start,
+        saved,
+    };
+    run_block(restore.ctx, block, None)
+}
+
+/// Puts slots set aside back in `locals` at START on drop, on any path
+/// out.
+struct SetAside<'a> {
+    ctx: &'a mut TulispContext,
+    start: usize,
+    saved: Vec<Slot>,
+}
+
+impl Drop for SetAside<'_> {
+    fn drop(&mut self) {
+        let start = self.start;
+        let locals = &mut self.ctx.vm.locals;
+        for (index, slot) in std::mem::take(&mut self.saved).into_iter().enumerate() {
+            if let Some(target) = locals.get_mut(start + index) {
+                *target = slot;
+            }
+        }
+    }
 }
 
 /// Like `run_block`, for a cleanup or handler: it, and the calls it
@@ -988,10 +1034,7 @@ fn run_impl_inner(
                 let values: Vec<TulispObject> = ctx.vm.stack.drain(split_at..).collect();
                 let call_forms =
                     crate::context::special::CallForms::new(ctx.vm.id, ctx.vm.frame_state());
-                let forms = blocks
-                    .iter()
-                    .map(|arg| call_forms.form(arg.block.clone(), arg.source.clone()))
-                    .collect();
+                let forms = blocks.iter().map(|arg| call_forms.form(arg)).collect();
                 // The closure re-enters the machine, which re-borrows
                 // this instruction list: release it first.
                 let form = form.clone();

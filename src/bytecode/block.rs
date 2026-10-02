@@ -44,4 +44,7 @@ pub(crate) struct Handler {
 pub(crate) struct FormBlock {
     pub(crate) block: Block,
     pub(crate) source: TulispObject,
+    /// The slots of the caller's frame the block binds its variables
+    /// in.
+    pub(crate) slots: std::ops::Range<u16>,
 }

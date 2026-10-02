@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::bytecode::{Block, FrameState};
+use crate::bytecode::{Block, FormBlock, FrameState};
 use crate::object::wrappers::generic::{Shared, SyncSend};
 use crate::{
     Error, Param, ParamKind, PositionalParam, Rest, Return, TulispContext, TulispConvertible,
@@ -25,6 +25,8 @@ use crate::{
 pub struct Form {
     source: TulispObject,
     block: Block,
+    /// The slots of the caller's frame the form binds its variables in.
+    slots: std::ops::Range<u16>,
     live: Shared<AtomicBool>,
     /// The machine of the call, and its frame.
     machine: u64,
@@ -33,7 +35,7 @@ pub struct Form {
 
 impl Form {
     /// Evaluates the form and returns its value. It may be called any
-    /// number of times during the call.
+    /// number of times during the call, also while it is running.
     pub fn eval(&self, ctx: &mut TulispContext) -> Result<TulispObject, Error> {
         if !self.live.load(Ordering::Relaxed) {
             return Err(
@@ -47,7 +49,7 @@ impl Form {
                     .with_trace(self.source.clone()),
             );
         }
-        crate::bytecode::run_block_in_frame(ctx, &self.block, &self.frame)
+        crate::bytecode::run_block_in_frame(ctx, &self.block, &self.frame, self.slots.clone())
     }
 
     /// Evaluates the form and converts the value, as a
@@ -83,10 +85,11 @@ impl CallForms {
         }
     }
 
-    pub(crate) fn form(&self, block: Block, source: TulispObject) -> Form {
+    pub(crate) fn form(&self, form: &FormBlock) -> Form {
         Form {
-            source,
-            block,
+            source: form.source.clone(),
+            block: form.block.clone(),
+            slots: form.slots.clone(),
             live: self.live.clone(),
             machine: self.machine,
             frame: self.frame.clone(),
@@ -629,6 +632,53 @@ mod tests {
             "(defun t1 () (with-callback (let ((b 2)) b) (let ((a 1)) (list (fire) a))))
              (t1)",
             "'(2 1)",
+        );
+    }
+
+    // A form run again while it runs keeps the variables of its outer
+    // run.
+    #[test]
+    fn a_form_run_inside_itself_keeps_its_variables() {
+        use crate::object::wrappers::generic::SharedMut;
+        let ctx = &mut TulispContext::new();
+        let stored: SharedMut<Option<Form>> = SharedMut::new(None);
+        let keep = stored.clone();
+        ctx.defspecial(
+            "with-recur",
+            move |ctx: &mut TulispContext, body: Form| -> Result<TulispObject, Error> {
+                *keep.borrow_mut() = Some(body.clone());
+                body.eval(ctx)
+            },
+        );
+        ctx.defun(
+            "recur",
+            move |ctx: &mut TulispContext| -> Result<TulispObject, Error> {
+                let form = stored.borrow().clone();
+                match form {
+                    Some(form) => form.eval(ctx),
+                    None => Err(Error::lisp_error("no form")),
+                }
+            },
+        );
+        eval_assert_equal(
+            ctx,
+            "(setq depth 0)
+             (defun t1 ()
+               (with-recur
+                (let ((mine (setq depth (1+ depth))))
+                  (list (when (< depth 3) (recur)) mine))))
+             (t1)",
+            "'(((nil 3) 2) 1)",
+        );
+        eval_assert_equal(
+            ctx,
+            "(setq depth 0)
+             (defun t2 ()
+               (with-recur
+                (let* ((mine (setq depth (1+ depth))) (get (lambda () mine)))
+                  (list (when (< depth 3) (recur)) (funcall get)))))
+             (t2)",
+            "'(((nil 3) 2) 1)",
         );
     }
 }
