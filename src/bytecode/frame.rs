@@ -57,29 +57,28 @@ impl Drop for CaptureList {
 }
 
 /// The cells a closure captured, shared by every copy of the closure.
-#[derive(Clone)]
-pub(crate) struct Captures(Shared<CaptureList>);
-
-impl Default for Captures {
-    fn default() -> Self {
-        Captures(Shared::new(CaptureList(Vec::new())))
-    }
-}
+/// A function that captures nothing holds none, so making, copying and
+/// dropping its list costs nothing.
+#[derive(Clone, Default)]
+pub(crate) struct Captures(Option<Shared<CaptureList>>);
 
 impl Captures {
     pub(crate) fn new(list: Vec<Captured>) -> Self {
-        Captures(Shared::new(CaptureList(list)))
+        if list.is_empty() {
+            Captures(None)
+        } else {
+            Captures(Some(Shared::new(CaptureList(list))))
+        }
     }
 
     #[inline(always)]
     pub(crate) fn get(&self, i: usize) -> Option<&Captured> {
-        let list: &CaptureList = &self.0;
-        list.0.get(i)
+        self.0.as_deref().and_then(|list| list.0.get(i))
     }
 }
 
 /// What a call replaces on entry and puts back on exit.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub(crate) struct FrameState {
     pub(crate) base: usize,
     pub(crate) captures: Captures,

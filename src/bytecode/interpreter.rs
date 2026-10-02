@@ -170,23 +170,21 @@ impl Machine {
         }
     }
 
-    /// Starts a frame of SLOT_COUNT slots above the running one, with
-    /// CAPTURES, and gives back what to restore on leaving it.
-    pub(crate) fn enter_frame_state(&mut self, slot_count: u16, captures: Captures) -> FrameState {
-        let saved = FrameState {
+    /// The running frame's base and captures.
+    pub(crate) fn frame_state(&self) -> FrameState {
+        FrameState {
             base: self.base,
-            captures: std::mem::replace(&mut self.captures, captures),
-        };
-        self.base = self.locals.len();
-        self.reserve_slots(slot_count);
-        saved
+            captures: self.captures.clone(),
+        }
     }
 
-    /// Ends the running frame and goes back to SAVED.
-    pub(crate) fn leave_frame_state(&mut self, saved: FrameState) {
-        self.locals.truncate(self.base);
-        self.base = saved.base;
-        self.captures = saved.captures;
+    /// Makes FRAME the running one and gives back the one it replaces.
+    /// `locals` is left as it is.
+    fn swap_frame(&mut self, frame: FrameState) -> FrameState {
+        FrameState {
+            base: std::mem::replace(&mut self.base, frame.base),
+            captures: std::mem::replace(&mut self.captures, frame.captures),
+        }
     }
 
     /// Makes the running frame one of SLOT_COUNT slots with CAPTURES,
@@ -219,27 +217,47 @@ fn next_machine_id() -> u64 {
     NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
-/// Leaves a frame on drop, on any path out, a panic included.
+/// Goes back to the frame that was running before on drop, on any path
+/// out, a panic included.
 struct FrameScope<'a> {
     ctx: &'a mut TulispContext,
-    saved: Option<FrameState>,
+    saved: FrameState,
+    /// Whether the frame left is this scope's own, whose slots go.
+    owns_slots: bool,
 }
 
 impl<'a> FrameScope<'a> {
+    /// Starts a frame of SLOT_COUNT slots above the running one, with
+    /// CAPTURES.
     fn new(ctx: &'a mut TulispContext, slot_count: u16, captures: Captures) -> Self {
-        let saved = ctx.vm.enter_frame_state(slot_count, captures);
+        let base = ctx.vm.locals.len();
+        let saved = ctx.vm.swap_frame(FrameState { base, captures });
+        ctx.vm.reserve_slots(slot_count);
         FrameScope {
             ctx,
-            saved: Some(saved),
+            saved,
+            owns_slots: true,
+        }
+    }
+
+    /// Runs in FRAME, an existing frame, whose slots stay when it ends.
+    fn in_frame(ctx: &'a mut TulispContext, frame: FrameState) -> Self {
+        let saved = ctx.vm.swap_frame(frame);
+        FrameScope {
+            ctx,
+            saved,
+            owns_slots: false,
         }
     }
 }
 
 impl Drop for FrameScope<'_> {
     fn drop(&mut self) {
-        if let Some(saved) = self.saved.take() {
-            self.ctx.vm.leave_frame_state(saved);
+        let vm = &mut self.ctx.vm;
+        if self.owns_slots {
+            vm.locals.truncate(vm.base);
         }
+        vm.swap_frame(std::mem::take(&mut self.saved));
     }
 }
 
@@ -351,27 +369,8 @@ pub(crate) fn run_block_in_frame(
     block: &Block,
     frame: &FrameState,
 ) -> Result<TulispObject, Error> {
-    struct Restore<'a> {
-        ctx: &'a mut TulispContext,
-        saved: Option<FrameState>,
-    }
-    impl Drop for Restore<'_> {
-        fn drop(&mut self) {
-            if let Some(saved) = self.saved.take() {
-                self.ctx.vm.base = saved.base;
-                self.ctx.vm.captures = saved.captures;
-            }
-        }
-    }
-    let saved = FrameState {
-        base: std::mem::replace(&mut ctx.vm.base, frame.base),
-        captures: std::mem::replace(&mut ctx.vm.captures, frame.captures.clone()),
-    };
-    let restore = Restore {
-        ctx,
-        saved: Some(saved),
-    };
-    run_block(restore.ctx, block, None)
+    let scope = FrameScope::in_frame(ctx, frame.clone());
+    run_block(scope.ctx, block, None)
 }
 
 /// Like `run_block`, for a cleanup or handler: it, and the calls it
@@ -683,7 +682,7 @@ fn run_impl_inner(
                 let a = obj.get().map_err(|e| e.with_trace(obj.clone()))?;
                 ctx.vm.stack.push(a);
             }
-            Instruction::BindLocal(n) => {
+            Instruction::BindLocal(n) | Instruction::StorePopLocal(n) => {
                 let value = ctx.vm.stack.pop().ok_or_else(empty_stack)?;
                 *slot_mut(&mut ctx.vm, *n)? = Slot::Value(value);
             }
@@ -692,7 +691,7 @@ fn run_impl_inner(
                 *slot_mut(&mut ctx.vm, *n)? = Slot::Cell(SharedMut::new(Some(value)));
             }
             Instruction::LoadLocal(n) => {
-                let value = match slot_mut(&mut ctx.vm, *n)? {
+                let value = match slot(&ctx.vm, *n)? {
                     Slot::Value(value) => value.clone(),
                     // A missing optional argument.
                     Slot::Empty => TulispObject::nil(),
@@ -708,14 +707,10 @@ fn run_impl_inner(
                 let value = ctx.vm.stack.last().cloned().ok_or_else(empty_stack)?;
                 *slot_mut(&mut ctx.vm, *n)? = Slot::Value(value);
             }
-            Instruction::StorePopLocal(n) => {
-                let value = ctx.vm.stack.pop().ok_or_else(empty_stack)?;
-                *slot_mut(&mut ctx.vm, *n)? = Slot::Value(value);
-            }
             Instruction::LoadCell(n) => {
                 // `BindCell` always stores a value, so an empty cell
                 // here is a compiler bug.
-                let value = slot_cell(&mut ctx.vm, *n)?
+                let value = slot_cell(&ctx.vm, *n)?
                     .borrow()
                     .clone()
                     .ok_or_else(|| Error::lisp_error("internal: an empty cell in a slot"))?;
@@ -723,16 +718,19 @@ fn run_impl_inner(
             }
             Instruction::StoreCell(n) => {
                 let value = ctx.vm.stack.last().cloned().ok_or_else(empty_stack)?;
-                *slot_cell(&mut ctx.vm, *n)?.borrow_mut() = Some(value);
+                *slot_cell(&ctx.vm, *n)?.borrow_mut() = Some(value);
             }
             Instruction::StorePopCell(n) => {
                 let value = ctx.vm.stack.pop().ok_or_else(empty_stack)?;
-                *slot_cell(&mut ctx.vm, *n)?.borrow_mut() = Some(value);
+                *slot_cell(&ctx.vm, *n)?.borrow_mut() = Some(value);
             }
             Instruction::ClearLocals { from, to } => {
-                for n in *from..*to {
-                    *slot_mut(&mut ctx.vm, n)? = Slot::default();
-                }
+                let vm = &mut ctx.vm;
+                let range = vm.base + usize::from(*from)..vm.base + usize::from(*to);
+                vm.locals
+                    .get_mut(range)
+                    .ok_or_else(slot_past_frame)?
+                    .fill_with(Slot::default);
             }
             Instruction::LoadCapture(index) => {
                 let captured = capture(&ctx.vm.captures, *index)?;
@@ -988,13 +986,8 @@ fn run_impl_inner(
             } => {
                 let split_at = ctx.vm.stack.len() - *eager_count;
                 let values: Vec<TulispObject> = ctx.vm.stack.drain(split_at..).collect();
-                let call_forms = crate::context::special::CallForms::new(
-                    ctx.vm.id,
-                    FrameState {
-                        base: ctx.vm.base,
-                        captures: ctx.vm.captures.clone(),
-                    },
-                );
+                let call_forms =
+                    crate::context::special::CallForms::new(ctx.vm.id, ctx.vm.frame_state());
                 let forms = blocks
                     .iter()
                     .map(|arg| call_forms.form(arg.block.clone(), arg.source.clone()))
@@ -1247,14 +1240,7 @@ fn make_lambda(ctx: &TulispContext, template: &LambdaTemplate) -> Result<TulispO
     let mut cells = Vec::with_capacity(template.captures.len());
     for (source, name) in &template.captures {
         let cell = match source {
-            CaptureSource::Local(n) => match ctx.vm.locals.get(ctx.vm.base + usize::from(*n)) {
-                Some(Slot::Cell(cell)) => cell.clone(),
-                _ => {
-                    return Err(Error::lisp_error(
-                        "internal: a capture of a slot that holds no cell",
-                    ));
-                }
-            },
+            CaptureSource::Local(n) => slot_cell(&ctx.vm, *n)?.clone(),
             CaptureSource::Capture(index) => capture(&ctx.vm.captures, *index)?.cell.clone(),
         };
         cells.push(Captured {
@@ -1276,10 +1262,18 @@ fn slot_mut(vm: &mut Machine, n: u16) -> Result<&mut Slot, Error> {
     vm.locals.get_mut(index).ok_or_else(slot_past_frame)
 }
 
+/// Slot N of the running frame, to read.
+#[inline(always)]
+fn slot(vm: &Machine, n: u16) -> Result<&Slot, Error> {
+    vm.locals
+        .get(vm.base + usize::from(n))
+        .ok_or_else(slot_past_frame)
+}
+
 /// The cell in slot N of the running frame.
 #[inline(always)]
-fn slot_cell(vm: &mut Machine, n: u16) -> Result<&crate::bytecode::Cell, Error> {
-    match slot_mut(vm, n)? {
+fn slot_cell(vm: &Machine, n: u16) -> Result<&crate::bytecode::Cell, Error> {
+    match slot(vm, n)? {
         Slot::Cell(cell) => Ok(cell),
         Slot::Value(_) | Slot::Empty => Err(Error::lisp_error(
             "internal: a value where a cell was expected",
