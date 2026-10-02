@@ -116,6 +116,8 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     // supersedes (masks) the BODYFORM's value or error. The
     // `UnwindProtect` instruction keeps this with `Result::and`: the
     // cleanup's error when there is one, otherwise BODYFORM's result.
+    // No error or `throw` from a cleanup masks an `Interrupted` error, a
+    // stop (see `Interrupt::Stop`).
     ctx.define_special_form("unwind-protect");
 
     // `(condition-case VAR PROTECTED-FORM HANDLER...)` runs

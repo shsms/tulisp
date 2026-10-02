@@ -16,8 +16,9 @@ pub enum Interrupt {
     Quit,
     /// Stop the evaluation with an [`ErrorKind::Interrupted`] error that no
     /// `condition-case` or `catch` catches, with the string as its description.
-    /// `unwind-protect` cleanups still run as it passes. A Rust function can
-    /// end the evaluation the same way by returning [`Error::interrupted`].
+    /// `unwind-protect` cleanups still run as it passes, and an error or
+    /// `throw` from one does not replace it. A Rust function can end the
+    /// evaluation the same way by returning [`Error::interrupted`].
     ///
     /// [`ErrorKind::Interrupted`]: crate::ErrorKind::Interrupted
     Stop(String),
@@ -365,5 +366,19 @@ mod tests {
         ctx.clear_interrupt_check();
         eval_assert_equal(ctx, "cleaned", "t");
         Ok(())
+    }
+
+    #[test]
+    fn a_cleanup_does_not_replace_a_stop() {
+        let ctx = &mut TulispContext::new();
+        stop_at(ctx, 2);
+        assert_stops(
+            ctx,
+            "(condition-case nil (unwind-protect (while t) (error \"cleanup\")) (error 'caught))",
+        );
+        assert_stops(
+            ctx,
+            "(catch 'done (unwind-protect (while t) (throw 'done 'escaped)))",
+        );
     }
 }

@@ -3,7 +3,7 @@ use super::{
     bytecode::CompiledDefun, bytecode::TraceRange, compiler::DefunParams,
 };
 use crate::{
-    Error, Number, TulispContext, TulispObject, TulispValue, bytecode::Pos,
+    Error, ErrorKind, Number, TulispContext, TulispObject, TulispValue, bytecode::Pos,
     object::wrappers::generic::SharedMut, plist,
 };
 use std::collections::HashMap;
@@ -756,7 +756,11 @@ fn run_impl_inner(
                 let result = run_block(ctx, &body, None);
                 let cleaned = run_block_with_reserve(ctx, &cleanup, None);
                 instr_ref = program.borrow_mut();
-                ctx.vm.stack.push(cleaned.and(result)?);
+                let result = match result {
+                    Err(e) if matches!(e.kind_ref(), ErrorKind::Interrupted) => Err(e),
+                    result => cleaned.and(result),
+                };
+                ctx.vm.stack.push(result?);
             }
             Instruction::Raise(err) => return Err((**err).clone()),
             Instruction::DefVar(sym) => {
