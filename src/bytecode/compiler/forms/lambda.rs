@@ -18,115 +18,122 @@ use crate::{
 /// closure of it each time the form runs.
 pub(super) fn compile_fn_lambda(
     ctx: &mut TulispContext,
-    name: &TulispObject,
+    _name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    ctx.compile_1_arg_call(name, args, true, |ctx, params, body| {
-        crate::builtin::check_param_list(ctx, params)?;
-        // Strip an optional docstring as the first body form.
-        let body = if body.car()?.stringp() {
-            body.cdr()?
-        } else {
-            body.clone()
-        };
+    let template = compile_lambda(ctx, args)?;
+    let mut result = Vec::with_capacity(1);
+    if ctx.compiler.as_ref().unwrap().keep_result {
+        result.push(Instruction::MakeLambda(Shared::new(template)));
+    }
+    Ok(result)
+}
 
-        // Parse params: required, &optional group, &rest group.
-        let mut param_names: Vec<TulispObject> = Vec::new();
-        let mut vm_params = DefunParams {
-            required: Vec::new(),
-            optional: Vec::new(),
-            rest: None,
-        };
-        // First pass: validate &optional / &rest ordering and collect
-        // raw param names. The actual is_optional / is_rest tracking
-        // for the bindings happens in the second pass below.
-        let mut seen_rest = false;
-        let mut rest_named = false;
-        let mut params_iter = params.base_iter();
-        for p in params_iter.by_ref() {
+/// Compiles ARGS, `(PARAMS BODY...)` of a `lambda` form, into the
+/// template its closures are made from.
+pub(super) fn compile_lambda(
+    ctx: &mut TulispContext,
+    args: &TulispObject,
+) -> Result<LambdaTemplate, Error> {
+    // `(lambda)` has no parameters and no body.
+    let params = args.car()?;
+    let body = args.cdr()?;
+    crate::builtin::check_param_list(ctx, &params)?;
+    // Strip an optional docstring as the first body form.
+    let body = if body.car()?.stringp() {
+        body.cdr()?
+    } else {
+        body
+    };
+
+    // Parse params: required, &optional group, &rest group.
+    let mut param_names: Vec<TulispObject> = Vec::new();
+    let mut vm_params = DefunParams {
+        required: Vec::new(),
+        optional: Vec::new(),
+        rest: None,
+    };
+    // First pass: validate &optional / &rest ordering and collect
+    // raw param names. The actual is_optional / is_rest tracking
+    // for the bindings happens in the second pass below.
+    let mut seen_rest = false;
+    let mut rest_named = false;
+    let mut params_iter = params.base_iter();
+    for p in params_iter.by_ref() {
+        if p.eq(&ctx.keywords.amp_optional) {
+            if seen_rest {
+                return Err(
+                    Error::new(ErrorKind::Undefined, "optional after rest".to_string())
+                        .with_trace(p),
+                );
+            }
+            continue;
+        }
+        if p.eq(&ctx.keywords.amp_rest) {
+            if seen_rest {
+                return Err(
+                    Error::new(ErrorKind::Undefined, "rest after rest".to_string()).with_trace(p),
+                );
+            }
+            seen_rest = true;
+            continue;
+        }
+        if seen_rest {
+            if rest_named {
+                return Err(Error::type_mismatch(
+                    "Too many &rest parameters".to_string(),
+                ));
+            }
+            rest_named = true;
+        }
+        crate::builtin::check_not_nil_or_t(&p)?;
+        param_names.push(p);
+    }
+
+    params_iter.take_error()?;
+    // Populate DefunParams from the names, honoring &optional /
+    // &rest positions from the original declaration.
+    {
+        let mut names = param_names.iter();
+        let mut is_optional = false;
+        let mut is_rest = false;
+        for p in params.base_iter() {
             if p.eq(&ctx.keywords.amp_optional) {
-                if seen_rest {
-                    return Err(Error::new(
-                        ErrorKind::Undefined,
-                        "optional after rest".to_string(),
-                    )
-                    .with_trace(p));
-                }
+                is_optional = true;
                 continue;
             }
             if p.eq(&ctx.keywords.amp_rest) {
-                if seen_rest {
-                    return Err(
-                        Error::new(ErrorKind::Undefined, "rest after rest".to_string())
-                            .with_trace(p),
-                    );
-                }
-                seen_rest = true;
+                is_optional = false;
+                is_rest = true;
                 continue;
             }
-            if seen_rest {
-                if rest_named {
-                    return Err(Error::type_mismatch(
-                        "Too many &rest parameters".to_string(),
-                    ));
-                }
-                rest_named = true;
-            }
-            crate::builtin::check_not_nil_or_t(&p)?;
-            param_names.push(p);
-        }
-
-        params_iter.take_error()?;
-        // Populate DefunParams from the names, honoring &optional /
-        // &rest positions from the original declaration.
-        {
-            let mut names = param_names.iter();
-            let mut is_optional = false;
-            let mut is_rest = false;
-            for p in params.base_iter() {
-                if p.eq(&ctx.keywords.amp_optional) {
-                    is_optional = true;
-                    continue;
-                }
-                if p.eq(&ctx.keywords.amp_rest) {
-                    is_optional = false;
-                    is_rest = true;
-                    continue;
-                }
-                let Some(name) = names.next() else { break };
-                if is_rest {
-                    vm_params.rest = Some(name.clone());
-                } else if is_optional {
-                    vm_params.optional.push(name.clone());
-                } else {
-                    vm_params.required.push(name.clone());
-                }
+            let Some(name) = names.next() else { break };
+            if is_rest {
+                vm_params.rest = Some(name.clone());
+            } else if is_optional {
+                vm_params.optional.push(name.clone());
+            } else {
+                vm_params.required.push(name.clone());
             }
         }
+    }
 
-        let (instructions, scope) = compile_function_body(ctx, &param_names, &body)?;
+    let (instructions, scope) = compile_function_body(ctx, &param_names, &body)?;
 
-        // Assemble the body so the lambda's runtime path pays
-        // nothing for trace markers or labels.
-        let (instructions, trace_ranges) = crate::bytecode::bytecode::assemble(instructions)?;
+    // Assemble the body so the lambda's runtime path pays
+    // nothing for trace markers or labels.
+    let (instructions, trace_ranges) = crate::bytecode::bytecode::assemble(instructions)?;
 
-        let template = LambdaTemplate {
-            function: CompiledDefun {
-                name: TulispObject::nil(),
-                instructions: SharedMut::new(instructions),
-                trace_ranges: Shared::new(trace_ranges),
-                params: Shared::new(vm_params),
-                slot_count: scope.slot_count,
-                captures: Captures::default(),
-            },
-            capture_sources: scope.capture_sources,
-        };
-
-        let mut result = Vec::with_capacity(1);
-        if ctx.compiler.as_ref().unwrap().keep_result {
-            result.push(Instruction::MakeLambda(Shared::new(template)));
-        }
-        Ok(result)
+    Ok(LambdaTemplate {
+        function: CompiledDefun {
+            name: TulispObject::nil(),
+            instructions: SharedMut::new(instructions),
+            trace_ranges: Shared::new(trace_ranges),
+            params: Shared::new(vm_params),
+            slot_count: scope.slot_count,
+            captures: Captures::default(),
+        },
+        capture_sources: scope.capture_sources,
     })
 }
 
@@ -711,5 +718,13 @@ mod tests {
             "(funcall (lambda (:k) (let ((f (lambda () :k))) (setq :k 5) (funcall f))) 1)",
             "5",
         );
+    }
+
+    // A lambda form with no parameter list is a function of no
+    // arguments that gives nil, as in Emacs.
+    #[test]
+    fn a_lambda_without_parameters() {
+        eval_assert_equal_fresh("((lambda))", "nil");
+        eval_assert_equal_fresh("(funcall (lambda))", "nil");
     }
 }

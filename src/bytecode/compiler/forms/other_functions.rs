@@ -269,41 +269,33 @@ fn compile_lambda_head_call(
     // in a `defun`. The lambda is no name its body can call, so it is
     // the function in progress: a tail call to the enclosing `defun` is
     // no self call here.
-    let rest = lambda.cdr()?;
-    let body = mark_tail_calls(ctx, lambda.clone(), rest.cdr()?)?;
-    let rest = TulispObject::cons(rest.car()?, body);
+    let mut rest = lambda.cdr()?;
+    if rest.consp() {
+        let body = mark_tail_calls(ctx, lambda.clone(), rest.cdr()?)?;
+        rest = TulispObject::cons(rest.car()?, body);
+    }
     let compiler = ctx.compiler.as_mut().unwrap();
-    let keep_result = std::mem::replace(&mut compiler.keep_result, true);
     let prev_defun = compiler.current_defun.replace(lambda.clone());
-    let made = super::lambda::compile_fn_lambda(ctx, &lambda.car()?, &rest);
-    let compiler = ctx.compiler.as_mut().unwrap();
-    compiler.keep_result = keep_result;
-    compiler.current_defun = prev_defun;
-    let mut made = made?;
-    let template = match made.as_slice() {
-        [Instruction::MakeLambda(template)] => template.clone(),
-        _ => {
-            return Err(Error::lisp_error(
-                "internal: a lambda compiled to something other than one MakeLambda",
-            ));
-        }
-    };
+    let template = super::lambda::compile_lambda(ctx, &rest);
+    ctx.compiler.as_mut().unwrap().current_defun = prev_defun;
+    let template = template?;
+    let closes = !template.capture_sources.is_empty();
     let mut result = vec![];
     let mut args_count = 0;
-    if template.capture_sources.is_empty() {
+    if closes {
+        result.push(Instruction::MakeLambda(Shared::new(template)));
+    } else {
         let function = CompiledDefun {
             name: lambda.clone(),
-            ..template.function.clone()
+            ..template.function
         };
         install_function(ctx, lambda, function);
-    } else {
-        result.append(&mut made);
     }
     for arg in args.base_iter() {
         result.append(&mut compile_expr_keep_result(ctx, &arg)?);
         args_count += 1;
     }
-    if template.capture_sources.is_empty() {
+    if !closes {
         let synthetic_form = TulispObject::cons(lambda.clone(), args.clone());
         result.push(Instruction::Call {
             name: lambda.clone(),
@@ -316,7 +308,7 @@ fn compile_lambda_head_call(
     } else {
         result.push(Instruction::Funcall { args_count });
     }
-    if !keep_result {
+    if !ctx.compiler.as_ref().unwrap().keep_result {
         result.push(Instruction::Pop);
     }
     Ok(result)
