@@ -497,6 +497,19 @@ mod tests {
     };
     use crate::{Error, TulispContext};
 
+    // `eval` runs a form; a `let` variable is gone after its `let`.
+    #[test]
+    fn eval_runs_a_form() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(eval '(mod 32 5))", "2");
+        eval_assert_error(
+            ctx,
+            "(let ((j 10)) (+ j j))(+ j 1)",
+            "ERR Uninitialized: Variable definition is void: j\n\
+             <eval_string>:1.23-1.29:  at (+ j 1)\n",
+        );
+    }
+
     #[test]
     fn format_fills_in_and_pads_its_specs() {
         let ctx = &mut TulispContext::new();

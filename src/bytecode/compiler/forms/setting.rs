@@ -162,7 +162,9 @@ pub(super) fn compile_fn_let_star(
 
 #[cfg(test)]
 mod tests {
-    use crate::test_utils::{eval_assert_equal, eval_assert_equal_fresh, eval_assert_error_line};
+    use crate::test_utils::{
+        eval_assert_equal, eval_assert_equal_fresh, eval_assert_error, eval_assert_error_line,
+    };
     use crate::{Error, TulispContext};
 
     // `setq` sets each pair in order, so a value sees the pairs
@@ -201,5 +203,83 @@ mod tests {
         );
 
         Ok(())
+    }
+
+    // `(append nil x)` returns `x` directly under Emacs semantics:
+    // the last arg is shared, not wrapped.
+    #[test]
+    fn let_binds_and_reports_bad_varitems() {
+        eval_assert_equal_fresh(
+            "(let ((kk) (vv (+ 55 1)) (jj 20)) (append kk (+ vv jj 1)))",
+            "77",
+        );
+        eval_assert_equal_fresh(
+            "(let (kk (vv (+ 55 1)) (jj 20)) (append kk (+ vv jj 1)))",
+            "77",
+        );
+        eval_assert_error(
+            &mut TulispContext::new(),
+            r#"
+        (let ((vv (+ 55 1))
+              (jj 20))
+          (append kk (+ vv jj 1)))
+        "#,
+            "ERR Uninitialized: Variable definition is void: kk\n\
+             <eval_string>:4.11-4.33:  at (append kk (+ vv jj 1))\n\
+             <eval_string>:2.9-4.34:  at (let ((vv (+ 55 1)) (jj 20)) (append kk (+ vv jj 1)))\n",
+        );
+        eval_assert_error(
+            &mut TulispContext::new(),
+            "(let ((22 (+ 55 1)) (jj 20)) (+ vv jj 1))",
+            "ERR TypeMismatch: Expected Symbol: Can't assign to 22\n\
+             <eval_string>:1.1-1.41:  at (let ((22 (+ 55 1)) (jj 20)) (+ vv jj 1))\n",
+        );
+        eval_assert_error(
+            &mut TulispContext::new(),
+            "(let (18 (vv (+ 55 1)) (jj 20)) (+ vv jj 1))",
+            "ERR SyntaxError: varitems inside a let-varlist should be a var or a binding: 18\n\
+             <eval_string>:1.1-1.44:  at (let (18 (vv (+ 55 1)) (jj 20)) (+ vv jj 1))\n",
+        );
+        eval_assert_equal_fresh("(let ((vv (+ 55 1)) (jj 20)) (+ vv jj 1))", "77");
+        eval_assert_equal_fresh(
+            "(let* ((vv 21) (jj (+ vv 1))) (setq jj (+ 21 jj)) jj)",
+            "43",
+        );
+    }
+
+    // Each of these is nil, as in Emacs, also where a value is needed.
+    #[test]
+    fn empty_bodies_give_nil() {
+        eval_assert_equal_fresh("(progn)", "nil");
+        eval_assert_equal_fresh("(let ((x 5)))", "nil");
+        eval_assert_equal_fresh("(let* ((x 5)))", "nil");
+        eval_assert_equal_fresh("(if t (progn) 'else)", "nil");
+    }
+
+    // A `let` whose value is discarded still runs its initialisers,
+    // even when its body compiles to nothing.
+    #[test]
+    fn a_discarded_let_runs_its_initialisers() {
+        eval_assert_equal_fresh(
+            "(progn (setq c 0) (let ((a (progn (setq c (1+ c)) c))) a) c)",
+            "1",
+        );
+        eval_assert_equal_fresh(
+            "(progn (setq c 0) (let* ((a (progn (setq c (1+ c)) c))) a) c)",
+            "1",
+        );
+        eval_assert_equal_fresh(
+            "(progn (setq c 0) (let ((_ (progn (setq c (1+ c)) c))) t) c)",
+            "1",
+        );
+        eval_assert_equal_fresh(
+            "(progn
+               (setq c 0)
+               (defun bump () (setq c (1+ c)) c)
+               (let ((a (bump))) t)
+               (let ((b (bump))) t)
+               c)",
+            "2",
+        );
     }
 }
