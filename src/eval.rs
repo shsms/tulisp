@@ -450,24 +450,24 @@ fn with_call_span(expansion: TulispObject, call: &TulispObject) -> TulispObject 
     }
 }
 
-/// The `X` of a `` `X ``, `,X`, `,@X` or `'X` that a walker
-/// over code goes into, with the backquote depth to walk
-/// it at. See [`wrapped_operand`].
-pub(crate) struct WrappedOperand {
-    pub(crate) value: TulispObject,
-    pub(crate) depth: u32,
+/// The `X` of a `` `X ``, `,X`, `,@X` or `'X` that macro expansion
+/// goes into, with the backquote depth to expand it at. See
+/// [`wrapped_operand`].
+struct WrappedOperand {
+    value: TulispObject,
+    depth: u32,
     wrap: fn(TulispObject) -> TulispValue,
     span: Option<crate::object::Span>,
 }
 
 impl WrappedOperand {
     /// Wraps `value` as `X` was wrapped.
-    pub(crate) fn rewrap(&self, value: TulispObject) -> TulispObject {
+    fn rewrap(&self, value: TulispObject) -> TulispObject {
         (self.wrap)(value).into_ref(self.span)
     }
 }
 
-/// The operand of `obj` that may hold variables, when `obj` is at
+/// The operand of `obj` that may hold code, when `obj` is at
 /// backquote depth `depth`, 0 being code. A backquote adds a level
 /// and `,` or `,@` takes one away. `'X` is data in code, but inside a
 /// backquote it is part of the template, and an unquote in it still
@@ -476,11 +476,7 @@ impl WrappedOperand {
 /// `in_tail` is for the dotted tail of a list. Emacs reads
 /// `(a . ,@X)` as `(a \,@ X)`, so inside a backquote that `X` is at
 /// the depth of `a`.
-pub(crate) fn wrapped_operand(
-    obj: &TulispObject,
-    depth: u32,
-    in_tail: bool,
-) -> Option<WrappedOperand> {
+fn wrapped_operand(obj: &TulispObject, depth: u32, in_tail: bool) -> Option<WrappedOperand> {
     type Wrap = fn(TulispObject) -> TulispValue;
     let inner = obj.inner_ref();
     let (value, depth, wrap): (&TulispObject, u32, Wrap) = match &inner.0 {
@@ -524,11 +520,9 @@ pub(crate) fn wrapped_operand(
     })
 }
 
-/// How the walkers over code (macro expansion, the rewrite of lexical
-/// variables and the search for a closure's free variables) read a
-/// list at code level: which of its elements are forms, and which are
-/// names.
-pub(crate) enum FormShape {
+/// How macro expansion reads a list at code level: which of its
+/// elements are forms, and which are names.
+enum FormShape {
     /// `(quote X)`: nothing in it runs.
     Quote,
     /// `(lambda PARAMS BODY...)`.
@@ -554,7 +548,7 @@ pub(crate) enum FormShape {
 
 impl FormShape {
     /// The shape of `form`, a list at code level.
-    pub(crate) fn of(form: &TulispObject) -> FormShape {
+    fn of(form: &TulispObject) -> FormShape {
         let Ok(head) = form.car() else {
             return FormShape::Call;
         };
@@ -578,7 +572,7 @@ impl FormShape {
     /// level, are its head or names it binds or defines rather than
     /// forms. The rest of a `Lambda`, `Defun`, `Defvar`, `TailCall` or
     /// `Call` are forms. A `Call`'s head is a name when it is a symbol.
-    pub(crate) fn names_at_start(form: &TulispObject) -> usize {
+    fn names_at_start(form: &TulispObject) -> usize {
         match FormShape::of(form) {
             FormShape::Defun => 3,
             FormShape::Lambda | FormShape::Defvar | FormShape::TailCall => 2,
