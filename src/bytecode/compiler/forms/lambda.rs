@@ -690,4 +690,12 @@ mod tests {
         assert!(l.contains("load_capture 0"), "{l}");
         assert!(l.contains("store_capture 0"), "{l}");
     }
+
+    // A keyword can name a parameter, as in Emacs.
+    #[test]
+    fn a_keyword_parameter_reads_its_argument() {
+        eval_assert_equal_fresh("(funcall (lambda (:k) :k) 1)", "1");
+        eval_assert_equal_fresh("(defun kk (&optional :z) :z) (kk 5)", "5");
+        eval_assert_equal_fresh("(defun kk (&optional :z) :z) (kk)", "nil");
+    }
 }

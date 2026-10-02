@@ -628,11 +628,10 @@ pub(crate) fn compile_expr(
             if !compiler.keep_result {
                 return Ok(vec![]);
             }
-            if expr.keywordp() {
-                return Ok(vec![Instruction::Push(expr.clone())]);
-            }
             drop(expr_ref);
+            // A keyword is its own value, unless it names a parameter.
             Ok(vec![match resolve(ctx, expr)? {
+                Resolved::Global if expr.keywordp() => Instruction::Push(expr.clone()),
                 Resolved::Global => Instruction::Load(expr.clone()),
                 Resolved::Slot {
                     slot,
