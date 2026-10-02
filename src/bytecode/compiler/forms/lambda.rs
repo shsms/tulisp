@@ -119,7 +119,7 @@ pub(super) fn compile_fn_lambda(
                 slot_count: scope.slot_count,
                 captures: Captures::default(),
             },
-            captures: scope.captures,
+            capture_sources: scope.capture_sources,
         };
 
         let mut result = Vec::with_capacity(1);

@@ -25,5 +25,5 @@ pub(crate) struct LambdaTemplate {
     pub(crate) function: CompiledDefun,
     /// One entry per captured variable, in `LoadCapture` index order,
     /// with the variable's name.
-    pub(crate) captures: Vec<(CaptureSource, TulispObject)>,
+    pub(crate) capture_sources: Vec<(CaptureSource, TulispObject)>,
 }

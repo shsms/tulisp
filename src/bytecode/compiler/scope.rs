@@ -27,7 +27,7 @@ pub(crate) struct FunctionScope {
     /// The variables of enclosing functions this one uses, in the
     /// order of the cells of a closure made from it: where each cell
     /// comes from, and the variable's name.
-    pub(crate) captures: Vec<(CaptureSource, TulispObject)>,
+    pub(crate) capture_sources: Vec<(CaptureSource, TulispObject)>,
     /// The slot the next variable takes; a slot is free again once its
     /// variable leaves the scope.
     pub(crate) next_slot: u16,
@@ -193,7 +193,7 @@ fn resolve_in(
         });
     }
     if let Some(index) = function
-        .captures
+        .capture_sources
         .iter()
         .position(|(_, captured)| captured.eq(name))
     {
@@ -211,9 +211,9 @@ fn resolve_in(
         }
         Resolved::Capture(index) => CaptureSource::Capture(index),
     };
-    let captures = &mut compiler.functions[depth].captures;
-    let index = capture_index(captures.len())?;
-    captures.push((source, name.clone()));
+    let sources = &mut compiler.functions[depth].capture_sources;
+    let index = capture_index(sources.len())?;
+    sources.push((source, name.clone()));
     Ok(Resolved::Capture(index))
 }
 

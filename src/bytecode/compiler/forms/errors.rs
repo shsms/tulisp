@@ -71,7 +71,7 @@ pub(super) fn compile_fn_condition_case(
             } else if !binds {
                 compile_block(ctx, &forms, None)?
             } else if var.is_special() {
-                compile_block(ctx, &forms, Some(BlockBinding::Dynamic(var.clone())))?
+                compile_block(ctx, &forms, Some(BlockBinding::Special(var.clone())))?
             } else {
                 compile_block(ctx, &forms, Some(BlockBinding::Lexical(var.clone())))?
             };

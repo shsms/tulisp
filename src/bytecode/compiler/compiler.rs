@@ -343,7 +343,7 @@ pub(crate) fn compile_progn_keep_result(
 /// The variable a block binds to the value its runner pushes.
 pub(crate) enum BlockBinding {
     /// A special variable, bound on its symbol's own stack.
-    Dynamic(TulispObject),
+    Special(TulispObject),
     /// A lexical variable, in a slot of the function's frame.
     Lexical(TulispObject),
 }
@@ -360,7 +360,7 @@ pub(crate) fn compile_block(
     let mut instructions = Vec::new();
     let mut slot = None;
     match &binding {
-        Some(BlockBinding::Dynamic(symbol)) => {
+        Some(BlockBinding::Special(symbol)) => {
             instructions.push(Instruction::BeginScope(symbol.clone()))
         }
         Some(BlockBinding::Lexical(name)) => {
@@ -383,7 +383,7 @@ pub(crate) fn compile_block(
     };
     instructions.append(&mut compiled?);
     match (&binding, slot) {
-        (Some(BlockBinding::Dynamic(symbol)), _) => {
+        (Some(BlockBinding::Special(symbol)), _) => {
             instructions.push(Instruction::EndScope(symbol.clone()))
         }
         (Some(BlockBinding::Lexical(_)), Some(slot)) => {

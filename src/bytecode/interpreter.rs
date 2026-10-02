@@ -219,21 +219,21 @@ fn next_machine_id() -> u64 {
 
 /// Goes back to the frame that was running before on drop, on any path
 /// out, a panic included.
-struct FrameScope<'a> {
+struct LocalsGuard<'a> {
     ctx: &'a mut TulispContext,
     saved: FrameState,
     /// Whether the frame left is this scope's own, whose slots go.
     owns_slots: bool,
 }
 
-impl<'a> FrameScope<'a> {
+impl<'a> LocalsGuard<'a> {
     /// Starts a frame of SLOT_COUNT slots above the running one, with
     /// CAPTURES.
     fn new(ctx: &'a mut TulispContext, slot_count: u16, captures: Captures) -> Self {
         let base = ctx.vm.locals.len();
         let saved = ctx.vm.swap_frame(FrameState { base, captures });
         ctx.vm.reserve_slots(slot_count);
-        FrameScope {
+        LocalsGuard {
             ctx,
             saved,
             owns_slots: true,
@@ -243,7 +243,7 @@ impl<'a> FrameScope<'a> {
     /// Runs in FRAME, an existing frame, whose slots stay when it ends.
     fn in_frame(ctx: &'a mut TulispContext, frame: FrameState) -> Self {
         let saved = ctx.vm.swap_frame(frame);
-        FrameScope {
+        LocalsGuard {
             ctx,
             saved,
             owns_slots: false,
@@ -251,7 +251,7 @@ impl<'a> FrameScope<'a> {
     }
 }
 
-impl Drop for FrameScope<'_> {
+impl Drop for LocalsGuard<'_> {
     fn drop(&mut self) {
         let vm = &mut self.ctx.vm;
         if self.owns_slots {
@@ -304,7 +304,7 @@ pub fn run(ctx: &mut TulispContext, bytecode: Bytecode) -> Result<TulispObject, 
     // back only the stack.
     let mut guard = RunGuard::new(ctx);
     let tail = {
-        let scope = FrameScope::new(guard.ctx, bytecode.global_slot_count, Captures::default());
+        let scope = LocalsGuard::new(guard.ctx, bytecode.global_slot_count, Captures::default());
         run_impl(
             scope.ctx,
             &bytecode.global,
@@ -373,7 +373,7 @@ pub(crate) fn run_block_in_frame(
     frame: &FrameState,
     slots: std::ops::Range<u16>,
 ) -> Result<TulispObject, Error> {
-    let scope = FrameScope::in_frame(ctx, frame.clone());
+    let scope = LocalsGuard::in_frame(ctx, frame.clone());
     let start = frame.base + usize::from(slots.start);
     let end = frame.base + usize::from(slots.end);
     let in_use = scope
@@ -1209,7 +1209,7 @@ fn slot_past_frame() -> Error {
 /// follows its tail calls until one returns a value, so a chain of
 /// tail calls costs no native stack.
 fn run_tail_calls(ctx: &mut TulispContext, mut call: TailCallInfo) -> Result<(), Error> {
-    let scope = FrameScope::new(
+    let scope = LocalsGuard::new(
         ctx,
         call.function.slot_count,
         call.function.captures.clone(),
@@ -1280,8 +1280,8 @@ pub(crate) fn call_function(
 /// Makes a closure of TEMPLATE: its shared body, with the cells of the
 /// variables it captures from the running frame.
 fn make_lambda(ctx: &TulispContext, template: &LambdaTemplate) -> Result<TulispObject, Error> {
-    let mut cells = Vec::with_capacity(template.captures.len());
-    for (source, name) in &template.captures {
+    let mut cells = Vec::with_capacity(template.capture_sources.len());
+    for (source, name) in &template.capture_sources {
         let cell = match source {
             CaptureSource::Local(n) => slot_cell(&ctx.vm, *n)?.clone(),
             CaptureSource::Capture(index) => capture(&ctx.vm.captures, *index)?.cell.clone(),

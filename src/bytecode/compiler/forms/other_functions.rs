@@ -290,7 +290,7 @@ fn compile_lambda_head_call(
     };
     let mut result = vec![];
     let mut args_count = 0;
-    if template.captures.is_empty() {
+    if template.capture_sources.is_empty() {
         let function = CompiledDefun {
             name: lambda.clone(),
             ..template.function.clone()
@@ -303,7 +303,7 @@ fn compile_lambda_head_call(
         result.append(&mut compile_expr_keep_result(ctx, &arg)?);
         args_count += 1;
     }
-    if template.captures.is_empty() {
+    if template.capture_sources.is_empty() {
         let synthetic_form = TulispObject::cons(lambda.clone(), args.clone());
         result.push(Instruction::Call {
             name: lambda.clone(),
@@ -362,7 +362,7 @@ fn compile_defun(
     // The parameters in declaration order, and the variables of the
     // scopes around the function that its body uses.
     let mut param_names: Vec<TulispObject> = Vec::new();
-    let mut captures = Vec::new();
+    let mut capture_sources = Vec::new();
     let mut slot_count = 0;
     let res = ctx.compile_2_arg_call(defun_kw, args, true, |ctx, defun_name, args, body| {
         fn_name = defun_name.clone();
@@ -436,7 +436,7 @@ fn compile_defun(
         let compiler = ctx.compiler.as_mut().unwrap();
         compiler.current_defun = prev_defun;
         let (result, scope) = compiled?;
-        captures = scope.captures;
+        capture_sources = scope.capture_sources;
         slot_count = scope.slot_count;
         Ok(result)
     })?;
@@ -456,8 +456,8 @@ fn compile_defun(
     // defun form runs, from the same code; until then its variables
     // have no value.
     let mut result = Vec::new();
-    if !captures.is_empty() {
-        let unbound = captures
+    if !capture_sources.is_empty() {
+        let unbound = capture_sources
             .iter()
             .map(|(_, name)| Captured {
                 cell: SharedMut::new(None),
@@ -466,7 +466,7 @@ fn compile_defun(
             .collect();
         result.push(Instruction::MakeLambda(Shared::new(LambdaTemplate {
             function: function.clone(),
-            captures,
+            capture_sources,
         })));
         result.push(Instruction::DefineFunction(fn_name.clone()));
         function.captures = Captures::new(unbound);
