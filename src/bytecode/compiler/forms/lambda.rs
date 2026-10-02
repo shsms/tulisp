@@ -1,6 +1,7 @@
 use crate::{
     Error, ErrorKind, TulispContext, TulispObject,
     bytecode::compiler::scope::Binding,
+    bytecode::{Captures, CompiledDefun},
     bytecode::{
         Instruction, LambdaTemplate,
         compiler::{
@@ -8,19 +9,12 @@ use crate::{
             compiler::{compile_expr_keep_result, compile_progn_keep_result},
         },
     },
-    object::wrappers::generic::Shared,
+    object::wrappers::generic::{Shared, SharedMut},
 };
 
-/// VM compiler for `(lambda (params…) body…)` forms.
-///
-/// This is phase 1 of the two-phase scheme: compile the body *once*
-/// using placeholder LexicalBindings for every param and every free
-/// variable, package the result as a `LambdaTemplate`, and emit a
-/// `MakeLambda` instruction that carries the shared template.
-///
-/// Phase 2 — capture + rewrite — runs at VM runtime each time the
-/// `(lambda …)` form is evaluated (see `Instruction::MakeLambda`
-/// handling in the interpreter).
+/// VM compiler for `(lambda (params…) body…)` forms: compiles the body
+/// once, as a `LambdaTemplate`, and emits a `MakeLambda` that makes a
+/// closure of it each time the form runs.
 pub(super) fn compile_fn_lambda(
     ctx: &mut TulispContext,
     name: &TulispObject,
@@ -44,7 +38,7 @@ pub(super) fn compile_fn_lambda(
         };
         // First pass: validate &optional / &rest ordering and collect
         // raw param names. The actual is_optional / is_rest tracking
-        // for placeholder placement happens in the second pass below.
+        // for the bindings happens in the second pass below.
         let mut seen_rest = false;
         let mut rest_named = false;
         let mut params_iter = params.base_iter();
@@ -81,7 +75,7 @@ pub(super) fn compile_fn_lambda(
             param_names.push(p);
         }
 
-        // Allocate placeholder LexicalBindings: one per param (in
+        // Allocate a binding per param (in
         // declaration order) and one per free variable.
         let mut param_placeholders: Vec<TulispObject> = Vec::with_capacity(param_names.len());
         for name in &param_names {
@@ -89,7 +83,7 @@ pub(super) fn compile_fn_lambda(
             param_placeholders.push(lex);
         }
         params_iter.take_error()?;
-        // Populate DefunParams from the placeholders, honoring
+        // Populate DefunParams from the bindings, honoring
         // &optional / &rest positions from the original declaration.
         {
             let mut cursor = 0usize;
@@ -138,24 +132,24 @@ pub(super) fn compile_fn_lambda(
         let body_result = compile_progn_keep_result(ctx, &body);
         let compiler = ctx.compiler.as_mut().unwrap();
         compiler.active_let_scopes = prev_scopes;
-        let free_vars = compiler.pop_function().captures;
+        let captures = compiler.pop_function().captures;
         let mut instructions = body_result?;
         instructions.push(Instruction::Ret);
 
         // Assemble the body so the lambda's runtime path pays
-        // nothing for trace markers or labels. The same vector is
-        // later rewritten by `make_lambda_from_template`, which
-        // preserves PCs (it only swaps placeholder objects, not
-        // positions), so the ranges and the resolved jumps stay
-        // valid for the materialized closure.
+        // nothing for trace markers or labels.
         let (instructions, trace_ranges) = crate::bytecode::bytecode::assemble(instructions)?;
 
         let template = LambdaTemplate {
-            instructions,
-            trace_ranges: Shared::new(trace_ranges),
-            param_placeholders,
-            params: vm_params,
-            free_vars,
+            function: CompiledDefun {
+                name: TulispObject::nil(),
+                instructions: SharedMut::new(instructions),
+                trace_ranges: Shared::new(trace_ranges),
+                params: Shared::new(vm_params),
+                slot_count: 0,
+                captures: Captures::default(),
+            },
+            captures,
         };
 
         let mut result = Vec::with_capacity(1);
@@ -250,8 +244,10 @@ pub(super) fn compile_fn_apply(
 
 #[cfg(test)]
 mod tests {
-    use crate::test_utils::{eval_assert_equal, eval_assert_equal_fresh, eval_assert_error_line};
-    use crate::{Error, TulispContext};
+    use crate::test_utils::{
+        eval_assert_equal, eval_assert_equal_fresh, eval_assert_error_line, listing,
+    };
+    use crate::{Error, TulispContext, TulispObject, TulispValue};
 
     // A lambda with no body gives nil, and its parameter list is
     // checked as a `defun`'s is.
@@ -549,8 +545,8 @@ mod tests {
         // Regression: a closure captures a let-bound free var, takes a
         // param whose name matches that of the *caller's* defun param
         // (the caller's param is shadowed by its own let* with the same
-        // name; also calls a defun — not defspecial — whose args list
-        // carries placeholders that must be rewritten at phase 2).
+        // name; also calls a defun — not defspecial — with the
+        // captured variable in its arguments).
         eval_assert_equal_fresh(
             r#"
         (defun make-scaler (seed)
@@ -569,8 +565,7 @@ mod tests {
         // a let-bound inner closure via `set`/`symbol-value` indirection,
         // and both closures take a param of the same name that is also
         // shadowed by a let*-bound var in the caller. Exercises label
-        // registration + placeholder rewrite of the Push(args) AST inside
-        // the closure's body.
+        // registration and captured variables inside the closure's body.
         eval_assert_equal_fresh(
             r#"
         (defun sum-list (xs)
@@ -613,5 +608,49 @@ mod tests {
             "(defun f (x) (lambda () (lambda () x))) (funcall (funcall (f 4)))",
             "4",
         );
+    }
+
+    // Making a closure copies nothing that grows with its body: every
+    // closure from one form runs the same instructions.
+    #[test]
+    fn closures_from_one_form_share_their_body() {
+        let ctx = &mut TulispContext::new();
+        let a = ctx
+            .eval_string("(defun mk (n) (lambda () (+ n n n n))) (mk 1)")
+            .unwrap();
+        let b = ctx.eval_string("(mk 2)").unwrap();
+        let body = |f: &TulispObject| match &f.inner_ref().0 {
+            TulispValue::CompiledDefun { value } => value.instructions.clone(),
+            _ => panic!("not a compiled function"),
+        };
+        assert!(body(&a).ptr_eq(&body(&b)));
+        assert_eq!(ctx.funcall(&b, ()).unwrap().to_string(), "8");
+    }
+
+    #[test]
+    fn closures_share_variables_with_their_scope() {
+        eval_assert_equal_fresh(
+            "(let ((n 0)) (let ((inc (lambda () (setq n (1+ n))))) (funcall inc) (funcall inc) n))",
+            "2",
+        );
+        eval_assert_equal_fresh(
+            "(defun mk () (let ((n 0)) (list (lambda () (setq n (1+ n))) (lambda () n))))
+             (let ((fs (mk))) (funcall (car fs)) (funcall (car fs)) (funcall (cadr fs)))",
+            "2",
+        );
+        eval_assert_equal_fresh(
+            "(let ((fs nil)) (dolist (i '(1 2 3)) (setq fs (cons (lambda () i) fs)))
+               (mapcar #'funcall fs))",
+            "'(3 2 1)",
+        );
+    }
+
+    #[test]
+    fn listing_shows_capture_instructions() {
+        let ctx = &mut TulispContext::new();
+        // A `defun` that closes over a variable lists its own body.
+        let l = listing(ctx, "(let ((n 1)) (defun get-n () (setq n (1+ n))))");
+        assert!(l.contains("load_capture 0"), "{l}");
+        assert!(l.contains("store_capture 0"), "{l}");
     }
 }

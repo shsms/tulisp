@@ -1,6 +1,6 @@
 use crate::{
     Number, TulispObject,
-    bytecode::CompiledDefun,
+    bytecode::{Cell, CompiledDefun},
     cons::Cons,
     error::Error,
     object::{
@@ -195,7 +195,7 @@ impl SymbolBindings {
 // from a timer or any other host thread, bind parameters independently
 // with no cross-thread `Vec` aliasing.
 //
-// Each stack entry is a `SharedMut<TulispObject>` — an actual cell
+// Each stack entry is a `Cell` — an actual cell
 // shared with any closures that captured this scope. `setq` mutates
 // the cell contents in place, so closures see the update (this is
 // what Emacs' `lexical-binding: t` semantics require, distinct from
@@ -258,12 +258,12 @@ impl LexAllocator {
 }
 
 thread_local! {
-    static LEX_STACKS: RefCell<Vec<Vec<SharedMut<TulispObject>>>> =
+    static LEX_STACKS: RefCell<Vec<Vec<Cell>>> =
         const { RefCell::new(Vec::new()) };
 }
 
 #[inline(always)]
-fn with_lex_stack<R>(id: u64, f: impl FnOnce(&mut Vec<SharedMut<TulispObject>>) -> R) -> R {
+fn with_lex_stack<R>(id: u64, f: impl FnOnce(&mut Vec<Cell>) -> R) -> R {
     LEX_STACKS.with(|s| {
         let mut v = s.borrow_mut();
         let idx = id as usize;
@@ -279,15 +279,6 @@ struct LexBindingInner {
     id: u64,
     name: String,
     symbol: TulispObject,
-    // Captured bindings (from closures) hold a direct reference to the
-    // same shared slot that was on the enclosing scope's stack at
-    // capture time. Mutations to the enclosing scope's binding are
-    // therefore visible to the closure and vice-versa — matching
-    // Emacs' `lexical-binding: t` semantics. Param/let bindings leave
-    // this `None` and reach their slot through the thread-local stack
-    // indexed by `id`, which is faster and avoids cross-thread Vec
-    // aliasing (Bug #3).
-    captured: Option<SharedMut<TulispObject>>,
     // Back-pointer to the allocator that minted this id. When the last
     // `Shared<LexBindingInner>` reference drops, we return the id here
     // so the next allocation can reuse it — keeping `LEX_STACKS` from
@@ -298,10 +289,6 @@ struct LexBindingInner {
 impl Drop for LexBindingInner {
     fn drop(&mut self) {
         self.allocator.free(self.id);
-        // The captured value may be a closure that captured another.
-        if let Some(value) = self.captured.as_mut().and_then(SharedMut::get_mut) {
-            crate::object::release(value);
-        }
     }
 }
 
@@ -320,28 +307,6 @@ impl LexBinding {
                 id,
                 name,
                 symbol,
-                captured: None,
-                allocator,
-            }),
-        }
-    }
-
-    /// Creates a captured binding that shares `slot` with the
-    /// originating scope, when the VM makes a lambda
-    /// (`make_lambda_from_template`).
-    pub(crate) fn new_captured(
-        allocator: Shared<LexAllocator>,
-        symbol: TulispObject,
-        slot: SharedMut<TulispObject>,
-    ) -> Self {
-        let id = allocator.alloc();
-        let name = symbol.to_string();
-        LexBinding {
-            inner: Shared::new(LexBindingInner {
-                id,
-                name,
-                symbol,
-                captured: Some(slot),
                 allocator,
             }),
         }
@@ -355,22 +320,16 @@ impl LexBinding {
         &self.inner.symbol
     }
 
-    /// Returns the `SharedMut` slot that currently holds this
-    /// binding's value, or `None` if it's unbound. Used by closure
-    /// capture so the closure can share the slot rather than snapshot.
+    /// The cell that holds this binding's value now, or `None` if it is
+    /// unbound. A closure captures the cell, so it shares the variable
+    /// rather than a copy of its value.
     #[inline(always)]
-    pub(crate) fn current_slot(&self) -> Option<SharedMut<TulispObject>> {
-        if let Some(slot) = &self.inner.captured {
-            return Some(slot.clone());
-        }
+    pub(crate) fn current_slot(&self) -> Option<Cell> {
         with_lex_stack(self.inner.id, |s| s.last().cloned())
     }
 
     #[inline(always)]
     pub(crate) fn pop(&self) -> Result<(), Error> {
-        if self.inner.captured.is_some() {
-            return Ok(());
-        }
         let popped = with_lex_stack(self.inner.id, |s| s.pop());
         if popped.is_some() {
             Ok(())
@@ -384,15 +343,11 @@ impl LexBinding {
 
     #[inline(always)]
     pub(crate) fn set(&self, val: TulispObject) -> Result<(), Error> {
-        if let Some(slot) = &self.inner.captured {
-            *slot.borrow_mut() = val;
-            return Ok(());
-        }
         with_lex_stack(self.inner.id, |s| {
             if let Some(last) = s.last() {
-                *last.borrow_mut() = val;
+                *last.borrow_mut() = Some(val);
             } else {
-                s.push(SharedMut::new(val));
+                s.push(SharedMut::new(Some(val)));
             }
         });
         Ok(())
@@ -400,20 +355,13 @@ impl LexBinding {
 
     #[inline(always)]
     pub(crate) fn set_scope(&self, val: TulispObject) {
-        if let Some(slot) = &self.inner.captured {
-            *slot.borrow_mut() = val;
-            return;
-        }
-        with_lex_stack(self.inner.id, |s| s.push(SharedMut::new(val)));
+        with_lex_stack(self.inner.id, |s| s.push(SharedMut::new(Some(val))));
     }
 
     #[inline(always)]
     pub(crate) fn get(&self) -> Result<TulispObject, Error> {
-        if let Some(slot) = &self.inner.captured {
-            return Ok(slot.borrow().clone());
-        }
         let got = with_lex_stack(self.inner.id, |s| {
-            s.last().map(|slot| slot.borrow().clone())
+            s.last().and_then(|slot| slot.borrow().clone())
         });
         got.ok_or_else(|| {
             Error::uninitialized(format!("Variable definition is void: {}", self.inner.name))
@@ -422,9 +370,6 @@ impl LexBinding {
 
     #[inline(always)]
     pub(crate) fn boundp(&self) -> bool {
-        if self.inner.captured.is_some() {
-            return true;
-        }
         with_lex_stack(self.inner.id, |s| !s.is_empty())
     }
 }
@@ -703,17 +648,6 @@ impl TulispValue {
     ) -> TulispValue {
         TulispValue::LexicalBinding {
             binding: LexBinding::new(allocator, symbol),
-        }
-    }
-
-    #[inline(always)]
-    pub(crate) fn lexical_binding_captured(
-        allocator: Shared<LexAllocator>,
-        symbol: TulispObject,
-        slot: SharedMut<TulispObject>,
-    ) -> TulispValue {
-        TulispValue::LexicalBinding {
-            binding: LexBinding::new_captured(allocator, symbol, slot),
         }
     }
 

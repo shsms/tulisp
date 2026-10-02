@@ -559,6 +559,22 @@ fn test_closure_invoked_in_fresh_ctx() -> Result<(), Error> {
             "cross-ctx funcall of `{prog}`"
         );
     }
+    // A closure over variables, and one with variables of its own, run
+    // through another ctx too.
+    for (prog, expected) in [
+        ("(let ((n 41)) (lambda () (1+ n)))", "42"),
+        ("(let ((n 1)) (lambda () (let ((m (* n 2))) (+ m 1))))", "3"),
+    ] {
+        let mut ctx_a = TulispContext::new();
+        let closure = ctx_a.eval_string(prog)?;
+        let mut ctx_b = TulispContext::new();
+        let result = ctx_b.funcall(&closure, ())?;
+        assert_eq!(
+            result.to_string(),
+            expected,
+            "cross-ctx funcall of `{prog}`"
+        );
+    }
     Ok(())
 }
 

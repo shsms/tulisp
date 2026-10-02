@@ -451,7 +451,7 @@ fn with_call_span(expansion: TulispObject, call: &TulispObject) -> TulispObject 
 }
 
 /// The `X` of a `` `X ``, `,X`, `,@X` or `'X` that a walker
-/// looking for variables goes into, with the backquote depth to walk
+/// over code goes into, with the backquote depth to walk
 /// it at. See [`wrapped_operand`].
 pub(crate) struct WrappedOperand {
     pub(crate) value: TulispObject,
@@ -461,15 +461,6 @@ pub(crate) struct WrappedOperand {
 }
 
 impl WrappedOperand {
-    /// Walks `X` with `walk`, and wraps the result as `X` was wrapped.
-    pub(crate) fn map(
-        self,
-        walk: impl FnOnce(TulispObject, u32) -> Result<TulispObject, Error>,
-    ) -> Result<TulispObject, Error> {
-        let walked = walk(self.value.clone(), self.depth)?;
-        Ok(self.rewrap(walked))
-    }
-
     /// Wraps `value` as `X` was wrapped.
     pub(crate) fn rewrap(&self, value: TulispObject) -> TulispObject {
         (self.wrap)(value).into_ref(self.span)

@@ -1,6 +1,6 @@
 use super::{
-    Block, Captures, FormBlock, FrameState, Handler, Instruction, LambdaTemplate, Slot,
-    bytecode::Bytecode, bytecode::CompiledDefun, bytecode::TraceRange, compiler::DefunParams,
+    Block, CaptureSource, Captured, Captures, FrameState, Handler, Instruction, LambdaTemplate,
+    Slot, bytecode::Bytecode, bytecode::CompiledDefun, bytecode::TraceRange,
 };
 use crate::{
     Error, ErrorKind, Number, TulispContext, TulispObject, TulispValue, bytecode::Pos,
@@ -703,6 +703,23 @@ fn run_impl_inner(
                 let a = obj.get().map_err(|e| e.with_trace(obj.clone()))?;
                 ctx.vm.stack.push(a);
             }
+            Instruction::LoadCapture(index) => {
+                let captured = capture(&ctx.vm.captures, *index)?;
+                let value = captured.cell.borrow().clone();
+                let value = value.ok_or_else(|| {
+                    Error::uninitialized(format!("Variable definition is void: {}", captured.name))
+                        .with_trace(captured.name.clone())
+                })?;
+                ctx.vm.stack.push(value);
+            }
+            Instruction::StoreCapture(index) => {
+                let value = ctx.vm.stack.last().cloned().ok_or_else(empty_stack)?;
+                *capture(&ctx.vm.captures, *index)?.cell.borrow_mut() = Some(value);
+            }
+            Instruction::StorePopCapture(index) => {
+                let value = ctx.vm.stack.pop().ok_or_else(empty_stack)?;
+                *capture(&ctx.vm.captures, *index)?.cell.borrow_mut() = Some(value);
+            }
             Instruction::BeginScope(obj) => {
                 let a = ctx.vm.stack.last().unwrap();
                 obj.set_scope(a.clone())?;
@@ -806,7 +823,7 @@ fn run_impl_inner(
             }
             Instruction::Ret => return Ok(None),
             Instruction::MakeLambda(template) => {
-                let closure = make_lambda_from_template(ctx, template)?;
+                let closure = make_lambda(ctx, template)?;
                 ctx.vm.stack.push(closure);
             }
             Instruction::DefineFunction(name) => {
@@ -1187,319 +1204,56 @@ pub(crate) fn call_function(
     }
 }
 
-/// Extracts the original symbol from a placeholder LexicalBinding; if
-/// `obj` isn't a LexicalBinding (shouldn't happen for our placeholders)
-/// it's returned as-is.
-fn placeholder_symbol(obj: &TulispObject) -> TulispObject {
-    let inner = obj.inner_ref();
-    if let TulispValue::LexicalBinding { binding } = &inner.0 {
-        let s = binding.symbol().clone();
-        drop(inner);
-        s
-    } else {
-        drop(inner);
-        obj.clone()
-    }
-}
-
-/// Phase 2 of the two-phase lambda compile: given a `LambdaTemplate`
-/// and the current evaluation context, (a) capture each free var's
-/// slot, (b) mint fresh LexicalBindings for the params, (c) clone the
-/// template's instruction vector and rewrite placeholder references to
-/// those new bindings, then (d) wrap the result in a
-/// `TulispValue::CompiledDefun` so `funcall` can dispatch it to the VM.
-fn make_lambda_from_template(
-    ctx: &mut TulispContext,
-    template: &LambdaTemplate,
-) -> Result<TulispObject, Error> {
-    let allocator = ctx.lex_allocator.clone();
-    let mut mapping: HashMap<usize, TulispObject> =
-        HashMap::with_capacity(template.param_placeholders.len() + template.free_vars.len());
-
-    // Free vars: share the enclosing scope's slot if there is one,
-    // otherwise fall back to the original symbol (global/dynamic
-    // reference — no capture).
-    for (orig, placeholder) in &template.free_vars {
-        let slot = {
-            let inner = orig.inner_ref();
-            match &inner.0 {
-                TulispValue::LexicalBinding { binding } => binding.current_slot(),
-                _ => None,
-            }
+/// Makes a closure of TEMPLATE: its shared body, with the cells of the
+/// variables it captures from the running frame.
+fn make_lambda(ctx: &TulispContext, template: &LambdaTemplate) -> Result<TulispObject, Error> {
+    let mut cells = Vec::with_capacity(template.captures.len());
+    for (source, name) in &template.captures {
+        let cell = match source {
+            CaptureSource::Lex(binding) => match &binding.inner_ref().0 {
+                // A variable with no value yet has no cell; the closure
+                // gets an empty one of its own.
+                TulispValue::LexicalBinding { binding } => binding
+                    .current_slot()
+                    .unwrap_or_else(|| SharedMut::new(None)),
+                _ => {
+                    return Err(Error::lisp_error(
+                        "internal: a capture of something other than a binding",
+                    ));
+                }
+            },
+            CaptureSource::Capture(index) => capture(&ctx.vm.captures, *index)?.cell.clone(),
         };
-        let replacement = if let Some(slot) = slot {
-            TulispObject::lexical_binding_captured(allocator.clone(), orig.clone(), slot)
-        } else {
-            orig.clone()
-        };
-        mapping.insert(placeholder.addr_as_usize(), replacement);
+        cells.push(Captured {
+            cell,
+            name: name.clone(),
+        });
     }
-
-    // Params: each gets a fresh LexicalBinding; at call time, arg
-    // values are pushed onto the binding's thread-local stack.
-    for placeholder in &template.param_placeholders {
-        let sym = placeholder_symbol(placeholder);
-        let fresh = TulispObject::lexical_binding(allocator.clone(), sym);
-        mapping.insert(placeholder.addr_as_usize(), fresh);
-    }
-
-    let rewrite = |obj: &mut TulispObject| {
-        if let Some(replacement) = mapping.get(&obj.addr_as_usize()) {
-            *obj = replacement.clone();
-        }
+    let function = CompiledDefun {
+        captures: Captures::new(cells),
+        ..template.function.clone()
     };
-
-    let instructions = rewrite_instructions(&template.instructions, &mapping, &rewrite)?;
-
-    let rewrite_obj = |obj: &TulispObject| -> TulispObject {
-        mapping
-            .get(&obj.addr_as_usize())
-            .cloned()
-            .unwrap_or_else(|| obj.clone())
-    };
-    let params = DefunParams {
-        required: template.params.required.iter().map(&rewrite_obj).collect(),
-        optional: template.params.optional.iter().map(&rewrite_obj).collect(),
-        rest: template.params.rest.as_ref().map(rewrite_obj),
-    };
-
-    let cd = CompiledDefun {
-        name: TulispObject::nil(),
-        instructions: SharedMut::new(instructions),
-        // PCs are unchanged by `rewrite_instruction` (it only
-        // swaps placeholder objects, never adds or removes
-        // instructions), so the template's trace ranges remain
-        // valid for the materialized closure, which shares them.
-        trace_ranges: template.trace_ranges.clone(),
-        params: crate::object::wrappers::generic::Shared::new(params),
-        slot_count: 0,
-        captures: Captures::default(),
-    };
-    Ok(TulispValue::CompiledDefun { value: cd }.into_ref(None))
+    Ok(TulispValue::CompiledDefun { value: function }.into_ref(None))
 }
 
-/// Apply the outer closure's placeholder→binding map to a single
-/// instruction. For nested `MakeLambda`, descend and produce a rebuilt
-/// `LambdaTemplate` so the inner template's free-var keys become the
-/// outer's fresh bindings (so when the inner later runs its own phase
-/// 2 it finds the right slots).
-fn rewrite_instruction(
-    insn: &mut Instruction,
-    mapping: &HashMap<usize, TulispObject>,
-    rewrite: &impl Fn(&mut TulispObject),
-) -> Result<(), Error> {
-    match insn {
-        Instruction::Load(o)
-        | Instruction::Store(o)
-        | Instruction::StorePop(o)
-        | Instruction::BeginScope(o)
-        | Instruction::EndScope(o) => rewrite(o),
-        Instruction::MakeLambda(template) => {
-            let rebuilt = rewrite_template(template, mapping)?;
-            *template = crate::object::wrappers::generic::Shared::new(rebuilt);
-        }
-        Instruction::Catch { body } => *body = rewrite_block(body, mapping, rewrite)?,
-        Instruction::SpecialCall { blocks, .. } => {
-            let mut rewritten = Vec::with_capacity(blocks.len());
-            for arg in blocks.iter() {
-                let source = if ast_contains_placeholder(&arg.source, mapping) {
-                    rewrite_ast(&arg.source, mapping)?
-                } else {
-                    arg.source.clone()
-                };
-                rewritten.push(FormBlock {
-                    block: rewrite_block(&arg.block, mapping, rewrite)?,
-                    source,
-                });
-            }
-            *blocks = crate::object::wrappers::generic::Shared::new(rewritten);
-        }
-        Instruction::UnwindProtect { body, cleanup } => {
-            *body = rewrite_block(body, mapping, rewrite)?;
-            *cleanup = rewrite_block(cleanup, mapping, rewrite)?;
-        }
-        Instruction::ConditionCase { body, handlers, .. } => {
-            *body = rewrite_block(body, mapping, rewrite)?;
-            let mut rewritten = Vec::with_capacity(handlers.len());
-            for handler in handlers.iter() {
-                rewritten.push(Handler {
-                    condition: handler.condition.clone(),
-                    body: rewrite_block(&handler.body, mapping, rewrite)?,
-                });
-            }
-            *handlers = crate::object::wrappers::generic::Shared::new(rewritten);
-        }
-        _ => debug_assert!(
-            !insn.holds_blocks(),
-            "a block {insn} holds is not rewritten"
-        ),
-    }
-    Ok(())
+fn empty_stack() -> Error {
+    Error::lisp_error("internal: empty stack")
 }
 
-/// A copy of BLOCK with the closure's bindings swapped in. The block's
-/// handles are shared with the template, so it is copied, never edited
-/// in place: an in-place edit would give every later closure the first
-/// closure's bindings.
-fn rewrite_block(
-    block: &Block,
-    mapping: &HashMap<usize, TulispObject>,
-    rewrite: &impl Fn(&mut TulispObject),
-) -> Result<Block, Error> {
-    Ok(Block {
-        instructions: SharedMut::new(rewrite_instructions(
-            &block.instructions.borrow(),
-            mapping,
-            rewrite,
-        )?),
-        trace_ranges: block.trace_ranges.clone(),
-        takes_arg: block.takes_arg,
-    })
-}
-
-/// A copy of INSTRUCTIONS with the closure's bindings swapped in.
-fn rewrite_instructions(
-    instructions: &[Instruction],
-    mapping: &HashMap<usize, TulispObject>,
-    rewrite: &impl Fn(&mut TulispObject),
-) -> Result<Vec<Instruction>, Error> {
-    let mut rewritten = instructions.to_vec();
-    for insn in rewritten.iter_mut() {
-        rewrite_instruction(insn, mapping, rewrite)?;
-    }
-    Ok(rewritten)
-}
-
-/// Quick check: does `obj` hold a placeholder anywhere `rewrite_ast`
-/// would replace one? Avoids the deep copy of a special form's
-/// unevaluated argument that holds none.
-fn ast_contains_placeholder(obj: &TulispObject, mapping: &HashMap<usize, TulispObject>) -> bool {
-    contains_placeholder_at(obj, mapping, 0, false)
-}
-
-/// `ast_contains_placeholder` at backquote DEPTH: a plain quote outside
-/// any backquote holds data, never a placeholder. IN_TAIL is for the
-/// dotted tail of a list, as in `eval::wrapped_operand`.
-fn contains_placeholder_at(
-    obj: &TulispObject,
-    mapping: &HashMap<usize, TulispObject>,
-    depth: u32,
-    in_tail: bool,
-) -> bool {
-    if mapping.contains_key(&obj.addr_as_usize()) {
-        return true;
-    }
-    if let Some(operand) = crate::eval::wrapped_operand(obj, depth, in_tail) {
-        return contains_placeholder_at(&operand.value, mapping, operand.depth, false);
-    }
-    if obj.consp() {
-        let mut items = obj.base_iter();
-        for car in items.by_ref() {
-            if contains_placeholder_at(&car, mapping, depth, false) {
-                return true;
-            }
-        }
-        // A list that loops back has had all of its cells walked by
-        // the time the iterator notices, so its error means `false`.
-        return items
-            .tail()
-            .is_ok_and(|tail| contains_placeholder_at(&tail, mapping, depth, true));
-    }
-    false
-}
-
-/// Deep-clone `obj`, substituting any placeholder reference with the
-/// mapped binding. Descends through cons lists, backquotes, unquotes
-/// and splices, and quotes inside a backquote; other value kinds pass
-/// through unchanged. A list that loops back has no finite copy, so it
-/// is an error.
-fn rewrite_ast(
-    obj: &TulispObject,
-    mapping: &HashMap<usize, TulispObject>,
-) -> Result<TulispObject, Error> {
-    rewrite_ast_at(obj, mapping, 0, false)
-}
-
-/// `rewrite_ast` at backquote DEPTH: a plain quote outside any
-/// backquote holds data, and is shared, not copied. IN_TAIL is for the
-/// dotted tail of a list, as in `eval::wrapped_operand`.
-fn rewrite_ast_at(
-    obj: &TulispObject,
-    mapping: &HashMap<usize, TulispObject>,
-    depth: u32,
-    in_tail: bool,
-) -> Result<TulispObject, Error> {
-    if let Some(replacement) = mapping.get(&obj.addr_as_usize()) {
-        return Ok(replacement.clone());
-    }
-    if let Some(operand) = crate::eval::wrapped_operand(obj, depth, in_tail) {
-        return operand.map(|value, depth| rewrite_ast_at(&value, mapping, depth, false));
-    }
-    if obj.consp() {
-        let span = obj.span();
-        let mut builder = crate::cons::ListBuilder::new();
-        let mut items = obj.base_iter();
-        for car in items.by_ref() {
-            builder.push(rewrite_ast_at(&car, mapping, depth, false)?);
-        }
-        let tail = items.tail()?;
-        if !tail.null() {
-            builder.append(rewrite_ast_at(&tail, mapping, depth, true)?)?;
-        }
-        return Ok(builder.build().with_span(span));
-    }
-    Ok(obj.clone())
-}
-
-/// Clone `template` but with every `(orig, placeholder)` in `free_vars`
-/// whose `orig` appears in `mapping` rewritten to the mapped binding —
-/// and with nested `MakeLambda` instructions in the body recursively
-/// rebuilt the same way. The inner placeholder keys themselves stay
-/// intact so the inner's phase-2 rewrite still finds them.
-fn rewrite_template(
-    template: &LambdaTemplate,
-    mapping: &HashMap<usize, TulispObject>,
-) -> Result<LambdaTemplate, Error> {
-    let rewrite = |obj: &mut TulispObject| {
-        if let Some(replacement) = mapping.get(&obj.addr_as_usize()) {
-            *obj = replacement.clone();
-        }
-    };
-
-    let new_free_vars: Vec<(TulispObject, TulispObject)> = template
-        .free_vars
-        .iter()
-        .map(|(orig, ph)| {
-            let new_orig = mapping
-                .get(&orig.addr_as_usize())
-                .cloned()
-                .unwrap_or_else(|| orig.clone());
-            (new_orig, ph.clone())
-        })
-        .collect();
-
-    let new_instructions = rewrite_instructions(&template.instructions, mapping, &rewrite)?;
-
-    Ok(LambdaTemplate {
-        instructions: new_instructions,
-        // `rewrite_instruction` swaps in-place; PCs are stable so
-        // the inner template's trace ranges still apply. They are
-        // shared, not copied: `DefineFunction` identifies a defun form
-        // by them.
-        trace_ranges: template.trace_ranges.clone(),
-        param_placeholders: template.param_placeholders.clone(),
-        params: template.params.clone(),
-        free_vars: new_free_vars,
-    })
+/// The captured variable at INDEX of CAPTURES.
+#[inline(always)]
+fn capture(captures: &Captures, index: u16) -> Result<&Captured, Error> {
+    captures
+        .get(usize::from(index))
+        .ok_or_else(|| Error::lisp_error("internal: capture index past the closure's captures"))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{ast_contains_placeholder, rewrite_ast, run};
+    use super::run;
     use crate::bytecode::{Bytecode, Instruction, Pos};
     use crate::test_utils::eval_assert_equal;
     use crate::{Error, Form, Rest, TulispContext, TulispObject, TulispValue};
-    use std::collections::HashMap;
 
     // A `defun` leaves its compiled function on its symbol, and a call
     // from Rust runs it.
@@ -1749,24 +1503,6 @@ mod tests {
             "(defun cnt (n &rest r) (if (= n 0) r (cnt (- n 1)))) (cnt 2 1 2 3)",
             "nil",
         );
-    }
-
-    #[test]
-    fn the_placeholder_walkers_stop_at_a_circular_list() {
-        let mut ctx = TulispContext::new();
-        let placeholder = ctx.intern("p");
-        let mapping = HashMap::from([(placeholder.addr_as_usize(), TulispObject::from(9))]);
-        let without = ctx
-            .eval_string("(let ((l (list 1 2 3))) (setcdr (cddr l) l) l)")
-            .unwrap();
-        assert!(!ast_contains_placeholder(&without, &mapping));
-        // The placeholder sits past the point where the loop starts.
-        let with = ctx
-            .eval_string("(let ((l (list 1 2 3 4 5 6 7 8 9 'p))) (setcdr (last l) (cdr l)) l)")
-            .unwrap();
-        assert!(ast_contains_placeholder(&with, &mapping));
-        let err = rewrite_ast(&with, &mapping).unwrap_err();
-        assert_eq!(err.to_string(), "ERR OutOfRange: Circular list");
     }
 
     #[test]

@@ -825,15 +825,6 @@ impl TulispObject {
         TulispValue::lexical_binding(allocator, symbol).into_ref(span)
     }
 
-    pub(crate) fn lexical_binding_captured(
-        allocator: Shared<LexAllocator>,
-        symbol: TulispObject,
-        slot: SharedMut<TulispObject>,
-    ) -> TulispObject {
-        let span = symbol.span();
-        TulispValue::lexical_binding_captured(allocator, symbol, slot).into_ref(span)
-    }
-
     pub(crate) fn new(vv: TulispValue, span: Option<Span>) -> TulispObject {
         Self {
             rc: SharedMut::new((vv, span)),

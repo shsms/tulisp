@@ -109,6 +109,10 @@ pub(crate) enum Instruction {
     StorePop(TulispObject),
     Store(TulispObject),
     Load(TulispObject),
+    /// Read or write the running closure's captured cell at this index.
+    LoadCapture(u16),
+    StoreCapture(u16),
+    StorePopCapture(u16),
     BeginScope(TulispObject),
     EndScope(TulispObject),
     // arithmetic
@@ -207,10 +211,8 @@ pub(crate) enum Instruction {
         optional_count: usize,
         rest_count: usize,
     },
-    /// Instantiate an anonymous `(lambda …)` at runtime: capture the
-    /// enclosing scope's slots for each free var, bind fresh slots for
-    /// params, rewrite the template's instruction vector with those
-    /// bindings, and push the resulting closure (as a
+    /// Make a closure of a compiled `(lambda …)` body, with the cells of
+    /// the variables it captures, and push it (as a
     /// `TulispValue::CompiledDefun`) on the stack.
     MakeLambda(Shared<LambdaTemplate>),
     /// Pops a function `MakeLambda` made for a `defun` that closes over
@@ -343,6 +345,9 @@ impl Instruction {
             | Instruction::StorePop(..)
             | Instruction::Store(..)
             | Instruction::Load(..)
+            | Instruction::LoadCapture(..)
+            | Instruction::StoreCapture(..)
+            | Instruction::StorePopCapture(..)
             | Instruction::BeginScope(..)
             | Instruction::EndScope(..)
             | Instruction::BinaryOp(..)
@@ -485,6 +490,9 @@ impl std::fmt::Display for Instruction {
             Instruction::StorePop(obj) => write!(f, "    store_pop {}", obj),
             Instruction::Store(obj) => write!(f, "    store {}", obj),
             Instruction::Load(obj) => write!(f, "    load {}", obj),
+            Instruction::LoadCapture(i) => write!(f, "    load_capture {}", i),
+            Instruction::StoreCapture(i) => write!(f, "    store_capture {}", i),
+            Instruction::StorePopCapture(i) => write!(f, "    store_pop_capture {}", i),
             Instruction::BeginScope(obj) => write!(f, "    begin_scope {}", obj),
             Instruction::EndScope(obj) => write!(f, "    end_scope {}", obj),
             Instruction::BinaryOp(op) => match op {

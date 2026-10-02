@@ -1,7 +1,7 @@
 //! The variables in scope while a function compiles, and how a name
 //! resolves against them.
 
-use crate::{TulispContext, TulispObject, TulispValue};
+use crate::{Error, TulispContext, TulispObject, bytecode::CaptureSource};
 
 /// What a lexical variable in scope is stored in. A `defvar` variable
 /// that a `let` binds never enters the scope, so it never hides an
@@ -22,9 +22,10 @@ pub(crate) struct ScopeVar {
 #[derive(Default)]
 pub(crate) struct FunctionScope {
     pub(crate) vars: Vec<ScopeVar>,
-    /// The variables of enclosing functions this one uses: the binding
-    /// there, and the placeholder this function's body uses for it.
-    pub(crate) captures: Vec<(TulispObject, TulispObject)>,
+    /// The variables of enclosing functions this one uses, in the
+    /// order of the cells of a closure made from it: where each cell
+    /// comes from, and the variable's name.
+    pub(crate) captures: Vec<(CaptureSource, TulispObject)>,
     /// Whether this function may use variables of enclosing functions.
     pub(crate) closes: bool,
 }
@@ -58,57 +59,63 @@ impl crate::bytecode::Compiler {
     }
 }
 
-/// The object NAME is read and written through: the innermost lexical
-/// binding of it, a capture of an enclosing function's binding, or NAME
-/// itself for a global or special variable.
-pub(crate) fn resolve(ctx: &mut TulispContext, name: &TulispObject) -> TulispObject {
-    let allocator = ctx.lex_allocator.clone();
+/// What a name reads and writes.
+pub(crate) enum Resolved {
+    /// This object: a lexical binding, or the name itself for a global
+    /// or special variable.
+    Object(TulispObject),
+    /// The running closure's captured cell at this index.
+    Capture(u16),
+}
+
+/// What NAME reads and writes: the innermost lexical binding of it, a
+/// capture of an enclosing function's variable, or NAME itself for a
+/// global or special variable.
+pub(crate) fn resolve(ctx: &mut TulispContext, name: &TulispObject) -> Result<Resolved, Error> {
     let Some(compiler) = ctx.compiler.as_mut() else {
-        return name.clone();
+        return Ok(Resolved::Object(name.clone()));
     };
     let Some(depth) = compiler.functions.len().checked_sub(1) else {
-        return name.clone();
+        return Ok(Resolved::Object(name.clone()));
     };
-    resolve_in(compiler, &allocator, name, depth)
+    resolve_in(compiler, name, depth)
 }
 
 fn resolve_in(
     compiler: &mut crate::bytecode::Compiler,
-    allocator: &crate::object::wrappers::generic::Shared<crate::value::LexAllocator>,
     name: &TulispObject,
     depth: usize,
-) -> TulispObject {
+) -> Result<Resolved, Error> {
     let function = &compiler.functions[depth];
     if let Some(var) = function.vars.iter().rev().find(|var| var.name.eq(name)) {
         let Binding::Lex(binding) = &var.binding;
-        return binding.clone();
+        return Ok(Resolved::Object(binding.clone()));
     }
-    if let Some((_, placeholder)) = function
+    if let Some(index) = function
         .captures
         .iter()
-        .find(|(outer, _)| binding_symbol(outer).eq(name))
+        .position(|(_, captured)| captured.eq(name))
     {
-        return placeholder.clone();
+        return Ok(Resolved::Capture(capture_index(index)?));
     }
     if !function.closes || depth == 0 {
-        return name.clone();
+        return Ok(Resolved::Object(name.clone()));
     }
-    let outer = resolve_in(compiler, allocator, name, depth - 1);
-    if outer.eq_ptr(name) {
-        // A global or special variable in every enclosing function.
-        return name.clone();
-    }
-    let placeholder = TulispObject::lexical_binding(allocator.clone(), name.clone());
-    compiler.functions[depth]
-        .captures
-        .push((outer, placeholder.clone()));
-    placeholder
+    let source = match resolve_in(compiler, name, depth - 1)? {
+        Resolved::Object(outer) if outer.eq_ptr(name) => {
+            // A global or special variable in every enclosing function.
+            return Ok(Resolved::Object(name.clone()));
+        }
+        Resolved::Object(outer) => CaptureSource::Lex(outer),
+        Resolved::Capture(index) => CaptureSource::Capture(index),
+    };
+    let captures = &mut compiler.functions[depth].captures;
+    let index = capture_index(captures.len())?;
+    captures.push((source, name.clone()));
+    Ok(Resolved::Capture(index))
 }
 
-/// The symbol a binding object stands for.
-fn binding_symbol(binding: &TulispObject) -> TulispObject {
-    match &binding.inner_ref().0 {
-        TulispValue::LexicalBinding { binding } => binding.symbol().clone(),
-        _ => binding.clone(),
-    }
+fn capture_index(index: usize) -> Result<u16, Error> {
+    u16::try_from(index)
+        .map_err(|_| Error::lisp_error("a function captures more than 65535 variables"))
 }

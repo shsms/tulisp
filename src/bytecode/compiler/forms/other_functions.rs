@@ -2,7 +2,7 @@ use crate::{
     Error, ErrorKind, TulispContext, TulispObject, TulispValue,
     bytecode::compiler::scope::Binding,
     bytecode::{
-        Instruction, LambdaTemplate, Pos,
+        Captured, Captures, Instruction, LambdaTemplate, Pos,
         bytecode::CompiledDefun,
         compiler::{
             DefunParams,
@@ -286,14 +286,10 @@ fn compile_lambda_head_call(
     };
     let mut result = vec![];
     let mut args_count = 0;
-    if template.free_vars.is_empty() {
+    if template.captures.is_empty() {
         let function = CompiledDefun {
             name: lambda.clone(),
-            instructions: SharedMut::new(template.instructions.clone()),
-            trace_ranges: template.trace_ranges.clone(),
-            params: Shared::new(template.params.clone()),
-            slot_count: 0,
-            captures: crate::bytecode::Captures::default(),
+            ..template.function.clone()
         };
         install_function(ctx, lambda, function);
     } else {
@@ -303,7 +299,7 @@ fn compile_lambda_head_call(
         result.append(&mut compile_expr_keep_result(ctx, &arg)?);
         args_count += 1;
     }
-    if template.free_vars.is_empty() {
+    if template.captures.is_empty() {
         let synthetic_form = TulispObject::cons(lambda.clone(), args.clone());
         result.push(Instruction::Call {
             name: lambda.clone(),
@@ -363,7 +359,7 @@ fn compile_defun(
     // scopes around the function that its body uses, each with the
     // placeholder the body is compiled with.
     let mut param_bindings: Vec<TulispObject> = Vec::new();
-    let mut free_vars: Vec<(TulispObject, TulispObject)> = Vec::new();
+    let mut captures = Vec::new();
     let res = ctx.compile_2_arg_call(defun_kw, args, true, |ctx, defun_name, args, body| {
         fn_name = defun_name.clone();
         crate::builtin::check_param_list(ctx, args)?;
@@ -449,7 +445,7 @@ fn compile_defun(
         let result = compile_progn_keep_result(ctx, &body);
 
         let compiler = ctx.compiler.as_mut().unwrap();
-        free_vars = compiler.pop_function().captures;
+        captures = compiler.pop_function().captures;
         compiler.current_defun = prev_defun;
         compiler.active_let_scopes = prev_scopes;
         let mut result = result?;
@@ -460,28 +456,33 @@ fn compile_defun(
     // runtime never sees a trace marker or a label; see `assemble`.
     let (res, trace_ranges) = crate::bytecode::bytecode::assemble(res)?;
     let trace_ranges = Shared::new(trace_ranges);
+    let mut function = CompiledDefun {
+        name: fn_name.clone(),
+        instructions: SharedMut::new(res),
+        trace_ranges,
+        params: Shared::new(defun_params),
+        slot_count: 0,
+        captures: Captures::default(),
+    };
     // A function that closes over variables is made again each time the
     // defun form runs, from the same code; until then its variables
     // have no value.
     let mut result = Vec::new();
-    if !free_vars.is_empty() {
+    if !captures.is_empty() {
+        let unbound = captures
+            .iter()
+            .map(|(_, name)| Captured {
+                cell: SharedMut::new(None),
+                name: name.clone(),
+            })
+            .collect();
         result.push(Instruction::MakeLambda(Shared::new(LambdaTemplate {
-            instructions: res.clone(),
-            trace_ranges: trace_ranges.clone(),
-            param_placeholders: param_bindings,
-            params: defun_params.clone(),
-            free_vars,
+            function: function.clone(),
+            captures,
         })));
         result.push(Instruction::DefineFunction(fn_name.clone()));
+        function.captures = Captures::new(unbound);
     }
-    let function = CompiledDefun {
-        name: fn_name.clone(),
-        instructions: SharedMut::new(res),
-        trace_ranges,
-        params: crate::object::wrappers::generic::Shared::new(defun_params),
-        slot_count: 0,
-        captures: crate::bytecode::Captures::default(),
-    };
     fn_name.set_global(
         crate::TulispValue::CompiledDefun {
             value: function.clone(),

@@ -1,6 +1,6 @@
 use crate::{
     Error, ErrorKind, TulispContext, TulispObject,
-    bytecode::compiler::scope::{Binding, resolve},
+    bytecode::compiler::scope::{Binding, Resolved, resolve},
     bytecode::{
         Instruction,
         compiler::compiler::{compile_expr_keep_result, compile_progn},
@@ -24,11 +24,12 @@ pub(super) fn compile_fn_setq(
         };
         crate::builtin::check_settable_target(&target)?;
         result.append(&mut compile_expr_keep_result(ctx, &value)?);
-        let target = resolve(ctx, &target);
-        result.push(if keep_result && items.peek().is_none() {
-            Instruction::Store(target)
-        } else {
-            Instruction::StorePop(target)
+        let keep = keep_result && items.peek().is_none();
+        result.push(match (resolve(ctx, &target)?, keep) {
+            (Resolved::Object(object), true) => Instruction::Store(object),
+            (Resolved::Object(object), false) => Instruction::StorePop(object),
+            (Resolved::Capture(index), true) => Instruction::StoreCapture(index),
+            (Resolved::Capture(index), false) => Instruction::StorePopCapture(index),
         });
     }
     if result.is_empty() && keep_result {

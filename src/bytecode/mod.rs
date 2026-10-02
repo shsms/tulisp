@@ -6,14 +6,13 @@ pub(crate) mod instruction;
 pub(crate) use instruction::{Instruction, Pos};
 
 mod lambda_template;
-#[allow(unused_imports)]
-pub(crate) use lambda_template::LambdaTemplate;
+pub(crate) use lambda_template::{CaptureSource, LambdaTemplate};
 
 mod block;
 pub(crate) use block::{Block, FormBlock, Handler};
 
 mod frame;
-pub(crate) use frame::{Captures, FrameState, Slot};
+pub(crate) use frame::{Captured, Captures, Cell, FrameState, Slot};
 
 mod interpreter;
 pub(crate) use interpreter::{Machine, call_function, run, run_block_in_frame};

@@ -7,7 +7,7 @@ use crate::{
 };
 
 use super::forms::{VMCompilers, compile_form};
-use super::scope::{FunctionScope, resolve};
+use super::scope::{FunctionScope, Resolved, resolve};
 
 #[derive(Default, Clone)]
 pub(crate) struct DefunParams {
@@ -605,7 +605,10 @@ pub(crate) fn compile_expr(
                 return Ok(vec![Instruction::Push(expr.clone())]);
             }
             drop(expr_ref);
-            Ok(vec![Instruction::Load(resolve(ctx, expr))])
+            Ok(vec![match resolve(ctx, expr)? {
+                Resolved::Object(object) => Instruction::Load(object),
+                Resolved::Capture(index) => Instruction::LoadCapture(index),
+            }])
         }
         (TulispValue::Unquote { .. }, _) => Err(Error::new(
             crate::ErrorKind::SyntaxError,
