@@ -281,10 +281,20 @@ fn compile_lambda_head_call(
     lambda: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    let keep_result = ctx.compiler.as_ref().unwrap().keep_result;
-    ctx.compiler.as_mut().unwrap().keep_result = true;
-    let made = super::lambda::compile_fn_lambda(ctx, &lambda.car()?, &lambda.cdr()?);
-    ctx.compiler.as_mut().unwrap().keep_result = keep_result;
+    // A call in tail position of the body leaves the lambda's frame, as
+    // in a `defun`. The lambda is no name its body can call, so it is
+    // the function in progress: a tail call to the enclosing `defun` is
+    // no self call here.
+    let rest = lambda.cdr()?;
+    let body = mark_tail_calls(ctx, lambda.clone(), rest.cdr()?)?;
+    let rest = TulispObject::cons(rest.car()?, body);
+    let compiler = ctx.compiler.as_mut().unwrap();
+    let keep_result = std::mem::replace(&mut compiler.keep_result, true);
+    let prev_defun = compiler.current_defun.replace(lambda.clone());
+    let made = super::lambda::compile_fn_lambda(ctx, &lambda.car()?, &rest);
+    let compiler = ctx.compiler.as_mut().unwrap();
+    compiler.keep_result = keep_result;
+    compiler.current_defun = prev_defun;
     let mut made = made?;
     let template = match made.as_slice() {
         [Instruction::MakeLambda(template)] => template.clone(),

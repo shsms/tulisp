@@ -698,4 +698,21 @@ mod tests {
         eval_assert_equal_fresh("(defun kk (&optional :z) :z) (kk 5)", "5");
         eval_assert_equal_fresh("(defun kk (&optional :z) :z) (kk)", "nil");
     }
+
+    // A call from a `((lambda ...) ...)` head in tail position replaces
+    // the lambda's frame, so recursing through it costs one level per
+    // turn.
+    #[test]
+    fn a_lambda_head_tail_calls() {
+        eval_assert_equal_fresh(
+            "(defun la (n) ((lambda (m) (if (= m 0) 'done (la (1- m)))) n)) (la 12)",
+            "'done",
+        );
+        // One that captures a variable, and is made into a closure.
+        eval_assert_equal_fresh(
+            "(defun la (n) (let ((k 1)) ((lambda (m) (if (= m 0) 'done (la (- m k)))) n)))
+             (la 12)",
+            "'done",
+        );
+    }
 }
