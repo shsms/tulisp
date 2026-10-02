@@ -7,6 +7,7 @@ use crate::{
 };
 
 use super::forms::{VMCompilers, compile_form};
+use super::scope::{FunctionScope, resolve};
 
 #[derive(Default, Clone)]
 pub(crate) struct DefunParams {
@@ -46,6 +47,9 @@ pub(crate) struct Compiler {
     /// The names, by address, that the compile in progress defined or
     /// redefined in `bytecode.functions`.
     pub added_functions: Vec<usize>,
+    /// The functions being compiled, innermost last, with the variables
+    /// in scope in each.
+    pub functions: Vec<FunctionScope>,
     /// How many calls to a name with no value yet were compiled, ever.
     /// A macro body whose compile adds to it is not kept.
     pub unbound_calls: usize,
@@ -62,6 +66,7 @@ impl Compiler {
             current_defun: None,
             active_let_scopes: Vec::new(),
             added_functions: Vec::new(),
+            functions: Vec::new(),
             unbound_calls: 0,
             label_counter: 0,
         }
@@ -84,6 +89,7 @@ impl Compiler {
             current_defun: self.current_defun.take(),
             active_let_scopes: std::mem::take(&mut self.active_let_scopes),
             added_functions: std::mem::take(&mut self.added_functions),
+            functions: std::mem::take(&mut self.functions),
         }
     }
 
@@ -92,6 +98,7 @@ impl Compiler {
         self.current_defun = state.current_defun;
         self.active_let_scopes = state.active_let_scopes;
         self.added_functions = state.added_functions;
+        self.functions = state.functions;
     }
 }
 
@@ -101,6 +108,7 @@ struct CompileState {
     current_defun: Option<TulispObject>,
     active_let_scopes: Vec<TulispObject>,
     added_functions: Vec<usize>,
+    functions: Vec<FunctionScope>,
 }
 
 /// Compiles VALUE, a list of top-level forms. It may be called while
@@ -112,7 +120,9 @@ pub fn compile(
     value: &TulispObject,
     keep_result: bool,
 ) -> Result<Bytecode, Error> {
-    let state = ctx.compiler.as_mut().unwrap().take_state(keep_result);
+    let compiler = ctx.compiler.as_mut().unwrap();
+    let state = compiler.take_state(keep_result);
+    compiler.push_function(false);
     let result = compile_program(ctx, value);
     ctx.compiler.as_mut().unwrap().restore_state(state);
     result
@@ -227,10 +237,8 @@ pub fn compile_progn(
 ///
 /// Only required/optional/rest **lengths** are consulted by
 /// `mark_tail_calls` and `compile_fn_defun_bounce_call`'s non-self
-/// arity check — the actual `TulispObject` values stored here are
-/// just placeholders (the parameter names from source). When the
-/// real `compile_fn_defun` runs for that defun, it overwrites this
-/// entry with one that carries fresh `LexicalBinding` objects.
+/// arity check. When `compile_fn_defun` runs for that defun, it
+/// replaces this entry with its own.
 fn pre_register_defun_arities(ctx: &mut TulispContext, body: &TulispObject) {
     for expr in body.base_iter() {
         try_pre_register_one(ctx, &expr);
@@ -593,11 +601,11 @@ pub(crate) fn compile_expr(
             if !compiler.keep_result {
                 return Ok(vec![]);
             }
-            Ok(vec![if expr.keywordp() {
-                Instruction::Push(expr.clone())
-            } else {
-                Instruction::Load(expr.clone())
-            }])
+            if expr.keywordp() {
+                return Ok(vec![Instruction::Push(expr.clone())]);
+            }
+            drop(expr_ref);
+            Ok(vec![Instruction::Load(resolve(ctx, expr))])
         }
         (TulispValue::Unquote { .. }, _) => Err(Error::new(
             crate::ErrorKind::SyntaxError,

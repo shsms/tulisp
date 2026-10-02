@@ -57,9 +57,9 @@ impl Form {
         T::from_tulisp(ctx, &value)
     }
 
-    /// The argument as written, with the call's lexical variables in
-    /// it: [`ctx.eval`](TulispContext::eval) of it sees the same
-    /// variables while the call runs.
+    /// The argument as written. [`ctx.eval`](TulispContext::eval) of
+    /// it sees global and special variables only; [`eval`](Self::eval)
+    /// sees the call's lexical variables too.
     pub fn source(&self) -> &TulispObject {
         &self.source
     }
@@ -368,21 +368,15 @@ mod tests {
         eval_assert_equal(ctx, "(list (my-progn) (my-progn 1 2 3))", "'(nil 3)");
     }
 
+    // The source is the argument as written: evaluating it sees global
+    // and special variables only, while `Form::eval` sees the caller's.
     #[test]
-    fn a_form_source_holds_the_call_variables() {
+    fn a_form_source_is_the_argument_as_written() {
         let ctx = &mut with_forms();
         eval_assert_equal(ctx, "(source-of (+ 1 2))", "'(+ 1 2)");
-        eval_assert_equal(ctx, "(let ((x 5)) (eval-source x))", "5");
-        let program = "(defun make-source (x) (lambda () (eval-source x)))
-                       (list (funcall (make-source 1)) (funcall (make-source 2)))";
-        eval_assert_equal(ctx, program, "'(1 2)");
-        // The variables inside a backquote in the source too.
-        let program = "(defun make-quoted (x) (lambda () (eval-source `(a ,x ,@(list x)))))
-                       (funcall (make-quoted 7))";
-        eval_assert_equal(ctx, program, "'(a 7 7)");
-        let program = "(defun make-dotted (x) (lambda () (eval-source `(a . ,x))))
-                       (funcall (make-dotted 7))";
-        eval_assert_equal(ctx, program, "'(a . 7)");
+        eval_assert_equal(ctx, "(let ((x 5)) (source-of x))", "'x");
+        eval_assert_equal(ctx, "(setq x 9) (let ((x 5)) (eval-source x))", "9");
+        eval_assert_equal(ctx, "(let ((x 5)) (twice x))", "5");
     }
 
     // The closure's own code after the forms runs when they error or

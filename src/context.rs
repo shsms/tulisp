@@ -736,9 +736,9 @@ impl TulispContext {
     /// other VALUE is compiled and run in the VM on every call; to run
     /// the same code often, compile it once, for example as a lambda,
     /// and [`funcall`](Self::funcall) it. VALUE sees global and special
-    /// variables. It sees the lexical variables of the calling code only
-    /// in a [`Form::source`](crate::Form::source), while the call runs; a
-    /// quoted list sees only global and special variables.
+    /// variables, never the lexical variables of the calling code. A
+    /// special form evaluates an argument with them through
+    /// [`Form::eval`](crate::Form::eval).
     pub fn eval(&mut self, value: &TulispObject) -> Result<TulispObject, Error> {
         if value.symbolp() || value.is_symbol_variant() {
             return value.get();

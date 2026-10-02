@@ -1,14 +1,13 @@
 use crate::{
     Error, ErrorKind, TulispContext, TulispObject,
+    bytecode::compiler::scope::Binding,
     bytecode::{
         Instruction, LambdaTemplate,
         compiler::{
             DefunParams,
             compiler::{compile_expr_keep_result, compile_progn_keep_result},
-            free_vars::classify_free_vars,
         },
     },
-    eval::substitute_lexical_body,
     object::wrappers::generic::Shared,
 };
 
@@ -82,11 +81,6 @@ pub(super) fn compile_fn_lambda(
             param_names.push(p);
         }
 
-        // Classify free variables using the raw param names — the
-        // scoping walker needs them to tell inner references apart
-        // from captures.
-        let free = classify_free_vars(&body, &param_names)?;
-
         // Allocate placeholder LexicalBindings: one per param (in
         // declaration order) and one per free variable.
         let mut param_placeholders: Vec<TulispObject> = Vec::with_capacity(param_names.len());
@@ -123,19 +117,14 @@ pub(super) fn compile_fn_lambda(
             }
         }
 
-        let free_vars = free_var_placeholders(ctx, free);
-
-        // Build the substitution mapping: each original ref (param or
-        // free var) maps to its placeholder, which the body-compile
-        // pass will embed in Load/Store/… instructions.
-        let mut mappings: Vec<(TulispObject, TulispObject)> = Vec::new();
+        // The body is compiled in a scope of its own, with the
+        // parameters in it; a name of an enclosing function it uses is
+        // captured as it compiles.
+        let compiler = ctx.compiler.as_mut().unwrap();
+        compiler.push_function(true);
         for (name, ph) in param_names.iter().zip(param_placeholders.iter()) {
-            mappings.push((name.clone(), ph.clone()));
+            compiler.bind(name.clone(), Binding::Lex(ph.clone()));
         }
-        for (orig, ph) in &free_vars {
-            mappings.push((orig.clone(), ph.clone()));
-        }
-        let body = substitute_lexical_body(body, &mappings)?;
 
         // The body is its own function frame at runtime, so escapes
         // inside it unwind to *this* lambda — they shouldn't see let
@@ -144,10 +133,12 @@ pub(super) fn compile_fn_lambda(
         // then restore it.
         let prev_scopes = std::mem::take(&mut ctx.compiler.as_mut().unwrap().active_let_scopes);
 
-        // Compile the substituted body with `keep_result` so the last
-        // form leaves its value on the stack; `Ret` returns it.
+        // Compile the body with `keep_result` so the last form leaves
+        // its value on the stack; `Ret` returns it.
         let body_result = compile_progn_keep_result(ctx, &body);
-        ctx.compiler.as_mut().unwrap().active_let_scopes = prev_scopes;
+        let compiler = ctx.compiler.as_mut().unwrap();
+        compiler.active_let_scopes = prev_scopes;
+        let free_vars = compiler.pop_function().captures;
         let mut instructions = body_result?;
         instructions.push(Instruction::Ret);
 
@@ -173,31 +164,6 @@ pub(super) fn compile_fn_lambda(
         }
         Ok(result)
     })
-}
-
-/// Pairs each free variable in `free` with a placeholder for it, which
-/// the function body is compiled with.
-pub(super) fn free_var_placeholders(
-    ctx: &TulispContext,
-    free: Vec<TulispObject>,
-) -> Vec<(TulispObject, TulispObject)> {
-    free.into_iter()
-        .map(|orig| {
-            // The placeholder is an identity token rewritten at phase
-            // 2 — its `symbol` field is not used for slot lookup.
-            // When `orig` is itself a `LexicalBinding` (because the
-            // surrounding scope's `substitute_lexical` already
-            // rewrote the body's reference), unwrap to the underlying
-            // symbol so the placeholder is single-wrapped, not
-            // doubly-wrapped.
-            let symbol_for_ph = match &orig.inner_ref().0 {
-                crate::TulispValue::LexicalBinding { binding } => binding.symbol().clone(),
-                _ => orig.clone(),
-            };
-            let ph = TulispObject::lexical_binding(ctx.lex_allocator.clone(), symbol_for_ph);
-            (orig, ph)
-        })
-        .collect()
 }
 
 /// VM compiler for `(funcall fn arg1 arg2 …)`.
@@ -306,9 +272,8 @@ mod tests {
         );
     }
 
-    // A macro defined in the same top-level form expands after the
-    // lambda's parameters became placeholders, so quoted data it builds
-    // from a parameter holds the placeholder. It is `eq` to the symbol,
+    // A macro defined in the same top-level form gets the parameter's
+    // name, so quoted data it builds from a parameter holds the symbol,
     // and `eval` of it does not see the parameter's value.
     #[test]
     fn quoted_data_a_late_macro_builds_from_a_parameter() {
@@ -634,5 +599,19 @@ mod tests {
         );
 
         Ok(())
+    }
+
+    #[test]
+    fn a_lambda_head_that_captures_runs() {
+        eval_assert_equal_fresh("(let ((y 1)) ((lambda (a) (+ a y)) 2))", "3");
+        eval_assert_equal_fresh("(defun f (y) ((lambda (a) (+ a y)) 2)) (f 10)", "12");
+    }
+
+    #[test]
+    fn a_lambda_in_a_lambda_captures_two_levels_up() {
+        eval_assert_equal_fresh(
+            "(defun f (x) (lambda () (lambda () x))) (funcall (funcall (f 4)))",
+            "4",
+        );
     }
 }

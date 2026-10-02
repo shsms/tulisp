@@ -3,11 +3,11 @@
 use crate::{
     Error, TulispContext, TulispObject,
     builtin::functions::errors::{check_condition_case_var, parse_handlers},
+    bytecode::compiler::scope::Binding,
     bytecode::{
         Block, Handler, Instruction,
         compiler::compiler::{compile_block, compile_expr_keep_result},
     },
-    eval::substitute_lexical_body,
     object::wrappers::generic::Shared,
 };
 
@@ -75,8 +75,11 @@ pub(super) fn compile_fn_condition_case(
                 compile_block(ctx, &forms, Some(var))?
             } else {
                 let binding = TulispObject::lexical_binding(ctx.lex_allocator.clone(), var.clone());
-                let forms = substitute_lexical_body(forms, &[(var.clone(), binding.clone())])?;
-                compile_block(ctx, &forms, Some(&binding))?
+                let compiler = ctx.compiler.as_mut().unwrap();
+                compiler.bind(var.clone(), Binding::Lex(binding.clone()));
+                let block = compile_block(ctx, &forms, Some(&binding));
+                ctx.compiler.as_mut().unwrap().unbind(1);
+                block?
             };
             compiled.push(Handler {
                 condition,

@@ -82,10 +82,9 @@ pub struct SymbolBindings {
     name: String,
     constant: bool,
     // "Special" (dynamic) in Emacs' terminology: `defvar`-declared.
-    // Once set, references to this symbol bypass lexical-binding
-    // rewrites (substitute_lexical / capture) and always use this
-    // symbol's own `items` stack, matching Emacs' behavior under
-    // `lexical-binding: t` for declared variables.
+    // Once set, a `let` of this symbol binds it on its own `items`
+    // stack rather than as a lexical variable, matching Emacs'
+    // behavior under `lexical-binding: t` for declared variables.
     special: bool,
     items: Vec<TulispObject>,
 }

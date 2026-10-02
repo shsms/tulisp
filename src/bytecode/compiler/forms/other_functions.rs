@@ -1,5 +1,6 @@
 use crate::{
-    Error, ErrorKind, TulispContext, TulispObject,
+    Error, ErrorKind, TulispContext, TulispObject, TulispValue,
+    bytecode::compiler::scope::Binding,
     bytecode::{
         Instruction, LambdaTemplate, Pos,
         bytecode::CompiledDefun,
@@ -8,17 +9,12 @@ use crate::{
             compiler::{
                 compile_expr, compile_expr_keep_result, compile_progn, compile_progn_keep_result,
             },
-            free_vars::{classify_free_vars, lambda_free_vars},
         },
     },
     destruct_bind,
-    eval::substitute_lexical_body,
-    list,
     object::wrappers::generic::{Shared, SharedMut},
     parse::mark_tail_calls,
 };
-
-use super::lambda::free_var_placeholders;
 
 pub(super) fn compile_fn_print(
     ctx: &mut TulispContext,
@@ -238,20 +234,7 @@ pub(super) fn compile_fn_defun_call(
     let mut result = vec![];
     let mut args_count = 0;
     if crate::eval::is_lambda_list(ctx, name) {
-        // A `(lambda ...)` head that uses variables of the scopes around
-        // it is compiled as a `funcall` of it, which makes a closure
-        // that captures them on each call. One that uses none is
-        // compiled once, as a function of its own.
-        if !lambda_free_vars(name)?.is_empty() {
-            let form = TulispObject::cons(name.clone(), args.clone());
-            return super::lambda::compile_fn_funcall(ctx, name, &form);
-        }
-        compile_defun(
-            ctx,
-            &name.car()?,
-            &list!(name.clone() ,@name.cdr()?)?,
-            false,
-        )?;
+        return compile_lambda_head_call(ctx, name, args);
     }
 
     for arg in args.base_iter() {
@@ -279,6 +262,78 @@ pub(super) fn compile_fn_defun_call(
     Ok(result)
 }
 
+/// Compiles `((lambda ...) ARGS...)`. The lambda compiles once. One
+/// that uses variables of the scopes around it is made into a closure
+/// and called on each run; one that uses none is a function of its own,
+/// keyed by the lambda list, and called directly.
+fn compile_lambda_head_call(
+    ctx: &mut TulispContext,
+    lambda: &TulispObject,
+    args: &TulispObject,
+) -> Result<Vec<Instruction>, Error> {
+    let keep_result = ctx.compiler.as_ref().unwrap().keep_result;
+    ctx.compiler.as_mut().unwrap().keep_result = true;
+    let made = super::lambda::compile_fn_lambda(ctx, &lambda.car()?, &lambda.cdr()?);
+    ctx.compiler.as_mut().unwrap().keep_result = keep_result;
+    let mut made = made?;
+    let template = match made.as_slice() {
+        [Instruction::MakeLambda(template)] => template.clone(),
+        _ => {
+            return Err(Error::lisp_error(
+                "internal: a lambda compiled to something other than one MakeLambda",
+            ));
+        }
+    };
+    let mut result = vec![];
+    let mut args_count = 0;
+    if template.free_vars.is_empty() {
+        let function = CompiledDefun {
+            name: lambda.clone(),
+            instructions: SharedMut::new(template.instructions.clone()),
+            trace_ranges: template.trace_ranges.clone(),
+            params: Shared::new(template.params.clone()),
+            slot_count: 0,
+            captures: crate::bytecode::Captures::default(),
+        };
+        install_function(ctx, lambda, function);
+    } else {
+        result.append(&mut made);
+    }
+    for arg in args.base_iter() {
+        result.append(&mut compile_expr_keep_result(ctx, &arg)?);
+        args_count += 1;
+    }
+    if template.free_vars.is_empty() {
+        let synthetic_form = TulispObject::cons(lambda.clone(), args.clone());
+        result.push(Instruction::Call {
+            name: lambda.clone(),
+            form: synthetic_form,
+            args_count,
+            function: None,
+            optional_count: 0,
+            rest_count: 0,
+        });
+    } else {
+        result.push(Instruction::Funcall { args_count });
+    }
+    if !keep_result {
+        result.push(Instruction::Pop);
+    }
+    Ok(result)
+}
+
+/// Makes FUNCTION what a compiled call to NAME runs, from now on, and
+/// part of the compile's output.
+fn install_function(ctx: &mut TulispContext, name: &TulispObject, function: CompiledDefun) {
+    let addr = name.addr_as_usize();
+    ctx.vm.set_function(addr, function.clone());
+    let compiler = ctx.compiler.as_mut().unwrap();
+    compiler.bytecode.functions.insert(addr, function);
+    if !compiler.added_functions.contains(&addr) {
+        compiler.added_functions.push(addr);
+    }
+}
+
 /// `(defun NAME PARAMS [DOC] BODY...)` defines NAME as it compiles:
 /// NAME holds the compiled function from then on. Its value is NAME.
 pub(super) fn compile_fn_defun(
@@ -286,20 +341,17 @@ pub(super) fn compile_fn_defun(
     defun_kw: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    compile_defun(ctx, defun_kw, args, true)
+    compile_defun(ctx, defun_kw, args)
 }
 
 /// Compiles a function from ARGS, `(NAME PARAMS [DOC] BODY...)`, into
-/// the machine's function table under NAME, and returns the code the
-/// form runs. A `(lambda ...)` list is its own NAME. Only a named
-/// function, with DEFINE, is set as NAME's value and captures the
-/// variables of the scopes around it; `compile_fn_defun_call` never
-/// passes a `(lambda ...)` head that uses such variables here.
+/// the machine's function table under NAME, sets it as NAME's value,
+/// and returns the code the form runs. The function captures the
+/// variables of the scopes around it that it uses.
 fn compile_defun(
     ctx: &mut TulispContext,
     defun_kw: &TulispObject,
     args: &TulispObject,
-    define: bool,
 ) -> Result<Vec<Instruction>, Error> {
     let mut defun_params = DefunParams {
         required: vec![],
@@ -308,16 +360,14 @@ fn compile_defun(
     };
     let mut fn_name = TulispObject::nil();
     // The parameters in declaration order, and the variables of the
-    // scopes around a named function that its body uses, each with the
+    // scopes around the function that its body uses, each with the
     // placeholder the body is compiled with.
     let mut param_bindings: Vec<TulispObject> = Vec::new();
     let mut free_vars: Vec<(TulispObject, TulispObject)> = Vec::new();
     let res = ctx.compile_2_arg_call(defun_kw, args, true, |ctx, defun_name, args, body| {
         fn_name = defun_name.clone();
         crate::builtin::check_param_list(ctx, args)?;
-        if define {
-            defun_name.check_global_settable()?;
-        }
+        defun_name.check_global_settable()?;
         let compiler = ctx.compiler.as_mut().unwrap();
         compiler
             .vm_compilers
@@ -326,7 +376,6 @@ fn compile_defun(
         let args = args.base_iter().collect::<Vec<_>>();
         let mut is_optional = false;
         let mut is_rest = false;
-        let mut mappings: Vec<(TulispObject, TulispObject)> = Vec::new();
         for arg in args.iter() {
             if arg.eq(&ctx.keywords.amp_optional) {
                 if is_rest {
@@ -349,7 +398,7 @@ fn compile_defun(
             } else {
                 crate::builtin::check_not_nil_or_t(arg)?;
                 let lex = TulispObject::lexical_binding(ctx.lex_allocator.clone(), arg.clone());
-                mappings.push((arg.clone(), lex.clone()));
+                param_bindings.push(lex.clone());
                 if is_optional {
                     defun_params.optional.push(lex);
                 } else if is_rest {
@@ -386,21 +435,25 @@ fn compile_defun(
             body.clone()
         };
         let body = mark_tail_calls(ctx, defun_name.clone(), body)?;
-        if define {
-            // A variable of a scope around the function is captured
-            // when the defun form runs, as a lambda captures it.
-            let (param_names, placeholders): (Vec<_>, Vec<_>) = mappings.iter().cloned().unzip();
-            param_bindings = placeholders;
-            free_vars = free_var_placeholders(ctx, classify_free_vars(&body, &param_names)?);
-            mappings.extend(free_vars.iter().cloned());
+        // The body is compiled in a scope of its own, with the
+        // parameters in it. A variable of a scope around the function
+        // is captured when the defun form runs, as a lambda captures it.
+        let compiler = ctx.compiler.as_mut().unwrap();
+        compiler.push_function(true);
+        for lex in &param_bindings {
+            let TulispValue::LexicalBinding { binding } = &lex.inner_ref().0 else {
+                continue;
+            };
+            compiler.bind(binding.symbol().clone(), Binding::Lex(lex.clone()));
         }
-        let body = substitute_lexical_body(body, &mappings)?;
-        let mut result = compile_progn_keep_result(ctx, &body)?;
-        result.push(Instruction::Ret);
+        let result = compile_progn_keep_result(ctx, &body);
 
         let compiler = ctx.compiler.as_mut().unwrap();
+        free_vars = compiler.pop_function().captures;
         compiler.current_defun = prev_defun;
         compiler.active_let_scopes = prev_scopes;
+        let mut result = result?;
+        result.push(Instruction::Ret);
         Ok(result)
     })?;
     // Assemble the body at the `CompiledDefun` boundary so the
@@ -429,22 +482,15 @@ fn compile_defun(
         slot_count: 0,
         captures: crate::bytecode::Captures::default(),
     };
-    if define {
-        fn_name.set_global(
-            crate::TulispValue::CompiledDefun {
-                value: function.clone(),
-            }
-            .into_ref(None),
-        )?;
-    }
-    let addr = fn_name.addr_as_usize();
-    ctx.vm.set_function(addr, function.clone());
-    let compiler = ctx.compiler.as_mut().unwrap();
-    compiler.bytecode.functions.insert(addr, function);
-    if !compiler.added_functions.contains(&addr) {
-        compiler.added_functions.push(addr);
-    }
+    fn_name.set_global(
+        crate::TulispValue::CompiledDefun {
+            value: function.clone(),
+        }
+        .into_ref(None),
+    )?;
+    install_function(ctx, &fn_name, function);
     // The value of `defun` is the function's name.
+    let compiler = ctx.compiler.as_mut().unwrap();
     if compiler.keep_result {
         result.push(Instruction::Push(fn_name));
     }

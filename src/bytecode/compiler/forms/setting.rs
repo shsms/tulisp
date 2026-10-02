@@ -1,11 +1,11 @@
 use crate::{
     Error, ErrorKind, TulispContext, TulispObject,
+    bytecode::compiler::scope::{Binding, resolve},
     bytecode::{
         Instruction,
         compiler::compiler::{compile_expr_keep_result, compile_progn},
     },
     destruct_bind,
-    eval::{substitute_lexical, substitute_lexical_body},
 };
 
 /// `(setq [SYM VAL]...)` sets each SYM to its VAL in order, and gives
@@ -24,6 +24,7 @@ pub(super) fn compile_fn_setq(
         };
         crate::builtin::check_settable_target(&target)?;
         result.append(&mut compile_expr_keep_result(ctx, &value)?);
+        let target = resolve(ctx, &target);
         result.push(if keep_result && items.peek().is_none() {
             Instruction::Store(target)
         } else {
@@ -59,105 +60,116 @@ pub(super) fn compile_fn_let_star(
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
     ctx.compile_1_arg_call(name, args, true, |ctx, varlist, body| {
-        let mut result = vec![];
-        let mut params: Vec<TulispObject> = Vec::new();
-        let mut mappings: Vec<(TulispObject, TulispObject)> = Vec::new();
-        let mut varitems = varlist.base_iter();
-        for varitem in varitems.by_ref() {
-            crate::builtin::check_not_nil_or_t(&varitem)?;
-            let (name, value_expr) = if varitem.is_symbol_variant() {
-                (varitem.clone(), None)
-            } else if varitem.consp() {
-                let varitem_clone = varitem.clone();
-                destruct_bind!((&optional name value &rest rest) = varitem_clone);
-                crate::builtin::check_not_nil_or_t(&name)?;
-                if !name.is_symbol_variant() {
-                    return Err(Error::new(
-                        ErrorKind::TypeMismatch,
-                        format!("Expected Symbol: Can't assign to {}", name),
-                    )
-                    .with_trace(name));
-                }
-                if !rest.null() {
-                    return Err(Error::new(
-                        ErrorKind::Undefined,
-                        "let varitem has too many values".to_string(),
-                    )
-                    .with_trace(varitem));
-                }
-                (name, Some(value))
-            } else {
+        // The variables this `let` puts in scope leave it again on every
+        // path out, an error included.
+        let mut in_scope = 0;
+        let result = compile_let_star(ctx, varlist, body, &mut in_scope);
+        ctx.compiler.as_mut().unwrap().unbind(in_scope);
+        result
+    })
+}
+
+/// Compiles `(let* VARLIST BODY...)`, counting in IN_SCOPE the lexical
+/// variables it puts in scope.
+fn compile_let_star(
+    ctx: &mut TulispContext,
+    varlist: &TulispObject,
+    body: &TulispObject,
+    in_scope: &mut usize,
+) -> Result<Vec<Instruction>, Error> {
+    let mut result = vec![];
+    let mut params: Vec<TulispObject> = Vec::new();
+    let mut varitems = varlist.base_iter();
+    for varitem in varitems.by_ref() {
+        crate::builtin::check_not_nil_or_t(&varitem)?;
+        let (name, value_expr) = if varitem.is_symbol_variant() {
+            (varitem.clone(), None)
+        } else if varitem.consp() {
+            let varitem_clone = varitem.clone();
+            destruct_bind!((&optional name value &rest rest) = varitem_clone);
+            crate::builtin::check_not_nil_or_t(&name)?;
+            if !name.is_symbol_variant() {
                 return Err(Error::new(
-                    ErrorKind::SyntaxError,
-                    format!(
-                        "varitems inside a let-varlist should be a var or a binding: {}",
-                        varitem
-                    ),
+                    ErrorKind::TypeMismatch,
+                    format!("Expected Symbol: Can't assign to {}", name),
+                )
+                .with_trace(name));
+            }
+            if !rest.null() {
+                return Err(Error::new(
+                    ErrorKind::Undefined,
+                    "let varitem has too many values".to_string(),
                 )
                 .with_trace(varitem));
-            };
-
-            // Dynamic (special) vars skip lexical rewriting — they bind
-            // on the symbol's own stack so `set` / dynamic references
-            // resolve to the let-bound value.
-            let is_special = name.is_special();
-            let binding = if is_special {
-                name.clone()
-            } else {
-                TulispObject::lexical_binding(ctx.lex_allocator.clone(), name.clone())
-            };
-
-            match value_expr {
-                None => result.push(Instruction::Push(false.into())),
-                Some(value) => {
-                    let value = substitute_lexical(value, &mappings)
-                        .map_err(|e| e.with_trace(varitem.clone()))?;
-                    result.append(
-                        &mut compile_expr_keep_result(ctx, &value)
-                            .map_err(|e| e.with_trace(value))?,
-                    );
-                }
             }
-            result.push(Instruction::BeginScope(binding.clone()));
-            params.push(binding.clone());
-            if !is_special {
-                mappings.push((name, binding));
+            (name, Some(value))
+        } else {
+            return Err(Error::new(
+                ErrorKind::SyntaxError,
+                format!(
+                    "varitems inside a let-varlist should be a var or a binding: {}",
+                    varitem
+                ),
+            )
+            .with_trace(varitem));
+        };
+        // A keyword names a constant, as in Emacs.
+        crate::builtin::check_settable_target(&name).map_err(|e| e.with_trace(varitem.clone()))?;
+
+        match value_expr {
+            None => result.push(Instruction::Push(false.into())),
+            Some(value) => {
+                result.append(
+                    &mut compile_expr_keep_result(ctx, &value).map_err(|e| e.with_trace(value))?,
+                );
             }
         }
-        varitems.take_error()?;
-        // Track the bindings on the compiler so anything inside the
-        // body that emits a function-escaping instruction (`TailCall`,
-        // self-recursion's `Jump(Pos::Abs(0))`) can prepend
-        // `EndScope`s for the active scopes. The trailing `EndScope`s
-        // appended below are unreachable on the escape path, so
-        // without this push/pop the bindings stay stuck on
-        // `LEX_STACKS` forever.
-        let scope_depth = ctx.compiler.as_ref().unwrap().active_let_scopes.len();
-        ctx.compiler
-            .as_mut()
-            .unwrap()
-            .active_let_scopes
-            .extend(params.iter().cloned());
-        let rewritten_body = substitute_lexical_body(body.clone(), &mappings)?;
-        let body_result = compile_progn(ctx, &rewritten_body);
-        ctx.compiler
-            .as_mut()
-            .unwrap()
-            .active_let_scopes
-            .truncate(scope_depth);
-        let mut body = body_result?;
-        // Even when the body compiles to no instructions — body is `t`
-        // or a single binding reference in a discard-result context —
-        // the binding-init expressions sitting in `result` may have
-        // side effects that *must* run. The previous `body.is_empty()
-        // → return vec![]` shortcut elided them along with the body
-        // and silently dropped `(let ((x (mutate))) t)`'s `mutate`.
-        result.append(&mut body);
-        for param in params {
-            result.push(Instruction::EndScope(param));
-        }
-        Ok(result)
-    })
+        // A dynamic (special) variable binds on the symbol's own stack,
+        // so `set` and dynamic references see the let-bound value; it
+        // does not enter the scope, so it hides no lexical variable.
+        let binding = if name.is_special() {
+            name.clone()
+        } else {
+            let binding = TulispObject::lexical_binding(ctx.lex_allocator.clone(), name.clone());
+            ctx.compiler
+                .as_mut()
+                .unwrap()
+                .bind(name, Binding::Lex(binding.clone()));
+            *in_scope += 1;
+            binding
+        };
+        result.push(Instruction::BeginScope(binding.clone()));
+        params.push(binding);
+    }
+    varitems.take_error()?;
+    // Track the bindings on the compiler so anything inside the
+    // body that emits a function-escaping instruction (`TailCall`,
+    // self-recursion's `Jump(Pos::Abs(0))`) can prepend
+    // `EndScope`s for the active scopes. The trailing `EndScope`s
+    // appended below are unreachable on the escape path, so
+    // without this push/pop the bindings stay stuck on
+    // `LEX_STACKS` forever.
+    let scope_depth = ctx.compiler.as_ref().unwrap().active_let_scopes.len();
+    ctx.compiler
+        .as_mut()
+        .unwrap()
+        .active_let_scopes
+        .extend(params.iter().cloned());
+    let body_result = compile_progn(ctx, body);
+    ctx.compiler
+        .as_mut()
+        .unwrap()
+        .active_let_scopes
+        .truncate(scope_depth);
+    let mut body = body_result?;
+    // The initialisers in `result` may have side effects, so they are
+    // kept even when the body compiles to nothing (a body of `t`, or a
+    // variable whose value is discarded).
+    result.append(&mut body);
+    for param in params {
+        result.push(Instruction::EndScope(param));
+    }
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -280,6 +292,73 @@ mod tests {
                (let ((b (bump))) t)
                c)",
             "2",
+        );
+    }
+
+    // A name a macro expansion introduces reads an enclosing `let`, as
+    // in Emacs, also for a macro defined inside the same top-level form.
+    #[test]
+    fn a_name_from_a_macro_expansion_reads_the_enclosing_let() {
+        eval_assert_equal_fresh("(setq x 99) (let ((x 1)) (defmacro lm () 'x) (lm))", "1");
+        eval_assert_equal_fresh(
+            "(setq x 99) (let ((x 1)) (defmacro setx (v) (list 'setq 'x v)) (setx 2) x)",
+            "2",
+        );
+    }
+
+    // A macro gets the names it is passed, not the variables they name.
+    #[test]
+    fn a_macro_gets_plain_names() {
+        eval_assert_equal_fresh(
+            "(setq x 99)
+             (let ((x 1)) (defmacro m (v) (list 'quote v)) (symbol-value (m x)))",
+            "99",
+        );
+    }
+
+    // Scopes are searched before asking whether a name is special.
+    #[test]
+    fn a_let_variable_stays_lexical_after_a_defvar_of_its_name() {
+        eval_assert_equal_fresh(
+            "(let ((x 1)) (defvar x 2) (list x (symbol-value 'x)))",
+            "'(1 2)",
+        );
+        eval_assert_equal_fresh(
+            "(let ((w 1)) (defvar w 3) (setq w 7) (list w (symbol-value 'w)))",
+            "'(7 3)",
+        );
+    }
+
+    // A let of a special variable inside a lexical one of the same name
+    // binds dynamically, and the name still reads the lexical variable,
+    // as in Emacs.
+    #[test]
+    fn a_dynamic_let_does_not_hide_a_lexical_one() {
+        eval_assert_equal_fresh(
+            "(defun peek-v () v)
+             (let ((v 1)) (defvar v 0) (let ((v 2)) (list v (peek-v))))",
+            "'(1 2)",
+        );
+    }
+
+    // Built-in macros bind uninterned temporaries; a user variable of
+    // the same name is a different variable.
+    #[test]
+    fn macro_temporaries_do_not_meet_user_variables() {
+        eval_assert_equal_fresh(
+            "(let ((tail 5) (acc nil)) (dolist (e '(1 2)) (setq acc (cons tail acc))) acc)",
+            "'(5 5)",
+        );
+    }
+
+    // Binding a constant is an error, as in Emacs.
+    #[test]
+    fn binding_a_constant_is_an_error() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_error_line(
+            ctx,
+            "(let ((:k 1)) :k)",
+            "ERR TypeMismatch: Can't set constant symbol: :k",
         );
     }
 }

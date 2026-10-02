@@ -599,9 +599,9 @@ impl TulispObject {
     }
 
     /// Marks `self` as a "special" (dynamically-bound) variable. Once
-    /// set, references to this symbol bypass lexical-binding rewrites
-    /// and always resolve through the symbol's dynamic stack, matching
-    /// Emacs' `defvar` behavior under `lexical-binding: t`.
+    /// set, a `let` of this symbol binds it on the symbol's dynamic
+    /// stack rather than as a lexical variable, matching Emacs'
+    /// `defvar` behavior under `lexical-binding: t`.
     ///
     /// Returns an Error if `self` is not a `Symbol`.
     pub(crate) fn set_special(&self) -> Result<(), Error> {
@@ -819,9 +819,7 @@ impl TulispObject {
     ) -> TulispObject {
         debug_assert!(
             !matches!(&symbol.inner_ref().0, TulispValue::LexicalBinding { .. }),
-            "lexical_binding called with an already-LexicalBinding `symbol` \
-             — this means substitute_lexical descended into a binding form's \
-             parameter / varname position. See todo.md #8."
+            "lexical_binding called with an already-LexicalBinding `symbol`"
         );
         let span = symbol.span();
         TulispValue::lexical_binding(allocator, symbol).into_ref(span)
