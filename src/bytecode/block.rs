@@ -8,7 +8,8 @@ use crate::{Error, TulispObject};
 
 /// A body compiled as its own unit. Only the instruction that holds it,
 /// or a special form's `Form` during the call, runs it, since it reads
-/// the lexical bindings of the code around that instruction.
+/// the lexical variables of the code around that instruction, in its
+/// frame.
 #[derive(Clone)]
 pub(crate) struct Block {
     pub(crate) instructions: SharedMut<Vec<Instruction>>,

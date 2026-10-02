@@ -24,7 +24,6 @@ use crate::{
     eval::resolve_function,
     object::wrappers::{DefunFn, InterruptCheckFn, TulispFn, generic::Shared},
     parse::parse,
-    value::LexAllocator,
 };
 
 macro_rules! intern_from_obarray {
@@ -119,7 +118,6 @@ pub struct TulispContext {
     pub(crate) keywords: Keywords,
     pub(crate) vm: bytecode::Machine,
     pub(crate) load_path: Option<PathBuf>,
-    pub(crate) lex_allocator: Shared<LexAllocator>,
     /// Current evaluation nesting depth, bounded by `max_eval_depth`.
     eval_depth: u32,
     /// How many cleanup or handler frames are running. While any is,
@@ -166,7 +164,6 @@ impl TulispContext {
             keywords,
             vm: bytecode::Machine::new(),
             load_path: None,
-            lex_allocator: Shared::new(LexAllocator::new()),
             eval_depth: 0,
             reserve_frames: 0,
             compiling_macros: Vec::new(),
@@ -304,8 +301,8 @@ impl TulispContext {
     }
 
     /// Debug-only: sum of `SymbolBindings::items.len()` across every
-    /// symbol in the obarray. Counterpart to `debug_lex_stacks_total`,
-    /// but for ~defvar~-declared (special / dynamic) variables. Steady
+    /// symbol in the obarray. Counterpart to `debug_locals_len`, but
+    /// for ~defvar~-declared (special / dynamic) variables. Steady
     /// growth indicates a `BeginScope` for a special var without a
     /// matching `EndScope` on some control-flow path.
     #[doc(hidden)]

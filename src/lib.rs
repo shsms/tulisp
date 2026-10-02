@@ -41,8 +41,6 @@ mod value;
 pub use value::TulispAny;
 #[doc(hidden)]
 pub use value::TulispValue;
-#[doc(hidden)]
-pub use value::debug_lex_stacks_total;
 
 mod object;
 pub use {

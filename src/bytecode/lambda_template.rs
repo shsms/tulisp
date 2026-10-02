@@ -4,8 +4,6 @@ use crate::TulispObject;
 /// Where a closure's captured cell comes from when `MakeLambda` runs.
 #[derive(Clone)]
 pub(crate) enum CaptureSource {
-    /// The cell an enclosing lexical binding holds now.
-    Lex(TulispObject),
     /// The cell in the running frame's slot at this index.
     Local(u16),
     /// The running closure's captured cell at this index.

@@ -8,8 +8,6 @@ use crate::{Error, TulispContext, TulispObject, bytecode::CaptureSource};
 /// enclosing lexical variable of the same name, as in Emacs.
 #[derive(Clone)]
 pub(crate) enum Binding {
-    /// The variable's `LexicalBinding` object.
-    Lex(TulispObject),
     /// A slot of the function's frame. A captured one holds a cell.
     Slot { slot: u16, captured: bool },
 }
@@ -35,6 +33,9 @@ pub(crate) struct FunctionScope {
     pub(crate) next_slot: u16,
     /// How many slots a call of this function reserves.
     pub(crate) slot_count: u16,
+    /// The label after the function's prologue, where a self tail call
+    /// jumps once it has rebound the parameters.
+    pub(crate) body_start: Option<TulispObject>,
 }
 
 impl crate::bytecode::Compiler {
@@ -113,24 +114,23 @@ impl crate::bytecode::Compiler {
 
 /// What a name reads and writes.
 pub(crate) enum Resolved {
-    /// This object: a lexical binding, or the name itself for a global
-    /// or special variable.
-    Object(TulispObject),
+    /// The name's own value: a global or special variable.
+    Global,
     /// The running frame's slot, holding a cell when captured.
     Slot { slot: u16, captured: bool },
     /// The running closure's captured cell at this index.
     Capture(u16),
 }
 
-/// What NAME reads and writes: the innermost lexical binding of it, a
-/// capture of an enclosing function's variable, or NAME itself for a
-/// global or special variable.
+/// What NAME reads and writes: the innermost lexical variable of the
+/// name, a capture of an enclosing function's variable, or the name's
+/// own value for a global or special variable.
 pub(crate) fn resolve(ctx: &mut TulispContext, name: &TulispObject) -> Result<Resolved, Error> {
     let Some(compiler) = ctx.compiler.as_mut() else {
-        return Ok(Resolved::Object(name.clone()));
+        return Ok(Resolved::Global);
     };
     let Some(depth) = compiler.functions.len().checked_sub(1) else {
-        return Ok(Resolved::Object(name.clone()));
+        return Ok(Resolved::Global);
     };
     resolve_in(compiler, name, depth)
 }
@@ -143,7 +143,6 @@ fn resolve_in(
     let function = &compiler.functions[depth];
     if let Some(var) = function.vars.iter().rev().find(|var| var.name.eq(name)) {
         return Ok(match &var.binding {
-            Binding::Lex(binding) => Resolved::Object(binding.clone()),
             Binding::Slot { slot, captured } => Resolved::Slot {
                 slot: *slot,
                 captured: *captured,
@@ -158,14 +157,11 @@ fn resolve_in(
         return Ok(Resolved::Capture(capture_index(index)?));
     }
     if !function.closes || depth == 0 {
-        return Ok(Resolved::Object(name.clone()));
+        return Ok(Resolved::Global);
     }
     let source = match resolve_in(compiler, name, depth - 1)? {
-        Resolved::Object(outer) if outer.eq_ptr(name) => {
-            // A global or special variable in every enclosing function.
-            return Ok(Resolved::Object(name.clone()));
-        }
-        Resolved::Object(outer) => CaptureSource::Lex(outer),
+        // A global or special variable in every enclosing function.
+        Resolved::Global => return Ok(Resolved::Global),
         Resolved::Slot { slot, .. } => {
             mark_captured(&mut compiler.functions[depth - 1], name);
             CaptureSource::Local(slot)

@@ -127,7 +127,7 @@ pub(super) fn compile_form(
     ctx: &mut TulispContext,
     form: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    let name = form.car()?.function_name();
+    let name = form.car()?;
     let args = form.cdr()?;
     // Every form walks its own arguments; check once here that the
     // list is proper and not circular, so no walker drops a tail.

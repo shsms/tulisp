@@ -1,6 +1,7 @@
 use crate::{
     Error, ErrorKind, TulispContext, TulispObject,
-    bytecode::compiler::scope::Binding,
+    bytecode::compiler::cells::swap_to_cells,
+    bytecode::compiler::scope::{Binding, FunctionScope},
     bytecode::{Captures, CompiledDefun},
     bytecode::{
         Instruction, LambdaTemplate,
@@ -75,18 +76,11 @@ pub(super) fn compile_fn_lambda(
             param_names.push(p);
         }
 
-        // Allocate a binding per param (in
-        // declaration order) and one per free variable.
-        let mut param_placeholders: Vec<TulispObject> = Vec::with_capacity(param_names.len());
-        for name in &param_names {
-            let lex = TulispObject::lexical_binding(ctx.lex_allocator.clone(), name.clone());
-            param_placeholders.push(lex);
-        }
         params_iter.take_error()?;
-        // Populate DefunParams from the bindings, honoring
-        // &optional / &rest positions from the original declaration.
+        // Populate DefunParams from the names, honoring &optional /
+        // &rest positions from the original declaration.
         {
-            let mut cursor = 0usize;
+            let mut names = param_names.iter();
             let mut is_optional = false;
             let mut is_rest = false;
             for p in params.base_iter() {
@@ -99,25 +93,15 @@ pub(super) fn compile_fn_lambda(
                     is_rest = true;
                     continue;
                 }
-                let ph = param_placeholders[cursor].clone();
-                cursor += 1;
+                let Some(name) = names.next() else { break };
                 if is_rest {
-                    vm_params.rest = Some(ph);
+                    vm_params.rest = Some(name.clone());
                 } else if is_optional {
-                    vm_params.optional.push(ph);
+                    vm_params.optional.push(name.clone());
                 } else {
-                    vm_params.required.push(ph);
+                    vm_params.required.push(name.clone());
                 }
             }
-        }
-
-        // The body is compiled in a scope of its own, with the
-        // parameters in it; a name of an enclosing function it uses is
-        // captured as it compiles.
-        let compiler = ctx.compiler.as_mut().unwrap();
-        compiler.push_function(true);
-        for (name, ph) in param_names.iter().zip(param_placeholders.iter()) {
-            compiler.bind(name.clone(), Binding::Lex(ph.clone()));
         }
 
         // The body is its own function frame at runtime, so escapes
@@ -126,15 +110,9 @@ pub(super) fn compile_fn_lambda(
         // Stash and clear `active_let_scopes` for the body compile,
         // then restore it.
         let prev_scopes = std::mem::take(&mut ctx.compiler.as_mut().unwrap().active_let_scopes);
-
-        // Compile the body with `keep_result` so the last form leaves
-        // its value on the stack; `Ret` returns it.
-        let body_result = compile_progn_keep_result(ctx, &body);
-        let compiler = ctx.compiler.as_mut().unwrap();
-        compiler.active_let_scopes = prev_scopes;
-        let scope = compiler.pop_function();
-        let mut instructions = body_result?;
-        instructions.push(Instruction::Ret);
+        let compiled = compile_function_body(ctx, &param_names, &body);
+        ctx.compiler.as_mut().unwrap().active_let_scopes = prev_scopes;
+        let (instructions, scope) = compiled?;
 
         // Assemble the body so the lambda's runtime path pays
         // nothing for trace markers or labels.
@@ -158,6 +136,65 @@ pub(super) fn compile_fn_lambda(
         }
         Ok(result)
     })
+}
+
+/// Compiles BODY as the body of a function whose parameters are PARAMS,
+/// in declaration order, the parameter at index `i` in slot `i` of the
+/// frame. The body is compiled in a scope of its own; a name of an
+/// enclosing function it uses is captured as it compiles. Gives the
+/// instructions, ending in `Ret`, and the function's scope.
+///
+/// A parameter a closure captures is wrapped in a cell by a prologue.
+/// A self tail call rebinds the parameters and jumps to the label
+/// after it, `body_start` of the scope, binding a captured one to a
+/// fresh cell itself.
+pub(super) fn compile_function_body(
+    ctx: &mut TulispContext,
+    params: &[TulispObject],
+    body: &TulispObject,
+) -> Result<(Vec<Instruction>, FunctionScope), Error> {
+    let compiler = ctx.compiler.as_mut().unwrap();
+    let body_start = compiler.new_label();
+    compiler.push_function(true);
+    if let Some(function) = compiler.functions.last_mut() {
+        function.body_start = Some(body_start.clone());
+    }
+    let mut bound = Ok(());
+    for name in params {
+        match compiler.alloc_slot() {
+            Ok(slot) => compiler.bind(
+                name.clone(),
+                Binding::Slot {
+                    slot,
+                    captured: false,
+                },
+            ),
+            Err(err) => {
+                bound = Err(err);
+                break;
+            }
+        }
+    }
+    let compiled = bound.and_then(|()| compile_progn_keep_result(ctx, body));
+    let scope = ctx.compiler.as_mut().unwrap().pop_function();
+    let mut body = compiled?;
+    body.push(Instruction::Ret);
+
+    let mut instructions = Vec::new();
+    for var in scope.vars.iter().take(params.len()) {
+        if let Binding::Slot {
+            slot,
+            captured: true,
+        } = var.binding
+        {
+            swap_to_cells(&mut body, slot);
+            instructions.push(Instruction::LoadLocal(slot));
+            instructions.push(Instruction::BindCell(slot));
+        }
+    }
+    instructions.push(Instruction::Label(body_start));
+    instructions.append(&mut body);
+    Ok((instructions, scope))
 }
 
 /// VM compiler for `(funcall fn arg1 arg2 …)`.
@@ -507,8 +544,8 @@ mod tests {
             "720",
         );
 
-        // Regression: `(quote X)` written as a list form must not be
-        // descended into for substitution, even if X names a defun param.
+        // Regression: `(quote X)` written as a list form is data, even
+        // if X names a defun param.
         // With the bug present, `(quote key)` would rewrite the literal
         // `key` symbol, breaking the subsequent `(assoc 'key ...)`.
         eval_assert_equal_fresh(

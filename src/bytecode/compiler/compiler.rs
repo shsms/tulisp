@@ -624,7 +624,7 @@ pub(crate) fn compile_expr(
             wrapped.push(Instruction::PopTrace);
             Ok(wrapped)
         }
-        (TulispValue::Symbol { .. }, _) | (TulispValue::LexicalBinding { .. }, _) => {
+        (TulispValue::Symbol { .. }, _) => {
             if !compiler.keep_result {
                 return Ok(vec![]);
             }
@@ -633,7 +633,7 @@ pub(crate) fn compile_expr(
             }
             drop(expr_ref);
             Ok(vec![match resolve(ctx, expr)? {
-                Resolved::Object(object) => Instruction::Load(object),
+                Resolved::Global => Instruction::Load(expr.clone()),
                 Resolved::Slot {
                     slot,
                     captured: false,

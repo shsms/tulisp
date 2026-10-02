@@ -1,6 +1,6 @@
 use crate::{
     Number, TulispObject,
-    bytecode::{Cell, CompiledDefun},
+    bytecode::CompiledDefun,
     cons::Cons,
     error::Error,
     object::{
@@ -14,10 +14,8 @@ use crate::{
 use std::borrow::Cow;
 use std::{
     any::Any,
-    cell::RefCell,
     convert::TryInto,
     fmt::{Display, Write},
-    sync::atomic::{AtomicU64, Ordering},
 };
 
 /// Compile-time arity metadata for a `ctx.defun`-registered fn.
@@ -188,192 +186,6 @@ impl SymbolBindings {
     }
 }
 
-// Thread-local item stacks for lexical bindings. A LexBinding is shared
-// across threads (one per defun/lambda param, allocated once at
-// creation); but each thread has its own push/pop stack indexed by the
-// binding's id. This lets concurrent calls into the same function,
-// from a timer or any other host thread, bind parameters independently
-// with no cross-thread `Vec` aliasing.
-//
-// Each stack entry is a `Cell` — an actual cell
-// shared with any closures that captured this scope. `setq` mutates
-// the cell contents in place, so closures see the update (this is
-// what Emacs' `lexical-binding: t` semantics require, distinct from
-// snapshot-at-capture Scheme semantics). When the scope exits, the
-// stack pops the cell; any closures that cloned the `SharedMut` keep
-// it alive.
-//
-// The Vec grows to `max(id) + 1` per thread; see
-// docs/lexical-binding.md for the growth/cleanup tradeoffs we
-// explicitly accept (free-list is a deferred optimization).
-// Global monotonic id counter. Shared across all contexts so that
-// `LEX_STACKS` (thread-local, Vec-indexed by id) never sees collisions
-// when multiple contexts coexist. Atomic, not a mutex — no contention
-// concern. Growth is bounded in practice: each `LexAllocator` reuses
-// freed ids through its own free list before bumping this counter.
-static LEX_COUNTER: AtomicU64 = AtomicU64::new(0);
-
-/// Debug-only: sum of all per-id stack lengths in the current
-/// thread's `LEX_STACKS`. Steady growth indicates a push without
-/// matching pop somewhere (e.g. `BeginScope` without `EndScope` on
-/// some control-flow path).
-#[doc(hidden)]
-pub fn debug_lex_stacks_total() -> usize {
-    LEX_STACKS.with(|s| s.borrow().iter().map(|v| v.len()).sum())
-}
-
-/// Per-context allocator for LexBinding ids. Held by the context and
-/// by every `LexBinding` it creates (via a `Shared` ref on the
-/// binding), so dropping a binding returns its id to the free list —
-/// no global mutex needed. Under the default (non-`sync`) build this
-/// is a `RefCell` internally; under `sync` it's an `RwLock`.
-#[derive(Debug)]
-pub(crate) struct LexAllocator {
-    free_list: SharedMut<Vec<u64>>,
-}
-
-impl Default for LexAllocator {
-    fn default() -> Self {
-        LexAllocator {
-            free_list: SharedMut::new(Vec::new()),
-        }
-    }
-}
-
-impl LexAllocator {
-    pub(crate) fn new() -> Self {
-        Self::default()
-    }
-
-    fn alloc(&self) -> u64 {
-        if let Some(id) = self.free_list.borrow_mut().pop() {
-            return id;
-        }
-        LEX_COUNTER.fetch_add(1, Ordering::Relaxed)
-    }
-
-    fn free(&self, id: u64) {
-        self.free_list.borrow_mut().push(id);
-    }
-}
-
-thread_local! {
-    static LEX_STACKS: RefCell<Vec<Vec<Cell>>> =
-        const { RefCell::new(Vec::new()) };
-}
-
-#[inline(always)]
-fn with_lex_stack<R>(id: u64, f: impl FnOnce(&mut Vec<Cell>) -> R) -> R {
-    LEX_STACKS.with(|s| {
-        let mut v = s.borrow_mut();
-        let idx = id as usize;
-        if v.len() <= idx {
-            v.resize_with(idx + 1, Vec::new);
-        }
-        f(&mut v[idx])
-    })
-}
-
-#[derive(Debug)]
-struct LexBindingInner {
-    id: u64,
-    name: String,
-    symbol: TulispObject,
-    // Back-pointer to the allocator that minted this id. When the last
-    // `Shared<LexBindingInner>` reference drops, we return the id here
-    // so the next allocation can reuse it — keeping `LEX_STACKS` from
-    // growing indefinitely.
-    allocator: Shared<LexAllocator>,
-}
-
-impl Drop for LexBindingInner {
-    fn drop(&mut self) {
-        self.allocator.free(self.id);
-    }
-}
-
-#[doc(hidden)]
-#[derive(Clone, Debug)]
-pub struct LexBinding {
-    inner: Shared<LexBindingInner>,
-}
-
-impl LexBinding {
-    pub(crate) fn new(allocator: Shared<LexAllocator>, symbol: TulispObject) -> Self {
-        let id = allocator.alloc();
-        let name = symbol.to_string();
-        LexBinding {
-            inner: Shared::new(LexBindingInner {
-                id,
-                name,
-                symbol,
-                allocator,
-            }),
-        }
-    }
-
-    pub(crate) fn name(&self) -> &str {
-        &self.inner.name
-    }
-
-    pub(crate) fn symbol(&self) -> &TulispObject {
-        &self.inner.symbol
-    }
-
-    /// The cell that holds this binding's value now, or `None` if it is
-    /// unbound. A closure captures the cell, so it shares the variable
-    /// rather than a copy of its value.
-    #[inline(always)]
-    pub(crate) fn current_slot(&self) -> Option<Cell> {
-        with_lex_stack(self.inner.id, |s| s.last().cloned())
-    }
-
-    #[inline(always)]
-    pub(crate) fn pop(&self) -> Result<(), Error> {
-        let popped = with_lex_stack(self.inner.id, |s| s.pop());
-        if popped.is_some() {
-            Ok(())
-        } else {
-            Err(Error::uninitialized(format!(
-                "Can't unbind from unassigned symbol: {}",
-                self.inner.name
-            )))
-        }
-    }
-
-    #[inline(always)]
-    pub(crate) fn set(&self, val: TulispObject) -> Result<(), Error> {
-        with_lex_stack(self.inner.id, |s| {
-            if let Some(last) = s.last() {
-                *last.borrow_mut() = Some(val);
-            } else {
-                s.push(SharedMut::new(Some(val)));
-            }
-        });
-        Ok(())
-    }
-
-    #[inline(always)]
-    pub(crate) fn set_scope(&self, val: TulispObject) {
-        with_lex_stack(self.inner.id, |s| s.push(SharedMut::new(Some(val))));
-    }
-
-    #[inline(always)]
-    pub(crate) fn get(&self) -> Result<TulispObject, Error> {
-        let got = with_lex_stack(self.inner.id, |s| {
-            s.last().and_then(|slot| slot.borrow().clone())
-        });
-        got.ok_or_else(|| {
-            Error::uninitialized(format!("Variable definition is void: {}", self.inner.name))
-        })
-    }
-
-    #[inline(always)]
-    pub(crate) fn boundp(&self) -> bool {
-        with_lex_stack(self.inner.id, |s| !s.is_empty())
-    }
-}
-
 /// A host type that Lisp holds as an opaque value: stored behind a
 /// shared handle, printed through `Display` and recovered by
 /// downcast. One empty impl opts a type in. An implementor is
@@ -423,9 +235,6 @@ pub enum TulispValue {
     T,
     Symbol {
         value: SymbolBindings,
-    },
-    LexicalBinding {
-        binding: LexBinding,
     },
     Number {
         value: Number,
@@ -512,11 +321,6 @@ impl std::fmt::Debug for TulispValue {
                 .field("name", &value.name)
                 .field("value", value)
                 .finish(),
-            Self::LexicalBinding { binding } => f
-                .debug_struct("LexicalBinding")
-                .field("symbol", binding.symbol())
-                .field("name", &binding.name())
-                .finish(),
             Self::Number { value } => f.debug_struct("Number").field("value", value).finish(),
             Self::String { value } => f.debug_struct("String").field("value", value).finish(),
             Self::List { cons } => f.debug_struct("List").field("cons", cons).finish(),
@@ -579,7 +383,6 @@ impl std::fmt::Display for TulispValue {
             TulispValue::Bounce => f.write_str("Bounce"),
             TulispValue::Nil => f.write_str("nil"),
             TulispValue::Symbol { value } => f.write_str(&value.name),
-            TulispValue::LexicalBinding { binding } => f.write_str(binding.name()),
             TulispValue::Number { value, .. } => f.write_fmt(format_args!("{}", value)),
             TulispValue::String { value, .. } => {
                 // Round-trip: the parser only knows the `\n`, `\t`,
@@ -642,20 +445,9 @@ impl TulispValue {
     }
 
     #[inline(always)]
-    pub(crate) fn lexical_binding(
-        allocator: Shared<LexAllocator>,
-        symbol: TulispObject,
-    ) -> TulispValue {
-        TulispValue::LexicalBinding {
-            binding: LexBinding::new(allocator, symbol),
-        }
-    }
-
-    #[inline(always)]
     pub(crate) fn set(&mut self, to_set: TulispObject) -> Result<(), Error> {
         match self {
             TulispValue::Symbol { value } => value.set(to_set),
-            TulispValue::LexicalBinding { binding } => binding.set(to_set),
             TulispValue::Nil | TulispValue::T => Err(Error::setting_constant(&*self)),
             _ => Err(Error::type_mismatch(format!(
                 "Expected Symbol: Can't assign to {self}"
@@ -683,9 +475,6 @@ impl TulispValue {
         match self {
             TulispValue::Symbol { value } => value.set_global(to_set),
             TulispValue::Nil | TulispValue::T => Err(Error::setting_constant(&*self)),
-            // LexicalBindings have no "global" slot — setting the
-            // global cell of a lexical binding is nonsensical. Fall
-            // through to the same error as non-symbols.
             _ => Err(Error::type_mismatch(format!(
                 "Expected Symbol: Can't assign to {self}"
             ))),
@@ -696,10 +485,6 @@ impl TulispValue {
     pub(crate) fn set_scope(&mut self, to_set: TulispObject) -> Result<(), Error> {
         match self {
             TulispValue::Symbol { value } => value.set_scope(to_set),
-            TulispValue::LexicalBinding { binding } => {
-                binding.set_scope(to_set);
-                Ok(())
-            }
             TulispValue::Nil | TulispValue::T => Err(Error::setting_constant(&*self)),
             _ => Err(Error::type_mismatch(format!(
                 "Expected Symbol: Can't assign to {self}"
@@ -712,7 +497,6 @@ impl TulispValue {
     pub(crate) fn unset(&mut self) -> Result<(), Error> {
         match self {
             TulispValue::Symbol { value } => value.unset(),
-            TulispValue::LexicalBinding { binding } => binding.pop(),
             _ => Err(Error::type_mismatch(
                 "Can unbind only from Symbols".to_string(),
             )),
@@ -741,19 +525,6 @@ impl TulispValue {
     }
 
     #[inline(always)]
-    pub(crate) fn lex_symbol_eq(&self, other: &TulispObject) -> bool {
-        let TulispValue::LexicalBinding { binding } = self else {
-            return false;
-        };
-        let self_sym = binding.symbol();
-        if let TulispValue::LexicalBinding { binding: other_b } = &other.inner_ref().0 {
-            self_sym.eq(other_b.symbol())
-        } else {
-            self_sym.eq(other)
-        }
-    }
-
-    #[inline(always)]
     pub(crate) fn get(&self) -> Result<TulispObject, Error> {
         match self {
             TulispValue::Symbol { value } => {
@@ -764,7 +535,6 @@ impl TulispValue {
                 }
                 value.get()
             }
-            TulispValue::LexicalBinding { binding } => binding.get(),
             _ => Err(Error::type_mismatch(
                 "Can get only from Symbols".to_string(),
             )),
@@ -784,7 +554,6 @@ impl TulispValue {
     pub(crate) fn boundp(&self) -> bool {
         match self {
             TulispValue::Symbol { value } => value.boundp(),
-            TulispValue::LexicalBinding { binding } => binding.boundp(),
             _ => false,
         }
     }
@@ -856,7 +625,6 @@ impl TulispValue {
     pub(crate) fn as_symbol(&self) -> Result<String, Error> {
         match self {
             TulispValue::Symbol { value } => Ok(value.name.to_string()),
-            TulispValue::LexicalBinding { binding } => Ok(binding.name().to_string()),
             _ => Err(Error::type_mismatch(format!(
                 "Expected symbol, got: {}",
                 self
@@ -864,13 +632,12 @@ impl TulispValue {
         }
     }
 
-    /// The name this value reads as a symbol: a symbol's or a lexical
-    /// binding's name, `nil` or `t`.
+    /// The name this value reads as a symbol: a symbol's name, `nil` or
+    /// `t`.
     #[inline(always)]
     pub(crate) fn symbol_name(&self) -> Option<&str> {
         match self {
             TulispValue::Symbol { value } => Some(&value.name),
-            TulispValue::LexicalBinding { binding } => Some(binding.name()),
             TulispValue::Nil => Some("nil"),
             TulispValue::T => Some("t"),
             _ => None,
@@ -996,19 +763,13 @@ impl TulispValue {
     pub(crate) fn symbolp(&self) -> bool {
         matches!(
             self,
-            TulispValue::Symbol { .. }
-                | TulispValue::LexicalBinding { .. }
-                | TulispValue::Nil
-                | TulispValue::T
+            TulispValue::Symbol { .. } | TulispValue::Nil | TulispValue::T
         )
     }
 
     #[inline(always)]
     pub(crate) fn is_symbol_variant(&self) -> bool {
-        matches!(
-            self,
-            TulispValue::Symbol { .. } | TulispValue::LexicalBinding { .. }
-        )
+        matches!(self, TulispValue::Symbol { .. })
     }
 
     #[inline(always)]

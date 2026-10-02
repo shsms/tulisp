@@ -3,9 +3,8 @@
 
 use crate::{Error, TulispObject, TulispValue};
 
-/// Calls `f` on the name `value` reads as: a symbol's or a lexical binding's
-/// name, `nil` or `t`, and with `strings` also a string's text; `None` for any
-/// other value.
+/// Calls `f` on the name `value` reads as: a symbol's name, `nil` or `t`, and
+/// with `strings` also a string's text; `None` for any other value.
 #[doc(hidden)]
 pub fn with_name<R>(value: &TulispObject, strings: bool, f: impl FnOnce(&str) -> R) -> Option<R> {
     let inner = value.inner_ref();

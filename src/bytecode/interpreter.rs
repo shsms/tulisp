@@ -42,32 +42,6 @@ fn compare_op(
     Ok(cmp(a, b))
 }
 
-struct SetParams(Vec<TulispObject>);
-
-impl SetParams {
-    fn new() -> Self {
-        Self(Vec::new())
-    }
-
-    fn push(&mut self, obj: TulispObject) {
-        self.0.push(obj);
-    }
-}
-
-impl Drop for SetParams {
-    fn drop(&mut self) {
-        // Drop runs on every call return, including the error-unwind
-        // path. `unset` errors are unreachable in practice (every entry
-        // came from a successful `set_scope` in `init_defun_args`), but
-        // a panic here while another error is propagating would
-        // double-fault and abort the process — silently swallow the
-        // error.
-        for obj in self.0.iter() {
-            let _ = obj.unset();
-        }
-    }
-}
-
 /// Per-frame Drop guard for `BeginScope` bindings: a `let` / `let*` of
 /// a special variable, or a `condition-case` handler binding one.
 ///
@@ -1145,36 +1119,47 @@ fn run_impl_inner(
     Ok(None)
 }
 
-fn init_defun_args(ctx: &mut TulispContext, call: &TailCallInfo) -> Result<SetParams, Error> {
+/// Moves the arguments of CALL, on top of the stack, into the first
+/// slots of the frame: the required and optional ones in order, then
+/// the rest as a list. A missing optional stays nil.
+fn init_defun_args(ctx: &mut TulispContext, call: &TailCallInfo) -> Result<(), Error> {
     let params = &call.function.params;
-    let mut set_params = SetParams::new();
-    if let Some(rest) = &params.rest {
-        let mut rest_value = TulispObject::nil();
-        for _ in 0..call.rest_count {
-            rest_value = TulispObject::cons(ctx.vm.stack.pop().unwrap(), rest_value);
+    let positional = params.required.len() + call.optional_count;
+    let count = positional + call.rest_count;
+    let Machine {
+        stack,
+        locals,
+        base,
+        ..
+    } = &mut ctx.vm;
+    let start = stack
+        .len()
+        .checked_sub(count)
+        .ok_or_else(|| Error::lisp_error("internal: missing arguments"))?;
+    let mut args = stack.drain(start..);
+    let slots = locals
+        .get_mut(*base..)
+        .ok_or_else(|| Error::lisp_error("internal: a frame past the slots"))?;
+    let mut slots = slots.iter_mut();
+    for value in args.by_ref().take(positional) {
+        let slot = slots
+            .next()
+            .ok_or_else(|| Error::lisp_error("internal: more arguments than slots"))?;
+        *slot = Slot::Value(value);
+    }
+    if params.rest.is_some() {
+        let rest: Vec<TulispObject> = args.collect();
+        let mut list = TulispObject::nil();
+        for value in rest.into_iter().rev() {
+            list = TulispObject::cons(value, list);
         }
-        rest.set_scope(rest_value)?;
-        set_params.push(rest.clone());
+        let index = *base + params.required.len() + params.optional.len();
+        let slot = locals
+            .get_mut(index)
+            .ok_or_else(|| Error::lisp_error("internal: more arguments than slots"))?;
+        *slot = Slot::Value(list);
     }
-    for (ii, arg) in params.optional.iter().enumerate().rev() {
-        // Every `set_scope` must pair with a `set_params.push` so
-        // `SetParams::drop` unsets it on return — including the
-        // missing-optional case, where the previous `continue` skipped
-        // the push and leaked the nil binding onto `LEX_STACKS` once
-        // per call.
-        let val = if ii >= call.optional_count {
-            TulispObject::nil()
-        } else {
-            ctx.vm.stack.pop().unwrap()
-        };
-        arg.set_scope(val)?;
-        set_params.push(arg.clone());
-    }
-    for arg in params.required.iter().rev() {
-        arg.set_scope(ctx.vm.stack.pop().unwrap())?;
-        set_params.push(arg.clone());
-    }
-    Ok(set_params)
+    Ok(())
 }
 
 /// Runs `call`'s function on arguments already on the stack and
@@ -1187,14 +1172,13 @@ fn run_tail_calls(ctx: &mut TulispContext, mut call: TailCallInfo) -> Result<(),
         call.function.captures.clone(),
     );
     loop {
-        let params = init_defun_args(scope.ctx, &call)?;
+        init_defun_args(scope.ctx, &call)?;
         let tail = run_impl(
             scope.ctx,
             &call.function.instructions,
             call.function.trace_ranges.as_slice(),
             false,
         )?;
-        drop(params);
         match tail {
             Some(next) => {
                 call = next;
@@ -1256,18 +1240,6 @@ fn make_lambda(ctx: &TulispContext, template: &LambdaTemplate) -> Result<TulispO
     let mut cells = Vec::with_capacity(template.captures.len());
     for (source, name) in &template.captures {
         let cell = match source {
-            CaptureSource::Lex(binding) => match &binding.inner_ref().0 {
-                // A variable with no value yet has no cell; the closure
-                // gets an empty one of its own.
-                TulispValue::LexicalBinding { binding } => binding
-                    .current_slot()
-                    .unwrap_or_else(|| SharedMut::new(None)),
-                _ => {
-                    return Err(Error::lisp_error(
-                        "internal: a capture of something other than a binding",
-                    ));
-                }
-            },
             CaptureSource::Local(n) => match ctx.vm.locals.get(ctx.vm.base + usize::from(*n)) {
                 Some(Slot::Cell(cell)) => cell.clone(),
                 _ => {
@@ -1715,9 +1687,27 @@ mod tests {
              (spin 50)",
         )
         .unwrap();
+        {
+            let seen = seen.lock().unwrap();
+            assert_eq!(seen.len(), 51);
+            assert!(seen.windows(2).all(|w| w[0] == w[1]), "{seen:?}");
+        }
+        // Two functions tail-calling each other replace each other's
+        // frame too.
+        seen.lock().unwrap().clear();
+        ctx.eval_string(
+            "(defun ping (n) (let ((a n)) (note-locals) (if (= n 0) 0 (pong (- n 1)))))
+             (defun pong (n) (let ((b n) (c n)) (note-locals) (ping n)))
+             (ping 20)",
+        )
+        .unwrap();
         let seen = seen.lock().unwrap();
-        assert_eq!(seen.len(), 51);
-        assert!(seen.windows(2).all(|w| w[0] == w[1]), "{seen:?}");
+        assert_eq!(seen.len(), 41);
+        assert!(
+            seen.iter().all(|n| *n == seen[0] || *n == seen[1]),
+            "{seen:?}"
+        );
+        assert!(seen.windows(3).all(|w| w[0] == w[2]), "{seen:?}");
     }
 
     // A `let` lets go of its values when it ends, not when its function

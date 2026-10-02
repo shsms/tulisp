@@ -10,7 +10,7 @@ use crate::{
     cons::{self, Cons},
     error::Error,
     object::wrappers::generic::{Shared, SharedMut, SharedRef},
-    value::{LexAllocator, TulispAny},
+    value::TulispAny,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
@@ -170,10 +170,7 @@ impl<'a> EqualPair<'a> {
         if let Some((a, b)) = quoted_pair(a, b) {
             return EqualPair::Quoted(a, b);
         }
-        if matches!(
-            a,
-            TulispValue::Symbol { .. } | TulispValue::LexicalBinding { .. }
-        ) {
+        if matches!(a, TulispValue::Symbol { .. }) {
             return EqualPair::Symbol;
         }
         // Pairs of lists are matched above, so this compares no nested
@@ -418,16 +415,10 @@ impl TulispObject {
         if self.eq_ptr(other) {
             return true;
         }
-        {
-            let value = self.inner_ref();
-            match &value.0 {
-                TulispValue::Nil | TulispValue::T => return value.0 == other.inner_ref().0,
-                TulispValue::LexicalBinding { .. } => return value.0.lex_symbol_eq(other),
-                _ => {}
-            }
-        }
-        // Reads `self` again, so `self`'s borrow above must be gone.
-        other.inner_ref().0.lex_symbol_eq(self)
+        // `nil` and `t` are one value each; anything else is `eq` only to
+        // itself.
+        let value = self.inner_ref();
+        matches!(value.0, TulispValue::Nil | TulispValue::T) && value.0 == other.inner_ref().0
     }
 
     /// Returns true if `self` and `other` are [`eq`](Self::eq), or
@@ -775,16 +766,6 @@ impl TulispObject {
     predicate_fn!(pub, null, "Returns True if `self` is `nil`.");
     predicate_fn!(pub, is_truthy, "Returns True if `self` is not `nil`.");
 
-    /// What `self` names as a function: a symbol that names a lexical
-    /// variable still names its symbol's function, as the lexical value
-    /// doesn't hide it. Anything else is itself.
-    pub(crate) fn function_name(&self) -> TulispObject {
-        match &self.inner_ref().0 {
-            TulispValue::LexicalBinding { binding } => binding.symbol().clone(),
-            _ => self.clone(),
-        }
-    }
-
     /// Returns True if `self` can be called like a function: a function
     /// value, a `(lambda ...)` list, or a symbol whose value is a function
     /// value. Special forms and macros are not functions, as in Emacs.
@@ -793,7 +774,7 @@ impl TulispObject {
             return crate::eval::is_lambda_list(ctx, self);
         }
         let symbol = match &self.inner_ref().0 {
-            TulispValue::LexicalBinding { .. } | TulispValue::Symbol { .. } => self.function_name(),
+            TulispValue::Symbol { .. } => self.clone(),
             other => return other.is_function_value(),
         };
         // An unbound symbol names no function.
@@ -813,18 +794,6 @@ impl TulispObject {
         TulispValue::symbol(name, constant).into_ref(None)
     }
 
-    pub(crate) fn lexical_binding(
-        allocator: Shared<LexAllocator>,
-        symbol: TulispObject,
-    ) -> TulispObject {
-        debug_assert!(
-            !matches!(&symbol.inner_ref().0, TulispValue::LexicalBinding { .. }),
-            "lexical_binding called with an already-LexicalBinding `symbol`"
-        );
-        let span = symbol.span();
-        TulispValue::lexical_binding(allocator, symbol).into_ref(span)
-    }
-
     pub(crate) fn new(vv: TulispValue, span: Option<Span>) -> TulispObject {
         Self {
             rc: SharedMut::new((vv, span)),
@@ -840,7 +809,7 @@ impl TulispObject {
     }
 
     /// True for any symbol but `nil` and `t`: a `Symbol` value,
-    /// keywords included, or a `LexicalBinding`.
+    /// keywords included.
     #[inline(always)]
     pub(crate) fn is_symbol_variant(&self) -> bool {
         self.rc.borrow().0.is_symbol_variant()
@@ -1523,19 +1492,6 @@ mod tests {
         .join()
         .expect("thread panicked")?;
         assert!(TulispObject::from(true).span().is_none());
-        Ok(())
-    }
-
-    #[test]
-    fn functionp_looks_through_a_lexical_binding_to_its_symbol() -> Result<(), Error> {
-        // A symbol reaching `functionp` as a lexical binding names the
-        // function of its symbol, not its lexical value.
-        let ctx = &mut TulispContext::new();
-        let car = ctx.intern("car");
-        let lex = TulispObject::lexical_binding(ctx.lex_allocator.clone(), car);
-        lex.set_scope(TulispObject::from(1))?;
-        assert!(lex.functionp(ctx));
-        lex.unset()?;
         Ok(())
     }
 

@@ -27,8 +27,8 @@ pub(super) fn compile_fn_setq(
         result.append(&mut compile_expr_keep_result(ctx, &value)?);
         let keep = keep_result && items.peek().is_none();
         result.push(match (resolve(ctx, &target)?, keep) {
-            (Resolved::Object(object), true) => Instruction::Store(object),
-            (Resolved::Object(object), false) => Instruction::StorePop(object),
+            (Resolved::Global, true) => Instruction::Store(target),
+            (Resolved::Global, false) => Instruction::StorePop(target),
             (
                 Resolved::Slot {
                     slot,
@@ -421,7 +421,7 @@ mod tests {
     #[test]
     fn let_variables_compile_to_slots() {
         let ctx = &mut TulispContext::new();
-        let l = listing(ctx, "(defun f (a) (let ((x a) (y 2)) (setq y (+ x y)) y))");
+        let l = listing(ctx, "(defun f () (let ((x 1) (y 2)) (setq y (+ x y)) y))");
         assert!(
             l.contains("bind_local 0") && l.contains("load_local 0"),
             "{l}"

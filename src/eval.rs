@@ -504,7 +504,6 @@ pub(crate) fn wrapped_operand(
         | TulispValue::Nil
         | TulispValue::T
         | TulispValue::Symbol { .. }
-        | TulispValue::LexicalBinding { .. }
         | TulispValue::Number { .. }
         | TulispValue::String { .. }
         | TulispValue::List { .. }
@@ -1101,7 +1100,7 @@ mod tests {
     #[test]
     fn backquote_in_a_lexical_scope() {
         let ctx = &mut TulispContext::new();
-        // Quote inside backquote: 'a stays literal, ,b is substituted.
+        // Quote inside backquote: 'a stays literal, ,b is evaluated.
         eval_assert_equal(ctx, "(let ((b 42)) `('a ,b))", "'('a 42)");
         // An unquote under a quote runs too, as in Emacs.
         eval_assert_equal(ctx, "(let ((x 1)) `(a ',x 'x))", "'(a '1 'x)");
@@ -1111,8 +1110,8 @@ mod tests {
         // Regression: literal symbol in a backquote alist key position
         // must NOT be rewritten even when it shares a name with a
         // lambda param. With the bug present, `k` in `(k . literal)`
-        // would be substituted to a LexicalBinding wrapper, so
-        // `(assoc 'k entry)` would miss.
+        // was rewritten into the variable, so `(assoc 'k entry)` would
+        // miss.
         eval_assert_equal(
             ctx,
             r#"
@@ -1128,8 +1127,8 @@ mod tests {
 
         // Regression: a backquote whose unquoted data contains literal
         // symbols matching enclosing lambda params must stay usable as
-        // a lambda form. The bug turned inner literal keys into
-        // LexicalBindings, which then errored when the stored form was
+        // a lambda form. The bug rewrote inner literal keys into the
+        // variables, which then errored when the stored form was
         // re-evaluated by funcall.
         eval_assert_equal(
             ctx,

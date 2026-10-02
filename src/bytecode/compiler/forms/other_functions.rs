@@ -1,14 +1,11 @@
 use crate::{
-    Error, ErrorKind, TulispContext, TulispObject, TulispValue,
-    bytecode::compiler::scope::Binding,
+    Error, ErrorKind, TulispContext, TulispObject,
     bytecode::{
         Captured, Captures, Instruction, LambdaTemplate, Pos,
         bytecode::CompiledDefun,
         compiler::{
             DefunParams,
-            compiler::{
-                compile_expr, compile_expr_keep_result, compile_progn, compile_progn_keep_result,
-            },
+            compiler::{compile_expr, compile_expr_keep_result, compile_progn},
         },
     },
     destruct_bind,
@@ -101,8 +98,8 @@ pub(super) fn compile_fn_append(
 ///
 /// Inside a `let` or `let*` that binds a special variable, the call
 /// stays an ordinary call: arity is checked at run time, and the call
-/// counts toward the eval depth limit. Otherwise a self call stores the
-/// arguments in the function's parameters and jumps to its start, and
+/// counts toward the eval depth limit. Otherwise a self call rebinds
+/// the parameters in their slots and jumps to the start of the body, and
 /// a call to another function becomes a `TailCall`, which
 /// `run_tail_calls` follows without growing the Rust stack.
 pub(super) fn compile_fn_defun_bounce_call(
@@ -188,30 +185,43 @@ pub(super) fn compile_fn_defun_bounce_call(
             arity.describe()
         ))
     })?;
-    if let Some(param) = &params.rest {
+    // The parameters are rebound in their slots, the parameter at
+    // index `i` in slot `i`: required, then optional, then rest.
+    let required = params.required.len();
+    let optional = params.optional.len();
+    let slot = |index: usize| {
+        u16::try_from(index)
+            .map_err(|_| Error::lisp_error("a function holds more than 65535 variables"))
+    };
+    if params.rest.is_some() {
         result.push(Instruction::List(rest_count));
-        result.push(Instruction::StorePop(param.clone()));
+        result.push(Instruction::BindLocal(slot(required + optional)?));
     }
 
-    for (ii, param) in params.optional.iter().enumerate().rev() {
+    for ii in (0..optional).rev() {
         if ii >= optional_count {
             result.push(Instruction::Push(TulispObject::nil()));
-            result.push(Instruction::StorePop(param.clone()))
-        } else {
-            result.push(Instruction::StorePop(param.clone()));
         }
+        result.push(Instruction::BindLocal(slot(required + ii)?));
     }
 
-    for param in params.required.iter().rev() {
-        result.push(Instruction::StorePop(param.clone()))
+    for ii in (0..required).rev() {
+        result.push(Instruction::BindLocal(slot(ii)?));
     }
-    // Self-recursion escape: `Jump(Pos::Abs(0))` jumps back to the
-    // start of the function, skipping the trailing `EndScope`s of any
-    // enclosing `let` / `let*`. Drain them here in LIFO order so the
-    // bindings don't accumulate on the symbols' stacks across
-    // recursion depths.
+    // Self-recursion escape: the jump back to the start of the body
+    // skips the trailing `EndScope`s of any enclosing `let` / `let*`.
+    // Drain them here in LIFO order so the bindings don't accumulate on
+    // the symbols' stacks across recursion depths.
     push_active_scope_endscopes(ctx, &mut result);
-    result.push(Instruction::Jump(Pos::Abs(0)));
+    let body_start = ctx
+        .compiler
+        .as_ref()
+        .unwrap()
+        .functions
+        .last()
+        .and_then(|function| function.body_start.clone())
+        .ok_or_else(|| Error::lisp_error("internal: a self call outside a function body"))?;
+    result.push(Instruction::Jump(Pos::Label(body_start)));
     Ok(result)
 }
 
@@ -356,9 +366,8 @@ fn compile_defun(
     };
     let mut fn_name = TulispObject::nil();
     // The parameters in declaration order, and the variables of the
-    // scopes around the function that its body uses, each with the
-    // placeholder the body is compiled with.
-    let mut param_bindings: Vec<TulispObject> = Vec::new();
+    // scopes around the function that its body uses.
+    let mut param_names: Vec<TulispObject> = Vec::new();
     let mut captures = Vec::new();
     let mut slot_count = 0;
     let res = ctx.compile_2_arg_call(defun_kw, args, true, |ctx, defun_name, args, body| {
@@ -394,10 +403,10 @@ fn compile_defun(
                 is_rest = true;
             } else {
                 crate::builtin::check_not_nil_or_t(arg)?;
-                let lex = TulispObject::lexical_binding(ctx.lex_allocator.clone(), arg.clone());
-                param_bindings.push(lex.clone());
+                let name = arg.clone();
+                param_names.push(name.clone());
                 if is_optional {
-                    defun_params.optional.push(lex);
+                    defun_params.optional.push(name);
                 } else if is_rest {
                     if defun_params.rest.is_some() {
                         return Err(Error::new(
@@ -406,9 +415,9 @@ fn compile_defun(
                         )
                         .with_trace(arg.clone()));
                     }
-                    defun_params.rest = Some(lex);
+                    defun_params.rest = Some(name);
                 } else {
-                    defun_params.required.push(lex);
+                    defun_params.required.push(name);
                 }
             }
         }
@@ -432,27 +441,16 @@ fn compile_defun(
             body.clone()
         };
         let body = mark_tail_calls(ctx, defun_name.clone(), body)?;
-        // The body is compiled in a scope of its own, with the
-        // parameters in it. A variable of a scope around the function
-        // is captured when the defun form runs, as a lambda captures it.
-        let compiler = ctx.compiler.as_mut().unwrap();
-        compiler.push_function(true);
-        for lex in &param_bindings {
-            let TulispValue::LexicalBinding { binding } = &lex.inner_ref().0 else {
-                continue;
-            };
-            compiler.bind(binding.symbol().clone(), Binding::Lex(lex.clone()));
-        }
-        let result = compile_progn_keep_result(ctx, &body);
+        // A variable of a scope around the function is captured when
+        // the defun form runs, as a lambda captures it.
+        let compiled = super::lambda::compile_function_body(ctx, &param_names, &body);
 
         let compiler = ctx.compiler.as_mut().unwrap();
-        let scope = compiler.pop_function();
-        captures = scope.captures;
-        slot_count = scope.slot_count;
         compiler.current_defun = prev_defun;
         compiler.active_let_scopes = prev_scopes;
-        let mut result = result?;
-        result.push(Instruction::Ret);
+        let (result, scope) = compiled?;
+        captures = scope.captures;
+        slot_count = scope.slot_count;
         Ok(result)
     })?;
     // Assemble the body at the `CompiledDefun` boundary so the
@@ -1487,56 +1485,41 @@ mod tests {
         Ok(())
     }
 
+    /// Asserts that `call`, run 1000 times against a persistent
+    /// context, leaves no lexical-variable slots and no special
+    /// (`defvar`) bindings behind. With ERRORS, each call is expected to
+    /// fail, and its result is ignored.
     #[track_caller]
-    fn assert_no_lex_stack_leak(ctx: &mut TulispContext, prog: &str, call: &str, label: &str) {
-        let s0 = crate::debug_lex_stacks_total();
+    fn assert_no_leak(ctx: &mut TulispContext, prog: &str, call: &str, label: &str, errors: bool) {
+        let special0 = ctx.debug_special_stacks_total();
         for _ in 0..1000 {
-            ctx.eval_string(call).unwrap_or_else(|e| {
+            let result = ctx.eval_string(call);
+            if !errors && let Err(e) = result {
                 panic!("{}: eval failed: {}", label, e.format(ctx));
-            });
+            }
+            assert_eq!(
+                ctx.debug_locals_len(),
+                0,
+                "{label}: slots left. Program:\n{prog}"
+            );
         }
-        let delta = crate::debug_lex_stacks_total() as i64 - s0 as i64;
+        let special_delta = ctx.debug_special_stacks_total() as i64 - special0 as i64;
         assert_eq!(
-            delta, 0,
-            "{}: leaked {} LEX_STACKS entries over 1000 calls. Program:\n{}",
-            label, delta, prog
-        );
-    }
-
-    /// Asserts that an erroring `call` doesn't leak either lex or special
-    /// (`defvar`) stack entries over 1000 invocations against a persistent
-    /// context. The call is *expected* to fail — `let _ = ...` swallows
-    /// the result so we measure cumulative state, not per-call success.
-    #[track_caller]
-    fn assert_no_scope_leak_on_error(ctx: &mut TulispContext, prog: &str, call: &str, label: &str) {
-        let lex0 = crate::debug_lex_stacks_total();
-        let spec0 = ctx.debug_special_stacks_total();
-        for _ in 0..1000 {
-            let _ = ctx.eval_string(call);
-        }
-        let lex_delta = crate::debug_lex_stacks_total() as i64 - lex0 as i64;
-        let spec_delta = ctx.debug_special_stacks_total() as i64 - spec0 as i64;
-        assert_eq!(
-            (lex_delta, spec_delta),
-            (0, 0),
-            "{}: leaked lex={}, special={} entries over 1000 calls. Program:\n{}",
-            label,
-            lex_delta,
-            spec_delta,
-            prog
+            special_delta, 0,
+            "{}: leaked {} special entries over 1000 calls. Program:\n{}",
+            label, special_delta, prog
         );
     }
 
     #[test]
-    fn test_tail_call_does_not_leak_lex_stack() -> Result<(), Error> {
-        // Regression: `mark_tail_calls` recurses into `let` / `let*` /
-        // `progn` / `if` / `cond` bodies and rewrites the body's
-        // tail-position call into a `Bounce`, which compiles to
-        // `Instruction::TailCall`. That instruction unwinds the
-        // surrounding `run_impl` directly, bypassing trailing
-        // `Instruction::EndScope`s that `compile_fn_let_star` appends —
-        // leaving let bindings stuck on `LEX_STACKS` permanently. The
-        // fix injects the cleanup before each `TailCall` in the body.
+    fn test_tail_call_does_not_leak_bindings() -> Result<(), Error> {
+        // `mark_tail_calls` recurses into `let` / `let*` / `progn` /
+        // `if` / `cond` bodies and rewrites the body's tail-position
+        // call into a `Bounce`, which compiles to `Instruction::TailCall`.
+        // That instruction leaves the surrounding `run_impl` directly,
+        // past the `EndScope`s after a `let`'s body, so under a `let` of
+        // a special variable a tail call compiles as an ordinary call; a
+        // lexical variable lives in the frame, which goes with the call.
         //
         // `dolist` / `dotimes` expand to `let` over `while`, and
         // `mark_tail_calls` does not enter `while`, so a loop body can't
@@ -1677,7 +1660,7 @@ mod tests {
             // First, sanity-check: a single call works without panicking.
             ctx.eval_string(call)
                 .unwrap_or_else(|e| panic!("{} sanity call failed: {}", label, e.format(&ctx)));
-            assert_no_lex_stack_leak(&mut ctx, prog, call, label);
+            assert_no_leak(&mut ctx, prog, call, label, false);
         }
         Ok(())
     }
@@ -1726,8 +1709,8 @@ mod tests {
                 "(f)",
             ),
             // Defvar (special) variants — the binding lives on the
-            // symbol's `items` stack rather than `LEX_STACKS`. The
-            // assert helper checks both.
+            // symbol's `items` stack rather than in a slot. The assert
+            // helper checks both.
             (
                 "defvar_let_body_errors",
                 "(progn (defvar yy 'g) (defun f () (let ((yy 'inner)) (error \"boom\"))))",
@@ -1758,17 +1741,18 @@ mod tests {
                 label,
                 single.unwrap()
             );
-            assert_no_scope_leak_on_error(&mut ctx, prog, call, label);
+            assert_no_leak(&mut ctx, prog, call, label, true);
         }
         Ok(())
     }
 
     #[test]
-    fn test_missing_optional_does_not_leak_lex_stack() -> Result<(), Error> {
+    fn test_missing_optional_does_not_leak_bindings() -> Result<(), Error> {
         // Regression: `init_defun_args` used to set_scope(nil) for a
         // missing `&optional` param then `continue` without pushing onto
         // `set_params`, so `SetParams::drop` never unset the binding.
-        // Each call leaked one `LEX_STACKS` entry per missing optional.
+        // Each call leaked one binding per missing optional. Arguments
+        // now go into the frame's slots.
         let cases: &[(&str, &str, &str)] = &[
             (
                 "one_missing_optional",
@@ -1797,8 +1781,47 @@ mod tests {
                 .unwrap_or_else(|e| panic!("{} setup failed: {}", label, e.format(&ctx)));
             ctx.eval_string(call)
                 .unwrap_or_else(|e| panic!("{} sanity call failed: {}", label, e.format(&ctx)));
-            assert_no_lex_stack_leak(&mut ctx, prog, call, label);
+            assert_no_leak(&mut ctx, prog, call, label, false);
         }
         Ok(())
+    }
+
+    #[test]
+    fn parameters_compile_to_slots() {
+        let ctx = &mut TulispContext::new();
+        let l = listing(ctx, "(defun f (a &optional b &rest c) (list a b c))");
+        assert!(
+            l.contains("load_local 0") && l.contains("load_local 1") && l.contains("load_local 2"),
+            "{l}"
+        );
+    }
+
+    // A self tail call gives each pass its own captured parameter.
+    #[test]
+    fn a_self_tail_call_gives_each_pass_a_fresh_cell() {
+        eval_assert_equal_fresh(
+            "(defun gather (n acc)
+               (if (= n 0) (mapcar #'funcall acc)
+                 (gather (- n 1) (cons (lambda () n) acc))))
+             (gather 3 nil)",
+            "'(1 2 3)",
+        );
+    }
+
+    #[test]
+    fn a_captured_parameter_is_shared_with_its_closure() {
+        eval_assert_equal_fresh(
+            "(defun counter (n) (list (lambda () (setq n (1+ n))) (lambda () n)))
+             (let ((c (counter 10))) (funcall (car c)) (funcall (car c)) (funcall (cadr c)))",
+            "12",
+        );
+    }
+
+    #[test]
+    fn deep_recursion_keeps_each_level_apart() {
+        eval_assert_equal_fresh(
+            "(defun sum-to (n) (if (= n 0) 0 (+ n (sum-to (- n 1))))) (sum-to 10)",
+            "55",
+        );
     }
 }
