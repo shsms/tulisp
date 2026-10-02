@@ -689,4 +689,27 @@ mod tests {
             "'done",
         );
     }
+
+    // `setq` sets a keyword that names a parameter; a keyword that
+    // names none stays a constant.
+    #[test]
+    fn setq_sets_a_keyword_parameter() {
+        eval_assert_equal_fresh("(funcall (lambda (:k) (setq :k 2) :k) 1)", "2");
+        eval_assert_equal_fresh("(defun kf (:k) (setq :k 5) :k) (kf 1)", "5");
+        eval_assert_error_line(
+            &mut TulispContext::new(),
+            "(setq :k 1)",
+            "ERR TypeMismatch: Can't set constant symbol: :k",
+        );
+        // A closure over a keyword parameter cannot set it, as in Emacs.
+        eval_assert_error_line(
+            &mut TulispContext::new(),
+            "(funcall (funcall (lambda (:k) (lambda () (setq :k 3) :k)) 1))",
+            "ERR TypeMismatch: Can't set constant symbol: :k",
+        );
+        eval_assert_equal_fresh(
+            "(funcall (lambda (:k) (let ((f (lambda () :k))) (setq :k 5) (funcall f))) 1)",
+            "5",
+        );
+    }
 }

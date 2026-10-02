@@ -1,7 +1,7 @@
 use crate::{
     Error, ErrorKind, TulispContext, TulispObject,
     bytecode::compiler::cells::swap_to_cells,
-    bytecode::compiler::scope::resolve,
+    bytecode::compiler::scope::{Resolved, resolve},
     bytecode::{
         Instruction,
         compiler::compiler::{compile_expr_keep_result, compile_progn},
@@ -23,10 +23,15 @@ pub(super) fn compile_fn_setq(
         let Some(value) = items.next() else {
             return Err(Error::too_few_arguments());
         };
-        crate::builtin::check_settable_target(&target)?;
+        // A keyword is a constant, unless it names a parameter of the
+        // function being compiled.
+        let resolved = resolve(ctx, &target)?;
+        if !matches!(resolved, Resolved::Local(_) | Resolved::Cell(_)) {
+            crate::builtin::check_settable_target(&target)?;
+        }
         result.append(&mut compile_expr_keep_result(ctx, &value)?);
         let keep = keep_result && items.peek().is_none();
-        result.push(resolve(ctx, &target)?.store(&target, keep));
+        result.push(resolved.store(&target, keep));
     }
     if result.is_empty() && keep_result {
         result.push(Instruction::Push(TulispObject::nil()));
