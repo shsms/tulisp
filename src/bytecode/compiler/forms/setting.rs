@@ -1,7 +1,7 @@
 use crate::{
     Error, ErrorKind, TulispContext, TulispObject,
     bytecode::compiler::cells::swap_to_cells,
-    bytecode::compiler::scope::{Binding, Resolved, resolve},
+    bytecode::compiler::scope::resolve,
     bytecode::{
         Instruction,
         compiler::compiler::{compile_expr_keep_result, compile_progn},
@@ -26,40 +26,7 @@ pub(super) fn compile_fn_setq(
         crate::builtin::check_settable_target(&target)?;
         result.append(&mut compile_expr_keep_result(ctx, &value)?);
         let keep = keep_result && items.peek().is_none();
-        result.push(match (resolve(ctx, &target)?, keep) {
-            (Resolved::Global, true) => Instruction::Store(target),
-            (Resolved::Global, false) => Instruction::StorePop(target),
-            (
-                Resolved::Slot {
-                    slot,
-                    captured: false,
-                },
-                true,
-            ) => Instruction::StoreLocal(slot),
-            (
-                Resolved::Slot {
-                    slot,
-                    captured: false,
-                },
-                false,
-            ) => Instruction::StorePopLocal(slot),
-            (
-                Resolved::Slot {
-                    slot,
-                    captured: true,
-                },
-                true,
-            ) => Instruction::StoreCell(slot),
-            (
-                Resolved::Slot {
-                    slot,
-                    captured: true,
-                },
-                false,
-            ) => Instruction::StorePopCell(slot),
-            (Resolved::Capture(index), true) => Instruction::StoreCapture(index),
-            (Resolved::Capture(index), false) => Instruction::StorePopCapture(index),
-        });
+        result.push(resolve(ctx, &target)?.store(&target, keep));
     }
     if result.is_empty() && keep_result {
         result.push(Instruction::Push(TulispObject::nil()));
@@ -93,29 +60,35 @@ pub(super) fn compile_fn_let_star(
         // The variables this `let` puts in scope leave it, and their
         // slots are free again, on every path out, an error included.
         let first_slot = ctx.compiler.as_ref().unwrap().next_slot();
-        let mut in_scope = 0;
-        let result = compile_let_star(ctx, varlist, body, &mut in_scope);
+        let mut binds = Vec::new();
+        let result = compile_let_star(ctx, varlist, body, &mut binds);
         let compiler = ctx.compiler.as_mut().unwrap();
-        compiler.unbind(in_scope);
+        let closed = compiler.unbind(binds.len());
         compiler.free_slots_to(first_slot);
-        result
+        let mut result = result?;
+        // A variable a closure captured is a cell from its binding on.
+        for (var, bind_at) in closed.iter().zip(binds) {
+            if var.captured {
+                swap_to_cells(&mut result[bind_at..], var.slot);
+            }
+        }
+        Ok(result)
     })
 }
 
-/// Compiles `(let* VARLIST BODY...)`, counting in IN_SCOPE the lexical
-/// variables it puts in scope.
+/// Compiles `(let* VARLIST BODY...)`, noting in BINDS where in the code
+/// each lexical variable it puts in scope is bound.
 fn compile_let_star(
     ctx: &mut TulispContext,
     varlist: &TulispObject,
     body: &TulispObject,
-    in_scope: &mut usize,
+    binds: &mut Vec<usize>,
 ) -> Result<Vec<Instruction>, Error> {
     let mut result = vec![];
     // The special variables bound, for their `EndScope`s.
     let mut params: Vec<TulispObject> = Vec::new();
-    // The lexical variables bound: each one's slot, and where in
-    // `result` its binding is.
-    let mut slots: Vec<(u16, usize)> = Vec::new();
+    // The slots of the lexical variables bound.
+    let mut slots: Vec<u16> = Vec::new();
     let mut varitems = varlist.base_iter();
     for varitem in varitems.by_ref() {
         crate::builtin::check_not_nil_or_t(&varitem)?;
@@ -168,29 +141,17 @@ fn compile_let_star(
             result.push(Instruction::BeginScope(name.clone()));
             params.push(name);
         } else {
-            let compiler = ctx.compiler.as_mut().unwrap();
-            let slot = compiler.alloc_slot()?;
-            compiler.bind(
-                name,
-                Binding::Slot {
-                    slot,
-                    captured: false,
-                },
-            );
-            *in_scope += 1;
-            slots.push((slot, result.len()));
+            let slot = ctx.compiler.as_mut().unwrap().bind_slot(name)?;
+            slots.push(slot);
+            binds.push(result.len());
             result.push(Instruction::BindLocal(slot));
         }
     }
     varitems.take_error()?;
-    // Track the special bindings on the compiler so anything inside
-    // the body that emits a function-escaping instruction
-    // (`TailCall`, self-recursion's `Jump(Pos::Abs(0))`) can prepend
-    // `EndScope`s for them. The trailing `EndScope`s appended below
-    // are unreachable on the escape path, so without this push/pop
-    // the bindings stay stuck on the symbols' stacks forever. A
-    // lexical variable's slot needs no such care: the frame goes
-    // with the call.
+    // Track the special bindings on the compiler: a tail call inside
+    // the body would skip the trailing `EndScope`s, so while any is in
+    // force, a tail call compiles as an ordinary call. A lexical
+    // variable's slot needs no such care: the frame goes with the call.
     let scope_depth = ctx.compiler.as_ref().unwrap().active_let_scopes.len();
     ctx.compiler
         .as_mut()
@@ -211,18 +172,11 @@ fn compile_let_star(
     for param in params {
         result.push(Instruction::EndScope(param));
     }
-    if let (Some((from, _)), Some((last, _))) = (slots.first(), slots.last()) {
+    if let (Some(from), Some(last)) = (slots.first(), slots.last()) {
         result.push(Instruction::ClearLocals {
             from: *from,
             to: *last + 1,
         });
-    }
-    // A variable a closure captured is a cell from its binding on.
-    let compiler = ctx.compiler.as_ref().unwrap();
-    for (slot, bind_at) in slots {
-        if compiler.slot_captured(slot) {
-            swap_to_cells(&mut result[bind_at..], slot);
-        }
     }
     Ok(result)
 }

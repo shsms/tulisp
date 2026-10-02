@@ -1,7 +1,17 @@
 //! Turning a variable that a closure captures into a cell, once the
 //! scope it is bound in has compiled.
 
+use super::scope::ScopeVar;
 use crate::bytecode::{Block, Instruction};
+
+/// Swaps the uses of each of VARS that a closure captured, in
+/// INSTRUCTIONS, for their cell forms: VARS are leaving scope, and
+/// INSTRUCTIONS run from their binding on.
+pub(crate) fn swap_captured(vars: &[ScopeVar], instructions: &mut [Instruction]) {
+    for var in vars.iter().filter(|var| var.captured) {
+        swap_to_cells(instructions, var.slot);
+    }
+}
 
 /// Turns every use of SLOT in INSTRUCTIONS, nested blocks included,
 /// into its cell form. Positions do not change, so jumps stay valid.

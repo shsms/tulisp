@@ -3,7 +3,6 @@
 use crate::{
     Error, TulispContext, TulispObject,
     builtin::functions::errors::{check_condition_case_var, parse_handlers},
-    bytecode::compiler::scope::Binding,
     bytecode::{
         Block, Handler, Instruction,
         compiler::compiler::{BlockBinding, compile_block, compile_expr_keep_result},
@@ -74,20 +73,7 @@ pub(super) fn compile_fn_condition_case(
             } else if var.is_special() {
                 compile_block(ctx, &forms, Some(BlockBinding::Dynamic(var.clone())))?
             } else {
-                let compiler = ctx.compiler.as_mut().unwrap();
-                let slot = compiler.alloc_slot()?;
-                compiler.bind(
-                    var.clone(),
-                    Binding::Slot {
-                        slot,
-                        captured: false,
-                    },
-                );
-                let block = compile_block(ctx, &forms, Some(BlockBinding::Slot(slot)));
-                let compiler = ctx.compiler.as_mut().unwrap();
-                compiler.unbind(1);
-                compiler.free_slots_to(slot);
-                block?
+                compile_block(ctx, &forms, Some(BlockBinding::Lexical(var.clone())))?
             };
             compiled.push(Handler {
                 condition,

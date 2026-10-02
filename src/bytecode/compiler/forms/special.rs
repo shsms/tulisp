@@ -18,12 +18,20 @@ fn compile_arguments(
     let mut result = Vec::new();
     let mut eager_count = 0;
     let mut blocks = Vec::new();
+    // Each block's slots start where the blocks before it end.
+    let mut end = ctx.compiler.as_ref().unwrap().next_slot();
     for (index, arg) in args.base_iter().enumerate() {
         if takes_form(kinds, index) {
-            ctx.compiler.as_mut().unwrap().reserve_used_slots();
+            let compiler = ctx.compiler.as_mut().unwrap();
+            compiler.free_slots_to(end);
+            let count = compiler.replace_slot_count(end);
             let forms = TulispObject::cons(arg.clone(), TulispObject::nil());
+            let block = compile_block(ctx, &forms, None);
+            let compiler = ctx.compiler.as_mut().unwrap();
+            end = compiler.replace_slot_count(count);
+            compiler.replace_slot_count(count.max(end));
             blocks.push(FormBlock {
-                block: compile_block(ctx, &forms, None)?,
+                block: block?,
                 source: arg,
             });
         } else {

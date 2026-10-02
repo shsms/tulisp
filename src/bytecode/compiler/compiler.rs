@@ -6,9 +6,9 @@ use crate::{
     object::wrappers::generic::SharedMut,
 };
 
-use super::cells::swap_to_cells;
+use super::cells::swap_captured;
 use super::forms::{VMCompilers, compile_form};
-use super::scope::{FunctionScope, Resolved, resolve};
+use super::scope::{FunctionScope, resolve};
 
 #[derive(Default, Clone)]
 pub(crate) struct DefunParams {
@@ -123,7 +123,7 @@ pub fn compile(
 ) -> Result<Bytecode, Error> {
     let compiler = ctx.compiler.as_mut().unwrap();
     let state = compiler.take_state(keep_result);
-    compiler.push_function(false);
+    compiler.push_function();
     let result = compile_program(ctx, value);
     ctx.compiler.as_mut().unwrap().restore_state(state);
     result
@@ -358,9 +358,8 @@ pub(crate) fn compile_progn_keep_result(
 pub(crate) enum BlockBinding {
     /// A special variable, bound on its symbol's own stack.
     Dynamic(TulispObject),
-    /// A lexical variable in this slot of the function's frame, already
-    /// in scope.
-    Slot(u16),
+    /// A lexical variable, in a slot of the function's frame.
+    Lexical(TulispObject),
 }
 
 /// Compiles FORMS as a block whose value is kept. With BINDING, the
@@ -373,33 +372,45 @@ pub(crate) fn compile_block(
     binding: Option<BlockBinding>,
 ) -> Result<crate::bytecode::Block, Error> {
     let compiler = ctx.compiler.as_mut().unwrap();
-    let scopes = std::mem::take(&mut compiler.active_let_scopes);
-    let compiled = compile_progn_keep_result(ctx, forms);
-    let compiler = ctx.compiler.as_mut().unwrap();
-    compiler.active_let_scopes = scopes;
     let mut instructions = Vec::new();
+    let mut slot = None;
     match &binding {
         Some(BlockBinding::Dynamic(symbol)) => {
             instructions.push(Instruction::BeginScope(symbol.clone()))
         }
-        Some(BlockBinding::Slot(slot)) => instructions.push(Instruction::BindLocal(*slot)),
+        Some(BlockBinding::Lexical(name)) => {
+            let bound = compiler.bind_slot(name.clone())?;
+            instructions.push(Instruction::BindLocal(bound));
+            slot = Some(bound);
+        }
         None => {}
     }
+    let scopes = std::mem::take(&mut compiler.active_let_scopes);
+    let compiled = compile_progn_keep_result(ctx, forms);
+    let compiler = ctx.compiler.as_mut().unwrap();
+    compiler.active_let_scopes = scopes;
+    // The variable leaves the scope, and its slot is free again, on
+    // every path out.
+    let closed = match slot {
+        Some(slot) => {
+            compiler.free_slots_to(slot);
+            compiler.unbind(1)
+        }
+        None => Vec::new(),
+    };
     instructions.append(&mut compiled?);
-    match &binding {
-        Some(BlockBinding::Dynamic(symbol)) => {
+    match (&binding, slot) {
+        (Some(BlockBinding::Dynamic(symbol)), _) => {
             instructions.push(Instruction::EndScope(symbol.clone()))
         }
-        Some(BlockBinding::Slot(slot)) => {
+        (Some(BlockBinding::Lexical(_)), Some(slot)) => {
             instructions.push(Instruction::ClearLocals {
-                from: *slot,
-                to: *slot + 1,
+                from: slot,
+                to: slot + 1,
             });
-            if compiler.slot_captured(*slot) {
-                swap_to_cells(&mut instructions, *slot);
-            }
+            swap_captured(&closed, &mut instructions);
         }
-        None => {}
+        (Some(BlockBinding::Lexical(_)), None) | (None, _) => {}
     }
     crate::bytecode::Block::new(instructions, binding.is_some())
 }
@@ -630,19 +641,7 @@ pub(crate) fn compile_expr(
             }
             drop(expr_ref);
             // A keyword is its own value, unless it names a parameter.
-            Ok(vec![match resolve(ctx, expr)? {
-                Resolved::Global if expr.keywordp() => Instruction::Push(expr.clone()),
-                Resolved::Global => Instruction::Load(expr.clone()),
-                Resolved::Slot {
-                    slot,
-                    captured: false,
-                } => Instruction::LoadLocal(slot),
-                Resolved::Slot {
-                    slot,
-                    captured: true,
-                } => Instruction::LoadCell(slot),
-                Resolved::Capture(index) => Instruction::LoadCapture(index),
-            }])
+            Ok(vec![resolve(ctx, expr)?.load(expr)])
         }
         (TulispValue::Unquote { .. }, _) => Err(Error::new(
             crate::ErrorKind::SyntaxError,

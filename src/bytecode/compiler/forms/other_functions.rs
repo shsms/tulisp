@@ -185,13 +185,19 @@ pub(super) fn compile_fn_defun_bounce_call(
             arity.describe()
         ))
     })?;
-    // The parameters are rebound in their slots, the parameter at
-    // index `i` in slot `i`: required, then optional, then rest.
+    // The parameters are rebound in their slots: they are the first
+    // variables of the function's scope, required, then optional, then
+    // rest.
     let required = params.required.len();
     let optional = params.optional.len();
+    let compiler = ctx.compiler.as_ref().unwrap();
     let slot = |index: usize| {
-        u16::try_from(index)
-            .map_err(|_| Error::lisp_error("a function holds more than 65535 variables"))
+        compiler
+            .functions
+            .last()
+            .and_then(|function| function.vars.get(index))
+            .map(|param| param.slot)
+            .ok_or_else(|| Error::lisp_error("internal: a self call outside its function"))
     };
     if params.rest.is_some() {
         result.push(Instruction::List(rest_count));

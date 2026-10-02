@@ -1,7 +1,7 @@
 use crate::{
     Error, ErrorKind, TulispContext, TulispObject,
-    bytecode::compiler::cells::swap_to_cells,
-    bytecode::compiler::scope::{Binding, FunctionScope},
+    bytecode::compiler::cells::swap_captured,
+    bytecode::compiler::scope::FunctionScope,
     bytecode::{Captures, CompiledDefun},
     bytecode::{
         Instruction, LambdaTemplate,
@@ -155,42 +155,24 @@ pub(super) fn compile_function_body(
 ) -> Result<(Vec<Instruction>, FunctionScope), Error> {
     let compiler = ctx.compiler.as_mut().unwrap();
     let body_start = compiler.new_label();
-    compiler.push_function(true);
+    compiler.push_function();
     if let Some(function) = compiler.functions.last_mut() {
         function.body_start = Some(body_start.clone());
     }
-    let mut bound = Ok(());
-    for name in params {
-        match compiler.alloc_slot() {
-            Ok(slot) => compiler.bind(
-                name.clone(),
-                Binding::Slot {
-                    slot,
-                    captured: false,
-                },
-            ),
-            Err(err) => {
-                bound = Err(err);
-                break;
-            }
-        }
-    }
+    let bound = params
+        .iter()
+        .try_for_each(|name| compiler.bind_slot(name.clone()).map(drop));
     let compiled = bound.and_then(|()| compile_progn_keep_result(ctx, body));
-    let scope = ctx.compiler.as_mut().unwrap().pop_function();
+    let mut scope = ctx.compiler.as_mut().unwrap().pop_function();
     let mut body = compiled?;
     body.push(Instruction::Ret);
 
+    let params = scope.vars.split_off(0);
+    swap_captured(&params, &mut body);
     let mut instructions = Vec::new();
-    for var in scope.vars.iter().take(params.len()) {
-        if let Binding::Slot {
-            slot,
-            captured: true,
-        } = var.binding
-        {
-            swap_to_cells(&mut body, slot);
-            instructions.push(Instruction::LoadLocal(slot));
-            instructions.push(Instruction::BindCell(slot));
-        }
+    for param in params.iter().filter(|param| param.captured) {
+        instructions.push(Instruction::LoadLocal(param.slot));
+        instructions.push(Instruction::BindCell(param.slot));
     }
     instructions.push(Instruction::Label(body_start));
     instructions.append(&mut body);
