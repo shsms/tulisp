@@ -174,6 +174,12 @@ deadline. It should clear what made it return true. A closure that keeps
 returning true also stops cleanups and handlers that run long, and later
 evaluations when they reach the next check.
 
+A handler for `quit` or `t` catches `quit`, so code that catches it and goes on
+runs past every check. For a stop that no handler catches, the closure returns
+`Interrupt::Stop` with a message instead of true. The evaluation then ends with
+an `ErrorKind::Interrupted` error that has the message as its description, and
+`unwind-protect` cleanups still run on the way out.
+
 A macro defined in Lisp with `defmacro` compiles its body on its first
 expansion. It keeps the compiled body, unless that expansion failed or
 the body has a call to a name that had no value yet. The macros a kept
