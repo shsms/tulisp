@@ -11,15 +11,14 @@ use crate::object::wrappers::generic::{Shared, SharedMut};
 pub(crate) type Cell = SharedMut<Option<TulispObject>>;
 
 /// One lexical variable of a running call.
+#[derive(Default)]
 pub(crate) enum Slot {
+    /// No value yet, or no longer: reads as nil. Making one allocates
+    /// nothing, unlike a fresh nil.
+    #[default]
+    Empty,
     Value(TulispObject),
     Cell(Cell),
-}
-
-impl Default for Slot {
-    fn default() -> Self {
-        Slot::Value(TulispObject::nil())
-    }
 }
 
 impl Drop for Slot {

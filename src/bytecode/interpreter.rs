@@ -178,8 +178,7 @@ impl Machine {
             captures: std::mem::replace(&mut self.captures, captures),
         };
         self.base = self.locals.len();
-        self.locals
-            .resize_with(self.base + usize::from(slot_count), Slot::default);
+        self.reserve_slots(slot_count);
         saved
     }
 
@@ -194,9 +193,17 @@ impl Machine {
     /// for a tail call that replaces it.
     fn replace_frame(&mut self, slot_count: u16, captures: Captures) {
         self.locals.truncate(self.base);
-        self.locals
-            .resize_with(self.base + usize::from(slot_count), Slot::default);
+        self.reserve_slots(slot_count);
         self.captures = captures;
+    }
+
+    /// Adds SLOT_COUNT empty slots for the running frame.
+    #[inline(always)]
+    fn reserve_slots(&mut self, slot_count: u16) {
+        if slot_count > 0 {
+            self.locals
+                .resize_with(self.base + usize::from(slot_count), Slot::default);
+        }
     }
 
     /// Makes FUNCTION what a compiled call to the name at ADDR runs.
@@ -685,12 +692,16 @@ fn run_impl_inner(
                 *slot_mut(&mut ctx.vm, *n)? = Slot::Cell(SharedMut::new(Some(value)));
             }
             Instruction::LoadLocal(n) => {
-                let Slot::Value(value) = slot_mut(&mut ctx.vm, *n)? else {
-                    return Err(Error::lisp_error(
-                        "internal: a cell where a value was expected",
-                    ));
+                let value = match slot_mut(&mut ctx.vm, *n)? {
+                    Slot::Value(value) => value.clone(),
+                    // A missing optional argument.
+                    Slot::Empty => TulispObject::nil(),
+                    Slot::Cell(_) => {
+                        return Err(Error::lisp_error(
+                            "internal: a cell where a value was expected",
+                        ));
+                    }
                 };
-                let value = value.clone();
                 ctx.vm.stack.push(value);
             }
             Instruction::StoreLocal(n) => {
@@ -1121,45 +1132,41 @@ fn run_impl_inner(
 
 /// Moves the arguments of CALL, on top of the stack, into the first
 /// slots of the frame: the required and optional ones in order, then
-/// the rest as a list. A missing optional stays nil.
+/// the rest as a list. A missing optional stays empty, which reads as
+/// nil.
 fn init_defun_args(ctx: &mut TulispContext, call: &TailCallInfo) -> Result<(), Error> {
     let params = &call.function.params;
-    let positional = params.required.len() + call.optional_count;
-    let count = positional + call.rest_count;
+    let required = params.required.len();
     let Machine {
         stack,
         locals,
         base,
         ..
     } = &mut ctx.vm;
-    let start = stack
-        .len()
-        .checked_sub(count)
-        .ok_or_else(|| Error::lisp_error("internal: missing arguments"))?;
-    let mut args = stack.drain(start..);
-    let slots = locals
-        .get_mut(*base..)
-        .ok_or_else(|| Error::lisp_error("internal: a frame past the slots"))?;
-    let mut slots = slots.iter_mut();
-    for value in args.by_ref().take(positional) {
-        let slot = slots
-            .next()
-            .ok_or_else(|| Error::lisp_error("internal: more arguments than slots"))?;
-        *slot = Slot::Value(value);
-    }
     if params.rest.is_some() {
-        let rest: Vec<TulispObject> = args.collect();
         let mut list = TulispObject::nil();
-        for value in rest.into_iter().rev() {
-            list = TulispObject::cons(value, list);
+        for _ in 0..call.rest_count {
+            list = TulispObject::cons(stack.pop().ok_or_else(missing_arguments)?, list);
         }
-        let index = *base + params.required.len() + params.optional.len();
-        let slot = locals
-            .get_mut(index)
-            .ok_or_else(|| Error::lisp_error("internal: more arguments than slots"))?;
-        *slot = Slot::Value(list);
+        let index = *base + required + params.optional.len();
+        *locals.get_mut(index).ok_or_else(slot_past_frame)? = Slot::Value(list);
+    }
+    let positional = required + call.optional_count;
+    let slots = locals
+        .get_mut(*base..*base + positional)
+        .ok_or_else(slot_past_frame)?;
+    for slot in slots.iter_mut().rev() {
+        *slot = Slot::Value(stack.pop().ok_or_else(missing_arguments)?);
     }
     Ok(())
+}
+
+fn missing_arguments() -> Error {
+    Error::lisp_error("internal: missing arguments")
+}
+
+fn slot_past_frame() -> Error {
+    Error::lisp_error("internal: a slot past the frame")
 }
 
 /// Runs `call`'s function on arguments already on the stack and
@@ -1266,9 +1273,7 @@ fn make_lambda(ctx: &TulispContext, template: &LambdaTemplate) -> Result<TulispO
 #[inline(always)]
 fn slot_mut(vm: &mut Machine, n: u16) -> Result<&mut Slot, Error> {
     let index = vm.base + usize::from(n);
-    vm.locals
-        .get_mut(index)
-        .ok_or_else(|| Error::lisp_error("internal: a slot past the frame"))
+    vm.locals.get_mut(index).ok_or_else(slot_past_frame)
 }
 
 /// The cell in slot N of the running frame.
@@ -1276,7 +1281,7 @@ fn slot_mut(vm: &mut Machine, n: u16) -> Result<&mut Slot, Error> {
 fn slot_cell(vm: &mut Machine, n: u16) -> Result<&crate::bytecode::Cell, Error> {
     match slot_mut(vm, n)? {
         Slot::Cell(cell) => Ok(cell),
-        Slot::Value(_) => Err(Error::lisp_error(
+        Slot::Value(_) | Slot::Empty => Err(Error::lisp_error(
             "internal: a value where a cell was expected",
         )),
     }

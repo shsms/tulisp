@@ -1824,4 +1824,16 @@ mod tests {
             "55",
         );
     }
+
+    // A missing optional argument is nil, read directly or through a
+    // closure that captured it.
+    #[test]
+    fn a_missing_optional_reads_nil() {
+        eval_assert_equal_fresh("(defun f (&optional x) x) (f)", "nil");
+        eval_assert_equal_fresh("(defun f (&optional x) (lambda () x)) (funcall (f))", "nil");
+        eval_assert_equal_fresh(
+            "(defun f (a &optional x) (let ((g (lambda () (setq x a)))) (funcall g) x)) (f 3)",
+            "3",
+        );
+    }
 }
