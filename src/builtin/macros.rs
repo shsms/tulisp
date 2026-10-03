@@ -6,7 +6,7 @@ use crate::{Rest, list};
 
 /// `->` with LAST false, `->>` with LAST true. VV is (X FORM...): X
 /// threaded through each FORM in turn, as its first argument or its
-/// last. A nil FORM ends the threading.
+/// last. A FORM that is not a cons, nil included, becomes (FORM X).
 fn thread_forms(
     ctx: &mut TulispContext,
     vv: &TulispObject,
@@ -14,9 +14,6 @@ fn thread_forms(
 ) -> Result<TulispObject, Error> {
     let (mut x, forms): (TulispObject, Rest<TulispObject>) = vv.destructure(ctx)?;
     for form in forms {
-        if form.null() {
-            break;
-        }
         x = if !form.consp() {
             list!(,form ,x)?
         } else if last {
@@ -80,5 +77,16 @@ mod tests {
         );
         // A dotted form keeps its tail, as in Emacs 30.1.
         eval_assert_equal(ctx, "(macroexpand '(-> 5 (f . 3)))", "'(f 5 . 3)");
+        // A nil form is threaded like any other atom, as in Emacs 30.1.
+        eval_assert_equal(
+            ctx,
+            "(macroexpand '(-> 1 (+ 2) nil (* 3)))",
+            "'(* (nil (+ 1 2)) 3)",
+        );
+        eval_assert_equal(
+            ctx,
+            "(macroexpand '(->> 1 (+ 2) nil (* 3)))",
+            "'(* 3 (nil (+ 2 1)))",
+        );
     }
 }
