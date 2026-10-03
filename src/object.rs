@@ -704,7 +704,9 @@ impl TulispObject {
     /// [`TulispConvertible`](crate::TulispConvertible) conversion a `defun`
     /// parameter of type `T` uses: a primitive, a `Vec`, a tuple, an
     /// `Option`, an [`AsList!`](macro@crate::AsList) struct, an
-    /// [`AsSymbol!`](macro@crate::AsSymbol) enum or a host value.
+    /// [`AsSymbol!`](macro@crate::AsSymbol) enum or a host value. A tuple
+    /// converts from a list of exactly that many elements; to read a list
+    /// by `defun`'s parameter rules, use [`destructure`](Self::destructure).
     ///
     /// ```rust
     /// # use tulisp::{Error, TulispContext};
@@ -723,6 +725,30 @@ impl TulispObject {
         ctx: &mut crate::TulispContext,
     ) -> Result<T, Error> {
         T::from_tulisp(ctx, self)
+    }
+
+    /// Reads this list's elements into the tuple `T`, by
+    /// [`defun`](crate::TulispContext::defun)'s parameter rules: see
+    /// [`Destructure`](crate::Destructure). A count that does not fit
+    /// is "Too few arguments" or "Too many arguments", with no trace;
+    /// the caller traces it to its form. A non-list or an improper list
+    /// raises the list walk's error, traced to this list.
+    ///
+    /// ```rust
+    /// use tulisp::{Rest, TulispContext, TulispObject};
+    ///
+    /// let ctx = &mut TulispContext::new();
+    /// let form = ctx.eval_string("'(when ok (a) (b))").unwrap();
+    /// let (_, cond, body): (TulispObject, TulispObject, Rest<TulispObject>) =
+    ///     form.destructure(ctx).unwrap();
+    /// assert_eq!((cond.to_string(), body.len()), ("ok".to_string(), 2));
+    /// ```
+    pub fn destructure<T: crate::Destructure>(
+        &self,
+        ctx: &mut crate::TulispContext,
+    ) -> Result<T, Error> {
+        let args = crate::cons::collect_list(self, Ok)?;
+        T::destructure_args(ctx, &args)
     }
 
     // extractors end

@@ -15,6 +15,7 @@ pub use context::call_args::{ApplyArgs, FuncallArgs, SpreadArgs};
 #[doc(hidden)]
 pub use context::callable::TulispCallable;
 pub use context::callable::{Param, ParamKind, PositionalParam, Return};
+pub use context::destructure::Destructure;
 #[doc(hidden)]
 pub use context::special::SpecialCallable;
 pub use context::special::{Form, SpecialArgs, SpecialParam, SpecialPositionalParam};
