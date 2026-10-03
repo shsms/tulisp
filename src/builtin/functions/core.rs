@@ -18,7 +18,8 @@ pub(crate) fn define_macro(
         args.destructure(ctx)?;
     crate::builtin::check_param_list(ctx, &params)?;
     let lambda = list!(,ctx.keywords.lambda.clone() ,params ,@body)?;
-    name.set_global(
+    ctx.set_function_value(
+        &name,
         TulispValue::Defmacro {
             lambda,
             compiled: SharedMut::new(None),
@@ -495,6 +496,18 @@ mod tests {
         eval_assert_error_line,
     };
     use crate::{Error, TulispContext, TulispObject};
+
+    // A Lisp macro that replaces a function reaches the calls compiled
+    // to the function: they raise, as calling a macro does in Emacs.
+    #[test]
+    fn a_defmacro_over_a_function_reaches_compiled_calls() {
+        let ctx = &mut TulispContext::new();
+        ctx.defun("r", || 1);
+        ctx.eval_string("(defun call-r () (list (r))) (call-r)")
+            .unwrap();
+        ctx.eval_string("(defmacro r () 5)").unwrap();
+        eval_assert_error_line(ctx, "(call-r)", "ERR InvalidArgument: invalid function: r");
+    }
 
     // Errors in the body of a dolist or dotimes keep their source
     // positions.

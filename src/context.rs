@@ -761,7 +761,7 @@ impl TulispContext {
 
     /// Makes FUNCTION the global value of SYM, and drops what the compiler
     /// and the machine kept for the old one.
-    fn set_function_value(
+    pub(crate) fn set_function_value(
         &mut self,
         sym: &TulispObject,
         function: TulispObject,
