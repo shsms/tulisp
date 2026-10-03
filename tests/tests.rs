@@ -293,9 +293,6 @@ fn test_math() -> Result<(), Error> {
     // Mantissa is ignored — `5.5e+INF` and `1e+INF` both read as +INF.
     tulisp_assert! { program: r#"(format "%S" 5.5e+INF)"#,    result: r#""1.0e+INF""# }
     tulisp_assert! { program: r#"(format "%S" 1e+INF)"#,      result: r#""1.0e+INF""# }
-    // Display of arithmetic-produced infinity matches the source form.
-    tulisp_assert! { program: r#"(format "%S" (/ 1.0 0.0))"#,  result: r#""1.0e+INF""# }
-    tulisp_assert! { program: r#"(format "%S" (/ -1.0 0.0))"#, result: r#""-1.0e+INF""# }
     // String Display escapes `"`, `\`, `\n`, `\t` so the printed
     // form parses back to the same value (round-trip).
     tulisp_assert! {
@@ -372,8 +369,6 @@ fn test_math() -> Result<(), Error> {
 <eval_string>:1.1-1.20:  at (reverse '(1 2 . 3))
 "#,
     }
-    tulisp_assert! { program: "(+ 40 (* 2.5 4) (- 4 12))", result: "42.0"  }
-    tulisp_assert! { program: "(+ 40 (* 2.5 4) (- -1 7))", result: "42.0"  }
     // (funcall '<defun-with-required-args>) with too few args is an
     // error, not a panic. (`+` accepts zero args — `(+)` => 0 — so use
     // `1+`, which still requires one.)

@@ -119,3 +119,18 @@ pub(super) fn compile_fn_div(
     }
     Ok(result)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_utils::eval_assert_equal_fresh;
+
+    #[test]
+    fn arithmetic_nests_and_mixes_integers_and_floats() {
+        eval_assert_equal_fresh("(+ 40 (* 2.5 4) (- 4 12))", "42.0");
+        eval_assert_equal_fresh("(+ 40 (* 2.5 4) (- -1 7))", "42.0");
+        // Display of arithmetic-produced infinity matches the source
+        // form.
+        eval_assert_equal_fresh(r#"(format "%S" (/ 1.0 0.0))"#, r#""1.0e+INF""#);
+        eval_assert_equal_fresh(r#"(format "%S" (/ -1.0 0.0))"#, r#""-1.0e+INF""#);
+    }
+}
