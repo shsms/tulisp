@@ -25,7 +25,7 @@ pub(crate) fn resolve_function(
     func: &TulispObject,
 ) -> Result<TulispObject, Error> {
     let resolved = if func.symbolp() {
-        func.get()?
+        func.get().map_err(|_| Error::void_function(func))?
     } else if is_lambda_list(ctx, func) {
         ctx.eval(func)?
     } else {
@@ -1262,7 +1262,7 @@ mod tests {
         eval_assert_error_line(
             &mut TulispContext::new(),
             "(let ((g (lambda () 1))) (g))",
-            "ERR Uninitialized: Variable definition is void: g",
+            "ERR Undefined: function is void: g",
         );
     }
 

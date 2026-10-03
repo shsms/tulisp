@@ -1297,9 +1297,7 @@ fn resolve_special_form(
     name: &TulispObject,
     kinds: &[ParamKind],
 ) -> Result<Shared<dyn SpecialFn>, Error> {
-    let func = name
-        .get()
-        .map_err(|_| Error::undefined(format!("function is void: {name}")))?;
+    let func = name.get().map_err(|_| Error::void_function(name))?;
     match &func.inner_ref().0 {
         TulispValue::Special {
             call,

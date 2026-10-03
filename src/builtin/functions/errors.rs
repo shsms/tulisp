@@ -1060,7 +1060,7 @@ mod tests {
             (r#"(error "x")"#, "error"),
             ("(funcall 'cons 1)", "wrong-number-of-arguments"),
             ("cc-undefined-variable", "void-variable"),
-            ("(cc-undefined-function)", "void-variable"),
+            ("(cc-undefined-function)", "void-function"),
             ("(funcall 5)", "void-function"),
             (r#"(load "tests/bad-load.lisp")"#, "invalid-read-syntax"),
             (r#"(load "/nonexistent/cc.lisp")"#, "file-error"),

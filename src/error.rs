@@ -124,6 +124,12 @@ impl Error {
     pub(crate) fn setting_constant(name: impl std::fmt::Display) -> Error {
         Error::type_mismatch(format!("Can't set constant symbol: {name}"))
     }
+
+    /// The error for calling NAME when it holds no function. Emacs
+    /// signals `void-function` here.
+    pub(crate) fn void_function(name: impl std::fmt::Display) -> Error {
+        Error::undefined(format!("function is void: {name}"))
+    }
 }
 
 /// Represents an error that occurred during Tulisp evaluation.

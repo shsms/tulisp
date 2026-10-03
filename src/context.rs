@@ -1091,6 +1091,16 @@ mod tests {
         eval_assert_equal(ctx, "(list (tail-call) (plain-call))", "'(2 (2))");
     }
 
+    // Calling a name with no function reports a void function, as in
+    // Emacs, not a void variable.
+    #[test]
+    fn funcall_of_a_name_with_no_function_reports_a_void_function() {
+        let ctx = &mut TulispContext::new();
+        let nosuch = ctx.intern("nosuch");
+        let err = ctx.funcall(&nosuch, ()).unwrap_err();
+        assert_eq!(err.format(ctx), "ERR Undefined: function is void: nosuch\n");
+    }
+
     // A program run while a protected body compiles fails to compile
     // as a whole, before any of it runs.
     #[test]

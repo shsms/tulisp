@@ -324,7 +324,7 @@ mod tests {
             ctx,
             "(sort '(20 10 30 15 45) '<<)",
             &format!(
-                r#"ERR Uninitialized: Variable definition is void: <<
+                r#"ERR Undefined: function is void: <<
 {0}:87.35-87.55:  at (funcall pred item x)
 {0}:87.15-87.56:  at (and (not inserted) (funcall pred item x))
 {0}:87.11-91.36:  at (if (and (not inserted) (funcall pred item x)) (progn (setq new (cons item new))...
