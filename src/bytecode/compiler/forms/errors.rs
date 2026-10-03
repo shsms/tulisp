@@ -1,5 +1,6 @@
 //! VM compilers for `catch`, `unwind-protect` and `condition-case`.
 
+use super::common::pop_unless_kept;
 use crate::{
     Error, TulispContext, TulispObject,
     builtin::functions::errors::{check_condition_case_var, parse_handlers},
@@ -9,14 +10,6 @@ use crate::{
     },
     object::wrappers::generic::Shared,
 };
-
-/// CODE, followed by a `Pop` when the form's value is unused.
-fn pop_unless_kept(ctx: &TulispContext, mut code: Vec<Instruction>) -> Vec<Instruction> {
-    if !ctx.compiler.as_ref().unwrap().keep_result {
-        code.push(Instruction::Pop);
-    }
-    code
-}
 
 pub(super) fn compile_fn_catch(
     ctx: &mut TulispContext,

@@ -1,5 +1,13 @@
 use crate::{Error, TulispContext, TulispObject, TulispValue, bytecode::Instruction};
 
+/// CODE, followed by a `Pop` when the form's value is unused.
+pub(super) fn pop_unless_kept(ctx: &TulispContext, mut code: Vec<Instruction>) -> Vec<Instruction> {
+    if !ctx.compiler.as_ref().unwrap().keep_result {
+        code.push(Instruction::Pop);
+    }
+    code
+}
+
 impl TulispContext {
     pub(crate) fn compile_1_arg_call(
         &mut self,
