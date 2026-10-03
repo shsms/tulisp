@@ -21,44 +21,60 @@ pub(crate) struct TraceRange {
     pub form: TulispObject,
 }
 
-/// A compiled function, behind one shared handle: a copy of it is a
-/// copy of the handle.
+/// A compiled function: its code, behind one shared handle, and the
+/// variables it captured, if it is a closure. A copy of it copies the
+/// handles, and every closure made from one form shares its code.
 #[doc(hidden)]
 #[derive(Clone)]
-pub struct CompiledDefun(Shared<CompiledDefunInner>);
+pub struct CompiledDefun {
+    code: Shared<CompiledCode>,
+    /// The variables a closure captured; empty for a plain function.
+    pub(crate) captures: Captures,
+}
 
 impl CompiledDefun {
-    pub(crate) fn new(inner: CompiledDefunInner) -> Self {
-        CompiledDefun(Shared::new(inner))
+    pub(crate) fn new(code: CompiledCode) -> Self {
+        CompiledDefun {
+            code: Shared::new(code),
+            captures: Captures::default(),
+        }
+    }
+
+    /// A function with this one's code and CAPTURES.
+    pub(crate) fn with_captures(&self, captures: Captures) -> Self {
+        CompiledDefun {
+            code: self.code.clone(),
+            captures,
+        }
+    }
+
+    /// Whether OTHER runs this function's code: whether both come from
+    /// one compile of a form.
+    pub(crate) fn same_code(&self, other: &Self) -> bool {
+        self.code.ptr_eq(&other.code)
     }
 }
 
 impl std::ops::Deref for CompiledDefun {
-    type Target = CompiledDefunInner;
+    type Target = CompiledCode;
 
-    fn deref(&self) -> &CompiledDefunInner {
-        &self.0
+    fn deref(&self) -> &CompiledCode {
+        &self.code
     }
 }
 
+/// A compiled function's code: what every function made from one
+/// compile of a form shares.
 #[doc(hidden)]
-#[derive(Clone)]
-pub struct CompiledDefunInner {
+pub struct CompiledCode {
     pub(crate) name: TulispObject,
     pub(crate) instructions: SharedMut<Vec<Instruction>>,
     /// Trace ranges for `instructions`, populated by `assemble`. Empty
     /// for functions whose bytecode contains no list-form markers.
-    ///
-    /// Its allocation also identifies the form the function is compiled
-    /// from: `DefineFunction` compares it with `ptr_eq` to recognize a
-    /// function made from its own `defun` form. So each form gets a
-    /// separate allocation, even when the vec is empty.
-    pub(crate) trace_ranges: Shared<Vec<TraceRange>>,
-    pub(crate) params: Shared<DefunParams>,
+    pub(crate) trace_ranges: Vec<TraceRange>,
+    pub(crate) params: DefunParams,
     /// How many slots a call reserves for its lexical variables.
     pub(crate) slot_count: u16,
-    /// The cells a closure captured; empty for a plain function.
-    pub(crate) captures: Captures,
 }
 
 #[derive(Clone)]

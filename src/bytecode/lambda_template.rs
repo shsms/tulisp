@@ -18,8 +18,8 @@ pub(crate) enum CaptureSource {
 pub(crate) struct LambdaTemplate {
     /// The shared body. Its `captures` is empty; a closure gets its own.
     ///
-    /// Every function made from the template shares its `trace_ranges`,
-    /// and so does the function a `defun` form compiles to, so
+    /// Every function made from the template shares its code, and so
+    /// does the function a `defun` form compiles to, so
     /// `DefineFunction` can tell which `defun` form a function comes
     /// from.
     pub(crate) function: CompiledDefun,

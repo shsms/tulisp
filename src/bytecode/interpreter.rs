@@ -1,7 +1,7 @@
 use super::{
     Block, CaptureSource, Captured, CapturedValue, Captures, FormBlock, FrameState, Handler,
     Instruction, LambdaTemplate, Slot, bytecode::Bytecode, bytecode::CompiledDefun,
-    bytecode::CompiledDefunInner, bytecode::TraceRange,
+    bytecode::TraceRange,
 };
 use crate::{
     Error, ErrorKind, Number, TulispContext, TulispObject, TulispValue, bytecode::Pos,
@@ -923,11 +923,16 @@ fn run_impl_inner(
             }
             Instruction::DefineFunction(name) => {
                 let closure = ctx.vm.stack.pop().unwrap_or_default();
-                let TulispValue::CompiledDefun { value } = &closure.inner_ref().0 else {
-                    return Err(Error::lisp_error(
-                        "internal: define_function needs a compiled function",
-                    ));
+                let function = match &closure.inner_ref().0 {
+                    TulispValue::CompiledDefun { value } => value.clone(),
+                    _ => {
+                        return Err(Error::lisp_error(
+                            "internal: define_function needs a compiled function",
+                        ));
+                    }
                 };
+                // The form compiled the closure under NAME already.
+                debug_assert!(function.name.eq_ptr(name));
                 // Install the new function only if the name still holds
                 // a function of this defun form: the one the form compiled
                 // to, or one an earlier run of the form made. A later
@@ -938,18 +943,9 @@ fn run_impl_inner(
                     .vm
                     .functions
                     .get(&addr)
-                    .is_some_and(|current| current.trace_ranges.ptr_eq(&value.trace_ranges));
+                    .is_some_and(|current| current.same_code(&function));
                 if holds_this_form {
-                    let function = CompiledDefun::new(CompiledDefunInner {
-                        name: name.clone(),
-                        ..CompiledDefunInner::clone(value)
-                    });
-                    name.set_global(
-                        TulispValue::CompiledDefun {
-                            value: function.clone(),
-                        }
-                        .into_ref(None),
-                    )?;
+                    name.set_global(closure)?;
                     ctx.vm.set_function(addr, function);
                 }
             }
@@ -1229,11 +1225,9 @@ fn slot_past_frame() -> Error {
 /// follows its tail calls until one returns a value, so a chain of
 /// tail calls costs no native stack.
 fn run_tail_calls(ctx: &mut TulispContext, mut call: TailCallInfo) -> Result<(), Error> {
-    let locals = LocalsGuard::new(
-        ctx,
-        call.function.slot_count,
-        call.function.captures.clone(),
-    );
+    // The frame takes the captures; the call keeps the code.
+    let captures = std::mem::take(&mut call.function.captures);
+    let locals = LocalsGuard::new(ctx, call.function.slot_count, captures);
     loop {
         init_defun_args(locals.ctx, &call)?;
         let tail = run_impl(
@@ -1246,10 +1240,11 @@ fn run_tail_calls(ctx: &mut TulispContext, mut call: TailCallInfo) -> Result<(),
             Some(next) => {
                 call = next;
                 // The next function replaces this one's frame.
+                let captures = std::mem::take(&mut call.function.captures);
                 locals
                     .ctx
                     .vm
-                    .replace_frame(call.function.slot_count, call.function.captures.clone());
+                    .replace_frame(call.function.slot_count, captures);
             }
             None => return Ok(()),
         }
@@ -1297,10 +1292,10 @@ pub(crate) fn call_function(
     }
 }
 
-/// Makes a closure of TEMPLATE: its shared body, with the cells of the
-/// variables it captures from the running frame.
+/// Makes a closure of TEMPLATE: its shared body, with the variables it
+/// captures from the running frame.
 fn make_lambda(ctx: &TulispContext, template: &LambdaTemplate) -> Result<TulispObject, Error> {
-    let mut cells = Vec::with_capacity(template.capture_sources.len());
+    let mut captures = Vec::with_capacity(template.capture_sources.len());
     for (source, name) in &template.capture_sources {
         let value = match source {
             // A shared variable's slot holds its cell; any other's, its
@@ -1312,15 +1307,12 @@ fn make_lambda(ctx: &TulispContext, template: &LambdaTemplate) -> Result<TulispO
             },
             CaptureSource::Capture(index) => capture(&ctx.vm.captures, *index)?.value.clone(),
         };
-        cells.push(Captured {
+        captures.push(Captured {
             value,
             name: name.clone(),
         });
     }
-    let function = CompiledDefun::new(CompiledDefunInner {
-        captures: Captures::new(cells),
-        ..CompiledDefunInner::clone(&template.function)
-    });
+    let function = template.function.with_captures(Captures::new(captures));
     Ok(TulispValue::CompiledDefun { value: function }.into_ref(None))
 }
 

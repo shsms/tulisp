@@ -2,7 +2,7 @@ use crate::{
     Error, ErrorKind, TulispContext, TulispObject,
     bytecode::{
         Captured, CapturedValue, Captures, Instruction, LambdaTemplate, Pos,
-        bytecode::{CompiledDefun, CompiledDefunInner},
+        bytecode::{CompiledCode, CompiledDefun},
         compiler::{
             DefunParams,
             compiler::{compile_expr, compile_expr_keep_result, compile_progn},
@@ -276,7 +276,7 @@ fn compile_lambda_head_call(
     }
     let compiler = ctx.compiler.as_mut().unwrap();
     let prev_defun = compiler.current_defun.replace(lambda.clone());
-    let template = super::lambda::compile_lambda(ctx, &rest);
+    let template = super::lambda::compile_lambda(ctx, lambda, &rest);
     ctx.compiler.as_mut().unwrap().current_defun = prev_defun;
     let template = template?;
     let closes = !template.capture_sources.is_empty();
@@ -285,11 +285,7 @@ fn compile_lambda_head_call(
     if closes {
         result.push(Instruction::MakeLambda(Shared::new(template)));
     } else {
-        let function = CompiledDefun::new(CompiledDefunInner {
-            name: lambda.clone(),
-            ..CompiledDefunInner::clone(&template.function)
-        });
-        install_function(ctx, lambda, function);
+        install_function(ctx, lambda, template.function.clone());
     }
     for arg in args.base_iter() {
         result.append(&mut compile_expr_keep_result(ctx, &arg)?);
@@ -435,15 +431,13 @@ fn compile_defun(
     // Assemble the body at the `CompiledDefun` boundary so the
     // runtime never sees a trace marker or a label; see `assemble`.
     let (res, trace_ranges) = crate::bytecode::bytecode::assemble(res)?;
-    let trace_ranges = Shared::new(trace_ranges);
-    let mut function = CompiledDefunInner {
+    let mut function = CompiledDefun::new(CompiledCode {
         name: fn_name.clone(),
         instructions: SharedMut::new(res),
         trace_ranges,
-        params: Shared::new(defun_params),
+        params: defun_params,
         slot_count,
-        captures: Captures::default(),
-    };
+    });
     // A function that closes over variables is made again each time the
     // defun form runs, from the same code; until then its variables
     // have no value.
@@ -457,13 +451,12 @@ fn compile_defun(
             })
             .collect();
         result.push(Instruction::MakeLambda(Shared::new(LambdaTemplate {
-            function: CompiledDefun::new(function.clone()),
+            function: function.clone(),
             capture_sources,
         })));
         result.push(Instruction::DefineFunction(fn_name.clone()));
         function.captures = Captures::new(unbound);
     }
-    let function = CompiledDefun::new(function);
     fn_name.set_global(
         crate::TulispValue::CompiledDefun {
             value: function.clone(),

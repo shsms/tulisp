@@ -2,7 +2,7 @@ use crate::{
     Error, ErrorKind, TulispContext, TulispObject,
     bytecode::compiler::cells::swap_shared,
     bytecode::compiler::scope::FunctionScope,
-    bytecode::{Captures, CompiledDefun, CompiledDefunInner},
+    bytecode::{CompiledCode, CompiledDefun},
     bytecode::{
         Instruction, LambdaTemplate,
         compiler::{
@@ -21,7 +21,7 @@ pub(super) fn compile_fn_lambda(
     _name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    let template = compile_lambda(ctx, args)?;
+    let template = compile_lambda(ctx, &TulispObject::nil(), args)?;
     let mut result = Vec::with_capacity(1);
     if ctx.compiler.as_ref().unwrap().keep_result {
         result.push(Instruction::MakeLambda(Shared::new(template)));
@@ -30,9 +30,11 @@ pub(super) fn compile_fn_lambda(
 }
 
 /// Compiles ARGS, `(PARAMS BODY...)` of a `lambda` form, into the
-/// template its closures are made from.
+/// template its closures are made from, named NAME: nil for an
+/// anonymous lambda.
 pub(super) fn compile_lambda(
     ctx: &mut TulispContext,
+    name: &TulispObject,
     args: &TulispObject,
 ) -> Result<LambdaTemplate, Error> {
     // `(lambda)` has no parameters and no body.
@@ -125,13 +127,12 @@ pub(super) fn compile_lambda(
     let (instructions, trace_ranges) = crate::bytecode::bytecode::assemble(instructions)?;
 
     Ok(LambdaTemplate {
-        function: CompiledDefun::new(CompiledDefunInner {
-            name: TulispObject::nil(),
+        function: CompiledDefun::new(CompiledCode {
+            name: name.clone(),
             instructions: SharedMut::new(instructions),
-            trace_ranges: Shared::new(trace_ranges),
-            params: Shared::new(vm_params),
+            trace_ranges,
+            params: vm_params,
             slot_count: scope.slot_count,
-            captures: Captures::default(),
         }),
         capture_sources: scope.capture_sources,
     })
