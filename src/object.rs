@@ -559,6 +559,10 @@ impl TulispObject {
     ///
     /// Returns an Error if `self` is not a symbol, or is a constant:
     /// `nil`, `t` or a keyword.
+    ///
+    /// Calls compiled already may not see a function set here. To change
+    /// the function a name calls, use
+    /// [`TulispContext::fset`](crate::TulispContext::fset).
     pub fn set(&self, to_set: TulispObject) -> Result<(), Error> {
         self.rc
             .borrow_mut()

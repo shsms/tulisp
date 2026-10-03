@@ -728,6 +728,71 @@ impl TulispContext {
             .is_ok_and(|value| value.inner_ref().0.is_fbound())
     }
 
+    /// Makes NAME call FUNCTION, like Emacs Lisp's `fset`. FUNCTION must
+    /// be a function (such as the value of a `lambda` form), a macro, or a
+    /// special form made with [`defspecial`](Self::defspecial).
+    ///
+    /// Code compiled already calls FUNCTION too when it is a function,
+    /// except:
+    /// - a call to a built-in such as `car`, which the compiler made into
+    ///   its own instructions, still does what the built-in did;
+    /// - a call compiled while NAME was a macro keeps that macro's
+    ///   expansion.
+    ///
+    /// A call compiled while NAME was a function raises an error when
+    /// FUNCTION is a macro or a special form. A call compiled while NAME
+    /// was a special form calls FUNCTION only when it is a special form
+    /// with the same parameters, and raises an error otherwise.
+    ///
+    /// NAME's global variable value changes too, as a function and a
+    /// variable of the same name share one value. While a `let` binds
+    /// NAME, reading NAME gives the `let`'s binding.
+    ///
+    /// ```rust
+    /// use tulisp::TulispContext;
+    ///
+    /// let mut ctx = TulispContext::new();
+    /// ctx.eval_string("(defun answer () 1) (defun ask () (answer))").unwrap();
+    /// let function = ctx.eval_string("(lambda () 42)").unwrap();
+    /// ctx.fset("answer", function).unwrap();
+    /// assert_eq!(ctx.eval_string("(ask)").unwrap().to_string(), "42");
+    /// ```
+    ///
+    /// Returns an Error if NAME is `nil`, `t` or a keyword, or FUNCTION
+    /// is none of these.
+    pub fn fset(&mut self, name: &str, function: TulispObject) -> Result<(), Error> {
+        // A built-in special form compiles by its own name only.
+        let accepted = match &function.inner_ref().0 {
+            TulispValue::SpecialForm => false,
+            value => value.is_fbound(),
+        };
+        if !accepted {
+            return Err(Error::type_mismatch(format!(
+                "fset: expected a function, got: {function}"
+            )));
+        }
+        let sym = self.intern(name);
+        self.set_function_value(&sym, function)
+    }
+
+    /// Makes FUNCTION the global value of SYM, and drops what the compiler
+    /// and the machine kept for the old one.
+    fn set_function_value(
+        &mut self,
+        sym: &TulispObject,
+        function: TulispObject,
+    ) -> Result<(), Error> {
+        let addr = sym.addr_as_usize();
+        sym.set_global(function.clone())?;
+        self.evict_compiled_dispatch(addr);
+        // Put a compiled function in the machine's table, as `defun` does,
+        // so compiled calls run it directly.
+        if let TulispValue::CompiledDefun { value } = &function.inner_ref().0 {
+            self.vm.set_function(addr, value.clone());
+        }
+        Ok(())
+    }
+
     pub fn set_load_path<P: AsRef<Path>>(&mut self, path: Option<P>) -> Result<(), Error> {
         self.load_path = match path {
             Some(path) => Some(
@@ -1125,6 +1190,88 @@ mod tests {
         for name in ["nosuch", "var-only"] {
             assert!(!ctx.fboundp(name), "{name}");
         }
+    }
+
+    // A function set with `fset` reaches the calls compiled before it,
+    // in tail position or not, and the code compiled after it.
+    #[test]
+    fn fset_reaches_compiled_and_later_callers() {
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string(
+            "(defun target () 1) (defun tail-call () (target)) (defun plain-call () (list (target)))",
+        )
+        .unwrap();
+        let lambda = ctx.eval_string("(lambda () 2)").unwrap();
+        ctx.fset("target", lambda).unwrap();
+        eval_assert_equal(
+            ctx,
+            "(list (tail-call) (plain-call) (target))",
+            "'(2 (2) 2)",
+        );
+
+        ctx.defun("r", || 1);
+        ctx.eval_string("(defun call-r () (list (r)))").unwrap();
+        let lambda = ctx.eval_string("(lambda () 3)").unwrap();
+        ctx.fset("r", lambda).unwrap();
+        eval_assert_equal(ctx, "(call-r)", "'(3)");
+
+        // `fset` replaces a value `setq` gave the name.
+        ctx.eval_string("(setq set-by-setq 5)").unwrap();
+        let lambda = ctx.eval_string("(lambda () 4)").unwrap();
+        ctx.fset("set-by-setq", lambda).unwrap();
+        eval_assert_equal(ctx, "(set-by-setq)", "4");
+    }
+
+    // `fset` takes only a function, a macro or a special form.
+    #[test]
+    fn fset_refuses_a_value_that_is_no_function() {
+        let ctx = &mut TulispContext::new();
+        let built_in_special_form = ctx.intern("if").get().unwrap();
+        for value in [
+            TulispObject::from(5),
+            ctx.intern("car"),
+            built_in_special_form,
+        ] {
+            let err = ctx.fset("f", value).unwrap_err();
+            assert!(
+                err.format(ctx)
+                    .starts_with("ERR TypeMismatch: fset: expected a function, got: ")
+            );
+        }
+        assert!(!ctx.fboundp("f"));
+    }
+
+    // `fset` inside a `let` of the name sets the global value: the `let`
+    // sees its own binding, and the function is there after it.
+    #[test]
+    fn fset_inside_a_let_sets_the_global_value() {
+        let ctx = &mut TulispContext::new();
+        ctx.defun(
+            "set-ff",
+            |ctx: &mut TulispContext| -> Result<TulispObject, Error> {
+                let function = ctx.eval_string("(lambda () 'new)")?;
+                ctx.fset("ff", function)?;
+                Ok(TulispObject::nil())
+            },
+        );
+        ctx.eval_string("(defvar ff 1)").unwrap();
+        eval_assert_equal(ctx, "(list (let ((ff 7)) (set-ff) ff) (ff))", "'(7 new)");
+    }
+
+    // A compiled function set with `fset` is a tail-call target, so a
+    // chain of tail calls through it does not nest.
+    #[test]
+    fn an_fset_compiled_function_is_a_tail_call_target() {
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string(
+            "(defun ping (n) (if (= n 0) 'done (pong (- n 1))))
+             (defun pong (n) n)
+             (defun pong-2 (n) (ping n))",
+        )
+        .unwrap();
+        let pong_2 = ctx.intern("pong-2").get().unwrap();
+        ctx.fset("pong", pong_2).unwrap();
+        eval_assert_equal(ctx, "(ping 1000)", "'done");
     }
 
     // A program run while a protected body compiles fails to compile
