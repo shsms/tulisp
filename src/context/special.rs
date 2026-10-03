@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::bytecode::{Block, FormBlock, FrameState};
+use crate::bytecode::{FormBlock, FrameState};
 use crate::object::wrappers::generic::{Shared, SyncSend};
 use crate::{
     Error, Param, ParamKind, PositionalParam, Rest, Return, TulispContext, TulispConvertible,
@@ -23,10 +23,7 @@ use crate::{
 /// ```
 #[derive(Clone)]
 pub struct Form {
-    source: TulispObject,
-    block: Block,
-    /// The slots of the caller's frame the form binds its variables in.
-    slots: std::ops::Range<u16>,
+    form: FormBlock,
     live: Shared<AtomicBool>,
     /// The machine of the call, and its frame.
     machine: u64,
@@ -40,16 +37,16 @@ impl Form {
         if !self.live.load(Ordering::Relaxed) {
             return Err(
                 Error::lisp_error("a form ran after its special form returned")
-                    .with_trace(self.source.clone()),
+                    .with_trace(self.form.source.clone()),
             );
         }
         if ctx.vm.id != self.machine {
             return Err(
                 Error::lisp_error("a form ran in a context other than its own")
-                    .with_trace(self.source.clone()),
+                    .with_trace(self.form.source.clone()),
             );
         }
-        crate::bytecode::run_block_in_frame(ctx, &self.block, &self.frame, self.slots.clone())
+        crate::bytecode::run_form_in_frame(ctx, &self.form, &self.frame)
     }
 
     /// Evaluates the form and converts the value, as a
@@ -63,7 +60,7 @@ impl Form {
     /// it sees global and special variables only; [`eval`](Self::eval)
     /// sees the call's lexical variables too.
     pub fn source(&self) -> &TulispObject {
-        &self.source
+        &self.form.source
     }
 }
 
@@ -87,9 +84,7 @@ impl CallForms {
 
     pub(crate) fn form(&self, form: &FormBlock) -> Form {
         Form {
-            source: form.source.clone(),
-            block: form.block.clone(),
-            slots: form.slots.clone(),
+            form: form.clone(),
             live: self.live.clone(),
             machine: self.machine,
             frame: self.frame.clone(),
@@ -679,6 +674,19 @@ mod tests {
                   (list (when (< depth 3) (recur)) (funcall get)))))
              (t2)",
             "'(((nil 3) 2) 1)",
+        );
+        // From an initialiser, with the variables before it bound.
+        eval_assert_equal(
+            ctx,
+            "(setq depth 0)
+             (defun t3 ()
+               (with-recur
+                (let* ((a (setq depth (1+ depth)))
+                       (b (if (< depth 3) (recur) 'z))
+                       (c a))
+                  (list a b c))))
+             (t3)",
+            "'(1 (2 (3 z 3) 2) 1)",
         );
     }
 }

@@ -1,6 +1,6 @@
 use super::{
-    Block, CaptureSource, Captured, Captures, FrameState, Handler, Instruction, LambdaTemplate,
-    Slot, bytecode::Bytecode, bytecode::CompiledDefun, bytecode::TraceRange,
+    Block, CaptureSource, Captured, Captures, FormBlock, FrameState, Handler, Instruction,
+    LambdaTemplate, Slot, bytecode::Bytecode, bytecode::CompiledDefun, bytecode::TraceRange,
 };
 use crate::{
     Error, ErrorKind, Number, TulispContext, TulispObject, TulispValue, bytecode::Pos,
@@ -222,8 +222,21 @@ fn next_machine_id() -> u64 {
 struct LocalsGuard<'a> {
     ctx: &'a mut TulispContext,
     saved: FrameState,
-    /// Whether the frame left is this scope's own, whose slots go.
-    owns_slots: bool,
+    /// What the guard does with the slots when it ends.
+    slots: GuardedSlots,
+}
+
+/// The slots a `LocalsGuard` gives back.
+enum GuardedSlots {
+    /// The guard's own frame: its slots go.
+    Own,
+    /// The slots at RANGE of an existing frame, which a form binds its
+    /// variables in: they are cleared, and the values a run of the same
+    /// form had there are put back.
+    Form {
+        range: std::ops::Range<usize>,
+        set_aside: Vec<Slot>,
+    },
 }
 
 impl<'a> LocalsGuard<'a> {
@@ -236,26 +249,55 @@ impl<'a> LocalsGuard<'a> {
         LocalsGuard {
             ctx,
             saved,
-            owns_slots: true,
+            slots: GuardedSlots::Own,
         }
     }
 
-    /// Runs in FRAME, an existing frame, whose slots stay when it ends.
-    fn in_frame(ctx: &'a mut TulispContext, frame: FrameState) -> Self {
+    /// Enters FRAME, an existing frame, for a run of a form. FRAME's
+    /// slots stay when the guard ends, but for SLOTS, the ones the form
+    /// binds its variables in: any value in them belongs to a run of the
+    /// same form that is still going, and is set aside and put back when
+    /// this run ends.
+    fn for_form(
+        ctx: &'a mut TulispContext,
+        frame: FrameState,
+        slots: std::ops::Range<u16>,
+    ) -> Result<Self, Error> {
+        let range = frame.base + usize::from(slots.start)..frame.base + usize::from(slots.end);
+        let in_range = ctx
+            .vm
+            .locals
+            .get_mut(range.clone())
+            .ok_or_else(slot_past_frame)?;
+        let set_aside = if in_range.iter().any(|slot| !matches!(slot, Slot::Empty)) {
+            in_range.iter_mut().map(std::mem::take).collect()
+        } else {
+            Vec::new()
+        };
         let saved = ctx.vm.swap_frame(frame);
-        LocalsGuard {
+        Ok(LocalsGuard {
             ctx,
             saved,
-            owns_slots: false,
-        }
+            slots: GuardedSlots::Form { range, set_aside },
+        })
     }
 }
 
 impl Drop for LocalsGuard<'_> {
     fn drop(&mut self) {
         let vm = &mut self.ctx.vm;
-        if self.owns_slots {
-            vm.locals.truncate(vm.base);
+        match &mut self.slots {
+            GuardedSlots::Own => vm.locals.truncate(vm.base),
+            GuardedSlots::Form { range, set_aside } => {
+                if let Some(in_range) = vm.locals.get_mut(range.clone()) {
+                    if set_aside.len() == in_range.len() {
+                        // This run's values go with the guard.
+                        in_range.swap_with_slice(set_aside);
+                    } else {
+                        in_range.fill_with(Slot::default);
+                    }
+                }
+            }
         }
         vm.swap_frame(std::mem::take(&mut self.saved));
     }
@@ -304,9 +346,9 @@ pub fn run(ctx: &mut TulispContext, bytecode: Bytecode) -> Result<TulispObject, 
     // back only the stack.
     let mut guard = RunGuard::new(ctx);
     let tail = {
-        let scope = LocalsGuard::new(guard.ctx, bytecode.global_slot_count, Captures::default());
+        let locals = LocalsGuard::new(guard.ctx, bytecode.global_slot_count, Captures::default());
         run_impl(
-            scope.ctx,
+            locals.ctx,
             &bytecode.global,
             bytecode.global_trace_ranges.as_slice(),
             false,
@@ -361,62 +403,17 @@ pub(crate) fn run_block(
     run_block_impl(ctx, block, arg, false)
 }
 
-/// Runs BLOCK in FRAME, the frame of the code that holds it, and then
-/// goes back to the running frame. Frames above FRAME's `base` may be
-/// live, so `locals` is left as it is. SLOTS are the slots of FRAME the
-/// block binds its variables in: when the block runs inside a run of
-/// its own, they hold the outer run's variables, which are set aside
-/// and put back.
-pub(crate) fn run_block_in_frame(
+/// Runs FORM's block in FRAME, the frame of the code that holds it,
+/// and then goes back to the running frame. Frames above FRAME's `base`
+/// may be live, so `locals` is left as it is, but for the slots the
+/// form binds its variables in.
+pub(crate) fn run_form_in_frame(
     ctx: &mut TulispContext,
-    block: &Block,
+    form: &FormBlock,
     frame: &FrameState,
-    slots: std::ops::Range<u16>,
 ) -> Result<TulispObject, Error> {
-    let scope = LocalsGuard::in_frame(ctx, frame.clone());
-    let start = frame.base + usize::from(slots.start);
-    let end = frame.base + usize::from(slots.end);
-    let in_use = scope
-        .ctx
-        .vm
-        .locals
-        .get(start..end)
-        .ok_or_else(slot_past_frame)?
-        .iter()
-        .any(|slot| !matches!(slot, Slot::Empty));
-    if !in_use {
-        return run_block(scope.ctx, block, None);
-    }
-    let saved = scope.ctx.vm.locals[start..end]
-        .iter_mut()
-        .map(std::mem::take)
-        .collect();
-    let restore = SetAside {
-        ctx: scope.ctx,
-        start,
-        saved,
-    };
-    run_block(restore.ctx, block, None)
-}
-
-/// Puts slots set aside back in `locals` at START on drop, on any path
-/// out.
-struct SetAside<'a> {
-    ctx: &'a mut TulispContext,
-    start: usize,
-    saved: Vec<Slot>,
-}
-
-impl Drop for SetAside<'_> {
-    fn drop(&mut self) {
-        let start = self.start;
-        let locals = &mut self.ctx.vm.locals;
-        for (index, slot) in std::mem::take(&mut self.saved).into_iter().enumerate() {
-            if let Some(target) = locals.get_mut(start + index) {
-                *target = slot;
-            }
-        }
-    }
+    let guard = LocalsGuard::for_form(ctx, frame.clone(), form.slots.clone())?;
+    run_block(guard.ctx, &form.block, None)
 }
 
 /// Like `run_block`, for a cleanup or handler: it, and the calls it
@@ -1209,15 +1206,15 @@ fn slot_past_frame() -> Error {
 /// follows its tail calls until one returns a value, so a chain of
 /// tail calls costs no native stack.
 fn run_tail_calls(ctx: &mut TulispContext, mut call: TailCallInfo) -> Result<(), Error> {
-    let scope = LocalsGuard::new(
+    let locals = LocalsGuard::new(
         ctx,
         call.function.slot_count,
         call.function.captures.clone(),
     );
     loop {
-        init_defun_args(scope.ctx, &call)?;
+        init_defun_args(locals.ctx, &call)?;
         let tail = run_impl(
-            scope.ctx,
+            locals.ctx,
             &call.function.instructions,
             call.function.trace_ranges.as_slice(),
             false,
@@ -1226,7 +1223,7 @@ fn run_tail_calls(ctx: &mut TulispContext, mut call: TailCallInfo) -> Result<(),
             Some(next) => {
                 call = next;
                 // The next function replaces this one's frame.
-                scope
+                locals
                     .ctx
                     .vm
                     .replace_frame(call.function.slot_count, call.function.captures.clone());
@@ -1752,10 +1749,9 @@ mod tests {
         assert!(seen.windows(3).all(|w| w[0] == w[2]), "{seen:?}");
     }
 
-    // A `let` lets go of its values when it ends, not when its function
-    // returns.
-    #[test]
-    fn a_let_lets_go_of_its_values_when_it_ends() {
+    /// A context where `(make-token)` makes a host value and
+    /// `(tokens-dropped)` counts how many such values were let go.
+    fn token_context() -> TulispContext {
         use std::sync::Arc;
         use std::sync::atomic::{AtomicUsize, Ordering};
         #[derive(Clone)]
@@ -1773,15 +1769,51 @@ mod tests {
         impl crate::TulispAny for Token {}
 
         let dropped = Arc::new(AtomicUsize::new(0));
-        let ctx = &mut TulispContext::new();
+        let mut ctx = TulispContext::new();
         let made = dropped.clone();
         ctx.defun("make-token", move || Token(made.clone()));
-        let seen = dropped.clone();
-        ctx.defun("tokens-dropped", move || seen.load(Ordering::SeqCst) as i64);
+        ctx.defun("tokens-dropped", move || {
+            dropped.load(Ordering::SeqCst) as i64
+        });
+        ctx
+    }
+
+    // A `let` lets go of its values when it ends, not when its function
+    // returns.
+    #[test]
+    fn a_let_lets_go_of_its_values_when_it_ends() {
+        let ctx = &mut token_context();
         eval_assert_equal(
             ctx,
             "(defun f () (let ((x (make-token))) nil) (tokens-dropped)) (f)",
             "1",
+        );
+    }
+
+    // A run of a special form's form that an error ends lets go of its
+    // `let` values too.
+    #[test]
+    fn a_form_run_ended_by_an_error_lets_go_of_its_values() {
+        let ctx = &mut token_context();
+        ctx.defspecial(
+            "run-twice",
+            |ctx: &mut TulispContext, body: Form| -> Result<TulispObject, Error> {
+                let _ = body.eval(ctx);
+                body.eval(ctx)
+            },
+        );
+        eval_assert_equal(
+            ctx,
+            "(setq n 0)
+             (defun f ()
+               (run-twice
+                (let ((x (make-token)))
+                  (setq n (1+ n))
+                  (when (= n 1) (error \"boom\"))
+                  n))
+               (tokens-dropped))
+             (f)",
+            "2",
         );
     }
 }
