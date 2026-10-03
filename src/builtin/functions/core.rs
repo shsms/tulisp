@@ -3,7 +3,6 @@ use crate::Rest;
 use crate::TulispObject;
 use crate::TulispValue;
 use crate::context::TulispContext;
-use crate::destruct_bind;
 use crate::error::Error;
 use crate::list;
 use crate::object::wrappers::generic::SharedMut;
@@ -15,12 +14,10 @@ pub(crate) fn define_macro(
     ctx: &mut TulispContext,
     args: &TulispObject,
 ) -> Result<TulispObject, Error> {
-    destruct_bind!((name params &rest body) = args);
+    let (name, params, body): (TulispObject, TulispObject, Rest<TulispObject>) =
+        args.destructure(ctx)?;
     crate::builtin::check_param_list(ctx, &params)?;
-    let lambda = TulispObject::cons(
-        ctx.keywords.lambda.clone(),
-        TulispObject::cons(params, body),
-    );
+    let lambda = list!(,ctx.keywords.lambda.clone() ,params ,@body)?;
     name.set_global(
         TulispValue::Defmacro {
             lambda,
@@ -224,8 +221,10 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     // different iterations see different values. The loop state lives
     // in uninterned symbols, which user code cannot name.
     ctx.defmacro("dolist", |ctx, args| {
-        destruct_bind!((spec &rest body) = args);
-        destruct_bind!((var list &optional result) = spec);
+        let (spec, body): (TulispObject, Rest<TulispObject>) = args.destructure(ctx)?;
+        let (var, list, result): (TulispObject, TulispObject, Option<TulispObject>) =
+            spec.destructure(ctx)?;
+        let result = result.unwrap_or_default();
         crate::builtin::check_not_nil_or_t(&var)?;
         let tail = TulispObject::symbol("tail".to_string(), false);
         // (let ((tail list))
@@ -244,8 +243,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     });
 
     ctx.defmacro("dotimes", |ctx, args| {
-        destruct_bind!((spec &rest body) = args);
-        destruct_bind!((var count &rest result) = spec);
+        let (spec, body): (TulispObject, Rest<TulispObject>) = args.destructure(ctx)?;
+        let (var, count, result): (TulispObject, TulispObject, Rest<TulispObject>) =
+            spec.destructure(ctx)?;
         crate::builtin::check_not_nil_or_t(&var)?;
         let limit = TulispObject::symbol("limit".to_string(), false);
         let counter = TulispObject::symbol("counter".to_string(), false);
@@ -254,7 +254,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         //     (let ((var counter)) body...)
         //     (setq counter (+ counter 1)))
         //   (let ((var counter)) result...))  ; only with result forms
-        let result = if result.null() {
+        let result = if result.is_empty() {
             TulispObject::nil()
         } else {
             list!(,list!(,ctx.intern("let") ,list!(,list!(,var.clone() ,counter.clone())?)?
@@ -490,12 +490,54 @@ pub(crate) fn format_string(
 
 #[cfg(test)]
 mod tests {
-    use crate::TulispObject;
     use crate::test_utils::{
         eval_assert, eval_assert_equal, eval_assert_equal_fresh, eval_assert_error,
         eval_assert_error_line,
     };
-    use crate::{Error, TulispContext};
+    use crate::{Error, TulispContext, TulispObject};
+
+    // Errors in the body of a dolist or dotimes keep their source
+    // positions.
+    #[test]
+    fn errors_in_loop_bodies_keep_their_positions() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_error(
+            ctx,
+            "(dolist (x (list 1)) (car 5))",
+            "ERR TypeMismatch: Expected list, got: 5\n\
+             <eval_string>:1.22-1.28:  at (car 5)\n\
+             <eval_string>:1.1-1.29:  at (let ((tail (list 1))) (while tail (let ((x (car tail))) (car 5)) (setq tail (cd...\n",
+        );
+        eval_assert_error(
+            ctx,
+            "(dotimes (i 1) (car 5))",
+            "ERR TypeMismatch: Expected list, got: 5\n\
+             <eval_string>:1.16-1.22:  at (car 5)\n\
+             <eval_string>:1.1-1.23:  at (let ((limit 1) (counter 0)) (while (< counter limit) (let ((i counter)) (car 5)...\n",
+        );
+    }
+
+    // A loop spec that is not a list raises the list walk's error; one
+    // with too many elements is a call error.
+    #[test]
+    fn malformed_loop_specs_are_errors() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_error_line(
+            ctx,
+            "(dolist x 1)",
+            "ERR TypeMismatch: Expected list, got: x",
+        );
+        eval_assert_error_line(
+            ctx,
+            "(dotimes i 1)",
+            "ERR TypeMismatch: Expected list, got: i",
+        );
+        eval_assert_error_line(
+            ctx,
+            "(dolist (x '(1) nil 4) x)",
+            "ERR ArityMismatch: Too many arguments",
+        );
+    }
 
     // `eval` runs a form; a `let` variable is gone after its `let`.
     #[test]

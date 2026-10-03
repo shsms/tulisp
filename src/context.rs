@@ -679,18 +679,15 @@ impl TulispContext {
     /// # Example
     ///
     /// ```rust
-    /// use tulisp::{TulispContext, TulispObject, Error, destruct_bind, list};
+    /// use tulisp::{TulispContext, TulispObject, list};
     ///
     /// let mut ctx = TulispContext::new();
-    /// // Implement `(my-when cond body...)` as a macro
+    /// // Implement `(push newelt place)` as a macro.
     /// ctx.defmacro("push", |ctx, args| {
-    ///     destruct_bind!((newelt place) = args);
-    ///
-    ///     list!(
-    ///         ,ctx.intern("setq")
-    ///         ,place.clone()
-    ///         ,list!(,ctx.intern("cons"), newelt, place)?
-    ///     )
+    ///     let (newelt, place): (TulispObject, TulispObject) =
+    ///         args.destructure(ctx)?;
+    ///     let cons = list!(,ctx.intern("cons") ,newelt ,place.clone())?;
+    ///     list!(,ctx.intern("setq") ,place ,cons)
     /// });
     ///
     /// assert_eq!(
