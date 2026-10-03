@@ -123,11 +123,21 @@ fn floor_mod_f64(a: f64, b: f64) -> f64 {
 }
 
 impl Number {
-    /// Like `Add` but raises `ArithError` on `Int + Int` overflow
-    /// instead of wrapping. Float operands fall through to `f64::add`,
-    /// which produces `inf` rather than overflowing — matches Emacs
-    /// (which would promote to bignum on integer overflow).
-    pub(crate) fn checked_add(self, rhs: Number) -> Result<Number, Error> {
+    /// Adds, as Emacs `+` does. An integer and a float add as floats.
+    ///
+    /// Returns an `ArithError` when two integers overflow, where Emacs
+    /// would make a bignum. Floats give `inf` instead.
+    ///
+    /// ```rust
+    /// use tulisp::Number;
+    ///
+    /// assert_eq!(
+    ///     Number::Int(2).checked_add(Number::Float(0.5)).unwrap(),
+    ///     Number::Float(2.5)
+    /// );
+    /// assert!(Number::Int(i64::MAX).checked_add(Number::Int(1)).is_err());
+    /// ```
+    pub fn checked_add(self, rhs: Number) -> Result<Number, Error> {
         match (self, rhs) {
             (Number::Int(l), Number::Int(r)) => l
                 .checked_add(r)
@@ -139,8 +149,9 @@ impl Number {
         }
     }
 
-    /// `Sub` counterpart with `Int - Int` overflow detection.
-    pub(crate) fn checked_sub(self, rhs: Number) -> Result<Number, Error> {
+    /// Subtracts RHS, as Emacs `-` does. Returns an `ArithError` when two
+    /// integers overflow.
+    pub fn checked_sub(self, rhs: Number) -> Result<Number, Error> {
         match (self, rhs) {
             (Number::Int(l), Number::Int(r)) => l
                 .checked_sub(r)
@@ -152,8 +163,9 @@ impl Number {
         }
     }
 
-    /// `Mul` counterpart with `Int * Int` overflow detection.
-    pub(crate) fn checked_mul(self, rhs: Number) -> Result<Number, Error> {
+    /// Multiplies, as Emacs `*` does. Returns an `ArithError` when two
+    /// integers overflow.
+    pub fn checked_mul(self, rhs: Number) -> Result<Number, Error> {
         match (self, rhs) {
             (Number::Int(l), Number::Int(r)) => l
                 .checked_mul(r)
@@ -173,11 +185,13 @@ impl Number {
         }
     }
 
-    /// Integer/float division matching Emacs `/` (integers truncate
-    /// toward zero). Raises `ArithError` on an integer zero divisor
-    /// and on `i64::MIN / -1` overflow; float operands divide
-    /// normally, yielding ±inf for a zero divisor as Emacs does.
-    pub(crate) fn checked_div(self, rhs: Number) -> Result<Number, Error> {
+    /// Divides by RHS, as Emacs `/` does: two integers give an integer,
+    /// truncated toward zero.
+    ///
+    /// Returns an `ArithError` when both are integers and RHS is 0, or on
+    /// `i64::MIN / -1`. With a float operand, a zero divisor gives an
+    /// infinity or NaN, as in Emacs.
+    pub fn checked_div(self, rhs: Number) -> Result<Number, Error> {
         match (self, rhs) {
             (Number::Int(_), Number::Int(0)) => {
                 Err(Error::arith_error("Division by zero".to_string()))
@@ -192,16 +206,17 @@ impl Number {
         }
     }
 
-    /// Floored modulo matching Emacs `mod`: the result takes the
-    /// divisor's sign (`(mod -7 3)` => 2, `(mod 7 -3)` => -2). Raises
-    /// `ArithError` on an integer zero divisor; a float divisor
-    /// yields NaN. A `-1` divisor always yields 0, so the
-    /// `i64::MIN % -1` overflow can't arise.
-    pub(crate) fn checked_mod(self, rhs: Number) -> Result<Number, Error> {
+    /// Floored modulo, as Emacs `mod`: the result takes the divisor's
+    /// sign (`(mod -7 3)` => 2, `(mod 7 -3)` => -2).
+    ///
+    /// Returns an `ArithError` when both are integers and RHS is 0. With
+    /// a float operand, a zero divisor gives NaN.
+    pub fn checked_mod(self, rhs: Number) -> Result<Number, Error> {
         match (self, rhs) {
             (Number::Int(_), Number::Int(0)) => {
                 Err(Error::arith_error("Division by zero".to_string()))
             }
+            // `i64::MIN % -1` overflows; any integer mod -1 is 0.
             (Number::Int(_), Number::Int(-1)) => Ok(Number::Int(0)),
             (Number::Int(l), Number::Int(r)) => {
                 let m = l % r;
@@ -215,185 +230,6 @@ impl Number {
             (Number::Int(l), Number::Float(r)) => Ok(Number::Float(floor_mod_f64(l as f64, r))),
             (Number::Float(l), Number::Int(r)) => Ok(Number::Float(floor_mod_f64(l, r as f64))),
             (Number::Float(l), Number::Float(r)) => Ok(Number::Float(floor_mod_f64(l, r))),
-        }
-    }
-}
-
-impl std::ops::Add for Number {
-    type Output = Number;
-
-    fn add(self, rhs: Self) -> Self::Output {
-        match (self, rhs) {
-            (Number::Int(l), Number::Int(r)) => Number::Int(l + r),
-            (Number::Int(l), Number::Float(r)) => Number::Float(l as f64 + r),
-            (Number::Float(l), Number::Int(r)) => Number::Float(l + r as f64),
-            (Number::Float(l), Number::Float(r)) => Number::Float(l + r),
-        }
-    }
-}
-
-impl std::ops::Add<i64> for Number {
-    type Output = Number;
-
-    fn add(self, rhs: i64) -> Self::Output {
-        match self {
-            Number::Int(l) => Number::Int(l + rhs),
-            Number::Float(l) => Number::Float(l + rhs as f64),
-        }
-    }
-}
-
-impl std::ops::Add<f64> for Number {
-    type Output = Number;
-
-    fn add(self, rhs: f64) -> Self::Output {
-        match self {
-            Number::Int(l) => Number::Float(l as f64 + rhs),
-            Number::Float(l) => Number::Float(l + rhs),
-        }
-    }
-}
-
-impl std::ops::Sub for Number {
-    type Output = Number;
-
-    fn sub(self, rhs: Self) -> Self::Output {
-        match (self, rhs) {
-            (Number::Int(l), Number::Int(r)) => Number::Int(l - r),
-            (Number::Int(l), Number::Float(r)) => Number::Float(l as f64 - r),
-            (Number::Float(l), Number::Int(r)) => Number::Float(l - r as f64),
-            (Number::Float(l), Number::Float(r)) => Number::Float(l - r),
-        }
-    }
-}
-
-impl std::ops::Sub<i64> for Number {
-    type Output = Number;
-
-    fn sub(self, rhs: i64) -> Self::Output {
-        match self {
-            Number::Int(l) => Number::Int(l - rhs),
-            Number::Float(l) => Number::Float(l - rhs as f64),
-        }
-    }
-}
-
-impl std::ops::Sub<f64> for Number {
-    type Output = Number;
-
-    fn sub(self, rhs: f64) -> Self::Output {
-        match self {
-            Number::Int(l) => Number::Float(l as f64 - rhs),
-            Number::Float(l) => Number::Float(l - rhs),
-        }
-    }
-}
-
-impl std::ops::Mul for Number {
-    type Output = Number;
-
-    fn mul(self, rhs: Self) -> Self::Output {
-        match (self, rhs) {
-            (Number::Int(l), Number::Int(r)) => Number::Int(l * r),
-            (Number::Int(l), Number::Float(r)) => Number::Float(l as f64 * r),
-            (Number::Float(l), Number::Int(r)) => Number::Float(l * r as f64),
-            (Number::Float(l), Number::Float(r)) => Number::Float(l * r),
-        }
-    }
-}
-
-impl std::ops::Mul<i64> for Number {
-    type Output = Number;
-
-    fn mul(self, rhs: i64) -> Self::Output {
-        match self {
-            Number::Int(l) => Number::Int(l * rhs),
-            Number::Float(l) => Number::Float(l * rhs as f64),
-        }
-    }
-}
-
-impl std::ops::Mul<f64> for Number {
-    type Output = Number;
-
-    fn mul(self, rhs: f64) -> Self::Output {
-        match self {
-            Number::Int(l) => Number::Float(l as f64 * rhs),
-            Number::Float(l) => Number::Float(l * rhs),
-        }
-    }
-}
-
-impl std::ops::Div for Number {
-    type Output = Number;
-
-    /// Match Emacs Lisp `/`: integer division when both operands are
-    /// integers, float division otherwise. Callers must guard against
-    /// `Int(0)` divisor before calling — Rust's `i64::div` panics for
-    /// that, but `f64::div` returns `inf`/`nan` (which Emacs surfaces).
-    fn div(self, rhs: Self) -> Self::Output {
-        match (self, rhs) {
-            (Number::Int(l), Number::Int(r)) => Number::Int(l / r),
-            (Number::Int(l), Number::Float(r)) => Number::Float(l as f64 / r),
-            (Number::Float(l), Number::Int(r)) => Number::Float(l / r as f64),
-            (Number::Float(l), Number::Float(r)) => Number::Float(l / r),
-        }
-    }
-}
-
-impl std::ops::Div<i64> for Number {
-    type Output = Number;
-
-    fn div(self, rhs: i64) -> Self::Output {
-        match self {
-            Number::Int(l) => Number::Int(l / rhs),
-            Number::Float(l) => Number::Float(l / rhs as f64),
-        }
-    }
-}
-
-impl std::ops::Div<f64> for Number {
-    type Output = Number;
-
-    fn div(self, rhs: f64) -> Self::Output {
-        match self {
-            Number::Int(l) => Number::Float(l as f64 / rhs),
-            Number::Float(l) => Number::Float(l / rhs),
-        }
-    }
-}
-
-impl std::ops::Rem for Number {
-    type Output = Number;
-
-    fn rem(self, rhs: Self) -> Self::Output {
-        match (self, rhs) {
-            (Number::Int(l), Number::Int(r)) => Number::Int(l % r),
-            (Number::Int(l), Number::Float(r)) => Number::Float(l as f64 % r),
-            (Number::Float(l), Number::Int(r)) => Number::Float(l % r as f64),
-            (Number::Float(l), Number::Float(r)) => Number::Float(l % r),
-        }
-    }
-}
-
-impl std::ops::Rem<i64> for Number {
-    type Output = Number;
-
-    fn rem(self, rhs: i64) -> Self::Output {
-        match self {
-            Number::Int(l) => Number::Int(l % rhs),
-            Number::Float(l) => Number::Float(l % rhs as f64),
-        }
-    }
-}
-
-impl std::ops::Rem<f64> for Number {
-    type Output = Number;
-
-    fn rem(self, rhs: f64) -> Self::Output {
-        match self {
-            Number::Int(l) => Number::Float(l as f64 % rhs),
-            Number::Float(l) => Number::Float(l % rhs),
         }
     }
 }
