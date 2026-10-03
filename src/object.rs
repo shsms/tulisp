@@ -431,6 +431,21 @@ impl TulispObject {
     }
 
     /// Returns an iterator over the values inside `self`.
+    ///
+    /// The iteration stops early, with no error, on a list with a
+    /// dotted tail or a loop, and on a value that is not a list. Call
+    /// [`BaseIter::take_error`](crate::BaseIter::take_error) after it
+    /// to get that error.
+    ///
+    /// ```rust
+    /// use tulisp::TulispContext;
+    ///
+    /// let mut ctx = TulispContext::new();
+    /// let list = ctx.eval_string("'(1 2 . 3)").unwrap();
+    /// let mut items = list.base_iter();
+    /// assert_eq!(items.by_ref().count(), 2);
+    /// assert!(items.take_error().is_err());
+    /// ```
     pub fn base_iter(&self) -> cons::BaseIter {
         cons::BaseIter::starting_at(self.clone())
     }

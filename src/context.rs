@@ -905,10 +905,13 @@ impl TulispContext {
     }
 
     /// Maps the given function over the given sequence, and returns the result.
+    ///
+    /// Returns an Error if `seq` is not a proper list, before calling
+    /// `func`.
     pub fn map(&mut self, func: &TulispObject, seq: &TulispObject) -> Result<TulispObject, Error> {
         let function = resolve_function(self, func)?;
         let mut builder = crate::cons::ListBuilder::new();
-        for item in seq.base_iter() {
+        for item in crate::cons::collect_list(seq, Ok)? {
             builder.push(self.call_with(&function, vec![item])?);
         }
         Ok(builder.build())
@@ -916,6 +919,9 @@ impl TulispContext {
 
     /// Filters the given sequence using the given function, and returns the
     /// result.
+    ///
+    /// Returns an Error if `seq` is not a proper list, before calling
+    /// `func`.
     pub fn filter(
         &mut self,
         func: &TulispObject,
@@ -923,7 +929,7 @@ impl TulispContext {
     ) -> Result<TulispObject, Error> {
         let function = resolve_function(self, func)?;
         let mut builder = crate::cons::ListBuilder::new();
-        for item in seq.base_iter() {
+        for item in crate::cons::collect_list(seq, Ok)? {
             if self.call_with(&function, vec![item.clone()])?.is_truthy() {
                 builder.push(item);
             }
@@ -933,6 +939,9 @@ impl TulispContext {
 
     /// Reduces the given sequence using the given function, and returns the
     /// result.
+    ///
+    /// Returns an Error if `seq` is not a proper list, before calling
+    /// `func`.
     pub fn reduce(
         &mut self,
         func: &TulispObject,
@@ -941,7 +950,7 @@ impl TulispContext {
     ) -> Result<TulispObject, Error> {
         let function = resolve_function(self, func)?;
         let mut ret = initial_value.clone();
-        for item in seq.base_iter() {
+        for item in crate::cons::collect_list(seq, Ok)? {
             ret = self.call_with(&function, vec![ret, item])?;
         }
         Ok(ret)
@@ -1342,6 +1351,38 @@ mod tests {
     #[should_panic(expected = "can't define a function named :k")]
     fn defmacro_named_a_keyword_panics() {
         TulispContext::new().defmacro(":k", |_, _| Ok(TulispObject::nil()));
+    }
+
+    // `map`, `filter` and `reduce` reject a non-list or a dotted list,
+    // as Emacs's `mapcar`, `seq-filter` and `seq-reduce` do.
+    #[test]
+    fn map_filter_and_reduce_reject_a_malformed_list() {
+        let ctx = &mut TulispContext::new();
+        let list = ctx.intern("list");
+        let plus = ctx.intern("+");
+        for (seq, tail) in [("5", "5"), ("'(1 2 . 3)", "3")] {
+            let seq = ctx.eval_string(seq).unwrap();
+            let expected = format!("ERR TypeMismatch: Expected list, got: {tail}");
+            let results = [
+                ctx.map(&list, &seq),
+                ctx.filter(&list, &seq),
+                ctx.reduce(&plus, &seq, &0.into()),
+            ];
+            for result in results {
+                let err = result.unwrap_err().format(ctx);
+                assert_eq!(err.lines().next(), Some(expected.as_str()));
+            }
+        }
+        // The function is not called for the elements before the tail.
+        ctx.eval_string("(defvar calls 0)").unwrap();
+        let counted = ctx
+            .eval_string("(lambda (&rest args) (setq calls (1+ calls)) t)")
+            .unwrap();
+        let dotted = ctx.eval_string("'(1 2 . 3)").unwrap();
+        assert!(ctx.map(&counted, &dotted).is_err());
+        assert!(ctx.filter(&counted, &dotted).is_err());
+        assert!(ctx.reduce(&counted, &dotted, &0.into()).is_err());
+        eval_assert_equal(ctx, "calls", "0");
     }
 
     // A program run while a protected body compiles fails to compile
