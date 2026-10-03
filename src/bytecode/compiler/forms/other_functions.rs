@@ -1647,11 +1647,10 @@ mod tests {
 
     #[test]
     fn test_error_escape_does_not_leak_scope() -> Result<(), Error> {
-        // Regression: every `BeginScope` (let, let*, inline lambda body; dolist and
-        // dotimes expand to let) used to leak its binding when the body errored
-        // before the matching `EndScope`. `run_impl_inner` now tracks active scopes
-        // via a Drop guard that unsets remaining entries on the error-unwind path.
-        // See analysis.org a24.
+        // Every `BeginScope` (let, let*, a `condition-case` handler's special
+        // variable; dolist and dotimes expand to let) is undone when the body
+        // errors before the matching `EndScope`: the guard of the run or block
+        // around it undoes the special bindings left.
         let cases: &[(&str, &str, &str)] = &[
             (
                 "let_body_errors",

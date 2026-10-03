@@ -58,45 +58,6 @@ fn compare_op(
     Ok(cmp(a, b))
 }
 
-/// Per-frame Drop guard for `BeginScope` bindings: a `let` / `let*` of
-/// a special variable, or a `condition-case` handler binding one.
-///
-/// On clean execution every `BeginScope` is matched by an `EndScope`,
-/// which removes the entry from the guard, so `Drop` finds the Vec
-/// empty. On error escape, `?` propagates out of `run_impl_inner`
-/// before the trailing `EndScope`s run; `Drop` then unsets whatever
-/// is still pending. Without this guard, a `let` of a `defvar`
-/// variable that errors inside a defun leaked onto
-/// `SymbolBindings::items` once per call.
-struct ActiveScopes(Vec<TulispObject>);
-
-impl ActiveScopes {
-    fn new() -> Self {
-        Self(Vec::new())
-    }
-
-    fn enter(&mut self, obj: TulispObject) {
-        self.0.push(obj);
-    }
-
-    fn exit(&mut self, obj: &TulispObject) {
-        // EndScopes can fire in non-LIFO order — `compile_fn_let_star`
-        // emits them in declaration order, not reverse — so scan by
-        // identity rather than blindly popping the tail.
-        if let Some(pos) = self.0.iter().rposition(|x| x.eq_ptr(obj)) {
-            self.0.remove(pos);
-        }
-    }
-}
-
-impl Drop for ActiveScopes {
-    fn drop(&mut self) {
-        for obj in self.0.iter().rev() {
-            let _ = obj.unset();
-        }
-    }
-}
-
 pub struct Machine {
     stack: Vec<TulispObject>,
     functions: HashMap<usize, CompiledDefun>, // key: fn_name.addr_as_usize()
@@ -109,10 +70,19 @@ pub struct Machine {
     /// call; the running call's stretch starts at `base`.
     pub(crate) locals: Vec<Slot>,
     pub(crate) base: usize,
-    /// The cells of the closure the running call runs.
+    /// The variables the running call's closure captured.
     pub(crate) captures: Captures,
     /// Tells this machine from any other, for `Form`.
     pub(crate) id: u64,
+    /// The special variables bound by a `let` or a `condition-case`
+    /// handler that has not ended, in the order bound; each `EndScope`
+    /// ends the last one. When a run or a block ends, an error or a
+    /// panic included, its `RunGuard` undoes the ones bound since it
+    /// began. A `Call` or `TailCall` of a compiled `defun` runs under its
+    /// caller's guard; `run_lambda`, which every other call of a compiled
+    /// function goes through (`funcall`, `apply`, calls from Rust), has
+    /// its own.
+    specials: Vec<TulispObject>,
 }
 
 /// Pops two operands and gives whether `$cmp` holds for them. `$b` is
@@ -183,6 +153,7 @@ impl Machine {
             base: 0,
             captures: Captures::default(),
             id: next_machine_id(),
+            specials: Vec::new(),
         }
     }
 
@@ -217,6 +188,16 @@ impl Machine {
         if slot_count > 0 {
             self.locals
                 .resize_with(self.base + usize::from(slot_count), Slot::default);
+        }
+    }
+
+    /// Undoes the special bindings made since there were BASE of them.
+    fn unwind_specials(&mut self, base: usize) {
+        // Most runs bind none; a drain costs even when empty.
+        if self.specials.len() > base {
+            for symbol in self.specials.drain(base..).rev() {
+                let _ = symbol.unset();
+            }
         }
     }
 
@@ -319,17 +300,25 @@ impl Drop for LocalsGuard<'_> {
     }
 }
 
-/// Restores the caller's VM stack height on drop, on any path
-/// including a panic, so only this run's values ever sit above it.
+/// Restores the caller's VM stack height on drop, and undoes the
+/// special bindings the run left, on any path including a panic, so
+/// only this run's values ever sit above it.
 struct RunGuard<'a> {
     ctx: &'a mut TulispContext,
     stack_base: usize,
+    /// How many special bindings were in force when the run began.
+    specials_base: usize,
 }
 
 impl<'a> RunGuard<'a> {
     fn new(ctx: &'a mut TulispContext) -> Self {
         let stack_base = ctx.vm.stack.len();
-        RunGuard { ctx, stack_base }
+        let specials_base = ctx.vm.specials.len();
+        RunGuard {
+            ctx,
+            stack_base,
+            specials_base,
+        }
     }
 
     /// This run's value, or nil when it left none above the caller's
@@ -353,13 +342,14 @@ impl<'a> RunGuard<'a> {
 impl Drop for RunGuard<'_> {
     fn drop(&mut self) {
         self.ctx.vm.stack.truncate(self.stack_base);
+        self.ctx.vm.unwind_specials(self.specials_base);
     }
 }
 
 pub fn run(ctx: &mut TulispContext, bytecode: Bytecode) -> Result<TulispObject, Error> {
     // A re-entrant run (a Rust callable evaluating a program
     // mid-run) shares the machine with its caller; the guard gives
-    // back only the stack.
+    // back only the stack and the special bindings.
     let mut guard = RunGuard::new(ctx);
     let tail = {
         let locals = LocalsGuard::new(guard.ctx, bytecode.global_slot_count, Captures::default());
@@ -409,7 +399,7 @@ fn run_lambda(
 
 /// Runs BLOCK and returns its value. ARG, if given, is pushed first for
 /// the block's first instruction to take. On an error the stack is cut
-/// back to where it was, and the block's scope guard undoes its
+/// back to where it was, and the block's `RunGuard` undoes its
 /// bindings.
 pub(crate) fn run_block(
     ctx: &mut TulispContext,
@@ -547,7 +537,6 @@ fn run_impl_inner(
     let mut pc: usize = 0;
     let program_size = program.borrow().len();
     let mut instr_ref = program.borrow_mut();
-    let mut active = ActiveScopes::new();
     ctx.interrupt_checkpoint()?;
     while pc < program_size {
         // Mirror the loop's `pc` into the caller's pc_out so
@@ -819,12 +808,17 @@ fn run_impl_inner(
             Instruction::BeginScope(obj) => {
                 let a = ctx.vm.stack.last().unwrap();
                 obj.set_scope(a.clone())?;
-                active.enter(obj.clone());
+                ctx.vm.specials.push(obj.clone());
                 ctx.vm.stack.truncate(ctx.vm.stack.len() - 1);
             }
             Instruction::EndScope(obj) => {
+                // The binding that ends is the last one made.
+                if ctx.vm.specials.pop_if(|last| last.eq_ptr(obj)).is_none() {
+                    return Err(Error::lisp_error(format!(
+                        "internal: EndScope of {obj}, which is not the last binding"
+                    )));
+                }
                 obj.unset()?;
-                active.exit(obj);
             }
             Instruction::Call {
                 name,
@@ -1839,5 +1833,25 @@ mod tests {
              (f)",
             "2",
         );
+    }
+
+    // A special `let` in a `catch` or `condition-case` body is undone
+    // when a throw or an error leaves the body, before the handler runs.
+    #[test]
+    fn special_lets_unwind_out_of_blocks() {
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string("(defvar sp 'outer)").unwrap();
+        let before = ctx.debug_special_stacks_total();
+        eval_assert_equal(
+            ctx,
+            "(list (catch 'k (let ((sp 'inner)) (throw 'k sp)))
+                   (condition-case nil (let ((sp 'inner)) (error \"x\")) (error sp))
+                   (condition-case nil
+                       (funcall (lambda () (let ((sp 'inner)) (error \"y\"))))
+                     (error sp))
+                   sp)",
+            "'(inner outer outer outer)",
+        );
+        assert_eq!(ctx.debug_special_stacks_total(), before);
     }
 }

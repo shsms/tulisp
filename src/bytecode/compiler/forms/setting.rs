@@ -168,7 +168,8 @@ fn compile_let_star(
     // kept even when the body compiles to nothing (a body of `t`, or a
     // variable whose value is discarded).
     result.append(&mut body);
-    for param in params {
+    // The bindings end in the reverse order, the last one first.
+    for param in params.into_iter().rev() {
         result.push(Instruction::EndScope(param));
     }
     if let (Some(from), Some(last)) = (slots.first(), slots.last()) {
@@ -187,6 +188,23 @@ mod tests {
         listing,
     };
     use crate::{Error, TulispContext};
+
+    // A `let` of two special variables ends them last first, so each
+    // `EndScope` ends the binding it names.
+    #[test]
+    fn a_let_of_two_specials_ends_them_last_first() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(defvar sa 1) (defvar sb 2) t", "t");
+        let before = ctx.debug_special_stacks_total();
+        for form in ["let", "let*"] {
+            eval_assert_equal(
+                ctx,
+                &format!("(list ({form} ((sa 10) (sb 20)) (list sa sb)) sa sb)"),
+                "'((10 20) 1 2)",
+            );
+        }
+        assert_eq!(ctx.debug_special_stacks_total(), before);
+    }
 
     // `setq` sets each pair in order, so a value sees the pairs
     // before it, and gives the last value; with no pairs it gives nil.
