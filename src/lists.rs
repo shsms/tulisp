@@ -1,11 +1,12 @@
 use crate::{
-    Error, TulispObject,
+    Error, TulispObject, TulispValue,
     cons::{CycleCheck, ListBuilder},
 };
 
-/// Emacs's `append`: copies every list in `args` but the last, and
-/// shares the last with the result. The last may be any value; a
-/// non-list one becomes the dotted tail.
+/// Emacs's `append`: copies every list in `args` but the last, and the
+/// characters of every string there, and shares the last with the
+/// result. The last may be any value; a non-list one becomes the dotted
+/// tail.
 pub(crate) fn append(
     mut args: impl DoubleEndedIterator<Item = TulispObject>,
 ) -> Result<TulispObject, Error> {
@@ -14,7 +15,15 @@ pub(crate) fn append(
     };
     let mut builder = ListBuilder::new();
     for arg in args {
-        builder.push_all(&arg)?;
+        if let TulispValue::String { value, .. } = &arg.inner_ref().0 {
+            // A string adds its characters, as in Emacs: `(append "ab"
+            // nil)` is (97 98).
+            for c in value.chars() {
+                builder.push(i64::from(u32::from(c)).into());
+            }
+        } else {
+            builder.push_all(&arg)?;
+        }
     }
     Ok(builder.build_with_tail(last))
 }

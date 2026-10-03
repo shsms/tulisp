@@ -1,3 +1,4 @@
+use super::common::compile_args_then;
 use crate::{
     Error, ErrorKind, TulispContext, TulispObject,
     bytecode::{
@@ -81,16 +82,8 @@ pub(super) fn compile_fn_append(
     _name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    let mut result = vec![];
-    let mut len = 0;
-    for arg in args.base_iter() {
-        result.append(&mut compile_expr(ctx, &arg)?);
-        len += 1;
-    }
-    if ctx.compiler.as_ref().unwrap().keep_result {
-        result.push(Instruction::Append(len));
-    }
-    Ok(result)
+    let args = args.base_iter().collect::<Vec<_>>();
+    compile_args_then(ctx, &args, Instruction::Append(args.len()))
 }
 
 /// Compiles `(Bounce NAME ARGS...)`, the marker `mark_tail_calls`
@@ -559,6 +552,23 @@ mod tests {
         listing,
     };
     use crate::{Error, Plist, TulispContext};
+
+    // `append` runs even when its value is not kept, so its type error
+    // is raised then too, as in Emacs 30.1.
+    #[test]
+    fn a_discarded_append_still_runs() {
+        eval_assert_error_line(
+            &mut TulispContext::new(),
+            "(progn (append 5 nil) 2)",
+            "ERR TypeMismatch: Expected list, got: 5",
+        );
+        eval_assert_equal_fresh("(progn (append '(1) 5) 2)", "2");
+        // A string adds its characters, as in Emacs 30.1.
+        eval_assert_equal_fresh(
+            "(list (append \"ab\" nil) (append \"aé\" '(1)) (funcall 'append \"ab\" nil) (progn (append \"ab\" nil) 2))",
+            "'((97 98) (97 233 1) (97 98) 2)",
+        );
+    }
 
     // A defmacro form the parser never saw, built in Rust, defines its
     // macro when it compiles.
