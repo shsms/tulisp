@@ -101,6 +101,30 @@ For arguments that are passed unevaluated, see
 for code transformation, see
 [`defmacro`](https://docs.rs/tulisp/latest/tulisp/struct.TulispContext.html#method.defmacro).
 
+## Building and reading lists
+
+[`list!`](https://docs.rs/tulisp/latest/tulisp/macro.list.html) builds a
+list with a backquote-like syntax: `,x` adds an element and `,@x`
+splices in the elements of a list, a `Vec`, a `Rest` or an array. With
+`ctx =>`, any `TulispConvertible` value can be an element.
+[`destructure`](https://docs.rs/tulisp/latest/tulisp/struct.TulispObject.html#method.destructure)
+reads a list back into typed values, by the same rules `defun` applies
+to its parameters.
+
+```rust
+use tulisp::{list, Rest, TulispContext, TulispObject};
+
+let ctx = &mut TulispContext::new();
+ctx.defmacro("my-when", |ctx, args| {
+    let (cond, body): (TulispObject, Rest<TulispObject>) = args.destructure(ctx)?;
+    list!(,ctx.intern("if") ,cond ,list!(,ctx.intern("progn") ,@body)?)
+});
+assert_eq!(ctx.eval_string("(my-when t 1 2)").unwrap().to_string(), "2");
+
+let form = list!(ctx => ,ctx.intern("message") ,"sizes" ,vec![1, 2]).unwrap();
+assert_eq!(form.to_string(), r#"(message "sizes" (1 2))"#);
+```
+
 ## Keyed-list structs
 
 A struct declared with
