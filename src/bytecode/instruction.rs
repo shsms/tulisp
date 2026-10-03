@@ -256,7 +256,12 @@ pub(crate) enum Instruction {
         name: TulispObject,
         /// See `RustCall::form`.
         form: TulispObject,
-        call: Shared<dyn SpecialFn>,
+        /// The machine's `generation` when the call last looked the name
+        /// up, with the special form it found. It is stale once
+        /// `generation` moves.
+        call: (u64, Shared<dyn SpecialFn>),
+        /// The parameter kinds the call was compiled for.
+        kinds: Shared<Vec<crate::ParamKind>>,
         eager_count: usize,
         blocks: Shared<Vec<FormBlock>>,
         keep_result: bool,

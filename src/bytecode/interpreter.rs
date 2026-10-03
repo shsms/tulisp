@@ -4,10 +4,10 @@ use super::{
     bytecode::TraceRange,
 };
 use crate::{
-    Error, ErrorKind, Number, TulispContext, TulispObject, TulispValue,
+    Error, ErrorKind, Number, ParamKind, TulispContext, TulispObject, TulispValue,
     bytecode::Pos,
     object::wrappers::{
-        DefunFn,
+        DefunFn, SpecialFn,
         generic::{Shared, SharedMut},
     },
     plist,
@@ -1054,13 +1054,22 @@ fn run_impl_inner(
                 }
             }
             Instruction::SpecialCall {
+                name,
                 form,
                 call,
+                kinds,
                 eager_count,
                 blocks,
                 keep_result,
-                ..
             } => {
+                // A special form registered since the call compiled may
+                // have replaced the one it keeps.
+                let generation = ctx.vm.generation;
+                if call.0 != generation {
+                    let found = resolve_special_form(name, kinds)
+                        .map_err(|e| e.with_trace(form.clone()))?;
+                    *call = (generation, found);
+                }
                 let split_at = ctx.vm.stack.len() - *eager_count;
                 let values: Vec<TulispObject> = ctx.vm.stack.drain(split_at..).collect();
                 let call_forms =
@@ -1069,7 +1078,7 @@ fn run_impl_inner(
                 // The closure re-enters the machine, which re-borrows
                 // this instruction list: release it first.
                 let form = form.clone();
-                let call = call.clone();
+                let call = call.1.clone();
                 let keep_result = *keep_result;
                 drop(instr_ref);
                 let result = call(ctx, &values, forms);
@@ -1282,6 +1291,35 @@ fn resolve_rust_function(
             Ok(Some(call.clone()))
         }
         _ => Ok(None),
+    }
+}
+
+/// NAME's special form, looked up again for a call compiled for one
+/// that takes the parameter KINDS. Any other value is an error.
+fn resolve_special_form(
+    name: &TulispObject,
+    kinds: &[ParamKind],
+) -> Result<Shared<dyn SpecialFn>, Error> {
+    let func = name
+        .get()
+        .map_err(|_| Error::undefined(format!("function is void: {name}")))?;
+    match &func.inner_ref().0 {
+        TulispValue::Special {
+            call,
+            kinds: current,
+            ..
+        } => {
+            if current[..] == kinds[..] {
+                Ok(call.clone())
+            } else {
+                Err(Error::lisp_error(format!(
+                    "special form {name} changed its parameters since this call compiled"
+                )))
+            }
+        }
+        _ => Err(Error::lisp_error(format!(
+            "{name} is no longer a special form, as it was when this call compiled"
+        ))),
     }
 }
 

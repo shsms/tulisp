@@ -70,7 +70,8 @@ pub(super) fn compile_special_call(
     result.push(Instruction::SpecialCall {
         name: name.clone(),
         form: form.clone(),
-        call,
+        call: (ctx.vm.generation(), call),
+        kinds: Shared::new(kinds.to_vec()),
         eager_count,
         blocks: Shared::new(blocks),
         keep_result,

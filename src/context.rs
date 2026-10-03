@@ -1027,7 +1027,37 @@ mod tests {
     use crate::test_utils::{
         eval_assert, eval_assert_equal, eval_assert_error_line, eval_assert_not,
     };
-    use crate::{Error, Form, TulispContext, TulispObject};
+    use crate::{Error, Form, TulispContext, TulispObject, list};
+
+    // A special form registered again with the same parameters reaches
+    // code compiled before it; with other parameters, those calls raise.
+    #[test]
+    fn a_re_registered_special_form_reaches_compiled_callers() {
+        let ctx = &mut TulispContext::new();
+        ctx.defspecial("sp", |ctx: &mut TulispContext, form: Form| {
+            form.eval(ctx).map(|v| list!(,1 ,v))
+        });
+        ctx.eval_string("(defun call-sp () (sp 5))").unwrap();
+        ctx.defspecial("sp", |ctx: &mut TulispContext, form: Form| {
+            form.eval(ctx).map(|v| list!(,2 ,v))
+        });
+        eval_assert_equal(ctx, "(call-sp)", "'(2 5)");
+        ctx.defspecial("sp", |a: i64| a);
+        eval_assert_error_line(
+            ctx,
+            "(call-sp)",
+            "ERR LispError: special form sp changed its parameters since this call compiled",
+        );
+        // A name that holds no special form now raises too.
+        ctx.eval_string("(defun sp (x) x)").unwrap();
+        eval_assert_error_line(
+            ctx,
+            "(call-sp)",
+            "ERR LispError: sp is no longer a special form, as it was when this call compiled",
+        );
+        ctx.intern("sp").unset().unwrap();
+        eval_assert_error_line(ctx, "(call-sp)", "ERR Undefined: function is void: sp");
+    }
 
     // A Rust function registered again reaches code compiled before it,
     // and so does a Lisp function that replaces it.
