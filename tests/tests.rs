@@ -826,10 +826,14 @@ fn test_underscore_ident() -> Result<(), Error> {
 // The exported macros name what they use through `$crate`, so a caller
 // that imports nothing but the macro can expand them.
 mod without_imports {
-    pub fn third(_ctx: &mut tulisp::TulispContext) -> Result<tulisp::TulispObject, tulisp::Error> {
-        let args = tulisp::list!(,tulisp::TulispObject::from(1) ,tulisp::TulispObject::from(2))?;
-        tulisp::destruct_bind!((first &optional second third) = args);
-        let _ = (first, second);
+    pub fn third(ctx: &mut tulisp::TulispContext) -> Result<tulisp::TulispObject, tulisp::Error> {
+        let args = tulisp::list!(,1 ,2)?;
+        let words = tulisp::list!(ctx => ,"a" ,@args)?;
+        let (_, _, third): (
+            tulisp::TulispObject,
+            tulisp::TulispObject,
+            tulisp::TulispObject,
+        ) = words.destructure(ctx)?;
         Ok(third)
     }
 }
@@ -837,5 +841,5 @@ mod without_imports {
 #[test]
 fn test_exported_macros_expand_without_imports() {
     let mut ctx = tulisp::TulispContext::new();
-    assert!(without_imports::third(&mut ctx).unwrap().null());
+    assert_eq!(without_imports::third(&mut ctx).unwrap().to_string(), "2");
 }
