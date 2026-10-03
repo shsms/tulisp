@@ -1,6 +1,6 @@
 #[allow(clippy::module_inception)]
 mod bytecode;
-pub(crate) use bytecode::{Bytecode, CompiledDefun};
+pub(crate) use bytecode::{Bytecode, CompiledDefun, CompiledDefunInner};
 
 pub(crate) mod instruction;
 pub(crate) use instruction::{Instruction, Pos};

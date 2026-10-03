@@ -2,7 +2,7 @@ use crate::{
     Error, ErrorKind, TulispContext, TulispObject,
     bytecode::{
         Captured, Captures, Instruction, LambdaTemplate, Pos,
-        bytecode::CompiledDefun,
+        bytecode::{CompiledDefun, CompiledDefunInner},
         compiler::{
             DefunParams,
             compiler::{compile_expr, compile_expr_keep_result, compile_progn},
@@ -285,10 +285,10 @@ fn compile_lambda_head_call(
     if closes {
         result.push(Instruction::MakeLambda(Shared::new(template)));
     } else {
-        let function = CompiledDefun {
+        let function = CompiledDefun::new(CompiledDefunInner {
             name: lambda.clone(),
-            ..template.function
-        };
+            ..CompiledDefunInner::clone(&template.function)
+        });
         install_function(ctx, lambda, function);
     }
     for arg in args.base_iter() {
@@ -436,7 +436,7 @@ fn compile_defun(
     // runtime never sees a trace marker or a label; see `assemble`.
     let (res, trace_ranges) = crate::bytecode::bytecode::assemble(res)?;
     let trace_ranges = Shared::new(trace_ranges);
-    let mut function = CompiledDefun {
+    let mut function = CompiledDefunInner {
         name: fn_name.clone(),
         instructions: SharedMut::new(res),
         trace_ranges,
@@ -457,12 +457,13 @@ fn compile_defun(
             })
             .collect();
         result.push(Instruction::MakeLambda(Shared::new(LambdaTemplate {
-            function: function.clone(),
+            function: CompiledDefun::new(function.clone()),
             capture_sources,
         })));
         result.push(Instruction::DefineFunction(fn_name.clone()));
         function.captures = Captures::new(unbound);
     }
+    let function = CompiledDefun::new(function);
     fn_name.set_global(
         crate::TulispValue::CompiledDefun {
             value: function.clone(),

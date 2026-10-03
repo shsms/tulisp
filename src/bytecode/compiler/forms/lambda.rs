@@ -2,7 +2,7 @@ use crate::{
     Error, ErrorKind, TulispContext, TulispObject,
     bytecode::compiler::cells::swap_captured,
     bytecode::compiler::scope::FunctionScope,
-    bytecode::{Captures, CompiledDefun},
+    bytecode::{Captures, CompiledDefun, CompiledDefunInner},
     bytecode::{
         Instruction, LambdaTemplate,
         compiler::{
@@ -125,14 +125,14 @@ pub(super) fn compile_lambda(
     let (instructions, trace_ranges) = crate::bytecode::bytecode::assemble(instructions)?;
 
     Ok(LambdaTemplate {
-        function: CompiledDefun {
+        function: CompiledDefun::new(CompiledDefunInner {
             name: TulispObject::nil(),
             instructions: SharedMut::new(instructions),
             trace_ranges: Shared::new(trace_ranges),
             params: Shared::new(vm_params),
             slot_count: scope.slot_count,
             captures: Captures::default(),
-        },
+        }),
         capture_sources: scope.capture_sources,
     })
 }

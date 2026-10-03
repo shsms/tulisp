@@ -1,6 +1,7 @@
 use super::{
     Block, CaptureSource, Captured, Captures, FormBlock, FrameState, Handler, Instruction,
-    LambdaTemplate, Slot, bytecode::Bytecode, bytecode::CompiledDefun, bytecode::TraceRange,
+    LambdaTemplate, Slot, bytecode::Bytecode, bytecode::CompiledDefun,
+    bytecode::CompiledDefunInner, bytecode::TraceRange,
 };
 use crate::{
     Error, ErrorKind, Number, TulispContext, TulispObject, TulispValue, bytecode::Pos,
@@ -940,10 +941,10 @@ fn run_impl_inner(
                     .get(&addr)
                     .is_some_and(|current| current.trace_ranges.ptr_eq(&value.trace_ranges));
                 if holds_this_form {
-                    let function = CompiledDefun {
+                    let function = CompiledDefun::new(CompiledDefunInner {
                         name: name.clone(),
-                        ..value.clone()
-                    };
+                        ..CompiledDefunInner::clone(value)
+                    });
                     name.set_global(
                         TulispValue::CompiledDefun {
                             value: function.clone(),
@@ -1311,10 +1312,10 @@ fn make_lambda(ctx: &TulispContext, template: &LambdaTemplate) -> Result<TulispO
             name: name.clone(),
         });
     }
-    let function = CompiledDefun {
+    let function = CompiledDefun::new(CompiledDefunInner {
         captures: Captures::new(cells),
-        ..template.function.clone()
-    };
+        ..CompiledDefunInner::clone(&template.function)
+    });
     Ok(TulispValue::CompiledDefun { value: function }.into_ref(None))
 }
 

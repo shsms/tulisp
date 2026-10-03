@@ -21,15 +21,32 @@ pub(crate) struct TraceRange {
     pub form: TulispObject,
 }
 
+/// A compiled function, behind one shared handle: a copy of it is a
+/// copy of the handle.
 #[doc(hidden)]
 #[derive(Clone)]
-pub struct CompiledDefun {
+pub struct CompiledDefun(Shared<CompiledDefunInner>);
+
+impl CompiledDefun {
+    pub(crate) fn new(inner: CompiledDefunInner) -> Self {
+        CompiledDefun(Shared::new(inner))
+    }
+}
+
+impl std::ops::Deref for CompiledDefun {
+    type Target = CompiledDefunInner;
+
+    fn deref(&self) -> &CompiledDefunInner {
+        &self.0
+    }
+}
+
+#[doc(hidden)]
+#[derive(Clone)]
+pub struct CompiledDefunInner {
     pub(crate) name: TulispObject,
     pub(crate) instructions: SharedMut<Vec<Instruction>>,
-    /// Trace ranges for `instructions`, populated by `assemble`.
-    /// Stored behind a `Shared` so cloning the `CompiledDefun`
-    /// (which the `Call` handler does on every dispatch) only bumps
-    /// a refcount instead of copying the vec element-wise. Empty
+    /// Trace ranges for `instructions`, populated by `assemble`. Empty
     /// for functions whose bytecode contains no list-form markers.
     ///
     /// Its allocation also identifies the form the function is compiled
@@ -37,7 +54,6 @@ pub struct CompiledDefun {
     /// function made from its own `defun` form. So each form gets a
     /// separate allocation, even when the vec is empty.
     pub(crate) trace_ranges: Shared<Vec<TraceRange>>,
-    /// Behind a `Shared` for the same reason as `trace_ranges`.
     pub(crate) params: Shared<DefunParams>,
     /// How many slots a call reserves for its lexical variables.
     pub(crate) slot_count: u16,
