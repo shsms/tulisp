@@ -1,32 +1,24 @@
-use super::common::pop_unless_kept;
+use super::common::compile_args_then;
 use crate::{
     Error, TulispContext, TulispObject,
-    bytecode::{
-        Instruction,
-        compiler::compiler::{compile_expr, compile_expr_keep_result},
-        instruction::BinaryOp,
-    },
+    bytecode::{Instruction, compiler::compiler::compile_expr, instruction::BinaryOp},
 };
 
 /// Compiles ARGS left to right, then folds OP over their values from
-/// the first: `(- a b c)` is `(a - b) - c`. As in a function call,
-/// every argument runs before the arithmetic, and the arithmetic runs
-/// even when its value is not kept, so its errors are raised then too.
-/// A single argument is still checked to be a number.
+/// the first: `(- a b c)` is `(a - b) - c`, and a float anywhere makes
+/// all of a division float, as `BinaryOp::fold` does. Every argument
+/// runs before the arithmetic. A single argument is still checked to
+/// be a number.
 fn compile_fold(
     ctx: &mut TulispContext,
     args: &[TulispObject],
     op: BinaryOp,
 ) -> Result<Vec<Instruction>, Error> {
-    let mut result = vec![];
-    for arg in args {
-        result.append(&mut compile_expr_keep_result(ctx, arg)?);
-    }
-    result.push(match args.len() {
+    let op = match args.len() {
         2 => Instruction::BinaryOp(op),
         count => Instruction::ArithChain { op, count },
-    });
-    Ok(pop_unless_kept(ctx, result))
+    };
+    compile_args_then(ctx, args, op)
 }
 
 /// `+` and `*`: OP over ARGS, or IDENTITY when there are none, as in

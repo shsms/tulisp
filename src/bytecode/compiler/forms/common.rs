@@ -1,4 +1,7 @@
-use crate::{Error, TulispContext, TulispObject, TulispValue, bytecode::Instruction};
+use crate::{
+    Error, TulispContext, TulispObject, TulispValue,
+    bytecode::{Instruction, compiler::compiler::compile_expr_keep_result},
+};
 
 /// CODE, followed by a `Pop` when the form's value is unused.
 pub(super) fn pop_unless_kept(ctx: &TulispContext, mut code: Vec<Instruction>) -> Vec<Instruction> {
@@ -6,6 +9,22 @@ pub(super) fn pop_unless_kept(ctx: &TulispContext, mut code: Vec<Instruction>) -
         code.push(Instruction::Pop);
     }
     code
+}
+
+/// ARGS in order, each value kept, then OP, and a `Pop` when the form's
+/// value is unused. Like a function call, OP runs even then, so its
+/// errors are raised.
+pub(super) fn compile_args_then(
+    ctx: &mut TulispContext,
+    args: &[TulispObject],
+    op: Instruction,
+) -> Result<Vec<Instruction>, Error> {
+    let mut code = vec![];
+    for arg in args {
+        code.append(&mut compile_expr_keep_result(ctx, arg)?);
+    }
+    code.push(op);
+    Ok(pop_unless_kept(ctx, code))
 }
 
 impl TulispContext {
