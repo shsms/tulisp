@@ -464,6 +464,10 @@ impl TulispContext {
     ///         .equal(&TulispObject::from(1))
     /// );
     /// ```
+    ///
+    /// # Panics
+    ///
+    /// If NAME is `nil`, `t` or a keyword.
     #[inline(always)]
     #[track_caller]
     pub fn defspecial<Args: 'static, Output: 'static, const CTX: bool>(
@@ -479,6 +483,16 @@ impl TulispContext {
     /// builds: its symbol holds the `SpecialForm` marker.
     #[track_caller]
     pub(crate) fn define_special_form(&mut self, name: &str) {
+        self.define_function(name, TulispValue::SpecialForm);
+    }
+
+    /// Makes VALUE the function of NAME, as `fset` does.
+    ///
+    /// # Panics
+    ///
+    /// If NAME is `nil`, `t` or a keyword.
+    #[track_caller]
+    fn define_function(&mut self, name: &str, value: TulispValue) {
         #[cfg(feature = "etags")]
         {
             let caller = std::panic::Location::caller();
@@ -490,8 +504,9 @@ impl TulispContext {
         }
 
         let sym = self.intern(name);
-        sym.set_global(TulispValue::SpecialForm.into_ref(None))
-            .unwrap();
+        if let Err(err) = self.set_function_value(&sym, value.into_ref(None)) {
+            panic!("can't define a function named {name}: {}", err.desc());
+        }
     }
 
     /// Drop any compile-time call-dispatch entry recorded for `addr`.
@@ -536,26 +551,13 @@ impl TulispContext {
         arity: crate::value::DefunArity,
         func: impl DefunFn + std::any::Any,
     ) {
-        #[cfg(feature = "etags")]
-        {
-            let caller = std::panic::Location::caller();
-
-            self.tags_table
-                .entry(caller.file().to_owned())
-                .or_default()
-                .insert(name.to_owned(), caller.line() as usize);
-        }
-
-        let sym = self.intern(name);
-        sym.set_global(
+        self.define_function(
+            name,
             TulispValue::Defun {
                 call: Shared::new_defun_fn(func),
                 arity,
-            }
-            .into_ref(None),
-        )
-        .unwrap();
-        self.evict_compiled_dispatch(sym.addr_as_usize());
+            },
+        );
     }
 
     #[inline(always)]
@@ -566,28 +568,15 @@ impl TulispContext {
         kinds: Vec<crate::ParamKind>,
         func: impl crate::object::wrappers::SpecialFn,
     ) {
-        #[cfg(feature = "etags")]
-        {
-            let caller = std::panic::Location::caller();
-
-            self.tags_table
-                .entry(caller.file().to_owned())
-                .or_default()
-                .insert(name.to_owned(), caller.line() as usize);
-        }
-
         let arity = callable::arity(&kinds);
-        let sym = self.intern(name);
-        sym.set_global(
+        self.define_function(
+            name,
             TulispValue::Special {
                 call: Shared::new_special_fn(func),
                 kinds,
                 arity,
-            }
-            .into_ref(None),
-        )
-        .unwrap();
-        self.evict_compiled_dispatch(sym.addr_as_usize());
+            },
+        );
     }
 
     /// Registers a Rust function as a callable Lisp function.
@@ -659,6 +648,10 @@ impl TulispContext {
     ///     r#""Result of (add 10 20) is 30.""#
     /// );
     /// ```
+    ///
+    /// # Panics
+    ///
+    /// If NAME is `nil`, `t` or a keyword.
     #[inline(always)]
     #[track_caller]
     pub fn defun<Args: 'static, Output: 'static, const CTX: bool>(
@@ -698,23 +691,14 @@ impl TulispContext {
     ///     "(setq my-list (cons 1 my-list))"
     /// );
     /// ```
+    ///
+    /// # Panics
+    ///
+    /// If NAME is `nil`, `t` or a keyword.
     #[inline(always)]
     #[track_caller]
     pub fn defmacro(&mut self, name: &str, func: impl TulispFn) {
-        #[cfg(feature = "etags")]
-        {
-            let caller = std::panic::Location::caller();
-
-            self.tags_table
-                .entry(caller.file().to_owned())
-                .or_default()
-                .insert(name.to_owned(), caller.line() as usize);
-        }
-
-        let sym = self.intern(name);
-        sym.set_global(TulispValue::Macro(Shared::new_tulisp_fn(func)).into_ref(None))
-            .unwrap();
-        self.evict_compiled_dispatch(sym.addr_as_usize());
+        self.define_function(name, TulispValue::Macro(Shared::new_tulisp_fn(func)));
     }
 
     /// Returns true if NAME holds a function, a macro or a special form,
@@ -1338,6 +1322,26 @@ mod tests {
         let pong_2 = ctx.intern("pong-2").get().unwrap();
         ctx.fset("pong", pong_2).unwrap();
         eval_assert_equal(ctx, "(ping 1000)", "'done");
+    }
+
+    // A function, special form or macro can't be named `nil`, `t` or a
+    // keyword.
+    #[test]
+    #[should_panic(expected = "can't define a function named nil")]
+    fn defun_named_nil_panics() {
+        TulispContext::new().defun("nil", || 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "can't define a function named t")]
+    fn defspecial_named_t_panics() {
+        TulispContext::new().defspecial("t", |a: i64| a);
+    }
+
+    #[test]
+    #[should_panic(expected = "can't define a function named :k")]
+    fn defmacro_named_a_keyword_panics() {
+        TulispContext::new().defmacro(":k", |_, _| Ok(TulispObject::nil()));
     }
 
     // A program run while a protected body compiles fails to compile
