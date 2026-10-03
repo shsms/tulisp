@@ -49,3 +49,34 @@ pub(super) fn compile_fn_cxr(
     }
     Ok(result)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::{TulispContext, test_utils::eval_assert_error};
+
+    // Every cxr raises `TypeMismatch` on a non-cons argument.
+    #[test]
+    fn a_cxr_of_a_non_list_is_a_type_error() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_error(
+            ctx,
+            "(car 5)",
+            "ERR TypeMismatch: Expected list, got: 5\n<eval_string>:1.1-1.7:  at (car 5)\n",
+        );
+        eval_assert_error(
+            ctx,
+            "(cdr 5)",
+            "ERR TypeMismatch: Expected list, got: 5\n<eval_string>:1.1-1.7:  at (cdr 5)\n",
+        );
+        eval_assert_error(
+            ctx,
+            "(cadr 7)",
+            "ERR TypeMismatch: Expected list, got: 7\n<eval_string>:1.1-1.8:  at (cadr 7)\n",
+        );
+        eval_assert_error(
+            ctx,
+            "(cdddr \"abc\")",
+            "ERR TypeMismatch: Expected list, got: \"abc\"\n<eval_string>:1.1-1.13:  at (cdddr \"abc\")\n",
+        );
+    }
+}
