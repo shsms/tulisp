@@ -1,3 +1,4 @@
+use super::common::compile_args_then;
 use crate::{
     Error, TulispContext, TulispObject,
     bytecode::{Instruction, compiler::compiler::compile_expr, instruction::Comparison},
@@ -10,34 +11,30 @@ fn compile_fn_compare(
     instruction: Instruction,
     comparison: Comparison,
 ) -> Result<Vec<Instruction>, Error> {
-    let keep_result = ctx.compiler.as_ref().unwrap().keep_result;
-    let mut result = vec![];
-    let args = args.base_iter().collect::<Vec<_>>();
-    if args.is_empty() {
-        return Err(Error::missing_argument(
+    match args.base_iter().collect::<Vec<_>>().as_slice() {
+        [] => Err(Error::missing_argument(
             "Comparison requires at least 1 argument".to_string(),
-        ));
-    }
-    for arg in &args {
-        result.append(&mut compile_expr(ctx, arg)?);
-    }
-    if !keep_result {
-        // Only the side effects are wanted.
-        return Ok(result);
-    }
-    match args.len() {
-        // A single-arg comparison is vacuously true (Emacs: `(> 5)`
-        // => t).
-        1 => {
-            result.push(Instruction::Pop);
-            result.push(Instruction::Push(TulispObject::t()));
+        )),
+        // A single-arg comparison is vacuously true, and its argument
+        // is not checked (Emacs: `(> "a")` => t).
+        [arg] => {
+            let mut result = compile_expr(ctx, arg)?;
+            if ctx.compiler.as_ref().unwrap().keep_result {
+                result.push(Instruction::Pop);
+                result.push(Instruction::Push(TulispObject::t()));
+            }
+            Ok(result)
         }
-        2 => result.push(instruction),
-        // A chain: one instruction compares each argument with the
-        // next.
-        count => result.push(Instruction::CompareChain { comparison, count }),
+        args => {
+            let op = match args.len() {
+                2 => instruction,
+                // A chain: one instruction compares each argument with
+                // the next.
+                count => Instruction::CompareChain { comparison, count },
+            };
+            compile_args_then(ctx, args, op)
+        }
     }
-    Ok(result)
 }
 
 pub(super) fn compile_fn_lt(
@@ -123,6 +120,22 @@ mod tests {
     fn assert_order(ctx: &mut crate::TulispContext, form: &str, value: &str, order: &str) {
         let program = format!("(progn (setq seen nil) (list {form} (reverse seen)))");
         eval_assert_equal(ctx, &program, &format!("'({value} {order})"));
+    }
+
+    // A comparison runs even when its value is not kept, so its type
+    // errors are raised, as in Emacs 30.1. One argument is vacuously
+    // true, unchecked, there too.
+    #[test]
+    fn discarded_comparisons_still_run() {
+        let ctx = &mut crate::TulispContext::new();
+        for program in ["(progn (< 1 \"a\") 2)", "(progn (< 1 2 \"a\") 2)"] {
+            eval_assert_error_line(
+                ctx,
+                program,
+                "ERR TypeMismatch: Expected number, got: \"a\"",
+            );
+        }
+        eval_assert_equal(ctx, "(list (> \"a\") (progn (> \"a\") 2))", "'(t 2)");
     }
 
     // Emacs 30.1 gives the same values and orders for every form here.
@@ -453,9 +466,17 @@ mod tests {
     fn test_compare_two_variables() {
         let ctx = &mut crate::TulispContext::new();
 
+        // Not kept, the comparison still runs, and its value is popped.
         let program = "(> 15 10)";
         let bytecode = ctx.compile_string(program, false).unwrap();
-        assert!(bytecode.global.borrow().is_empty());
+        assert_eq!(
+            bytecode.to_string(),
+            r#"
+    push 15                                # 0
+    push 10                                # 1
+    cgt                                    # 2
+    pop                                    # 3"#
+        );
         assert_eq!(bytecode.functions.len(), 0);
 
         let program = "(> 15 10)";
@@ -485,7 +506,16 @@ mod tests {
 
         let program = "(< a b c 10)";
         let bytecode = ctx.compile_string(program, false).unwrap();
-        assert!(bytecode.global.borrow().is_empty());
+        assert_eq!(
+            bytecode.to_string(),
+            r#"
+    load a                                 # 0
+    load b                                 # 1
+    load c                                 # 2
+    push 10                                # 3
+    clt_chain 4                            # 4
+    pop                                    # 5"#
+        );
         assert_eq!(bytecode.functions.len(), 0);
 
         let bytecode = ctx.compile_string(program, true).unwrap();
@@ -512,7 +542,11 @@ mod tests {
             bytecode.to_string(),
             r#"
     push 5                                 # 0
-    store_pop a                            # 1"#
+    store a                                # 1
+    push 8                                 # 2
+    push 10                                # 3
+    cle_chain 3                            # 4
+    pop                                    # 5"#
         );
 
         let bytecode = ctx.compile_string(program, true).unwrap();
