@@ -259,7 +259,10 @@ assert!(kw.scale.eq(&ctx.intern(":scale")));
 assert!(kw.pos.eq(&ctx.intern(":pos")));
 ```
 
-It can also be used to create an instance of the struct directly:
+`new` is as visible as the struct.
+
+It can also be used to create an instance of the struct directly. The
+context may be any expression that gives a `&mut TulispContext`:
 
 ```rust
 use tulisp::{TulispContext, intern};
@@ -289,7 +292,8 @@ macro_rules! intern {
         }
 
         impl $struct_name {
-            fn new(__ctx: &mut $crate::TulispContext) -> Self {
+            /// Interns each field's symbol in `__ctx`.
+            $vis fn new(__ctx: &mut $crate::TulispContext) -> Self {
                 $struct_name {
                     $($name: __ctx.intern($symbol),)+
                 }
@@ -297,7 +301,7 @@ macro_rules! intern {
         }
     };
 
-    ($ctx: ident => {$($name:ident : $symbol:expr),+ $(,)?}) => {{
+    ($ctx:expr => {$($name:ident : $symbol:expr),+ $(,)?}) => {{
         $crate::intern!(pub(crate) struct Keywords {$($name : $symbol),+});
         Keywords::new($ctx)
     }};
@@ -319,6 +323,36 @@ mod tests {
         struct Cfg {
             size: i64,
         }
+    }
+
+    mod symbols {
+        crate::intern! {
+            pub struct Symbols {
+                a: "a",
+            }
+        }
+    }
+
+    // `new` is as visible as the struct, so another module can call it.
+    #[test]
+    fn intern_new_is_as_visible_as_its_struct() {
+        let ctx = &mut TulispContext::new();
+        let symbols = symbols::Symbols::new(ctx);
+        assert!(symbols.a.eq(&ctx.intern("a")));
+    }
+
+    // The context may be any expression that gives a
+    // `&mut TulispContext`.
+    #[test]
+    fn intern_takes_any_expression_for_the_context() {
+        struct Host {
+            ctx: TulispContext,
+        }
+        let mut host = Host {
+            ctx: TulispContext::new(),
+        };
+        let symbols = crate::intern!(&mut host.ctx => { a: "a" });
+        assert!(symbols.a.eq(&host.ctx.intern("a")));
     }
 
     #[test]
