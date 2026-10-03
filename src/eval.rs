@@ -1080,7 +1080,7 @@ mod tests {
         let ctx = &mut TulispContext::new();
         // Only a Rust macro can hand over a template that loops.
         ctx.defmacro("circular-template", |_, _| {
-            let items = list!(1.into(), 2.into(), 3.into())?;
+            let items = list!(1, 2, 3)?;
             items.cddr()?.set_cdr(items.clone())?;
             Ok(TulispValue::Backquote { value: items }.into_ref(None))
         });

@@ -261,13 +261,13 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                          ,@result)?)?
         };
         list!(,ctx.intern("let")
-              ,list!(,list!(,limit.clone() ,count)? ,list!(,counter.clone() ,0.into())?)?
+              ,list!(,list!(,limit.clone() ,count)? ,list!(,counter.clone() ,0)?)?
               ,list!(,ctx.intern("while")
                      ,list!(,ctx.intern("<") ,counter.clone() ,limit)?
                      ,list!(,ctx.intern("let") ,list!(,list!(,var ,counter.clone())?)?
                             ,@body)?
                      ,list!(,ctx.intern("setq") ,counter.clone()
-                            ,list!(,ctx.intern("+") ,counter ,1.into())?)?)?
+                            ,list!(,ctx.intern("+") ,counter ,1)?)?)?
               ,@result)
     });
 

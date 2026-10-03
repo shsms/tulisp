@@ -49,6 +49,9 @@ pub use {
 };
 
 #[doc(hidden)]
+pub use macros::{ListItem, ListMaker, Splice, SpliceWithContext};
+
+#[doc(hidden)]
 pub mod as_symbol;
 
 #[cfg(test)]

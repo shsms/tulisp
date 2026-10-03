@@ -1069,6 +1069,12 @@ impl<T: TulispAny> From<Shared<T>> for TulispObject {
     }
 }
 
+impl From<&TulispObject> for TulispObject {
+    fn from(value: &TulispObject) -> Self {
+        value.clone()
+    }
+}
+
 impl FromIterator<TulispObject> for TulispObject {
     fn from_iter<T: IntoIterator<Item = TulispObject>>(iter: T) -> Self {
         let mut builder = cons::ListBuilder::new();
