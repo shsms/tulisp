@@ -45,8 +45,8 @@ pub(super) fn compile_fn_set(
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
     ctx.compile_2_arg_call(name, args, false, |ctx, arg1, arg2, _| {
-        let mut result = compile_expr_keep_result(ctx, arg2)?;
-        result.append(&mut compile_expr_keep_result(ctx, arg1)?);
+        let mut result = compile_expr_keep_result(ctx, arg1)?;
+        result.append(&mut compile_expr_keep_result(ctx, arg2)?);
         if ctx.compiler.as_ref().unwrap().keep_result {
             result.push(Instruction::Set);
         } else {
@@ -323,6 +323,23 @@ mod tests {
             );
         }
         assert_eq!(ctx.debug_special_stacks_total(), before);
+    }
+
+    // `set` evaluates SYMBOL before VALUE, as in Emacs 30.1, whether
+    // its value is kept or not.
+    #[test]
+    fn set_evaluates_its_arguments_in_order() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(defvar seen nil) t", "t");
+        eval_assert_equal(
+            ctx,
+            "(list (let ((r (set (progn (push 1 seen) 'yy) (progn (push 2 seen) 5))))
+                     (list r yy (reverse seen)))
+                   (progn (setq seen nil)
+                          (set (progn (push 1 seen) 'zz) (progn (push 2 seen) 6))
+                          (list zz (reverse seen))))",
+            "'((5 5 (1 2)) (6 (1 2)))",
+        );
     }
 
     // `setq` sets each pair in order, so a value sees the pairs

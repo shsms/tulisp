@@ -141,7 +141,10 @@ pub(crate) enum Instruction {
     Push(TulispObject),
     Pop,
     // variables
+    /// Pop a value, on top, and a symbol below it, set the symbol's
+    /// value to it, and push the value back.
     Set,
+    /// Like `Set`, without pushing the value back.
     SetPop,
     StorePop(TulispObject),
     Store(TulispObject),

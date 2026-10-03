@@ -698,21 +698,17 @@ fn run_impl_inner(
             Instruction::GtEq => compare_binary!(ctx, |a, b| compare_op(a, b, |a, b| a >= b)),
             Instruction::Set => {
                 let minus2 = ctx.vm.stack.len() - 2;
-                let [ref value, ref variable] = ctx.vm.stack[minus2..] else {
+                let [ref variable, ref value] = ctx.vm.stack[minus2..] else {
                     unreachable!()
                 };
                 variable.set(value.clone())?;
                 // remove just the variable from the stack, keep the value
-                ctx.vm.stack.truncate(ctx.vm.stack.len() - 1);
+                ctx.vm.stack.swap_remove(minus2);
             }
             Instruction::SetPop => {
-                let minus2 = ctx.vm.stack.len() - 2;
-                let [ref value, ref variable] = ctx.vm.stack[minus2..] else {
-                    unreachable!()
-                };
-                variable.set(value.clone())?;
-                // remove both variable and value from stack.
-                ctx.vm.stack.truncate(minus2);
+                let value = ctx.vm.stack.pop().ok_or_else(empty_stack)?;
+                let variable = ctx.vm.stack.pop().ok_or_else(empty_stack)?;
+                variable.set(value)?;
             }
             Instruction::StorePop(obj) => {
                 let a = ctx.vm.stack.pop().unwrap();
