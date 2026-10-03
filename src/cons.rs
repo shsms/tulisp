@@ -22,30 +22,6 @@ impl Cons {
         Cons { car, cdr }
     }
 
-    /// Adds `val` after this cell, which must be the last cell of its
-    /// list.
-    pub fn push(&mut self, val: TulispObject) -> Result<(), Error> {
-        self.push_with_meta(val, None)
-    }
-
-    pub(crate) fn push_with_meta(
-        &mut self,
-        val: TulispObject,
-        span: Option<Span>,
-    ) -> Result<(), Error> {
-        if !self.cdr.null() {
-            return Err(Error::type_mismatch("Cons: unable to push".to_string()));
-        }
-        self.cdr.assign(TulispValue::List {
-            cons: Cons {
-                car: val,
-                cdr: TulispObject::nil(),
-            },
-        });
-        self.cdr.with_span(span);
-        Ok(())
-    }
-
     pub(crate) fn car(&self) -> &TulispObject {
         &self.car
     }
@@ -110,10 +86,9 @@ fn drop_cdrs(mut cdr: TulispValue) {
 }
 
 /// Tail-tracked builder for constructing Tulisp lists in O(1) per
-/// push. The straightforward `TulispValue::push` walks to the
-/// trailing nil on every call, turning a naive push-loop into O(n²);
-/// the builder keeps a handle on that trailing nil and rewrites it
-/// in place.
+/// push. A push that walks to the trailing nil on every call makes a
+/// push-loop O(n²); the builder keeps a handle on that trailing nil
+/// and rewrites it in place.
 ///
 /// `head` and `tail` initially share the same nil `Rc`. The first
 /// `push` rewrites that `Rc`'s inner value into a `List` cell whose
@@ -163,21 +138,20 @@ impl ListBuilder {
         self.tail = next_nil;
     }
 
-    /// Mirrors `TulispObject::append`. A list `val` is deep-copied
-    /// (top-level only, to break any structural sharing) and linked
-    /// onto the end; a non-list `val` becomes a dotted tail. After
-    /// a non-list append, further `push` / `append` calls would
-    /// corrupt the appended atom — callers must stop building
-    /// at that point, matching the existing convention.
+    /// Adds `val` at the end. On an empty builder, a list `val` gives a
+    /// copy of its first cell and shares the rest, and a non-list `val`
+    /// becomes a one-element list. On a non-empty builder, a list `val`
+    /// is copied, top level only, and a non-list `val` becomes a dotted
+    /// tail. After a dotted tail, do not push or append again: that would
+    /// change the atom.
     pub(crate) fn append(&mut self, val: TulispObject) -> Result<(), Error> {
         if val.null() {
             return Ok(());
         }
         match self.last_cons.take() {
             None => {
-                // Empty: as `TulispObject::append` on a `nil` list does,
-                // copy only the first cell and share the rest. Unlike
-                // it, `walk_to_end` rejects a list that loops back.
+                // Empty: copy only the first cell and share the rest.
+                // `walk_to_end` rejects a list that loops back.
                 let cons = val
                     .as_list_cons()
                     .unwrap_or_else(|| Cons::new(val.clone(), TulispObject::nil()));
@@ -185,11 +159,10 @@ impl ListBuilder {
                 self.walk_to_end(self.head.clone())?;
             }
             Some(last) => {
-                // Non-empty: mirrors `TulispObject::append` — set last's cdr
-                // to `val.deep_copy()`. The deep copy is held as a
-                // `TulispObject` (so a shared interned-symbol Rc
-                // stays untouched), then walked to update `last_cons`
-                // and `tail`.
+                // Non-empty: set last's cdr to `val.deep_copy()`. The deep copy
+                // is held as a `TulispObject` (so a shared interned-symbol Rc
+                // stays untouched), then walked to update `last_cons` and
+                // `tail`.
                 let last_car = last.car()?;
                 let copy = val.deep_copy()?;
                 let copy_clone = copy.clone();
@@ -533,16 +506,6 @@ mod tests {
     fn circular(ctx: &mut TulispContext) -> TulispObject {
         ctx.eval_string("(let ((l (list 1 2 3))) (setcdr (cddr l) l) l)")
             .unwrap()
-    }
-
-    #[test]
-    fn push_and_append_onto_a_circular_list_are_errors() {
-        let ctx = &mut TulispContext::new();
-        let list = circular(ctx);
-        let err = list.push(4.into()).unwrap_err();
-        assert_eq!(err.to_string(), "ERR OutOfRange: Circular list");
-        let err = list.append(ctx.eval_string("'(4)").unwrap()).unwrap_err();
-        assert_eq!(err.to_string(), "ERR OutOfRange: Circular list");
     }
 
     #[test]

@@ -643,30 +643,6 @@ impl TulispValue {
     }
 
     #[inline(always)]
-    pub(crate) fn push(&mut self, val: TulispObject) -> Result<(), Error> {
-        self.push_with_meta(val, None)
-    }
-
-    #[inline(always)]
-    pub(crate) fn push_with_meta(
-        &mut self,
-        val: TulispObject,
-        span_in: Option<Span>,
-    ) -> Result<(), Error> {
-        if let TulispValue::List { cons, .. } = self {
-            cons.push_with_meta(val.clone(), span_in)
-                .map_err(|e| e.with_trace(val))?;
-            Ok(())
-        } else if self.null() {
-            let cons = Cons::new(val, TulispObject::nil());
-            *self = TulispValue::List { cons };
-            Ok(())
-        } else {
-            Err(Error::type_mismatch("unable to push".to_string()))
-        }
-    }
-
-    #[inline(always)]
     pub fn into_ref(self, span: Option<Span>) -> TulispObject {
         TulispObject::new(self, span)
     }
