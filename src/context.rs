@@ -737,7 +737,7 @@ impl TulispContext {
     /// special form evaluates an argument with them through
     /// [`Form::eval`](crate::Form::eval).
     pub fn eval(&mut self, value: &TulispObject) -> Result<TulispObject, Error> {
-        if value.symbolp() || value.is_symbol_variant() {
+        if value.symbolp() {
             return value.get();
         }
         if value.numberp() || value.stringp() {

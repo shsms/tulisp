@@ -126,10 +126,6 @@ fn equal_within(
             *budget = budget.checked_sub(1)?;
             equal_within(a, b, budget, &mut CdrLoop::new())
         }
-        EqualPair::Symbol => {
-            drop((a_inner, b_inner));
-            Some(a.eq(b))
-        }
     }
 }
 
@@ -156,12 +152,10 @@ enum EqualPair<'a> {
     Lists(&'a Cons, &'a Cons),
     /// Quote forms of one kind, of these forms.
     Quoted(&'a TulispObject, &'a TulispObject),
-    /// The first is a symbol other than `nil` and `t`, which `equal`
-    /// compares by `eq`.
-    Symbol,
 }
 
 impl<'a> EqualPair<'a> {
+    /// The caller has checked that A and B are not the same object.
     #[inline]
     fn of(a: &'a TulispValue, b: &'a TulispValue) -> Self {
         if let (TulispValue::List { cons: a }, TulispValue::List { cons: b }) = (a, b) {
@@ -170,8 +164,9 @@ impl<'a> EqualPair<'a> {
         if let Some((a, b)) = quoted_pair(a, b) {
             return EqualPair::Quoted(a, b);
         }
+        // A symbol other than `nil` and `t` is `equal` only to itself.
         if matches!(a, TulispValue::Symbol { .. }) {
-            return EqualPair::Symbol;
+            return EqualPair::Done(false);
         }
         // Pairs of lists are matched above, so this compares no nested
         // values.
@@ -216,10 +211,6 @@ impl EqualWalk {
                 EqualPair::Done(equal) => return equal,
                 EqualPair::Lists(..) => None,
                 EqualPair::Quoted(a, b) => Some((a.clone(), b.clone())),
-                EqualPair::Symbol => {
-                    drop((a_inner, b_inner));
-                    return a.eq(b);
-                }
             }
         };
         if let Some((quoted_a, quoted_b)) = quoted {
@@ -430,14 +421,14 @@ impl TulispObject {
         if self.eq_ptr(other) {
             return true;
         }
-        {
-            let value = self.inner_ref();
-            if let TulispValue::Number { .. } = &value.0 {
-                return value.0 == other.inner_ref().0;
-            }
-        }
-        // `eq` reads `self` again, so the borrow above must be gone.
-        self.eq(other)
+        // A number is `eql` to one of the same kind and value, `nil`
+        // and `t` are one value each, and anything else is `eql` only to
+        // itself.
+        let value = self.inner_ref();
+        matches!(
+            value.0,
+            TulispValue::Number { .. } | TulispValue::Nil | TulispValue::T
+        ) && value.0 == other.inner_ref().0
     }
 
     /// Returns an iterator over the values inside `self`.
@@ -773,17 +764,17 @@ impl TulispObject {
         if self.consp() {
             return crate::eval::is_lambda_list(ctx, self);
         }
-        let symbol = match &self.inner_ref().0 {
-            TulispValue::Symbol { .. } => self.clone(),
-            other => return other.is_function_value(),
-        };
-        // An unbound symbol names no function.
-        if !symbol.boundp() {
-            return false;
+        {
+            let value = self.inner_ref();
+            if !matches!(value.0, TulispValue::Symbol { .. }) {
+                return value.0.is_function_value();
+            }
         }
-        symbol
-            .get()
-            .is_ok_and(|value| value.inner_ref().0.is_function_value())
+        // An unbound symbol names no function.
+        self.boundp()
+            && self
+                .get()
+                .is_ok_and(|value| value.inner_ref().0.is_function_value())
     }
     // predicates end
 }
