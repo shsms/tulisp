@@ -2,38 +2,38 @@ use crate::TulispObject;
 use crate::TulispValue;
 use crate::context::TulispContext;
 use crate::error::Error;
-use crate::{destruct_bind, list};
+use crate::{Rest, list};
 
-fn thread_first(_ctx: &mut TulispContext, vv: &TulispObject) -> Result<TulispObject, Error> {
-    destruct_bind!((x &optional form &rest more) = vv);
-    if form.null() {
-        Ok(x)
-    } else if more.null() {
-        if form.consp() {
-            Ok(list!(,form.car()? ,x.clone() ,@form.cdr()?)?)
-        } else {
-            Ok(list!(,form ,x.clone())?)
+/// `->` with LAST false, `->>` with LAST true. VV is (X FORM...): X
+/// threaded through each FORM in turn, as its first argument or its
+/// last. A nil FORM ends the threading.
+fn thread_forms(
+    ctx: &mut TulispContext,
+    vv: &TulispObject,
+    last: bool,
+) -> Result<TulispObject, Error> {
+    let (mut x, forms): (TulispObject, Rest<TulispObject>) = vv.destructure(ctx)?;
+    for form in forms {
+        if form.null() {
+            break;
         }
-    } else {
-        let inner = thread_first(_ctx, &list!(,x.clone() ,form.clone())?)?;
-        thread_first(_ctx, &list!(,inner ,@more.clone())?)
+        x = if !form.consp() {
+            list!(,form ,x)?
+        } else if last {
+            list!(,@form ,x)?
+        } else {
+            TulispObject::cons(form.car()?, TulispObject::cons(x, form.cdr()?))
+        };
     }
+    Ok(x)
 }
 
-fn thread_last(_ctx: &mut TulispContext, vv: &TulispObject) -> Result<TulispObject, Error> {
-    destruct_bind!((x &optional form &rest more) = vv);
-    if form.null() {
-        Ok(x)
-    } else if more.null() {
-        if form.consp() {
-            Ok(list!(,@form ,x.clone())?)
-        } else {
-            Ok(list!(,form ,x.clone())?)
-        }
-    } else {
-        let inner = thread_last(_ctx, &list!(,x.clone() ,form.clone())?)?;
-        thread_last(_ctx, &list!(,inner ,@more.clone())?)
-    }
+fn thread_first(ctx: &mut TulispContext, vv: &TulispObject) -> Result<TulispObject, Error> {
+    thread_forms(ctx, vv, false)
+}
+
+fn thread_last(ctx: &mut TulispContext, vv: &TulispObject) -> Result<TulispObject, Error> {
+    thread_forms(ctx, vv, true)
 }
 
 fn quote(_ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
@@ -60,4 +60,25 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defmacro("->>", thread_last);
     ctx.defmacro("thread-last", thread_last);
     ctx.defmacro("quote", quote);
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        TulispContext,
+        test_utils::{eval_assert_equal, eval_assert_error},
+    };
+
+    #[test]
+    fn threading_puts_the_value_into_each_form() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_error(
+            ctx,
+            "(-> 5 car)",
+            "ERR TypeMismatch: Expected list, got: 5\n\
+             <eval_string>:1.1-1.10:  at (car 5)\n",
+        );
+        // A dotted form keeps its tail, as in Emacs 30.1.
+        eval_assert_equal(ctx, "(macroexpand '(-> 5 (f . 3)))", "'(f 5 . 3)");
+    }
 }
