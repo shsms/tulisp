@@ -233,14 +233,18 @@ pub(crate) enum Instruction {
     /// A call to a `ctx.defun`-registered Rust function. Args have
     /// already been pushed on the stack (compiled with
     /// `keep_result=true`); the handler pops `args_count` of them in
-    /// source order, hands them to `call(ctx, &args)`, and pushes the
-    /// result if `keep_result`.
+    /// source order, hands them to the function in `call`, or calls the
+    /// name the general way when it no longer holds a Rust function, and
+    /// pushes the result if `keep_result`.
     RustCall {
         name: TulispObject,
         /// Source AST of the full call form (`(name args…)`), so an
         /// error from `call` has the call's `at (form)` trace line.
         form: TulispObject,
-        call: Shared<dyn DefunFn>,
+        /// The machine's `generation` when the call last looked the name
+        /// up, with the Rust function it found, or `None` when the name
+        /// held no Rust function. It is stale once `generation` moves.
+        call: (u64, Option<Shared<dyn DefunFn>>),
         args_count: usize,
         keep_result: bool,
     },

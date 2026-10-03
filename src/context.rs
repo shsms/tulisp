@@ -505,10 +505,11 @@ impl TulispContext {
     /// symbol's value, would be shadowed. Evicting the entries makes
     /// code compiled later use the new value.
     ///
-    /// No-op while the compiler is still being built (during
+    /// While the compiler is still being built (during
     /// `TulispContext::new`, the Rust built-ins register before the
-    /// compiler exists), where there is nothing to evict yet.
+    /// compiler exists), it has no entries to drop.
     fn evict_compiled_dispatch(&mut self, addr: usize) {
+        self.vm.bump_generation();
         if let Some(compiler) = self.compiler.as_mut() {
             compiler.vm_compilers.functions.remove(&addr);
             compiler.bytecode.functions.remove(&addr);
@@ -1023,8 +1024,27 @@ impl Drop for FrameGuard<'_> {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_utils::{eval_assert, eval_assert_equal, eval_assert_not};
+    use crate::test_utils::{
+        eval_assert, eval_assert_equal, eval_assert_error_line, eval_assert_not,
+    };
     use crate::{Error, Form, TulispContext, TulispObject};
+
+    // A Rust function registered again reaches code compiled before it,
+    // and so does a Lisp function that replaces it.
+    #[test]
+    fn a_re_registered_rust_function_reaches_compiled_callers() {
+        let ctx = &mut TulispContext::new();
+        ctx.defun("r", || 1);
+        ctx.eval_string("(defun call-r () (r)) (setq f (lambda () (r)))")
+            .unwrap();
+        ctx.defun("r", || 2);
+        eval_assert_equal(ctx, "(list (call-r) (funcall f))", "'(2 2)");
+        // A different argument count is checked when the call runs.
+        ctx.defun("r", |a: i64| a);
+        eval_assert_error_line(ctx, "(call-r)", "ERR ArityMismatch: Too few arguments");
+        ctx.eval_string("(defun r () 3)").unwrap();
+        eval_assert_equal(ctx, "(call-r)", "3");
+    }
 
     // A program run while a protected body compiles fails to compile
     // as a whole, before any of it runs.

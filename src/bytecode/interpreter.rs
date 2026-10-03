@@ -4,8 +4,13 @@ use super::{
     bytecode::TraceRange,
 };
 use crate::{
-    Error, ErrorKind, Number, TulispContext, TulispObject, TulispValue, bytecode::Pos,
-    object::wrappers::generic::SharedMut, plist,
+    Error, ErrorKind, Number, TulispContext, TulispObject, TulispValue,
+    bytecode::Pos,
+    object::wrappers::{
+        DefunFn,
+        generic::{Shared, SharedMut},
+    },
+    plist,
 };
 use std::collections::HashMap;
 
@@ -46,10 +51,10 @@ fn compare_op(
 pub struct Machine {
     stack: Vec<TulispObject>,
     functions: HashMap<usize, CompiledDefun>, // key: fn_name.addr_as_usize()
-    /// Counts the functions replaced, so a call can tell that the
-    /// target it keeps may be out of date. No entry is ever removed and
-    /// a call keeps only one it found, so adding a name leaves every
-    /// kept target valid.
+    /// Counts the changes to what a name calls: a function, macro or
+    /// special form defined or replaced. A call keeps the target it
+    /// found with the count it found it at, and finds it again when the
+    /// count has moved.
     generation: u64,
     /// The lexical variables of every running call, one stretch per
     /// call; the running call's stretch starts at `base`.
@@ -188,9 +193,18 @@ impl Machine {
 
     /// Makes FUNCTION what a compiled call to the name at ADDR runs.
     pub(crate) fn set_function(&mut self, addr: usize, function: CompiledDefun) {
-        if self.functions.insert(addr, function).is_some() {
-            self.generation += 1;
-        }
+        self.functions.insert(addr, function);
+        self.generation += 1;
+    }
+
+    /// Marks every call's kept target as possibly out of date.
+    pub(crate) fn bump_generation(&mut self) {
+        self.generation += 1;
+    }
+
+    /// The count a call keeps its target at; see `generation`.
+    pub(crate) fn generation(&self) -> u64 {
+        self.generation
     }
 }
 
@@ -999,13 +1013,27 @@ fn run_impl_inner(
                 instr_ref = program.borrow_mut();
             }
             Instruction::RustCall {
+                name,
                 form,
                 call,
                 args_count,
                 keep_result,
-                ..
             } => {
                 let args_count = *args_count;
+                // A function registered since the call compiled may
+                // have replaced the one it keeps.
+                let generation = ctx.vm.generation;
+                if call.0 != generation {
+                    call.1 = resolve_rust_function(name, args_count)
+                        .map_err(|e| e.with_trace(form.clone()))?;
+                    call.0 = generation;
+                }
+                // The function, or the name to call the general way when
+                // it is no longer a Rust function.
+                let target = match &call.1 {
+                    Some(func) => Ok(func.clone()),
+                    None => Err(name.clone()),
+                };
                 let split_at = ctx.vm.stack.len() - args_count;
                 let args: Vec<TulispObject> = ctx.vm.stack.drain(split_at..).collect();
                 // Clone what the call needs and release the program
@@ -1013,10 +1041,13 @@ fn run_impl_inner(
                 // the interpreter, which re-borrows this instruction
                 // list.
                 let form = form.clone();
-                let call = call.clone();
                 let keep_result = *keep_result;
                 drop(instr_ref);
-                let result = call(ctx, &args).map_err(|e| e.with_trace(form))?;
+                let result = match target {
+                    Ok(call) => call(ctx, &args),
+                    Err(name) => funcall_inline(ctx, &name, args),
+                }
+                .map_err(|e| e.with_trace(form))?;
                 instr_ref = program.borrow_mut();
                 if keep_result {
                     ctx.vm.stack.push(result);
@@ -1232,6 +1263,25 @@ fn run_tail_calls(ctx: &mut TulispContext, mut call: TailCallInfo) -> Result<(),
             }
             None => return Ok(()),
         }
+    }
+}
+
+/// NAME's function, looked up again for a call compiled for a Rust
+/// function: the Rust function it holds, with its argument count
+/// checked against ARGS_COUNT, or `None` for any other value.
+fn resolve_rust_function(
+    name: &TulispObject,
+    args_count: usize,
+) -> Result<Option<Shared<dyn DefunFn>>, Error> {
+    let Ok(func) = name.get() else {
+        return Ok(None);
+    };
+    match &func.inner_ref().0 {
+        TulispValue::Defun { call, arity } => {
+            arity.check(args_count)?;
+            Ok(Some(call.clone()))
+        }
+        _ => Ok(None),
     }
 }
 

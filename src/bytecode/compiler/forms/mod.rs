@@ -173,7 +173,7 @@ pub(super) fn compile_form(
                 result.push(Instruction::RustCall {
                     name: name.clone(),
                     form: form.clone(),
-                    call,
+                    call: (ctx.vm.generation(), Some(call)),
                     args_count,
                     keep_result,
                 });
