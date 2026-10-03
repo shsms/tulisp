@@ -432,6 +432,19 @@ impl TulispValue {
         )
     }
 
+    /// Whether a name holding this value is `fboundp`: a function value,
+    /// a macro or a special form.
+    pub(crate) fn is_fbound(&self) -> bool {
+        self.is_function_value()
+            || matches!(
+                self,
+                TulispValue::Macro(_)
+                    | TulispValue::Defmacro { .. }
+                    | TulispValue::Special { .. }
+                    | TulispValue::SpecialForm
+            )
+    }
+
     #[inline(always)]
     pub(crate) fn symbol(name: String, constant: bool) -> TulispValue {
         TulispValue::Symbol {

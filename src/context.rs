@@ -717,6 +717,17 @@ impl TulispContext {
         self.evict_compiled_dispatch(sym.addr_as_usize());
     }
 
+    /// Returns true if NAME holds a function, a macro or a special form,
+    /// as Emacs Lisp's `fboundp` does.
+    ///
+    /// A function and a variable of the same name share one value in
+    /// Tulisp, so a variable that holds a function value counts too.
+    pub fn fboundp(&mut self, name: &str) -> bool {
+        self.intern(name)
+            .get()
+            .is_ok_and(|value| value.inner_ref().0.is_fbound())
+    }
+
     pub fn set_load_path<P: AsRef<Path>>(&mut self, path: Option<P>) -> Result<(), Error> {
         self.load_path = match path {
             Some(path) => Some(
@@ -1099,6 +1110,21 @@ mod tests {
         let nosuch = ctx.intern("nosuch");
         let err = ctx.funcall(&nosuch, ()).unwrap_err();
         assert_eq!(err.format(ctx), "ERR Undefined: function is void: nosuch\n");
+    }
+
+    // `fboundp` is true for a name that holds a function, a macro or a
+    // special form, as in Emacs.
+    #[test]
+    fn fboundp_is_true_for_functions_macros_and_special_forms() {
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string("(defun lisp-fn () 1) (defmacro lisp-macro () 1) (setq var-only 1)")
+            .unwrap();
+        for name in ["car", "lisp-fn", "lisp-macro", "when", "if"] {
+            assert!(ctx.fboundp(name), "{name}");
+        }
+        for name in ["nosuch", "var-only"] {
+            assert!(!ctx.fboundp(name), "{name}");
+        }
     }
 
     // A program run while a protected body compiles fails to compile
