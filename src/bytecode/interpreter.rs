@@ -31,21 +31,6 @@ fn binary_op_checked(
     op(a, b).map(Into::into)
 }
 
-/// OP folded over ARGS from the first.
-fn arith_chain(
-    op: crate::bytecode::instruction::BinaryOp,
-    args: &[TulispObject],
-) -> Result<TulispObject, Error> {
-    let Some((first, rest)) = args.split_first() else {
-        return Err(missing_arguments());
-    };
-    let mut value = first.as_number()?;
-    for arg in rest {
-        value = op.apply(value, arg.as_number()?)?;
-    }
-    Ok(value.into())
-}
-
 /// Coerce both operands to `Number` and apply `cmp`.
 #[inline(always)]
 fn compare_op(
@@ -575,7 +560,10 @@ fn run_impl_inner(
             }
             Instruction::ArithChain { op, count } => {
                 let base = ctx.vm.stack.len() - *count;
-                let result = arith_chain(*op, &ctx.vm.stack[base..]);
+                let result = match ctx.vm.stack[base..].split_first() {
+                    Some((first, rest)) => op.fold(first, rest).map(TulispObject::from),
+                    None => Err(missing_arguments()),
+                };
                 ctx.vm.stack.truncate(base);
                 ctx.vm.stack.push(result?);
             }

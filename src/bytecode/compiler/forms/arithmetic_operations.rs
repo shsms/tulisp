@@ -156,6 +156,27 @@ mod tests {
         }
     }
 
+    // A float anywhere makes all of a division float, as in Emacs
+    // 30.1: `(/ 7 2 2.0)` is 1.75, not 1.5. With no float, the
+    // integers divide in turn, so a zero divisor raises before a later
+    // argument is looked at.
+    #[test]
+    fn a_float_anywhere_makes_all_of_a_division_float() {
+        for (program, value) in [
+            ("(/ 7 2 2.0)", "1.75"),
+            ("(/ 7 2.0 2)", "1.75"),
+            ("(/ 7 2 2)", "1"),
+            ("(format \"%S\" (/ 5 0 2.0))", "\"1.0e+INF\""),
+        ] {
+            eval_assert_equal_fresh(program, value);
+        }
+        eval_assert_error_line(
+            &mut TulispContext::new(),
+            "(/ 1 0 'a)",
+            "ERR ArithError: Division by zero",
+        );
+    }
+
     // With one argument, `+` and `*` still need a number, as in Emacs.
     #[test]
     fn one_argument_arithmetic_checks_its_argument() {

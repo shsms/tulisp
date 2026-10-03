@@ -165,6 +165,14 @@ impl Number {
         }
     }
 
+    /// The same number, as a `Number::Float`.
+    pub(crate) fn to_float(self) -> Number {
+        match self {
+            Number::Int(value) => Number::Float(value as f64),
+            Number::Float(_) => self,
+        }
+    }
+
     /// Integer/float division matching Emacs `/` (integers truncate
     /// toward zero). Raises `ArithError` on an integer zero divisor
     /// and on `i64::MIN / -1` overflow; float operands divide

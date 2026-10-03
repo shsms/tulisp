@@ -81,6 +81,20 @@ impl BinaryOp {
         }
     }
 
+    /// OP folded over FIRST and REST, from FIRST, each converted to a
+    /// number as the fold reaches it. A float anywhere makes all of a
+    /// division float, as in Emacs: `(/ 7 2 2.0)` is 1.75.
+    pub(crate) fn fold(self, first: &TulispObject, rest: &[TulispObject]) -> Result<Number, Error> {
+        let mut value = first.as_number()?;
+        if matches!(self, BinaryOp::Div) && rest.iter().any(TulispObject::floatp) {
+            value = value.to_float();
+        }
+        for arg in rest {
+            value = self.apply(value, arg.as_number()?)?;
+        }
+        Ok(value)
+    }
+
     fn mnemonic(self) -> &'static str {
         match self {
             BinaryOp::Add => "add",

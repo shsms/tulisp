@@ -1,4 +1,4 @@
-use crate::{Error, Number, Rest, TulispContext};
+use crate::{Error, Number, Rest, TulispContext, TulispObject, bytecode::instruction::BinaryOp};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defun("+", |args: Rest<Number>| -> Result<Number, Error> {
@@ -30,16 +30,15 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     ctx.defun(
         "/",
-        |first: Number, rest: Rest<Number>| -> Result<Number, Error> {
+        |first: TulispObject, rest: Rest<TulispObject>| -> Result<Number, Error> {
             // Single-arg `(/ X)` is `1/X`, integer-divided when X is
-            // an integer (so `(/ 10)` => 0, `(/ 10.0)` => 0.1).
-            // `checked_div` errors on an integer zero divisor or
-            // `i64::MIN / -1`; a float operand yields ±inf as in Emacs.
-            let rest: Vec<Number> = rest.into_iter().collect();
+            // an integer (so `(/ 10)` => 0, `(/ 10.0)` => 0.1). It
+            // divides as the compiled `/` does.
+            let rest: Vec<TulispObject> = rest.into_iter().collect();
             if rest.is_empty() {
-                Number::Int(1).checked_div(first)
+                BinaryOp::Div.fold(&1.into(), &[first])
             } else {
-                rest.into_iter().try_fold(first, Number::checked_div)
+                BinaryOp::Div.fold(&first, &rest)
             }
         },
     );
@@ -73,7 +72,26 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 #[cfg(test)]
 mod tests {
     use crate::TulispContext;
-    use crate::test_utils::{eval_assert, eval_assert_equal, eval_assert_error};
+    use crate::test_utils::{
+        eval_assert, eval_assert_equal, eval_assert_error, eval_assert_error_line,
+    };
+
+    // Called as a function, `/` also divides in floats when any
+    // argument is a float, as in Emacs 30.1.
+    #[test]
+    fn a_float_anywhere_makes_all_of_a_division_float() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(funcall '/ 7 2 2.0)", "1.75");
+        eval_assert_equal(ctx, "(apply '/ '(7 2 2))", "1");
+        // Each argument is checked as the division reaches it, as in
+        // Emacs, so the zero divisor raises first here.
+        eval_assert_error_line(
+            ctx,
+            "(funcall '/ 1 0 'a)",
+            "ERR ArithError: Division by zero",
+        );
+        eval_assert_equal(ctx, "(format \"%S\" (apply '/ '(5 0 2.0)))", "\"1.0e+INF\"");
+    }
 
     #[test]
     fn percent_is_truncated_integer_remainder() {
