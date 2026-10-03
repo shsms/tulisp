@@ -6,7 +6,7 @@ use crate::{
     object::wrappers::generic::SharedMut,
 };
 
-use super::cells::swap_captured;
+use super::cells::swap_shared;
 use super::forms::{VMCompilers, compile_form};
 use super::scope::{FunctionScope, resolve};
 
@@ -391,7 +391,7 @@ pub(crate) fn compile_block(
                 from: slot,
                 to: slot + 1,
             });
-            swap_captured(&closed, &mut instructions);
+            swap_shared(&closed, &mut instructions);
         }
         (Some(BlockBinding::Lexical(_)), None) | (None, _) => {}
     }

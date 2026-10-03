@@ -1,6 +1,6 @@
 use super::{
-    Block, CaptureSource, Captured, Captures, FormBlock, FrameState, Handler, Instruction,
-    LambdaTemplate, Slot, bytecode::Bytecode, bytecode::CompiledDefun,
+    Block, CaptureSource, Captured, CapturedValue, Captures, FormBlock, FrameState, Handler,
+    Instruction, LambdaTemplate, Slot, bytecode::Bytecode, bytecode::CompiledDefun,
     bytecode::CompiledDefunInner, bytecode::TraceRange,
 };
 use crate::{
@@ -790,20 +790,25 @@ fn run_impl_inner(
             }
             Instruction::LoadCapture(index) => {
                 let captured = capture(&ctx.vm.captures, *index)?;
-                let value = captured.cell.borrow().clone();
-                let value = value.ok_or_else(|| {
-                    Error::uninitialized(format!("Variable definition is void: {}", captured.name))
+                let value = match &captured.value {
+                    CapturedValue::Value(value) => value.clone(),
+                    CapturedValue::Cell(cell) => cell.borrow().clone().ok_or_else(|| {
+                        Error::uninitialized(format!(
+                            "Variable definition is void: {}",
+                            captured.name
+                        ))
                         .with_trace(captured.name.clone())
-                })?;
+                    })?,
+                };
                 ctx.vm.stack.push(value);
             }
             Instruction::StoreCapture(index) => {
                 let value = ctx.vm.stack.last().cloned().ok_or_else(empty_stack)?;
-                *capture(&ctx.vm.captures, *index)?.cell.borrow_mut() = Some(value);
+                *capture_cell(&ctx.vm.captures, *index)?.borrow_mut() = Some(value);
             }
             Instruction::StorePopCapture(index) => {
                 let value = ctx.vm.stack.pop().ok_or_else(empty_stack)?;
-                *capture(&ctx.vm.captures, *index)?.cell.borrow_mut() = Some(value);
+                *capture_cell(&ctx.vm.captures, *index)?.borrow_mut() = Some(value);
             }
             Instruction::BeginScope(obj) => {
                 let a = ctx.vm.stack.last().unwrap();
@@ -1297,12 +1302,18 @@ pub(crate) fn call_function(
 fn make_lambda(ctx: &TulispContext, template: &LambdaTemplate) -> Result<TulispObject, Error> {
     let mut cells = Vec::with_capacity(template.capture_sources.len());
     for (source, name) in &template.capture_sources {
-        let cell = match source {
-            CaptureSource::Local(n) => slot_cell(&ctx.vm, *n)?.clone(),
-            CaptureSource::Capture(index) => capture(&ctx.vm.captures, *index)?.cell.clone(),
+        let value = match source {
+            // A shared variable's slot holds its cell; any other's, its
+            // value.
+            CaptureSource::Local(n) => match slot(&ctx.vm, *n)? {
+                Slot::Cell(cell) => CapturedValue::Cell(cell.clone()),
+                Slot::Value(value) => CapturedValue::Value(value.clone()),
+                Slot::Empty => CapturedValue::Value(TulispObject::nil()),
+            },
+            CaptureSource::Capture(index) => capture(&ctx.vm.captures, *index)?.value.clone(),
         };
         cells.push(Captured {
-            cell,
+            value,
             name: name.clone(),
         });
     }
@@ -1311,6 +1322,17 @@ fn make_lambda(ctx: &TulispContext, template: &LambdaTemplate) -> Result<TulispO
         ..CompiledDefunInner::clone(&template.function)
     });
     Ok(TulispValue::CompiledDefun { value: function }.into_ref(None))
+}
+
+/// The cell of the captured variable at INDEX of CAPTURES, which a
+/// `setq` sets.
+fn capture_cell(captures: &Captures, index: u16) -> Result<&crate::bytecode::Cell, Error> {
+    match &capture(captures, index)?.value {
+        CapturedValue::Cell(cell) => Ok(cell),
+        CapturedValue::Value(_) => Err(Error::lisp_error(
+            "internal: a set of a captured variable nobody assigns",
+        )),
+    }
 }
 
 /// Slot N of the running frame.

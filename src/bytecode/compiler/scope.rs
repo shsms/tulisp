@@ -13,9 +13,21 @@ use crate::{
 pub(crate) struct ScopeVar {
     pub(crate) name: TulispObject,
     pub(crate) slot: u16,
-    /// Whether a closure captured the variable: its slot then holds a
-    /// cell, shared with the closure.
+    /// Whether a closure captured the variable.
     pub(crate) captured: bool,
+    /// Whether a `setq` sets the variable, in its own function or in a
+    /// closure over it.
+    pub(crate) assigned: bool,
+}
+
+impl ScopeVar {
+    /// Whether the variable lives in a cell, shared with the closures
+    /// that captured it: it is captured and assigned. A captured
+    /// variable nobody assigns keeps its value in its slot, and a
+    /// closure copies it, which no program can tell apart.
+    pub(crate) fn shared(&self) -> bool {
+        self.captured && self.assigned
+    }
 }
 
 /// A function being compiled: a `defun`, a `lambda`, or a top-level
@@ -25,8 +37,8 @@ pub(crate) struct ScopeVar {
 pub(crate) struct FunctionScope {
     pub(crate) vars: Vec<ScopeVar>,
     /// The variables of enclosing functions this one uses, in the
-    /// order of the cells of a closure made from it: where each cell
-    /// comes from, and the variable's name.
+    /// order of a closure's captures: where each comes from, and the
+    /// variable's name.
     pub(crate) capture_sources: Vec<(CaptureSource, TulispObject)>,
     /// The slot the next variable takes; a slot is free again once its
     /// variable leaves the scope.
@@ -67,6 +79,7 @@ impl crate::bytecode::Compiler {
             name,
             slot,
             captured: false,
+            assigned: false,
         });
         Ok(slot)
     }
@@ -124,16 +137,15 @@ impl crate::bytecode::Compiler {
     }
 }
 
-/// What a name reads and writes.
+/// Where a name's value is.
 #[derive(Clone, Copy)]
 pub(crate) enum Resolved {
     /// The name's own value: a global or special variable.
     Global,
-    /// The value in the running frame's slot.
+    /// The running frame's slot. When the variable's scope ends, its
+    /// uses are swapped for cell forms if it turned out to be shared.
     Local(u16),
-    /// The cell in the running frame's slot, for a captured variable.
-    Cell(u16),
-    /// The running closure's captured cell at this index.
+    /// The running closure's captured variable at this index.
     Capture(u16),
 }
 
@@ -145,67 +157,96 @@ impl Resolved {
             Resolved::Global if name.keywordp() => Instruction::Push(name.clone()),
             Resolved::Global => Instruction::Load(name.clone()),
             Resolved::Local(slot) => Instruction::LoadLocal(slot),
-            Resolved::Cell(slot) => Instruction::LoadCell(slot),
             Resolved::Capture(index) => Instruction::LoadCapture(index),
         }
+    }
+}
+
+/// What a `setq` of a name sets, from [`resolve_assignment`]. Only it
+/// stores to a lexical variable or a capture, so every such store marks
+/// the variable it sets as assigned.
+#[derive(Clone, Copy)]
+pub(crate) struct Assignment(Resolved);
+
+impl Assignment {
+    /// Whether it sets a lexical variable of the running function.
+    pub(crate) fn is_local(self) -> bool {
+        matches!(self.0, Resolved::Local(_))
     }
 
     /// The instruction that sets NAME to the value on the stack, popping
     /// it unless KEEP.
     pub(crate) fn store(self, name: &TulispObject, keep: bool) -> Instruction {
-        match (self, keep) {
+        match (self.0, keep) {
             (Resolved::Global, true) => Instruction::Store(name.clone()),
             (Resolved::Global, false) => Instruction::StorePop(name.clone()),
             (Resolved::Local(slot), true) => Instruction::StoreLocal(slot),
             (Resolved::Local(slot), false) => Instruction::StorePopLocal(slot),
-            (Resolved::Cell(slot), true) => Instruction::StoreCell(slot),
-            (Resolved::Cell(slot), false) => Instruction::StorePopCell(slot),
             (Resolved::Capture(index), true) => Instruction::StoreCapture(index),
             (Resolved::Capture(index), false) => Instruction::StorePopCapture(index),
         }
     }
 }
 
-/// What NAME reads and writes: the innermost lexical variable of the
+/// Where NAME's value is: the innermost lexical variable of the
 /// name, a capture of an enclosing function's variable, or the name's
 /// own value for a global or special variable.
 pub(crate) fn resolve(ctx: &mut TulispContext, name: &TulispObject) -> Result<Resolved, Error> {
+    resolve_for(ctx, name, false)
+}
+
+/// Like [`resolve`], for a `setq` of NAME: a lexical variable it finds
+/// is marked assigned.
+pub(crate) fn resolve_assignment(
+    ctx: &mut TulispContext,
+    name: &TulispObject,
+) -> Result<Assignment, Error> {
+    resolve_for(ctx, name, true).map(Assignment)
+}
+
+fn resolve_for(
+    ctx: &mut TulispContext,
+    name: &TulispObject,
+    assigns: bool,
+) -> Result<Resolved, Error> {
     let Some(compiler) = ctx.compiler.as_mut() else {
         return Ok(Resolved::Global);
     };
     let Some(depth) = compiler.functions.len().checked_sub(1) else {
         return Ok(Resolved::Global);
     };
-    resolve_in(compiler, name, depth)
+    resolve_in(compiler, name, depth, assigns)
 }
 
 fn resolve_in(
     compiler: &mut crate::bytecode::Compiler,
     name: &TulispObject,
     depth: usize,
+    assigns: bool,
 ) -> Result<Resolved, Error> {
-    let function = &compiler.functions[depth];
-    if let Some(var) = function.vars.iter().rev().find(|var| var.name.eq(name)) {
-        return Ok(if var.captured {
-            Resolved::Cell(var.slot)
-        } else {
-            Resolved::Local(var.slot)
-        });
+    let function = &mut compiler.functions[depth];
+    if let Some(var) = function.vars.iter_mut().rev().find(|var| var.name.eq(name)) {
+        var.assigned |= assigns;
+        return Ok(Resolved::Local(var.slot));
     }
     if let Some(index) = function
         .capture_sources
         .iter()
         .position(|(_, captured)| captured.eq(name))
     {
+        if assigns && depth > 0 {
+            // Mark the variable the capture comes from, however far out.
+            resolve_in(compiler, name, depth - 1, true)?;
+        }
         return Ok(Resolved::Capture(capture_index(index)?));
     }
     if depth == 0 {
         return Ok(Resolved::Global);
     }
-    let source = match resolve_in(compiler, name, depth - 1)? {
+    let source = match resolve_in(compiler, name, depth - 1, assigns)? {
         // A global or special variable in every enclosing function.
         Resolved::Global => return Ok(Resolved::Global),
-        Resolved::Local(slot) | Resolved::Cell(slot) => {
+        Resolved::Local(slot) => {
             mark_captured(&mut compiler.functions[depth - 1], name);
             CaptureSource::Local(slot)
         }
@@ -217,8 +258,8 @@ fn resolve_in(
     Ok(Resolved::Capture(index))
 }
 
-/// Marks the innermost variable NAME of FUNCTION as captured: it holds
-/// a cell from its binding on.
+/// Marks the innermost variable NAME of FUNCTION as captured: if it is
+/// also assigned, it holds a cell from its binding on.
 fn mark_captured(function: &mut FunctionScope, name: &TulispObject) {
     if let Some(var) = function.vars.iter_mut().rev().find(|var| var.name.eq(name)) {
         var.captured = true;

@@ -1,7 +1,7 @@
 use crate::{
     Error, ErrorKind, TulispContext, TulispObject,
     bytecode::{
-        Captured, Captures, Instruction, LambdaTemplate, Pos,
+        Captured, CapturedValue, Captures, Instruction, LambdaTemplate, Pos,
         bytecode::{CompiledDefun, CompiledDefunInner},
         compiler::{
             DefunParams,
@@ -452,7 +452,7 @@ fn compile_defun(
         let unbound = capture_sources
             .iter()
             .map(|(_, name)| Captured {
-                cell: SharedMut::new(None),
+                value: CapturedValue::Cell(SharedMut::new(None)),
                 name: name.clone(),
             })
             .collect();

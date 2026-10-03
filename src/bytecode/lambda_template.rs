@@ -1,20 +1,20 @@
 use super::bytecode::CompiledDefun;
 use crate::TulispObject;
 
-/// Where a closure's captured cell comes from when `MakeLambda` runs.
+/// Where a closure's captured variable comes from when `MakeLambda`
+/// runs.
 #[derive(Clone)]
 pub(crate) enum CaptureSource {
-    /// The cell in the running frame's slot at this index.
+    /// The running frame's slot at this index.
     Local(u16),
-    /// The running closure's captured cell at this index.
+    /// The running closure's captured variable at this index.
     Capture(u16),
 }
 
 /// A compiled `(lambda …)` body, or the body of a `defun` that closes
 /// over variables. The body is compiled once; each time the form runs,
-/// `MakeLambda` makes a closure of it with the cells of the variables
-/// it captures, and every closure from the form runs the same
-/// instructions.
+/// `MakeLambda` makes a closure of it with the variables it captures,
+/// and every closure from the form runs the same instructions.
 pub(crate) struct LambdaTemplate {
     /// The shared body. Its `captures` is empty; a closure gets its own.
     ///

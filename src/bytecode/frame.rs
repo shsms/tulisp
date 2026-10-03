@@ -1,13 +1,15 @@
 //! A call's frame: its stretch of the machine's `locals`, and the
-//! cells of the closure it runs.
+//! variables the closure it runs captured.
 
 use crate::TulispObject;
 use crate::object::wrappers::generic::{Shared, SharedMut};
 
-/// A captured variable's storage, shared between the frame that binds
-/// it and every closure that captured it. `None` until the variable has
-/// a value: the function that a `defun` closing over variables installs
-/// as it compiles reads its variables before the form has run.
+/// The storage of a variable shared with a closure, one that is
+/// captured and assigned: the frame that binds it and every closure
+/// that captured it hold the same cell. `None` until the variable has a
+/// value: the function that a `defun` closing over variables installs
+/// as it compiles holds an empty cell for each variable it captures, and
+/// may read them before the form has run.
 pub(crate) type Cell = SharedMut<Option<TulispObject>>;
 
 /// One lexical variable of a running call.
@@ -40,10 +42,21 @@ fn release_cell(cell: &mut Cell) {
     }
 }
 
-/// A captured variable: its cell, and its name for errors.
+/// A captured variable: where its value is, and its name for errors.
 pub(crate) struct Captured {
-    pub(crate) cell: Cell,
+    pub(crate) value: CapturedValue,
     pub(crate) name: TulispObject,
+}
+
+/// Where a captured variable's value is.
+#[derive(Clone)]
+pub(crate) enum CapturedValue {
+    /// A cell shared with the variable's scope, for a variable that is
+    /// assigned; or an empty cell, in the function a `defun` installs as
+    /// it compiles, until the form runs.
+    Cell(Cell),
+    /// A copy, for a variable nobody assigns.
+    Value(TulispObject),
 }
 
 pub(crate) struct CaptureList(Vec<Captured>);
@@ -51,12 +64,16 @@ pub(crate) struct CaptureList(Vec<Captured>);
 impl Drop for CaptureList {
     fn drop(&mut self) {
         for captured in self.0.iter_mut() {
-            release_cell(&mut captured.cell);
+            match &mut captured.value {
+                CapturedValue::Cell(cell) => release_cell(cell),
+                CapturedValue::Value(value) => crate::object::release(value),
+            }
         }
     }
 }
 
-/// The cells a closure captured, shared by every copy of the closure.
+/// The variables a closure captured, shared by every copy of the
+/// closure.
 /// A function that captures nothing holds none, so making, copying and
 /// dropping its list costs nothing.
 #[derive(Clone, Default)]

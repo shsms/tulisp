@@ -12,7 +12,7 @@ mod block;
 pub(crate) use block::{Block, FormBlock, Handler};
 
 mod frame;
-pub(crate) use frame::{Captured, Captures, Cell, FrameState, Slot};
+pub(crate) use frame::{Captured, CapturedValue, Captures, Cell, FrameState, Slot};
 
 mod interpreter;
 pub(crate) use interpreter::{Machine, call_function, run, run_form_in_frame};

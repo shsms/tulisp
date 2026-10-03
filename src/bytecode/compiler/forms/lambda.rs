@@ -1,6 +1,6 @@
 use crate::{
     Error, ErrorKind, TulispContext, TulispObject,
-    bytecode::compiler::cells::swap_captured,
+    bytecode::compiler::cells::swap_shared,
     bytecode::compiler::scope::FunctionScope,
     bytecode::{Captures, CompiledDefun, CompiledDefunInner},
     bytecode::{
@@ -143,9 +143,10 @@ pub(super) fn compile_lambda(
 /// enclosing function it uses is captured as it compiles. Gives the
 /// instructions, ending in `Ret`, and the function's scope.
 ///
-/// A parameter a closure captures is wrapped in a cell by a prologue.
+/// A parameter shared with a closure is wrapped in a cell by a
+/// prologue.
 /// A self tail call rebinds the parameters and jumps to the label
-/// after it, `body_start` of the scope, binding a captured one to a
+/// after it, `body_start` of the scope, binding a shared one to a
 /// fresh cell itself.
 pub(super) fn compile_function_body(
     ctx: &mut TulispContext,
@@ -167,9 +168,9 @@ pub(super) fn compile_function_body(
     body.push(Instruction::Ret);
 
     let params = scope.vars.split_off(0);
-    swap_captured(&params, &mut body);
+    swap_shared(&params, &mut body);
     let mut instructions = Vec::new();
-    for param in params.iter().filter(|param| param.captured) {
+    for param in params.iter().filter(|param| param.shared()) {
         instructions.push(Instruction::LoadLocal(param.slot));
         instructions.push(Instruction::BindCell(param.slot));
     }
@@ -726,5 +727,67 @@ mod tests {
     fn a_lambda_without_parameters() {
         eval_assert_equal_fresh("((lambda))", "nil");
         eval_assert_equal_fresh("(funcall (lambda))", "nil");
+    }
+
+    // A captured variable nobody assigns stays a plain slot: a closure
+    // copies its value.
+    #[test]
+    fn a_captured_variable_never_assigned_is_copied() {
+        let ctx = &mut TulispContext::new();
+        let l = listing(
+            ctx,
+            "(defun f (n) (lambda () n))
+             (defun g () (let ((x 1)) (lambda () x)))",
+        );
+        assert!(!l.contains("bind_cell") && !l.contains("load_cell"), "{l}");
+        eval_assert_equal_fresh(
+            "(defun g (a) (let ((x (* a 2))) (lambda () (lambda () (+ a x)))))
+             (list (funcall (funcall (g 1))) (funcall (funcall (g 5))))",
+            "'(3 15)",
+        );
+        eval_assert_equal_fresh(
+            "(let ((fs nil)) (dolist (i '(1 2 3)) (setq fs (cons (lambda () i) fs)))
+               (mapcar #'funcall fs))",
+            "'(3 2 1)",
+        );
+    }
+
+    // A closure that reads a captured variable and then sets it, itself
+    // or from a closure inside it, shares it with the variable's scope.
+    #[test]
+    fn a_captured_variable_read_then_assigned_in_the_closure_is_shared() {
+        eval_assert_equal_fresh(
+            "(defun f () (let ((x 1)) (funcall (lambda () (cons x (setq x 2)))) x)) (f)",
+            "2",
+        );
+        eval_assert_equal_fresh(
+            "(defun g ()
+               (let ((x 1))
+                 (funcall (cdr (funcall (lambda () (cons x (lambda () (setq x 5)))))))
+                 x))
+             (g)",
+            "5",
+        );
+    }
+
+    // A variable a closure captures and anything assigns, also from a
+    // closure nested in another, is shared through a cell.
+    #[test]
+    fn a_captured_variable_assigned_anywhere_is_shared() {
+        let ctx = &mut TulispContext::new();
+        let l = listing(
+            ctx,
+            "(defun h () (let ((x 1)) (list (lambda () (lambda () (setq x 2))) (lambda () x))))",
+        );
+        assert!(l.contains("bind_cell"), "{l}");
+        eval_assert_equal_fresh(
+            "(defun h () (let ((x 1)) (list (lambda () (lambda () (setq x 2))) (lambda () x))))
+             (let ((fs (h))) (funcall (funcall (car fs))) (funcall (cadr fs)))",
+            "2",
+        );
+        eval_assert_equal_fresh(
+            "(defun k (p) (let ((get (lambda () p))) (setq p (* p 10)) (funcall get))) (k 4)",
+            "40",
+        );
     }
 }

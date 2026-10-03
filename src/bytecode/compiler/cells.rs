@@ -1,14 +1,14 @@
-//! Turning a variable that a closure captures into a cell, once the
+//! Turning a variable shared with a closure into a cell, once the
 //! scope it is bound in has compiled.
 
 use super::scope::ScopeVar;
 use crate::bytecode::{Block, Instruction};
 
-/// Swaps the uses of each of VARS that a closure captured, in
+/// Swaps the uses of each of VARS that is shared with a closure, in
 /// INSTRUCTIONS, for their cell forms: VARS are leaving scope, and
 /// INSTRUCTIONS run from their binding on.
-pub(crate) fn swap_captured(vars: &[ScopeVar], instructions: &mut [Instruction]) {
-    for var in vars.iter().filter(|var| var.captured) {
+pub(crate) fn swap_shared(vars: &[ScopeVar], instructions: &mut [Instruction]) {
+    for var in vars.iter().filter(|var| var.shared()) {
         swap_to_cells(instructions, var.slot);
     }
 }

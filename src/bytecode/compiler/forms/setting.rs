@@ -1,7 +1,7 @@
 use crate::{
     Error, ErrorKind, TulispContext, TulispObject,
     bytecode::compiler::cells::swap_to_cells,
-    bytecode::compiler::scope::{Resolved, resolve},
+    bytecode::compiler::scope::resolve_assignment,
     bytecode::{
         Instruction,
         compiler::compiler::{compile_expr_keep_result, compile_progn},
@@ -25,13 +25,13 @@ pub(super) fn compile_fn_setq(
         };
         // A keyword is a constant, unless it names a parameter of the
         // function being compiled.
-        let resolved = resolve(ctx, &target)?;
-        if !matches!(resolved, Resolved::Local(_) | Resolved::Cell(_)) {
+        let assignment = resolve_assignment(ctx, &target)?;
+        if !assignment.is_local() {
             crate::builtin::check_settable_target(&target)?;
         }
         result.append(&mut compile_expr_keep_result(ctx, &value)?);
         let keep = keep_result && items.peek().is_none();
-        result.push(resolved.store(&target, keep));
+        result.push(assignment.store(&target, keep));
     }
     if result.is_empty() && keep_result {
         result.push(Instruction::Push(TulispObject::nil()));
@@ -71,9 +71,10 @@ pub(super) fn compile_fn_let_star(
         let closed = compiler.unbind(binds.len());
         compiler.free_slots_to(first_slot);
         let mut result = result?;
-        // A variable a closure captured is a cell from its binding on.
+        // A variable shared with a closure is a cell from its binding
+        // on.
         for (var, bind_at) in closed.iter().zip(binds) {
-            if var.captured {
+            if var.shared() {
                 swap_to_cells(&mut result[bind_at..], var.slot);
             }
         }

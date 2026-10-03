@@ -136,7 +136,7 @@ pub(crate) enum Instruction {
     /// variable's binding.
     BindLocal(u16),
     /// Pop a value into a fresh cell in slot `n`: the binding of a
-    /// variable a closure captures.
+    /// variable shared with a closure.
     BindCell(u16),
     /// Read or write the value in slot `n`.
     LoadLocal(u16),
@@ -151,7 +151,8 @@ pub(crate) enum Instruction {
         from: u16,
         to: u16,
     },
-    /// Read or write the running closure's captured cell at this index.
+    /// Read the running closure's captured variable at this index, or
+    /// write it through its cell.
     LoadCapture(u16),
     StoreCapture(u16),
     StorePopCapture(u16),
@@ -262,8 +263,8 @@ pub(crate) enum Instruction {
         optional_count: usize,
         rest_count: usize,
     },
-    /// Make a closure of a compiled `(lambda …)` body, with the cells of
-    /// the variables it captures, and push it (as a
+    /// Make a closure of a compiled `(lambda …)` body, with the
+    /// variables it captures, and push it (as a
     /// `TulispValue::CompiledDefun`) on the stack.
     MakeLambda(Shared<LambdaTemplate>),
     /// Pops a function `MakeLambda` made for a `defun` that closes over
