@@ -1,5 +1,5 @@
 use crate::{
-    Error, TulispContext, TulispObject, destruct_bind, list,
+    Error, Rest, TulispContext, TulispObject, list,
     lists::{last, length},
 };
 
@@ -7,17 +7,13 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.define_special_form("if");
 
     ctx.defmacro("when", |ctx, args| {
-        destruct_bind!((cond &rest body) = args);
-        list!(,ctx.intern("if") ,cond ,TulispObject::cons(ctx.intern("progn"), body))
+        let (cond, body): (TulispObject, Rest<TulispObject>) = args.destructure(ctx)?;
+        list!(,ctx.intern("if") ,cond ,list!(,ctx.intern("progn") ,@body)?)
     });
 
     ctx.defmacro("unless", |ctx, args| {
-        destruct_bind!((cond &rest body) = args);
-
-        Ok(TulispObject::cons(
-            ctx.intern("if"),
-            TulispObject::cons(cond, TulispObject::cons(TulispObject::nil(), body)),
-        ))
+        let (cond, body): (TulispObject, Rest<TulispObject>) = args.destructure(ctx)?;
+        list!(,ctx.intern("if") ,cond ,TulispObject::nil() ,@body)
     });
 
     ctx.define_special_form("cond");
@@ -43,7 +39,8 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     );
 
     ctx.defmacro("if-let*", |ctx, args| {
-        destruct_bind!((varlist then &rest body) = args);
+        let (varlist, then, body): (TulispObject, TulispObject, Rest<TulispObject>) =
+            args.destructure(ctx)?;
         if varlist.null() {
             return list!(,ctx.intern("let*") ,varlist ,then);
         }
@@ -59,32 +56,25 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     });
 
     ctx.defmacro("if-let", |ctx, args| {
-        destruct_bind!((spec then &rest body) = args);
+        let (spec, then, body): (TulispObject, TulispObject, Rest<TulispObject>) =
+            args.destructure(ctx)?;
         let spec = if length(&spec)? <= 2 && !spec.car()?.listp() {
             list!(,spec)?
         } else {
             spec
         };
-        let macroexp_progn_on_body = if body.cdr()?.is_truthy() {
-            list!(,ctx.intern("progn") ,@body)?
-        } else {
-            body.car()?
-        };
+        let macroexp_progn_on_body = macroexp_progn(ctx, body)?;
         list!(,ctx.intern("if-let*") ,spec ,then ,macroexp_progn_on_body)
     });
 
     ctx.defmacro("when-let", |ctx, args| {
-        destruct_bind!((spec &rest body) = args);
-        let macroexp_progn_on_body = if body.cdr()?.is_truthy() {
-            list!(,ctx.intern("progn") ,@body)?
-        } else {
-            body.car()?
-        };
+        let (spec, body): (TulispObject, Rest<TulispObject>) = args.destructure(ctx)?;
+        let macroexp_progn_on_body = macroexp_progn(ctx, body)?;
         list!(,ctx.intern("if-let") ,spec ,macroexp_progn_on_body)
     });
 
     ctx.defmacro("while-let", |ctx, args| {
-        destruct_bind!((spec &rest body) = args);
+        let (spec, body): (TulispObject, Rest<TulispObject>) = args.destructure(ctx)?;
         list!(,ctx.intern("while")
               ,list!(
                   ,ctx.intern("if-let"),
@@ -94,6 +84,19 @@ pub(crate) fn add(ctx: &mut TulispContext) {
               )?
         )
     });
+}
+
+/// BODY as one form: nil for none, the form itself for one, and a
+/// `progn` of them for more, as Emacs's `macroexp-progn`.
+fn macroexp_progn(
+    ctx: &mut TulispContext,
+    body: Rest<TulispObject>,
+) -> Result<TulispObject, Error> {
+    match &body[..] {
+        [] => Ok(TulispObject::nil()),
+        [single] => Ok(single.clone()),
+        [_, _, ..] => list!(,ctx.intern("progn") ,@body),
+    }
 }
 
 fn build_binding(
@@ -134,7 +137,45 @@ fn build_bindings(ctx: &mut TulispContext, bindings: &TulispObject) -> Result<Tu
 #[cfg(test)]
 mod tests {
     use crate::TulispContext;
-    use crate::test_utils::{eval_assert_equal, eval_assert_error_line, eval_assert_prints_as};
+    use crate::test_utils::{
+        eval_assert_equal, eval_assert_error, eval_assert_error_line, eval_assert_prints_as,
+    };
+
+    // Errors in a macro's body keep their source positions.
+    #[test]
+    fn errors_in_expanded_bodies_keep_their_positions() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_error(
+            ctx,
+            "(when t (car 5))",
+            "ERR TypeMismatch: Expected list, got: 5\n\
+             <eval_string>:1.9-1.15:  at (car 5)\n\
+             <eval_string>:1.1-1.16:  at (if t (progn (car 5)))\n",
+        );
+        eval_assert_error(
+            ctx,
+            "(if-let ((a 1)) (car 5))",
+            "ERR TypeMismatch: Expected list, got: 5\n\
+             <eval_string>:1.17-1.23:  at (car 5)\n\
+             <eval_string>:1.1-1.24:  at (let* ((a (and t 1))) (if a (car 5) nil))\n",
+        );
+    }
+
+    // A macro called with a dotted body raises the list walk's error.
+    #[test]
+    fn a_dotted_body_is_an_error() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_error_line(
+            ctx,
+            "(macroexpand '(unless a b . c))",
+            "ERR TypeMismatch: Expected list, got: c",
+        );
+        eval_assert_error_line(
+            ctx,
+            "(macroexpand '(if-let (a 1) 2 3 . 4))",
+            "ERR TypeMismatch: Expected list, got: 4",
+        );
+    }
 
     #[test]
     fn and_returns_nil_at_the_first_nil_argument() {
