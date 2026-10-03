@@ -1,8 +1,6 @@
 use std::{collections::HashMap, iter::Peekable, str::Chars};
 
-use crate::{
-    Error, Number, TulispContext, TulispObject, TulispValue, destruct_bind, list, object::Span,
-};
+use crate::{Error, Number, Rest, TulispContext, TulispObject, TulispValue, object::Span};
 
 struct Tokenizer<'a> {
     file_id: usize,
@@ -755,66 +753,120 @@ impl Parser<'_, '_> {
 /// marked call.
 pub(crate) fn mark_tail_calls(
     ctx: &mut TulispContext,
-    name: TulispObject,
+    name: &TulispObject,
     body: TulispObject,
+) -> TulispObject {
+    let mut items = body.base_iter();
+    let forms = items.by_ref().collect::<Vec<_>>();
+    // A dotted body is left as it is, for its own form to report.
+    if items.take_error().is_err() {
+        return body;
+    }
+    mark_body(ctx, name, forms)
+}
+
+/// FORMS, a body, as a list with the tail calls in its last form
+/// marked.
+fn mark_body(
+    ctx: &mut TulispContext,
+    name: &TulispObject,
+    forms: impl IntoIterator<Item = TulispObject>,
+) -> TulispObject {
+    let mut forms = forms.into_iter().collect::<Vec<_>>();
+    if let Some(last) = forms.pop() {
+        forms.push(mark_tail_form(ctx, name, last));
+    }
+    forms.into()
+}
+
+/// FORM, a form in tail position, with its tail calls marked; FORM
+/// itself when this pass cannot read it.
+fn mark_tail_form(
+    ctx: &mut TulispContext,
+    name: &TulispObject,
+    form: TulispObject,
+) -> TulispObject {
+    match try_mark_tail_form(ctx, name, &form) {
+        Ok(marked) => marked.with_span(form.span()),
+        Err(_) => form,
+    }
+}
+
+fn try_mark_tail_form(
+    ctx: &mut TulispContext,
+    name: &TulispObject,
+    form: &TulispObject,
 ) -> Result<TulispObject, Error> {
-    if !body.consp() {
-        return Ok(body);
+    if !form.consp() {
+        return Ok(form.clone());
     }
-    let mut builder = crate::cons::ListBuilder::new();
-    let mut body_iter = body.base_iter();
-    let mut tail = body_iter.next().unwrap();
-    for next in body_iter {
-        builder.push(tail);
-        tail = next;
-    }
-    if !tail.consp() {
-        return Ok(body);
-    }
-    let span = tail.span();
-    let tail_ident = tail.car()?;
+    let head = form.car()?;
     // A head that is not a symbol, such as a `(lambda ...)` list, is
     // no function the compiler knows: the call stays as it is.
-    let Ok(tail_name_str) = tail_ident.as_symbol() else {
-        return Ok(body);
+    let Ok(head_name) = head.as_symbol() else {
+        return Ok(form.clone());
     };
-    let is_self_call = tail_ident.eq(&name);
+    let is_self_call = head.eq(name);
     let is_known_vm_defun = ctx
         .compiler
         .as_ref()
-        .is_some_and(|c| c.defun_args.contains_key(&tail_ident.addr_as_usize()));
-    let new_tail = if is_self_call || is_known_vm_defun {
+        .is_some_and(|c| c.defun_args.contains_key(&head.addr_as_usize()));
+    if is_self_call || is_known_vm_defun {
         // The marker is its own head, so no function or variable of
         // the program can shadow it.
-        TulispObject::cons(TulispValue::Bounce.into_ref(None), tail)
-    } else if tail_name_str == "progn" || tail_name_str == "let" || tail_name_str == "let*" {
-        list!(,tail_ident ,@mark_tail_calls(ctx, name, tail.cdr()?)?)?
-    } else if tail_name_str == "if" {
-        destruct_bind!((_if condition then_body &rest else_body) = tail);
-        list!(,tail_ident
-            ,condition.clone()
-            ,mark_tail_calls(
-                ctx,
-                name.clone(),
-                list!(,then_body)?
-            )?.car()?
-            ,@mark_tail_calls(ctx, name, else_body)?
-        )?
-    } else if tail_name_str == "cond" {
-        destruct_bind!((_cond &rest conds) = tail);
-        let mut ret = list!(,tail_ident)?;
-        for cond in conds.base_iter() {
-            destruct_bind!((condition &rest body) = cond);
-            ret = list!(,@ret
-                ,list!(,condition.clone()
-                    ,@mark_tail_calls(ctx, name.clone(), body)?)?)?;
+        return Ok(TulispObject::cons(
+            TulispValue::Bounce.into_ref(None),
+            form.clone(),
+        ));
+    }
+    match head_name.as_str() {
+        "progn" => Ok(TulispObject::cons(
+            head,
+            mark_tail_calls(ctx, name, form.cdr()?),
+        )),
+        "let" | "let*" => {
+            let rest = form.cdr()?;
+            if !rest.consp() {
+                return Ok(form.clone());
+            }
+            // The bindings are never marked; only the body is.
+            Ok(TulispObject::cons(
+                head,
+                TulispObject::cons(rest.car()?, mark_tail_calls(ctx, name, rest.cdr()?)),
+            ))
         }
-        ret
-    } else {
-        tail
-    };
-    builder.push(new_tail.with_span(span));
-    Ok(builder.build())
+        "if" => {
+            let (_, condition, then_form, else_body): (
+                TulispObject,
+                TulispObject,
+                TulispObject,
+                Rest<TulispObject>,
+            ) = form.destructure(ctx)?;
+            let then_form = mark_tail_form(ctx, name, then_form);
+            let else_body = mark_body(ctx, name, else_body);
+            Ok(TulispObject::cons(
+                head,
+                TulispObject::cons(condition, TulispObject::cons(then_form, else_body)),
+            ))
+        }
+        "cond" => {
+            let (_, clauses): (TulispObject, Rest<TulispObject>) = form.destructure(ctx)?;
+            let mut marked = vec![head];
+            for clause in clauses {
+                // A clause this pass cannot read stays as it is.
+                marked.push(
+                    match clause.destructure::<(TulispObject, Rest<TulispObject>)>(ctx) {
+                        Ok((condition, body)) => {
+                            TulispObject::cons(condition, mark_body(ctx, name, body))
+                        }
+                        Err(_) => clause,
+                    },
+                );
+            }
+            Ok(marked.into())
+        }
+        _ => Ok(form.clone()),
+    }
 }
 
 pub fn parse(
@@ -837,6 +889,63 @@ pub fn parse(
 mod tests {
     use crate::test_utils::{eval_assert_equal, eval_assert_equal_fresh, eval_assert_error};
     use crate::{Error, TulispContext};
+
+    // Marking tail calls rejects no form: one it cannot read is left
+    // unmarked, and a malformed one is reported by its own form.
+    #[test]
+    fn the_tail_call_pass_rejects_no_form() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(defun f (a) (cond (a . b))) (list (f nil) (f 1))",
+            "'(nil nil)",
+        );
+        for (program, form) in [
+            ("(defun g () (cond . 3))", "(cond . 3)"),
+            ("(defun h (a) (cond (a) . 3))", "(cond (a) . 3)"),
+            ("(defun p () (progn . 3))", "(progn . 3)"),
+            ("(defun q (n) (progn 1 (q n) . 3))", "(progn 1 (q n) . 3)"),
+        ] {
+            let Err(err) = ctx.eval_string(program) else {
+                panic!("{program} compiled");
+            };
+            let message = err.format(ctx);
+            assert!(
+                message.starts_with("ERR TypeMismatch: expected list, got: 3\n"),
+                "{message}"
+            );
+            assert!(message.contains(&format!("at {form}\n")), "{message}");
+        }
+    }
+
+    // A `cond` clause the pass cannot read stays as it is, and the
+    // other clauses are still marked; a `let` with no body keeps its
+    // bindings unmarked.
+    #[test]
+    fn marking_keeps_what_it_cannot_read() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(defun f (n) (cond ((= n 0) 0) (nil . x) (t (f (- n 1))))) (f 100)",
+            "0",
+        );
+        eval_assert_equal(ctx, "(defun x () (let (x))) (x)", "nil");
+        eval_assert_equal(ctx, "(defun g () 1) (defun h () (let* (g y))) (h)", "nil");
+    }
+
+    // A `cond` clause that is not a list is reported by `cond` itself
+    // when its defun is compiled, not by tail-call marking.
+    #[test]
+    fn a_non_list_cond_clause_is_reported_by_cond() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_error(
+            ctx,
+            "(defun k () (cond x))",
+            "ERR TypeMismatch: Expected list, got: x\n\
+             <eval_string>:1.13-1.20:  at (cond x)\n\
+             <eval_string>:1.1-1.21:  at (defun k nil (cond x))\n",
+        );
+    }
 
     // A call whose head is a `(lambda ...)` list can be in tail
     // position, alone or in a branch.

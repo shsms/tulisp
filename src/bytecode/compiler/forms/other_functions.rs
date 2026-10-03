@@ -264,7 +264,7 @@ fn compile_lambda_head_call(
     // no self call here.
     let mut rest = lambda.cdr()?;
     if rest.consp() {
-        let body = mark_tail_calls(ctx, lambda.clone(), rest.cdr()?)?;
+        let body = mark_tail_calls(ctx, lambda, rest.cdr()?);
         rest = TulispObject::cons(rest.car()?, body);
     }
     let compiler = ctx.compiler.as_mut().unwrap();
@@ -409,7 +409,7 @@ fn compile_defun(
         } else {
             body.clone()
         };
-        let body = mark_tail_calls(ctx, defun_name.clone(), body)?;
+        let body = mark_tail_calls(ctx, defun_name, body);
         // A variable of a scope around the function is captured when
         // the defun form runs, as a lambda captures it.
         let compiled = super::lambda::compile_function_body(ctx, &param_names, &body);
