@@ -928,18 +928,17 @@ fn run_impl_inner(
                 };
                 // The form compiled the closure under NAME already.
                 debug_assert!(function.name.eq_ptr(name));
-                // Install the new function only if the name still holds
-                // a function of this defun form: the one the form compiled
-                // to, or one an earlier run of the form made. A later
-                // defun of the name, which took effect as the program
-                // compiled, stays.
+                // Install the new function unless the machine's table holds
+                // a function of another defun of the name, so that a later
+                // defun, which took effect as the program compiled, stays.
+                // One of this form, the one it compiled to or one an
+                // earlier run made, is replaced, and so is no function, or
+                // one made under another name or none, as a lambda is.
                 let addr = name.addr_as_usize();
-                let holds_this_form = ctx
-                    .vm
-                    .functions
-                    .get(&addr)
-                    .is_some_and(|current| current.same_code(&function));
-                if holds_this_form {
+                let holds_another_defun = ctx.vm.functions.get(&addr).is_some_and(|current| {
+                    current.name.eq_ptr(name) && !current.same_code(&function)
+                });
+                if !holds_another_defun {
                     name.set_global(closure)?;
                     ctx.vm.set_function(addr, function);
                 }

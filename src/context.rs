@@ -1333,6 +1333,22 @@ mod tests {
         eval_assert_equal(ctx, "(ping 1000)", "'done");
     }
 
+    // A `defun` that runs again, as one inside a function does, defines
+    // its name again after `fset` or `fmakunbound` changed it.
+    #[test]
+    fn a_defun_run_again_redefines_a_name_fset_or_fmakunbound_changed() {
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string("(defun make-f () (let ((n 0)) (defun f () (setq n (1+ n))))) (make-f)")
+            .unwrap();
+        ctx.fmakunbound("f").unwrap();
+        ctx.eval_string("(make-f)").unwrap();
+        eval_assert_equal(ctx, "(f)", "1");
+        let other = ctx.eval_string("(lambda () 'other)").unwrap();
+        ctx.fset("f", other).unwrap();
+        ctx.eval_string("(make-f)").unwrap();
+        eval_assert_equal(ctx, "(f)", "1");
+    }
+
     // A function, special form or macro can't be named `nil`, `t` or a
     // keyword.
     #[test]
