@@ -316,8 +316,8 @@ mod tests {
             r#"
         (setq some-var 0)
         (setq x 2)
-        (+ x (funcall (let ((x 10)
-                       (inc-some-var (lambda () (setq some-var (+ some-var x)))))
+        (+ x (funcall (let* ((x 10)
+                        (inc-some-var (lambda () (setq some-var (+ some-var x)))))
                    (funcall inc-some-var)
                    (let ((x 100))
                      (funcall inc-some-var))

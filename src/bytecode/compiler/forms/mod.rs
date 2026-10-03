@@ -63,7 +63,7 @@ impl VMCompilers {
             ("apply", lambda::compile_fn_apply),
             ("progn", other_functions::compile_fn_progn),
             // setting
-            ("let", setting::compile_fn_let_star),
+            ("let", setting::compile_fn_let),
             ("let*", setting::compile_fn_let_star),
             ("setq", setting::compile_fn_setq),
             ("set", setting::compile_fn_set),

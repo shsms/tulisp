@@ -56,17 +56,35 @@ pub(super) fn compile_fn_set(
     })
 }
 
+pub(super) fn compile_fn_let(
+    ctx: &mut TulispContext,
+    name: &TulispObject,
+    args: &TulispObject,
+) -> Result<Vec<Instruction>, Error> {
+    compile_let_form(ctx, name, args, true)
+}
+
 pub(super) fn compile_fn_let_star(
     ctx: &mut TulispContext,
     name: &TulispObject,
     args: &TulispObject,
+) -> Result<Vec<Instruction>, Error> {
+    compile_let_form(ctx, name, args, false)
+}
+
+/// Compiles a `let` form, or with PARALLEL false a `let*` form.
+fn compile_let_form(
+    ctx: &mut TulispContext,
+    name: &TulispObject,
+    args: &TulispObject,
+    parallel: bool,
 ) -> Result<Vec<Instruction>, Error> {
     ctx.compile_1_arg_call(name, args, true, |ctx, varlist, body| {
         // The variables this `let` puts in scope leave it, and their
         // slots are free again, on every path out, an error included.
         let first_slot = ctx.compiler.as_ref().unwrap().next_slot();
         let mut binds = Vec::new();
-        let result = compile_let_star(ctx, varlist, body, &mut binds);
+        let result = compile_varlist_and_body(ctx, varlist, body, parallel, first_slot, &mut binds);
         let compiler = ctx.compiler.as_mut().unwrap();
         let closed = compiler.unbind(binds.len());
         compiler.free_slots_to(first_slot);
@@ -82,21 +100,39 @@ pub(super) fn compile_fn_let_star(
     })
 }
 
-/// Compiles `(let* VARLIST BODY...)`, noting in BINDS where in the code
-/// each lexical variable it puts in scope is bound.
-fn compile_let_star(
+/// Compiles the VARLIST and BODY of a `let`, or with PARALLEL false a
+/// `let*`, noting in BINDS where in the code each lexical variable it
+/// puts in scope is bound.
+///
+/// A `let*` binds each variable once its initialiser has run, so the
+/// next initialiser sees it. A `let` puts each value in a slot as it is
+/// computed. Its variables enter the scope, and its special variables
+/// are bound, in order, once every initialiser has run. When its last
+/// variable is special, that value stays on the stack and binds from
+/// there. The variables take the slots from FIRST_SLOT, the next free
+/// one, on.
+fn compile_varlist_and_body(
     ctx: &mut TulispContext,
     varlist: &TulispObject,
     body: &TulispObject,
+    parallel: bool,
+    first_slot: u16,
     binds: &mut Vec<usize>,
 ) -> Result<Vec<Instruction>, Error> {
     let mut result = vec![];
     // The special variables bound, for their `EndScope`s.
     let mut params: Vec<TulispObject> = Vec::new();
-    // The slots of the lexical variables bound.
-    let mut slots: Vec<u16> = Vec::new();
-    let mut varitems = varlist.base_iter();
-    for varitem in varitems.by_ref() {
+    // For a `let`: the variables, the slots their values wait in, and
+    // where each is put there, until every initialiser has run.
+    let mut waiting: Vec<(TulispObject, u16, usize)> = Vec::new();
+    // For a `let` whose last variable is special: that variable, whose
+    // value stays on the stack until the ones waiting are bound.
+    let mut last_special = None;
+    let mut iter = varlist.base_iter();
+    let varitems = iter.by_ref().collect::<Vec<_>>();
+    iter.take_error()?;
+    let count = varitems.len();
+    for (index, varitem) in varitems.into_iter().enumerate() {
         crate::builtin::check_not_nil_or_t(&varitem)?;
         let (name, value_expr) = if varitem.is_symbol_variant() {
             (varitem.clone(), None)
@@ -143,21 +179,45 @@ fn compile_let_star(
         // A dynamic (special) variable binds on the symbol's own stack,
         // so `set` and dynamic references see the let-bound value; it
         // does not enter the scope, so it hides no lexical variable.
+        if name.is_special() && !parallel {
+            result.push(Instruction::BeginScope(name.clone()));
+            params.push(name);
+            continue;
+        }
+        if name.is_special() && index + 1 == count {
+            last_special = Some(name);
+            continue;
+        }
+        let compiler = ctx.compiler.as_mut().unwrap();
+        let slot = compiler.take_slot()?;
+        let bind_at = result.len();
+        result.push(Instruction::BindLocal(slot));
+        if parallel {
+            waiting.push((name, slot, bind_at));
+        } else {
+            binds.push(bind_at);
+            compiler.name_slot(name, slot);
+        }
+    }
+    let compiler = ctx.compiler.as_mut().unwrap();
+    let end_slot = compiler.next_slot();
+    for (name, slot, bind_at) in waiting {
         if name.is_special() {
+            result.push(Instruction::LoadLocal(slot));
             result.push(Instruction::BeginScope(name.clone()));
             params.push(name);
         } else {
-            let slot = ctx.compiler.as_mut().unwrap().bind_slot(name)?;
-            slots.push(slot);
-            binds.push(result.len());
-            result.push(Instruction::BindLocal(slot));
+            binds.push(bind_at);
+            compiler.name_slot(name, slot);
         }
     }
-    varitems.take_error()?;
+    if let Some(name) = last_special {
+        result.push(Instruction::BeginScope(name.clone()));
+        params.push(name);
+    }
     // The special variables are counted while the body compiles. A
     // lexical variable's slot needs no such care: the frame goes with
     // the call.
-    let compiler = ctx.compiler.as_mut().unwrap();
     compiler.count_special_lets(params.len(), true);
     let body_result = compile_progn(ctx, body);
     ctx.compiler
@@ -173,10 +233,10 @@ fn compile_let_star(
     for param in params.into_iter().rev() {
         result.push(Instruction::EndScope(param));
     }
-    if let (Some(from), Some(last)) = (slots.first(), slots.last()) {
+    if end_slot > first_slot {
         result.push(Instruction::ClearLocals {
-            from: *from,
-            to: *last + 1,
+            from: first_slot,
+            to: end_slot,
         });
     }
     Ok(result)
@@ -189,6 +249,64 @@ mod tests {
         listing,
     };
     use crate::{Error, TulispContext};
+
+    // A `let` binds its variables once every initialiser has run, so an
+    // initialiser sees the variables around the `let`; one of a `let*`
+    // sees the variables before it. Emacs 30.1 gives the same values.
+    #[test]
+    fn let_binds_after_every_initialiser_runs() {
+        for (program, value) in [
+            ("(let ((x 1)) (let ((x 2) (y x)) y))", "1"),
+            ("(let ((x 1)) (let* ((x 2) (y x)) y))", "2"),
+            (
+                "(let ((x 1)) (let ((x 2) (f (lambda () x))) (funcall f)))",
+                "1",
+            ),
+            ("(let ((x 1) (x 2)) x)", "2"),
+            (
+                "(let ((x 1)) (list (let ((x (+ x 10)) (y (setq x 5))) (list x y)) x))",
+                "'((11 5) 5)",
+            ),
+        ] {
+            eval_assert_equal_fresh(program, value);
+        }
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(defvar sp 1) t", "t");
+        for (program, value) in [
+            ("(let ((sp 2) (y sp)) y)", "1"),
+            ("(let* ((sp 2) (y sp)) y)", "2"),
+            // A special between two lexical variables, one of them
+            // shared with a closure.
+            (
+                "(let ((w 0)) (let ((x 1) (sp 2) (z 3)) (funcall (lambda () (setq x 10))) (list x sp z w)))",
+                "'(10 2 3 0)",
+            ),
+            ("(list (let ((sp 2) (sp 3)) sp) sp)", "'(3 1)"),
+            (
+                "(let ((y 0)) (let ((x 1) (sp (setq y 7)) (z y)) (list x sp z)))",
+                "'(1 7 7)",
+            ),
+        ] {
+            eval_assert_equal(ctx, program, value);
+        }
+    }
+
+    // When the last variable of a `let` is special, it binds straight
+    // from the stack, so a `let` of one special variable costs no more
+    // than a `let*`.
+    #[test]
+    fn a_let_of_one_special_compiles_as_a_let_star() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(defvar sp 0) t", "t");
+        assert_eq!(
+            listing(ctx, "(let ((sp 1)) sp)"),
+            listing(ctx, "(let* ((sp 1)) sp)")
+        );
+        assert_eq!(
+            listing(ctx, "(let ((x 1) (sp 2)) (list x sp))"),
+            listing(ctx, "(let* ((x 1) (sp 2)) (list x sp))")
+        );
+    }
 
     // A `let` of two special variables ends them last first, so each
     // `EndScope` ends the binding it names.
