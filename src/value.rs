@@ -85,6 +85,9 @@ pub struct SymbolBindings {
     // behavior under `lexical-binding: t` for declared variables.
     special: bool,
     items: Vec<TulispObject>,
+    /// Whether `items[0]` is the global value. Without one, a `let`'s
+    /// binding is at `items[0]`.
+    has_global: bool,
 }
 
 impl Drop for SymbolBindings {
@@ -114,6 +117,7 @@ impl SymbolBindings {
         }
         if self.items.is_empty() {
             self.items.push(to_set);
+            self.has_global = true;
         } else {
             *self.items.last_mut().unwrap() = to_set;
         }
@@ -125,10 +129,11 @@ impl SymbolBindings {
         if self.constant {
             return Err(Error::setting_constant(&self.name));
         }
-        if self.items.is_empty() {
-            self.items.push(to_set);
+        if self.has_global {
+            self.items[0] = to_set;
         } else {
-            *self.items.first_mut().unwrap() = to_set;
+            self.items.insert(0, to_set);
+            self.has_global = true;
         }
         Ok(())
     }
@@ -151,6 +156,9 @@ impl SymbolBindings {
             )));
         }
         self.items.pop();
+        if self.items.is_empty() {
+            self.has_global = false;
+        }
         Ok(())
     }
 
@@ -453,6 +461,7 @@ impl TulispValue {
                 constant,
                 special: false,
                 items: Default::default(),
+                has_global: false,
             },
         }
     }
@@ -1044,6 +1053,18 @@ impl TulispValue {
 mod tests {
     use crate::TulispContext;
     use crate::test_utils::eval_assert_equal;
+
+    // A global value set while a `let` binds a name that had none goes
+    // under the `let`'s binding, and stays when the `let` ends.
+    #[test]
+    fn a_global_value_set_inside_a_let_outlives_it() {
+        let mut bindings = super::SymbolBindings::default();
+        bindings.set_scope(5.into()).unwrap();
+        bindings.set_global(1.into()).unwrap();
+        assert_eq!(bindings.get().unwrap().to_string(), "5");
+        bindings.unset().unwrap();
+        assert_eq!(bindings.get().unwrap().to_string(), "1");
+    }
 
     #[test]
     fn a_short_type_name_drops_every_module_path() {
