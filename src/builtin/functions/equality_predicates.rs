@@ -15,7 +15,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_utils::{eval_assert, eval_assert_error_line, eval_assert_not};
+    use crate::test_utils::{
+        eval_assert, eval_assert_equal, eval_assert_error_line, eval_assert_not,
+    };
     use crate::{Error, Shared, TulispContext, TulispObject};
 
     #[test]
@@ -37,6 +39,18 @@ mod tests {
         eval_assert(&mut ctx, "(let ((x nil)) (eq x nil))");
         eval_assert_not(&mut ctx, "(eq t nil)");
         eval_assert_not(&mut ctx, "(eq nil 'nil-sym)");
+    }
+
+    // Integers of the same value are `eq`, as in Emacs. A float is `eq`
+    // only to itself.
+    #[test]
+    fn eq_compares_integers_by_value() {
+        let mut ctx = TulispContext::new();
+        eval_assert(&mut ctx, "(let ((a 1000) (b (+ 999 1))) (eq a b))");
+        eval_assert_not(&mut ctx, "(eq 1.5 (+ 1.0 0.5))");
+        eval_assert_not(&mut ctx, "(eq 1 1.0)");
+        eval_assert_equal(&mut ctx, "(memq (+ 999 1) (list 1 1000 3))", "'(1000 3)");
+        eval_assert_equal(&mut ctx, "(catch (+ 999 1) (throw 1000 'x))", "'x");
     }
 
     #[test]

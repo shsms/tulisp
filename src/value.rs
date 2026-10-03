@@ -375,11 +375,11 @@ impl std::fmt::Debug for TulispValue {
 /// atoms through it, and lists and quote forms on its own.
 /// Other opaque values compare false here; `TulispObject::equal`
 /// checks object identity first, so a value still equals itself.
-/// Symbols never reach this: `equal` sends them through `eq`. `eq`
-/// and `eql` also compare through this impl, but only after narrowing
-/// `self` to `Nil` / `T` (and `Number` for `eql`), so no other arm is
-/// reachable from them. Anything compared by structure here must
-/// hash the same way in `equal_hash`.
+/// Symbols never reach this: `equal` sends them through `eq`. `eql`
+/// also compares through this impl, but only after narrowing `self` to
+/// `Nil` / `T` and `Number`, so no other arm is reachable from it.
+/// Anything compared by structure here must hash the same way in
+/// `equal_hash`.
 impl PartialEq for TulispValue {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {

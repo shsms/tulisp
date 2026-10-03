@@ -318,6 +318,15 @@ macro_rules! extractor_fn_with_err {
     };
 }
 
+/// An object's identity for `eq`; see [`TulispObject::eq_key`].
+#[derive(PartialEq, Eq, Hash)]
+pub(crate) enum EqKey {
+    Nil,
+    T,
+    Int(i64),
+    Addr(usize),
+}
+
 // pub methods on TulispValue
 impl TulispObject {
     /// Create a new `nil` value.
@@ -395,20 +404,29 @@ impl TulispObject {
         }
     }
 
-    /// Returns true if `self` and `other` are the same object. `nil`
-    /// and `t` count as one value each.
+    /// Returns true if `self` and `other` are the same object. `nil`,
+    /// `t` and each integer count as one value each, as in Emacs for
+    /// the integers that fit its fixnums.
     ///
     /// Read more about Emacs equality predicates
     /// [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Equality-Predicates.html).
     #[allow(clippy::should_implement_trait)]
     pub fn eq(&self, other: &TulispObject) -> bool {
-        if self.eq_ptr(other) {
-            return true;
+        self.eq_ptr(other) || self.eq_key() == other.eq_key()
+    }
+
+    /// What `eq` compares: `nil`, `t` and each integer are one key
+    /// each, and anything else is its own object.
+    pub(crate) fn eq_key(&self) -> EqKey {
+        match &self.inner_ref().0 {
+            TulispValue::Nil => EqKey::Nil,
+            TulispValue::T => EqKey::T,
+            TulispValue::Number {
+                value: Number::Int(value),
+                ..
+            } => EqKey::Int(*value),
+            _ => EqKey::Addr(self.addr_as_usize()),
         }
-        // `nil` and `t` are one value each; anything else is `eq` only to
-        // itself.
-        let value = self.inner_ref();
-        matches!(value.0, TulispValue::Nil | TulispValue::T) && value.0 == other.inner_ref().0
     }
 
     /// Returns true if `self` and `other` are [`eq`](Self::eq), or

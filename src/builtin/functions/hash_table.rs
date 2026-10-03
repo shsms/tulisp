@@ -112,33 +112,12 @@ fn equal_hash_at<H: Hasher>(obj: &TulispObject, state: &mut H, depth: u32) {
     }
 }
 
-/// What makes an object one `eq` key: `nil` and `t` are one key each
-/// (every read of them is a fresh object), everything else is its
-/// address.
-#[derive(PartialEq, Eq, Hash)]
-enum EqKey {
-    Nil,
-    T,
-    Addr(usize),
-}
-
-/// The `eq` key of `obj`. A `nil` key must stay `nil` while it is in
-/// a table: pushing onto it from Rust turns it into a list, which
-/// changes its key.
-fn identity_key(obj: &TulispObject) -> EqKey {
-    match &obj.inner_ref().0 {
-        TulispValue::Nil => EqKey::Nil,
-        TulispValue::T => EqKey::T,
-        _ => EqKey::Addr(obj.addr_as_usize()),
-    }
-}
-
 impl Hash for HashKey {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match self.test {
-            HashTest::Eq => identity_key(&self.obj).hash(state),
+            HashTest::Eq => self.obj.eq_key().hash(state),
             HashTest::Eql => {
-                // Copy the number out first: `identity_key` reads the
+                // Copy the number out first: `eq_key` reads the
                 // object again, so this borrow must be gone by then.
                 let number = match &self.obj.inner_ref().0 {
                     TulispValue::Number { value, .. } => Some(*value),
@@ -147,7 +126,7 @@ impl Hash for HashKey {
                 match number {
                     Some(Number::Int(i)) => i.hash(state),
                     Some(Number::Float(f)) => f.to_bits().hash(state),
-                    None => identity_key(&self.obj).hash(state),
+                    None => self.obj.eq_key().hash(state),
                 }
             }
             HashTest::Equal => equal_hash(&self.obj, state),
@@ -158,7 +137,7 @@ impl Hash for HashKey {
 impl PartialEq for HashKey {
     fn eq(&self, other: &Self) -> bool {
         match self.test {
-            HashTest::Eq => identity_key(&self.obj) == identity_key(&other.obj),
+            HashTest::Eq => self.obj.eq_key() == other.obj.eq_key(),
             HashTest::Eql => self.obj.eql(&other.obj),
             HashTest::Equal => self.obj.equal(&other.obj),
         }
@@ -311,6 +290,18 @@ mod tests {
         eval_assert_equal(
             &mut ctx,
             r#"(let ((h (make-hash-table :test 'eq))) (puthash "k" 1 h) (gethash "k" h 'missing))"#,
+            "'missing",
+        );
+        // Under `eq`, an integer key matches by value and a float key
+        // only itself, as in Emacs.
+        eval_assert_equal(
+            &mut ctx,
+            "(let ((h (make-hash-table :test 'eq))) (puthash 1000 'a h) (gethash (+ 999 1) h))",
+            "'a",
+        );
+        eval_assert_equal(
+            &mut ctx,
+            "(let ((h (make-hash-table :test 'eq))) (puthash 1.5 'a h) (gethash (+ 1.0 0.5) h 'missing))",
             "'missing",
         );
         eval_assert_equal(
