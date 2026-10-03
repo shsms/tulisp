@@ -608,6 +608,10 @@ impl TulispObject {
     ///
     /// Returns an Error if `self` has no value to unset: it is not a
     /// symbol, is `nil` or `t`, or was never set.
+    ///
+    /// Calls compiled already may still find a function unset here. To
+    /// leave a name with no function, use
+    /// [`TulispContext::fmakunbound`](crate::TulispContext::fmakunbound).
     pub fn unset(&self) -> Result<(), Error> {
         self.rc
             .borrow_mut()
@@ -827,6 +831,14 @@ impl TulispObject {
 
     pub(crate) fn set_global(&self, to_set: TulispObject) -> Result<(), Error> {
         self.rc.borrow_mut().0.set_global(to_set)
+    }
+
+    pub(crate) fn global(&self) -> Option<TulispObject> {
+        self.rc.borrow().0.global()
+    }
+
+    pub(crate) fn unset_global(&self) -> Result<(), Error> {
+        self.rc.borrow_mut().0.unset_global()
     }
 
     /// True for any symbol but `nil` and `t`: a `Symbol` value,

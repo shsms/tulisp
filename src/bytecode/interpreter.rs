@@ -52,7 +52,7 @@ pub struct Machine {
     stack: Vec<TulispObject>,
     functions: HashMap<usize, CompiledDefun>, // key: fn_name.addr_as_usize()
     /// Counts the changes to what a name calls: a function, macro or
-    /// special form defined or replaced. A call keeps the target
+    /// special form defined, replaced or removed. A call keeps the target
     /// it found with the count it found it at, and finds it again when the
     /// count has moved.
     generation: u64,

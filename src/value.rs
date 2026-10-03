@@ -138,6 +138,23 @@ impl SymbolBindings {
         Ok(())
     }
 
+    /// The global value, which `set_global` sets.
+    pub(crate) fn global(&self) -> Option<TulispObject> {
+        self.has_global.then(|| self.items[0].clone())
+    }
+
+    /// Removes the global value, which `set_global` sets.
+    pub(crate) fn unset_global(&mut self) -> Result<(), Error> {
+        if self.constant {
+            return Err(Error::setting_constant(&self.name));
+        }
+        if self.has_global {
+            self.items.remove(0);
+            self.has_global = false;
+        }
+        Ok(())
+    }
+
     #[inline(always)]
     pub(crate) fn set_scope(&mut self, to_set: TulispObject) -> Result<(), Error> {
         if self.constant {
@@ -499,6 +516,25 @@ impl TulispValue {
             TulispValue::Nil | TulispValue::T => Err(Error::setting_constant(&*self)),
             _ => Err(Error::type_mismatch(format!(
                 "Expected Symbol: Can't assign to {self}"
+            ))),
+        }
+    }
+
+    /// A symbol's global value; `None` for one with none, and for any
+    /// other value.
+    pub(crate) fn global(&self) -> Option<TulispObject> {
+        match self {
+            TulispValue::Symbol { value } => value.global(),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn unset_global(&mut self) -> Result<(), Error> {
+        match self {
+            TulispValue::Symbol { value } => value.unset_global(),
+            TulispValue::Nil | TulispValue::T => Err(Error::setting_constant(&*self)),
+            _ => Err(Error::type_mismatch(format!(
+                "Expected Symbol: Can't unbind {self}"
             ))),
         }
     }

@@ -793,6 +793,30 @@ impl TulispContext {
         Ok(())
     }
 
+    /// Removes NAME's global value when it is a function, a macro or a
+    /// special form, like Emacs Lisp's `fmakunbound`. A function and a
+    /// variable of the same name share one value, so a variable whose
+    /// global value is a function loses it too. Any other global value
+    /// stays, and so does a `let`'s binding of NAME.
+    ///
+    /// A call to NAME then fails with a `void-function` error, except
+    /// where the compiler made a call to a built-in such as `car` into its
+    /// own instructions, or expanded a call to a macro.
+    ///
+    /// Returns an Error if NAME is `nil`, `t` or a keyword.
+    pub fn fmakunbound(&mut self, name: &str) -> Result<(), Error> {
+        let sym = self.intern(name);
+        sym.check_global_settable()?;
+        if sym
+            .global()
+            .is_some_and(|value| value.inner_ref().0.is_fbound())
+        {
+            sym.unset_global()?;
+            self.evict_compiled_dispatch(sym.addr_as_usize());
+        }
+        Ok(())
+    }
+
     pub fn set_load_path<P: AsRef<Path>>(&mut self, path: Option<P>) -> Result<(), Error> {
         self.load_path = match path {
             Some(path) => Some(
@@ -1220,6 +1244,48 @@ mod tests {
         let lambda = ctx.eval_string("(lambda () 4)").unwrap();
         ctx.fset("set-by-setq", lambda).unwrap();
         eval_assert_equal(ctx, "(set-by-setq)", "4");
+    }
+
+    // After `fmakunbound`, a call to the name reports a void function.
+    #[test]
+    fn fmakunbound_leaves_the_name_with_no_function() {
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string("(defun gone () 1) (defun call-gone () (list (gone)))")
+            .unwrap();
+        ctx.fmakunbound("gone").unwrap();
+        assert!(!ctx.fboundp("gone"));
+        eval_assert_error_line(ctx, "(call-gone)", "ERR Undefined: function is void: gone");
+        // A name with no function stays so, and can be defined again.
+        ctx.fmakunbound("gone").unwrap();
+        ctx.defun("gone", || 2);
+        eval_assert_equal(ctx, "(call-gone)", "'(2)");
+        assert!(ctx.fmakunbound("nil").is_err());
+    }
+
+    // `fmakunbound` leaves a variable's value, and a `let`'s binding of
+    // the name, alone.
+    #[test]
+    fn fmakunbound_removes_only_a_global_function() {
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string("(defvar plain 1)").unwrap();
+        ctx.fmakunbound("plain").unwrap();
+        eval_assert_equal(ctx, "plain", "1");
+
+        ctx.defun("unbind-g", |ctx: &mut TulispContext| ctx.fmakunbound("g"));
+        ctx.eval_string("(defvar g 1)").unwrap();
+        ctx.intern("g").unset().unwrap();
+        eval_assert_equal(ctx, "(let ((g (lambda () 5))) (unbind-g) (funcall g))", "5");
+    }
+
+    // A call compiled to a special form reports a void function once
+    // the name has none.
+    #[test]
+    fn fmakunbound_of_a_special_form_voids_compiled_calls() {
+        let ctx = &mut TulispContext::new();
+        ctx.defspecial("sp", |ctx: &mut TulispContext, form: Form| form.eval(ctx));
+        ctx.eval_string("(defun call-sp () (list (sp 5)))").unwrap();
+        ctx.fmakunbound("sp").unwrap();
+        eval_assert_error_line(ctx, "(call-sp)", "ERR Undefined: function is void: sp");
     }
 
     // `fset` takes only a function, a macro or a special form.
