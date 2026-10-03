@@ -753,6 +753,37 @@ mod tests {
         );
     }
 
+    // A parameter named like a special variable is still bound
+    // lexically, as in Emacs 30.1, interpreted or byte-compiled: a
+    // function it calls sees the global value, and a closure captures
+    // the parameter.
+    #[test]
+    fn a_parameter_named_like_a_special_variable_is_lexical() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(defvar sp 0)
+             (defun rd () sp)
+             (defun p1 (sp) (rd))
+             (defun p2 (&optional sp) (rd))
+             (defun p3 (&rest sp) (rd))
+             (defun p4 (sp) (setq sp 9) (list sp (rd)))
+             (defun p7 (sp) (lambda () sp))
+             t",
+            "t",
+        );
+        for (program, value) in [
+            ("(list (p1 5) sp)", "'(0 0)"),
+            ("(list (p2) (p2 4) sp)", "'(0 0 0)"),
+            ("(list (p3 1 2) sp)", "'(0 0)"),
+            ("(list (p4 1) sp)", "'((9 0) 0)"),
+            ("(funcall (p7 5))", "5"),
+            ("(list (funcall (lambda (sp) (rd)) 6) sp)", "'(0 0)"),
+        ] {
+            eval_assert_equal(ctx, program, value);
+        }
+    }
+
     // A closure that reads a captured variable and then sets it, itself
     // or from a closure inside it, shares it with the variable's scope.
     #[test]
