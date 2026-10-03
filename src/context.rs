@@ -503,13 +503,15 @@ impl TulispContext {
     /// a tail call to a name in `defun_args` into a `TailCall`. So a
     /// later Rust `defun` / `defspecial`, which writes only the
     /// symbol's value, would be shadowed. Evicting the entries makes
-    /// code compiled later use the new value.
+    /// code compiled later use the new value. The machine's compiled
+    /// function for the name goes too, so code compiled already finds
+    /// the new value when it next calls the name.
     ///
     /// While the compiler is still being built (during
     /// `TulispContext::new`, the Rust built-ins register before the
     /// compiler exists), it has no entries to drop.
     fn evict_compiled_dispatch(&mut self, addr: usize) {
-        self.vm.bump_generation();
+        self.vm.remove_function(addr);
         if let Some(compiler) = self.compiler.as_mut() {
             compiler.vm_compilers.functions.remove(&addr);
             compiler.bytecode.functions.remove(&addr);
@@ -1074,6 +1076,19 @@ mod tests {
         eval_assert_error_line(ctx, "(call-r)", "ERR ArityMismatch: Too few arguments");
         ctx.eval_string("(defun r () 3)").unwrap();
         eval_assert_equal(ctx, "(call-r)", "3");
+    }
+
+    // A Rust function that replaces a Lisp one reaches the calls
+    // already compiled to the Lisp one, in tail position or not.
+    #[test]
+    fn a_rust_function_replacing_a_lisp_one_reaches_compiled_callers() {
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string(
+            "(defun target () 1) (defun tail-call () (target)) (defun plain-call () (list (target)))",
+        )
+        .unwrap();
+        ctx.defun("target", || 2);
+        eval_assert_equal(ctx, "(list (tail-call) (plain-call))", "'(2 (2))");
     }
 
     // A program run while a protected body compiles fails to compile

@@ -52,8 +52,8 @@ pub struct Machine {
     stack: Vec<TulispObject>,
     functions: HashMap<usize, CompiledDefun>, // key: fn_name.addr_as_usize()
     /// Counts the changes to what a name calls: a function, macro or
-    /// special form defined or replaced. A call keeps the target it
-    /// found with the count it found it at, and finds it again when the
+    /// special form defined or replaced. A call keeps the target
+    /// it found with the count it found it at, and finds it again when the
     /// count has moved.
     generation: u64,
     /// The lexical variables of every running call, one stretch per
@@ -197,8 +197,10 @@ impl Machine {
         self.generation += 1;
     }
 
-    /// Marks every call's kept target as possibly out of date.
-    pub(crate) fn bump_generation(&mut self) {
+    /// Drops the compiled function of the name at ADDR, and marks every
+    /// call's kept target as possibly out of date.
+    pub(crate) fn remove_function(&mut self, addr: usize) {
+        self.functions.remove(&addr);
         self.generation += 1;
     }
 
@@ -851,15 +853,9 @@ fn run_impl_inner(
                         // compiled closure, or a special form, which
                         // is refused. Fall back to the same dispatch
                         // the inline `Funcall` uses.
-                        let args_count = *args_count;
-                        let split_at = ctx.vm.stack.len() - args_count;
-                        let args: Vec<TulispObject> = ctx.vm.stack.drain(split_at..).collect();
-                        let name = name.clone();
-                        let form = form.clone();
+                        let (name, form, args_count) = (name.clone(), form.clone(), *args_count);
                         drop(instr_ref);
-                        let result =
-                            funcall_inline(ctx, &name, args).map_err(|e| e.with_trace(form))?;
-                        ctx.vm.stack.push(result);
+                        call_by_name(ctx, &name, form, args_count)?;
                         instr_ref = program.borrow_mut();
                         pc += 1;
                         continue;
@@ -892,11 +888,12 @@ fn run_impl_inner(
                 {
                     let addr = name.addr_as_usize();
                     let Some(func) = ctx.vm.functions.get(&addr) else {
-                        return Err(Error::new(
-                            crate::ErrorKind::Undefined,
-                            format!("undefined function: {}", name),
-                        )
-                        .with_trace(form.clone()));
+                        // The name no longer holds a VM-compiled defun:
+                        // call it as `Call` does, and return its value.
+                        let (name, form, args_count) = (name.clone(), form.clone(), *args_count);
+                        drop(instr_ref);
+                        call_by_name(ctx, &name, form, args_count)?;
+                        return Ok(None);
                     };
                     let func = func.clone();
                     (*optional_count, *rest_count) = func
@@ -1321,6 +1318,22 @@ fn resolve_special_form(
             "{name} is no longer a special form, as it was when this call compiled"
         ))),
     }
+}
+
+/// Calls NAME the general way, with the top ARGS_COUNT values on the
+/// stack as its arguments, and pushes its value. An error is traced to
+/// FORM.
+fn call_by_name(
+    ctx: &mut TulispContext,
+    name: &TulispObject,
+    form: TulispObject,
+    args_count: usize,
+) -> Result<(), Error> {
+    let split_at = ctx.vm.stack.len() - args_count;
+    let args: Vec<TulispObject> = ctx.vm.stack.drain(split_at..).collect();
+    let result = funcall_inline(ctx, name, args).map_err(|e| e.with_trace(form))?;
+    ctx.vm.stack.push(result);
+    Ok(())
 }
 
 /// In-VM `funcall` dispatch used by `Instruction::Funcall`: resolves
