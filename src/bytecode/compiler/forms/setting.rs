@@ -1,12 +1,11 @@
 use crate::{
-    Error, ErrorKind, TulispContext, TulispObject,
+    Error, ErrorKind, Rest, TulispContext, TulispObject,
     bytecode::compiler::cells::swap_to_cells,
     bytecode::compiler::scope::resolve_assignment,
     bytecode::{
         Instruction,
         compiler::compiler::{compile_expr_keep_result, compile_progn},
     },
-    destruct_bind,
 };
 
 /// `(setq [SYM VAL]...)` sets each SYM to its VAL in order, and gives
@@ -137,8 +136,9 @@ fn compile_varlist_and_body(
         let (name, value_expr) = if varitem.is_symbol_variant() {
             (varitem.clone(), None)
         } else if varitem.consp() {
-            let varitem_clone = varitem.clone();
-            destruct_bind!((&optional name value &rest rest) = varitem_clone);
+            let (name, value, rest): (TulispObject, Option<TulispObject>, Rest<TulispObject>) =
+                varitem.destructure(ctx)?;
+            let value = value.unwrap_or_default();
             crate::builtin::check_not_nil_or_t(&name)?;
             if !name.is_symbol_variant() {
                 return Err(Error::new(
@@ -147,7 +147,7 @@ fn compile_varlist_and_body(
                 )
                 .with_trace(name));
             }
-            if !rest.null() {
+            if !rest.is_empty() {
                 return Err(Error::new(
                     ErrorKind::Undefined,
                     "let varitem has too many values".to_string(),
@@ -323,6 +323,36 @@ mod tests {
             );
         }
         assert_eq!(ctx.debug_special_stacks_total(), before);
+    }
+
+    // A binding keeps its own error messages and the position of its
+    // name.
+    #[test]
+    fn a_bad_binding_reports_itself() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_error(
+            ctx,
+            "(let ((x 1 2)) x)",
+            "ERR Undefined: let varitem has too many values\n\
+             <eval_string>:1.7-1.13:  at (x 1 2)\n\
+             <eval_string>:1.1-1.17:  at (let ((x 1 2)) x)\n",
+        );
+        eval_assert_error(
+            ctx,
+            "(let ((nil 1)) 1)",
+            "ERR TypeMismatch: Can't set constant symbol: nil\n\
+             <eval_string>:1.8-1.10:  at nil\n\
+             <eval_string>:1.1-1.17:  at (let ((nil 1)) 1)\n",
+        );
+        // A dotted binding raises the list walk's error, traced to the
+        // binding.
+        eval_assert_error(
+            ctx,
+            "(let ((x 1 . 2)) x)",
+            "ERR TypeMismatch: Expected list, got: 2\n\
+             <eval_string>:1.7-1.15:  at (x 1 . 2)\n\
+             <eval_string>:1.1-1.19:  at (let ((x 1 . 2)) x)\n",
+        );
     }
 
     // `set` evaluates SYMBOL before VALUE, as in Emacs 30.1, whether

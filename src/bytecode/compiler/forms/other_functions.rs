@@ -9,7 +9,6 @@ use crate::{
             compiler::{compile_expr, compile_expr_keep_result, compile_progn},
         },
     },
-    destruct_bind,
     object::wrappers::generic::{Shared, SharedMut},
     parse::mark_tail_calls,
 };
@@ -513,7 +512,9 @@ pub(super) fn compile_fn_defvar(
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
     ctx.compile_1_arg_call(name, args, true, |ctx, sym, rest| {
-        destruct_bind!((&optional value _docstring) = rest);
+        let (value, _docstring): (Option<TulispObject>, Option<TulispObject>) =
+            rest.destructure(ctx)?;
+        let value = value.unwrap_or_default();
         crate::builtin::check_defvar_name(sym)?;
         sym.set_special()?;
         let keep_result = ctx.compiler.as_ref().unwrap().keep_result;
@@ -552,6 +553,16 @@ mod tests {
         listing,
     };
     use crate::{Error, Plist, TulispContext};
+
+    // defvar takes a symbol, a value and a doc string at most.
+    #[test]
+    fn defvar_with_too_many_arguments_is_an_error() {
+        eval_assert_error_line(
+            &mut TulispContext::new(),
+            "(defvar zz 1 \"doc\" 2)",
+            "ERR ArityMismatch: Too many arguments",
+        );
+    }
 
     // `append` runs even when its value is not kept, so its type error
     // is raised then too, as in Emacs 30.1.
