@@ -67,6 +67,14 @@ impl crate::bytecode::Compiler {
     /// Puts NAME in scope in the next free slot of the function being
     /// compiled, and gives the slot.
     pub(crate) fn bind_slot(&mut self, name: TulispObject) -> Result<u16, Error> {
+        let slot = self.take_slot()?;
+        self.name_slot(name, slot);
+        Ok(slot)
+    }
+
+    /// Takes the next free slot of the function being compiled, with no
+    /// name in scope for it yet.
+    pub(crate) fn take_slot(&mut self) -> Result<u16, Error> {
         let Some(function) = self.functions.last_mut() else {
             return Err(Error::lisp_error("internal: a slot outside a function"));
         };
@@ -75,13 +83,20 @@ impl crate::bytecode::Compiler {
             .checked_add(1)
             .ok_or_else(|| Error::lisp_error("a function holds more than 65535 variables"))?;
         function.slot_count = function.slot_count.max(function.next_slot);
-        function.vars.push(ScopeVar {
-            name,
-            slot,
-            captured: false,
-            assigned: false,
-        });
         Ok(slot)
+    }
+
+    /// Gives SLOT, a slot `take_slot` gave, the name NAME in the scope
+    /// of the function being compiled.
+    pub(crate) fn name_slot(&mut self, name: TulispObject, slot: u16) {
+        if let Some(function) = self.functions.last_mut() {
+            function.vars.push(ScopeVar {
+                name,
+                slot,
+                captured: false,
+                assigned: false,
+            });
+        }
     }
 
     /// Takes the innermost N variables of the function being compiled
