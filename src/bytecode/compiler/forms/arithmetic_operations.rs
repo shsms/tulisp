@@ -1,67 +1,55 @@
+use super::common::pop_unless_kept;
 use crate::{
     Error, TulispContext, TulispObject,
-    bytecode::{Instruction, compiler::compiler::compile_expr, instruction::BinaryOp},
+    bytecode::{
+        Instruction,
+        compiler::compiler::{compile_expr, compile_expr_keep_result},
+        instruction::BinaryOp,
+    },
 };
+
+/// Compiles ARGS left to right, then folds OP over their values from
+/// the first: `(- a b c)` is `(a - b) - c`. As in a function call,
+/// every argument runs before the arithmetic, and the arithmetic runs
+/// even when its value is not kept, so its errors are raised then too.
+/// A single argument is still checked to be a number.
+fn compile_fold(
+    ctx: &mut TulispContext,
+    args: &[TulispObject],
+    op: BinaryOp,
+) -> Result<Vec<Instruction>, Error> {
+    let mut result = vec![];
+    for arg in args {
+        result.append(&mut compile_expr_keep_result(ctx, arg)?);
+    }
+    result.push(match args.len() {
+        2 => Instruction::BinaryOp(op),
+        count => Instruction::ArithChain { op, count },
+    });
+    Ok(pop_unless_kept(ctx, result))
+}
+
+/// `+` and `*`: OP over ARGS, or IDENTITY when there are none, as in
+/// Emacs.
+fn compile_variadic(
+    ctx: &mut TulispContext,
+    args: &TulispObject,
+    op: BinaryOp,
+    identity: i64,
+) -> Result<Vec<Instruction>, Error> {
+    let args = args.base_iter().collect::<Vec<_>>();
+    if args.is_empty() {
+        return compile_expr(ctx, &identity.into());
+    }
+    compile_fold(ctx, &args, op)
+}
 
 pub(super) fn compile_fn_plus(
     ctx: &mut TulispContext,
     _name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    let mut result = vec![];
-    let args = args.base_iter().collect::<Vec<_>>();
-    if args.is_empty() {
-        // `(+)` => 0 (additive identity), matching Emacs.
-        return Ok(if ctx.compiler.as_ref().unwrap().keep_result {
-            vec![Instruction::Push(0.into())]
-        } else {
-            vec![]
-        });
-    }
-    for arg in args.iter().rev() {
-        result.append(&mut compile_expr(ctx, arg)?);
-    }
-    let compiler = ctx.compiler.as_mut().unwrap();
-    if compiler.keep_result {
-        for _ in 0..args.len() - 1 {
-            result.push(Instruction::BinaryOp(BinaryOp::Add));
-        }
-    }
-    Ok(result)
-}
-
-pub(super) fn compile_fn_minus(
-    ctx: &mut TulispContext,
-    _name: &TulispObject,
-    args: &TulispObject,
-) -> Result<Vec<Instruction>, Error> {
-    let mut result = vec![];
-    let args = args.base_iter().collect::<Vec<_>>();
-    if args.is_empty() {
-        // `(-)` => 0, matching Emacs.
-        return Ok(if ctx.compiler.as_ref().unwrap().keep_result {
-            vec![Instruction::Push(0.into())]
-        } else {
-            vec![]
-        });
-    }
-    for arg in args.iter().rev() {
-        result.append(&mut compile_expr(ctx, arg)?);
-    }
-    let compiler = ctx.compiler.as_mut().unwrap();
-    if args.len() == 1 {
-        if compiler.keep_result {
-            result.push(Instruction::Push((-1).into()));
-            result.push(Instruction::BinaryOp(BinaryOp::Mul));
-        }
-        return Ok(result);
-    }
-    if compiler.keep_result {
-        for _ in 0..args.len() - 1 {
-            result.push(Instruction::BinaryOp(BinaryOp::Sub));
-        }
-    }
-    Ok(result)
+    compile_variadic(ctx, args, BinaryOp::Add, 0)
 }
 
 pub(super) fn compile_fn_mul(
@@ -69,26 +57,22 @@ pub(super) fn compile_fn_mul(
     _name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    let mut result = vec![];
-    let args = args.base_iter().collect::<Vec<_>>();
-    if args.is_empty() {
-        // `(*)` => 1 (multiplicative identity), matching Emacs.
-        return Ok(if ctx.compiler.as_ref().unwrap().keep_result {
-            vec![Instruction::Push(1.into())]
-        } else {
-            vec![]
-        });
+    compile_variadic(ctx, args, BinaryOp::Mul, 1)
+}
+
+pub(super) fn compile_fn_minus(
+    ctx: &mut TulispContext,
+    _name: &TulispObject,
+    args: &TulispObject,
+) -> Result<Vec<Instruction>, Error> {
+    match args.base_iter().collect::<Vec<_>>().as_slice() {
+        // `(-)` => 0, matching Emacs.
+        [] => compile_expr(ctx, &0.into()),
+        // `(- x)` negates. Multiplying keeps the sign of a float zero:
+        // `(- 0.0)` is -0.0.
+        [x] => compile_fold(ctx, &[x.clone(), (-1).into()], BinaryOp::Mul),
+        args => compile_fold(ctx, args, BinaryOp::Sub),
     }
-    for arg in args.iter().rev() {
-        result.append(&mut compile_expr(ctx, arg)?);
-    }
-    let compiler = ctx.compiler.as_mut().unwrap();
-    if compiler.keep_result {
-        for _ in 0..args.len() - 1 {
-            result.push(Instruction::BinaryOp(BinaryOp::Mul));
-        }
-    }
-    Ok(result)
 }
 
 pub(super) fn compile_fn_div(
@@ -96,33 +80,21 @@ pub(super) fn compile_fn_div(
     _name: &TulispObject,
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
-    let compiler = ctx.compiler.as_mut().unwrap();
-    if !compiler.keep_result {
-        return Ok(vec![]);
-    }
-    let mut result = vec![];
-    let args = args.base_iter().collect::<Vec<_>>();
-    if args.is_empty() {
+    match args.base_iter().collect::<Vec<_>>().as_slice() {
         // `(/)` needs an argument (Emacs errors too).
-        return Err(Error::too_few_arguments());
+        [] => Err(Error::too_few_arguments()),
+        // `(/ x)` is `(/ 1 x)`.
+        [x] => compile_fold(ctx, &[1.into(), x.clone()], BinaryOp::Div),
+        args => compile_fold(ctx, args, BinaryOp::Div),
     }
-    for arg in args.iter().rev() {
-        result.append(&mut compile_expr(ctx, arg)?);
-    }
-    if args.len() == 1 {
-        result.push(Instruction::Push(1.into()));
-        result.push(Instruction::BinaryOp(BinaryOp::Div));
-        return Ok(result);
-    }
-    for _ in 0..args.len() - 1 {
-        result.push(Instruction::BinaryOp(BinaryOp::Div));
-    }
-    Ok(result)
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::test_utils::eval_assert_equal_fresh;
+    use crate::{
+        TulispContext,
+        test_utils::{eval_assert_equal_fresh, eval_assert_error_line},
+    };
 
     #[test]
     fn arithmetic_nests_and_mixes_integers_and_floats() {
@@ -132,5 +104,69 @@ mod tests {
         // form.
         eval_assert_equal_fresh(r#"(format "%S" (/ 1.0 0.0))"#, r#""1.0e+INF""#);
         eval_assert_equal_fresh(r#"(format "%S" (/ -1.0 0.0))"#, r#""-1.0e+INF""#);
+    }
+
+    // Arguments are evaluated left to right, as in Emacs.
+    #[test]
+    fn arithmetic_evaluates_its_arguments_in_order() {
+        for op in ["+", "-", "*", "/"] {
+            eval_assert_equal_fresh(
+                &format!(
+                    "(let ((seen nil))
+                       ({op} (progn (setq seen (cons 1 seen)) 8)
+                             (progn (setq seen (cons 2 seen)) 4)
+                             (progn (setq seen (cons 3 seen)) 2))
+                       (reverse seen))"
+                ),
+                "'(1 2 3)",
+            );
+        }
+        eval_assert_equal_fresh("(list (- 8 4 2) (/ 8 4 2) (- 5) (/ 4.0))", "'(2 1 -5 0.25)");
+    }
+
+    // An arithmetic form runs even when its value is not kept, so its
+    // errors are raised, as in Emacs.
+    #[test]
+    fn discarded_arithmetic_still_runs() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_error_line(ctx, "(progn (/ 1 0) 2)", "ERR ArithError: Division by zero");
+        eval_assert_error_line(
+            ctx,
+            "(progn (+ 1 \"a\") 2)",
+            "ERR TypeMismatch: Expected number, got: \"a\"",
+        );
+    }
+
+    // Every argument runs before the arithmetic, as in Emacs, so a
+    // later argument's side effect happens even when an earlier step
+    // fails.
+    #[test]
+    fn arithmetic_runs_every_argument_before_it_fails() {
+        for (op, bad) in [("+", "'a"), ("-", "'a"), ("*", "'a"), ("/", "0")] {
+            eval_assert_equal_fresh(
+                &format!(
+                    "(let ((seen nil))
+                       (list (condition-case nil
+                                 ({op} 1 {bad} (progn (setq seen t) 3))
+                               (error 'failed))
+                             seen))"
+                ),
+                "'(failed t)",
+            );
+        }
+    }
+
+    // With one argument, `+` and `*` still need a number, as in Emacs.
+    #[test]
+    fn one_argument_arithmetic_checks_its_argument() {
+        let ctx = &mut TulispContext::new();
+        for op in ["+", "*"] {
+            eval_assert_error_line(
+                ctx,
+                &format!("({op} \"a\")"),
+                "ERR TypeMismatch: Expected number, got: \"a\"",
+            );
+        }
+        eval_assert_equal_fresh("(list (+ 5) (* 2.5) (+ -0.0))", "'(5 2.5 -0.0)");
     }
 }

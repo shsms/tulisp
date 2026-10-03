@@ -1,5 +1,5 @@
 use crate::{
-    Number, TulispObject,
+    Error, Number, TulispObject,
     object::wrappers::{DefunFn, SpecialFn, generic::Shared},
 };
 
@@ -58,14 +58,37 @@ pub(crate) enum Cxr {
     Cddddr,
 }
 
-/// An arithmetic [`BinaryOp`](Instruction::BinaryOp). It pops two
-/// values, and the top one is its first operand.
+/// An arithmetic [`BinaryOp`](Instruction::BinaryOp) or
+/// [`ArithChain`](Instruction::ArithChain).
 #[derive(Clone, Copy)]
 pub(crate) enum BinaryOp {
     Add,
     Sub,
     Mul,
     Div,
+}
+
+impl BinaryOp {
+    /// A OP B. Division errors on an integer zero divisor and on
+    /// `i64::MIN / -1`; a float operand gives ±inf for a zero divisor,
+    /// as in Emacs.
+    pub(crate) fn apply(self, a: Number, b: Number) -> Result<Number, Error> {
+        match self {
+            BinaryOp::Add => a.checked_add(b),
+            BinaryOp::Sub => a.checked_sub(b),
+            BinaryOp::Mul => a.checked_mul(b),
+            BinaryOp::Div => a.checked_div(b),
+        }
+    }
+
+    fn mnemonic(self) -> &'static str {
+        match self {
+            BinaryOp::Add => "add",
+            BinaryOp::Sub => "sub",
+            BinaryOp::Mul => "mul",
+            BinaryOp::Div => "div",
+        }
+    }
 }
 
 /// The comparison of a [`CompareChain`](Instruction::CompareChain).
@@ -135,7 +158,16 @@ pub(crate) enum Instruction {
     BeginScope(TulispObject),
     EndScope(TulispObject),
     // arithmetic
+    /// Pop two values and push OP of them. The one below the top is the
+    /// first operand, evaluated first.
     BinaryOp(BinaryOp),
+    /// Pop `count` values and push OP folded over them from the first,
+    /// the deepest: `(- a b c)` is `(a - b) - c`. Every argument has run
+    /// before any of the arithmetic does.
+    ArithChain {
+        op: BinaryOp,
+        count: usize,
+    },
     // io
     LoadFile,
     PrintPop,
@@ -379,6 +411,7 @@ impl Instruction {
             | Instruction::BeginScope(..)
             | Instruction::EndScope(..)
             | Instruction::BinaryOp(..)
+            | Instruction::ArithChain { .. }
             | Instruction::LoadFile
             | Instruction::PrintPop
             | Instruction::Print
@@ -532,12 +565,10 @@ impl std::fmt::Display for Instruction {
             Instruction::StorePopCapture(i) => write!(f, "    store_pop_capture {}", i),
             Instruction::BeginScope(obj) => write!(f, "    begin_scope {}", obj),
             Instruction::EndScope(obj) => write!(f, "    end_scope {}", obj),
-            Instruction::BinaryOp(op) => match op {
-                BinaryOp::Add => write!(f, "    add"),
-                BinaryOp::Sub => write!(f, "    sub"),
-                BinaryOp::Mul => write!(f, "    mul"),
-                BinaryOp::Div => write!(f, "    div"),
-            },
+            Instruction::BinaryOp(op) => write!(f, "    {}", op.mnemonic()),
+            Instruction::ArithChain { op, count } => {
+                write!(f, "    {}_chain {}", op.mnemonic(), count)
+            }
             Instruction::LoadFile => write!(f, "    load_file"),
             Instruction::PrintPop => write!(f, "    print_pop"),
             Instruction::Print => write!(f, "    print"),
