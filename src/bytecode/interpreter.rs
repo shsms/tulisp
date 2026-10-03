@@ -1122,7 +1122,7 @@ fn run_impl_inner(
                 ctx.vm.stack.push(result);
             }
             Instruction::PlistGet => {
-                let [ref key, ref plist] = ctx.vm.stack[(ctx.vm.stack.len() - 2)..] else {
+                let [ref plist, ref key] = ctx.vm.stack[(ctx.vm.stack.len() - 2)..] else {
                     unreachable!()
                 };
                 let value = plist::plist_get(plist, key)?;

@@ -343,6 +343,8 @@ pub(crate) enum Instruction {
     List(usize),
     Append(usize),
     Cxr(Cxr),
+    /// Pop a property, on top, and a plist below it, and push the
+    /// property's value in the plist.
     PlistGet,
     // values
     Quote,
