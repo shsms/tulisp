@@ -92,12 +92,9 @@ pub mod generic {
             Shared(std::rc::Rc::new(val))
         }
 
-        pub fn downcast_ref<U: TulispAny + 'static>(&self) -> Option<&U> {
-            let a: &dyn std::any::Any = &*self.0;
-            a.downcast_ref::<U>()
-        }
-
-        pub fn downcast<U: TulispAny + 'static>(self) -> Result<Shared<U>, Shared<dyn TulispAny>> {
+        pub(crate) fn downcast<U: TulispAny + 'static>(
+            self,
+        ) -> Result<Shared<U>, Shared<dyn TulispAny>> {
             match std::rc::Rc::downcast::<U>(self.0.clone()) {
                 Ok(v) => Ok(Shared(v)),
                 Err(_) => Err(Shared(self.0)),
@@ -123,7 +120,7 @@ pub mod generic {
     impl<T: TulispAny> Shared<T> {
         /// The handle as a type-erased value, pointing at the same
         /// allocation.
-        pub fn into_any(self) -> Shared<dyn TulispAny> {
+        pub(crate) fn into_any(self) -> Shared<dyn TulispAny> {
             Shared(self.0)
         }
     }
@@ -169,11 +166,11 @@ pub mod generic {
             self.0.borrow_mut()
         }
 
-        pub fn addr_as_usize(&self) -> usize {
+        pub(crate) fn addr_as_usize(&self) -> usize {
             self.0.as_ptr() as usize
         }
 
-        pub fn strong_count(&self) -> usize {
+        pub(crate) fn strong_count(&self) -> usize {
             std::rc::Rc::strong_count(&self.0)
         }
 
@@ -235,12 +232,9 @@ pub mod generic {
             Shared(std::sync::Arc::new(val))
         }
 
-        pub fn downcast_ref<U: TulispAny + 'static>(&self) -> Option<&U> {
-            let a: &dyn std::any::Any = &*self.0;
-            a.downcast_ref::<U>()
-        }
-
-        pub fn downcast<U: TulispAny + 'static>(self) -> Result<Shared<U>, Shared<dyn TulispAny>> {
+        pub(crate) fn downcast<U: TulispAny + 'static>(
+            self,
+        ) -> Result<Shared<U>, Shared<dyn TulispAny>> {
             match std::sync::Arc::downcast::<U>(self.0.clone()) {
                 Ok(v) => Ok(Shared(v)),
                 Err(_) => Err(Shared(self.0)),
@@ -266,7 +260,7 @@ pub mod generic {
     impl<T: TulispAny> Shared<T> {
         /// The handle as a type-erased value, pointing at the same
         /// allocation.
-        pub fn into_any(self) -> Shared<dyn TulispAny> {
+        pub(crate) fn into_any(self) -> Shared<dyn TulispAny> {
             Shared(self.0)
         }
     }
@@ -316,11 +310,11 @@ pub mod generic {
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
         }
 
-        pub fn addr_as_usize(&self) -> usize {
+        pub(crate) fn addr_as_usize(&self) -> usize {
             std::sync::Arc::as_ptr(&self.0) as usize
         }
 
-        pub fn strong_count(&self) -> usize {
+        pub(crate) fn strong_count(&self) -> usize {
             std::sync::Arc::strong_count(&self.0)
         }
 
