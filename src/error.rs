@@ -145,7 +145,7 @@ pub struct Error {
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let desc = self.description();
+        let desc = self.desc();
         if desc.is_empty() {
             write!(f, "ERR {}", self.kind)?;
         } else {
@@ -239,7 +239,7 @@ impl Error {
 
     /// Formats the error into a human-readable string, including backtrace information.
     pub fn format(&self, ctx: &TulispContext) -> String {
-        let desc = self.description();
+        let desc = self.desc();
         let mut span_str = if desc.is_empty() {
             format!("ERR {}", self.kind)
         } else {
@@ -293,22 +293,13 @@ impl Error {
     }
 
     /// Returns the kind of the error.
-    pub fn kind(&self) -> ErrorKind {
-        self.kind.clone()
-    }
-
-    pub(crate) fn kind_ref(&self) -> &ErrorKind {
+    pub fn kind(&self) -> &ErrorKind {
         &self.kind
     }
 
-    /// Returns the description of the error.
-    pub fn desc(&self) -> String {
-        self.description().into_owned()
-    }
-
-    /// The description. A `throw`'s is built when read, so a `throw` that a
-    /// `catch` receives prints nothing.
-    fn description(&self) -> Cow<'_, str> {
+    /// Returns the description of the error. For a `Throw`, it is built on
+    /// each call and reads `No catch for tag: TAG, VALUE`.
+    pub fn desc(&self) -> Cow<'_, str> {
         match &self.kind {
             ErrorKind::Throw(pair) => Cow::Owned(format!(
                 "No catch for tag: {}, {}",
@@ -385,5 +376,15 @@ mod tests {
         let err: Error = io.into();
         assert!(matches!(err.kind(), ErrorKind::BrokenPipe));
         assert_eq!(err.to_string(), "ERR BrokenPipe: closed");
+    }
+
+    // `kind` and `desc` lend what the error holds.
+    #[test]
+    fn kind_and_desc_borrow_from_the_error() {
+        let err = Error::lisp_error("boom");
+        let kind: &ErrorKind = err.kind();
+        let desc: std::borrow::Cow<'_, str> = err.desc();
+        assert!(matches!(kind, ErrorKind::LispError));
+        assert!(matches!(desc, std::borrow::Cow::Borrowed("boom")));
     }
 }

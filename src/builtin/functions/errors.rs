@@ -183,7 +183,7 @@ pub(crate) fn condition_matches(
 /// The value thrown to TAG when ERR is a `throw` to TAG, or ERR
 /// itself otherwise. A nil TAG receives nothing, as in Emacs.
 pub(crate) fn catch_throw(err: Error, tag: &TulispObject) -> Result<TulispObject, Error> {
-    if let ErrorKind::Throw(obj) = err.kind_ref()
+    if let ErrorKind::Throw(obj) = err.kind()
         && !tag.null()
         && obj.car_and_then(|thrown_tag| Ok(thrown_tag.eq(tag)))?
     {
@@ -206,7 +206,7 @@ pub(crate) fn check_condition_case_var(var: &TulispObject) -> Result<(), Error> 
 /// symbol is KIND_SYM: `(KIND_SYM . DATA)`. A `Signal` error keeps the
 /// symbol `signal` was given.
 pub(crate) fn error_value(ctx: &mut TulispContext, kind_sym: &str, err: &Error) -> TulispObject {
-    if let ErrorKind::Signal { symbol, data } = err.kind_ref() {
+    if let ErrorKind::Signal { symbol, data } = err.kind() {
         return TulispObject::cons(symbol.clone(), data.clone());
     }
     TulispObject::cons(ctx.intern(kind_sym), err.data())

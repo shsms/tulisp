@@ -963,7 +963,7 @@ fn run_impl_inner(
                 let cleaned = run_block_with_reserve(ctx, &cleanup, None);
                 instr_ref = program.borrow_mut();
                 let result = match result {
-                    Err(e) if matches!(e.kind_ref(), ErrorKind::Interrupted) => Err(e),
+                    Err(e) if matches!(e.kind(), ErrorKind::Interrupted) => Err(e),
                     result => cleaned.and(result),
                 };
                 ctx.vm.stack.push(result?);
