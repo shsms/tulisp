@@ -3,7 +3,7 @@
 use super::common::pop_unless_kept;
 use crate::{
     Error, TulispContext, TulispObject,
-    builtin::functions::errors::{check_condition_case_var, parse_handlers},
+    builtin::functions::errors::{ParsedHandlers, check_condition_case_var, parse_handlers},
     bytecode::{
         Block, Handler, Instruction,
         compiler::compiler::{BlockBinding, compile_block, compile_expr_keep_result},
@@ -47,7 +47,7 @@ pub(super) fn compile_fn_condition_case(
 ) -> Result<Vec<Instruction>, Error> {
     ctx.compile_2_arg_call(name, args, true, |ctx, var, bodyform, handlers| {
         check_condition_case_var(var)?;
-        let handlers = parse_handlers(handlers)?;
+        let ParsedHandlers { handlers, success } = parse_handlers(handlers)?;
         let bodyform = TulispObject::cons(bodyform.clone(), TulispObject::nil());
         let body = compile_block(ctx, &bodyform, None)?;
         // A constant VAR, `t` or a keyword, fails when a handler binds it.
@@ -57,28 +57,36 @@ pub(super) fn compile_fn_condition_case(
             crate::builtin::check_settable_target(var).err()
         };
         let binds = !var.null() && refused.is_none();
+        // A handler or the `:success` block, run with VAR bound to the error
+        // data or to the body form's value.
+        let compile_handler = |ctx: &mut TulispContext, forms: &TulispObject| {
+            if let Some(err) = &refused {
+                Block::new(vec![Instruction::Raise(Box::new(err.clone()))], false)
+            } else if !binds {
+                compile_block(ctx, forms, None)
+            } else if var.is_special() {
+                compile_block(ctx, forms, Some(BlockBinding::Special(var.clone())))
+            } else {
+                compile_block(ctx, forms, Some(BlockBinding::Lexical(var.clone())))
+            }
+        };
         let mut compiled = Vec::with_capacity(handlers.len());
         for (condition, forms) in handlers {
-            let handler = if let Some(err) = &refused {
-                Block::new(vec![Instruction::Raise(Box::new(err.clone()))], false)?
-            } else if !binds {
-                compile_block(ctx, &forms, None)?
-            } else if var.is_special() {
-                compile_block(ctx, &forms, Some(BlockBinding::Special(var.clone())))?
-            } else {
-                compile_block(ctx, &forms, Some(BlockBinding::Lexical(var.clone())))?
-            };
             compiled.push(Handler {
                 condition,
-                body: handler,
+                body: compile_handler(ctx, &forms)?,
             });
         }
+        let success = success
+            .map(|forms| compile_handler(ctx, &forms))
+            .transpose()?;
         Ok(pop_unless_kept(
             ctx,
             vec![Instruction::ConditionCase {
                 binds,
                 body,
                 handlers: Shared::new(compiled),
+                success,
             }],
         ))
     })
@@ -90,6 +98,55 @@ mod tests {
     use crate::test_utils::{
         eval_assert_equal, eval_assert_error, eval_assert_error_line, listing,
     };
+
+    // A `(:success BODY...)` handler runs BODY with VAR bound to the body
+    // form's value when it did not fail, and an error in BODY is not caught by
+    // the same `condition-case`, as in Emacs.
+    #[test]
+    fn a_success_handler_runs_when_the_body_does_not_fail() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(list (condition-case e (+ 1 2) (error 'failed) (:success (list 'ok e)))
+                   (condition-case e (car 1) (error 'failed) (:success (list 'ok e)))
+                   (condition-case nil 5 (:success 'done))
+                   (condition-case nil 1 (:success 'first) (:success 'last))
+                   (condition-case outer
+                       (condition-case e 1 (error 'caught) (:success (car e)))
+                     (error (car outer))))",
+            "'((ok 3) failed done last wrong-type-argument)",
+        );
+        // A variable a closure holds, set in the success handler, is the one
+        // the closure sees.
+        eval_assert_equal(
+            ctx,
+            "(let ((x 1))
+               (let ((f (lambda () x)))
+                 (condition-case nil 1 (:success (setq x 5)))
+                 (funcall f)))",
+            "5",
+        );
+    }
+
+    // The success handler runs at the depth of its `condition-case`, with no
+    // extra frames, as its body does.
+    #[test]
+    fn a_success_handler_gets_no_depth_reserve() {
+        let ctx = &mut TulispContext::new();
+        ctx.set_max_eval_depth(4);
+        ctx.eval_string("(defvar depth 0) (defun probe () (setq depth (1+ depth)) (1+ (probe)))")
+            .unwrap();
+        let mut depth = |wrapped: &str| {
+            ctx.eval_string(&format!(
+                "(setq depth 0) (condition-case nil {wrapped} (error depth))"
+            ))
+            .unwrap()
+            .to_string()
+        };
+        let in_body = depth("(condition-case nil (probe) (wrong-type-argument 0))");
+        let in_success = depth("(condition-case nil 1 (:success (probe)))");
+        assert_eq!(in_success, in_body);
+    }
 
     #[test]
     fn catch_compiles_to_a_block() {
@@ -235,6 +292,8 @@ mod tests {
         assert!(l.contains("condition_case") && l.contains("handler"), "{l}");
         let l = listing(ctx, "(defun cc-f () (condition-case e 1 (error 2)))");
         assert!(l.contains("condition_case"), "{l}");
+        let l = listing(ctx, "(condition-case e 1 (:success e))");
+        assert!(l.contains("success:"), "{l}");
     }
 
     #[test]

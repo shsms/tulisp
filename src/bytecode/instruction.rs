@@ -319,6 +319,9 @@ pub(crate) enum Instruction {
         binds: bool,
         body: Block,
         handlers: Shared<Vec<Handler>>,
+        /// A `(:success ...)` handler: run with BODY's value, when BINDS, when
+        /// BODY does not fail; its value is pushed instead.
+        success: Option<Block>,
     },
     /// `(defvar SYM ...)`: pushes whether SYM has a top-level value, so the
     /// value is evaluated and stored only when it has none.
@@ -505,13 +508,21 @@ impl Instruction {
                 ("body".to_string(), body.clone()),
                 ("cleanup".to_string(), cleanup.clone()),
             ],
-            Instruction::ConditionCase { body, handlers, .. } => {
+            Instruction::ConditionCase {
+                body,
+                handlers,
+                success,
+                ..
+            } => {
                 let mut blocks = vec![("body".to_string(), body.clone())];
                 for handler in handlers.iter() {
                     blocks.push((
                         format!("handler {}", handler.condition),
                         handler.body.clone(),
                     ));
+                }
+                if let Some(success) = success {
+                    blocks.push(("success".to_string(), success.clone()));
                 }
                 blocks
             }

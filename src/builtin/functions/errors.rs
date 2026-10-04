@@ -136,6 +136,10 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     // lexically, like a `let` variable, or dynamically when it is
     // special. A `nil` VAR binds nothing; `t` or a keyword fails when a
     // handler binds it.
+    //
+    // A `(:success BODY...)` handler runs when BODYFORM does not fail, with VAR
+    // bound to its value, and gives the result. An error in it is not caught by
+    // the other handlers.
     ctx.define_special_form("condition-case");
 }
 
@@ -212,13 +216,21 @@ pub(crate) fn error_value(ctx: &mut TulispContext, kind_sym: &str, err: &Error) 
     TulispObject::cons(ctx.intern(kind_sym), err.data())
 }
 
-/// The `(condition, body-forms)` pairs of `condition-case` HANDLERS.
-/// A `nil` handler is skipped. A handler that is not a list, or whose
-/// condition is neither a symbol nor a list, is refused, as in Emacs.
-pub(crate) fn parse_handlers(
-    handlers: &TulispObject,
-) -> Result<Vec<(TulispObject, TulispObject)>, Error> {
+/// The handlers of a `condition-case`.
+pub(crate) struct ParsedHandlers {
+    /// The `(condition, body-forms)` pairs.
+    pub(crate) handlers: Vec<(TulispObject, TulispObject)>,
+    /// The body forms of the `(:success ...)` handler, the last when there
+    /// are several, as in Emacs.
+    pub(crate) success: Option<TulispObject>,
+}
+
+/// Parses `condition-case` HANDLERS. A `nil` handler is skipped. A handler
+/// that is not a list, or whose condition is neither a symbol nor a list, is
+/// refused, as in Emacs.
+pub(crate) fn parse_handlers(handlers: &TulispObject) -> Result<ParsedHandlers, Error> {
     let mut parsed = Vec::new();
+    let mut success = None;
     let mut items = handlers.base_iter();
     for handler in items.by_ref() {
         if handler.null() {
@@ -234,10 +246,17 @@ pub(crate) fn parse_handlers(
                 "Invalid condition handler: {handler}"
             )));
         };
-        parsed.push((condition, handler.cdr()?));
+        if condition.inner_ref().0.symbol_name() == Some(":success") {
+            success = Some(handler.cdr()?);
+        } else {
+            parsed.push((condition, handler.cdr()?));
+        }
     }
     items.take_error()?;
-    Ok(parsed)
+    Ok(ParsedHandlers {
+        handlers: parsed,
+        success,
+    })
 }
 
 #[cfg(test)]

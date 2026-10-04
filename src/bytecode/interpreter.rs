@@ -955,12 +955,18 @@ fn run_impl_inner(
                 binds,
                 body,
                 handlers,
+                success,
             } => {
-                let (binds, body, handlers) = (*binds, body.clone(), handlers.clone());
+                let (binds, body, handlers, success) =
+                    (*binds, body.clone(), handlers.clone(), success.clone());
                 drop(instr_ref);
                 let result = match run_block(ctx, &body, None) {
                     Err(err) => run_handler(ctx, binds, &handlers, err),
-                    value => value,
+                    // The success block runs outside the handlers.
+                    Ok(value) => match &success {
+                        Some(success) => run_block(ctx, success, binds.then_some(value)),
+                        None => Ok(value),
+                    },
                 };
                 instr_ref = program.borrow_mut();
                 ctx.vm.stack.push(result?);

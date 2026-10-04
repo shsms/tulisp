@@ -29,10 +29,18 @@ pub(crate) fn swap_to_cells(instructions: &mut [Instruction], slot: u16) {
                 swap_in_block(body, slot);
                 swap_in_block(cleanup, slot);
             }
-            Instruction::ConditionCase { body, handlers, .. } => {
+            Instruction::ConditionCase {
+                body,
+                handlers,
+                success,
+                ..
+            } => {
                 swap_in_block(body, slot);
                 for handler in handlers.iter() {
                     swap_in_block(&handler.body, slot);
+                }
+                if let Some(success) = success {
+                    swap_in_block(success, slot);
                 }
             }
             Instruction::SpecialCall { blocks, .. } => {
