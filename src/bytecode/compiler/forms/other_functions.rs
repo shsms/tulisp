@@ -403,11 +403,8 @@ fn compile_defun(
             .insert(defun_name.addr_as_usize(), defun_params.clone());
         let prev_defun = compiler.current_defun.replace(defun_name.clone());
 
-        let body = if body.car()?.stringp() {
-            body.cdr()?
-        } else {
-            body.clone()
-        };
+        let body = crate::builtin::drop_declare_after_docstring(ctx, body.clone())?;
+        let body = super::lambda::strip_docstring(body)?;
         let body = mark_tail_calls(ctx, defun_name, body);
         // A variable of a scope around the function is captured when
         // the defun form runs, as a lambda captures it.
@@ -951,14 +948,11 @@ mod tests {
         // `mky`, `mktag`) and a quoted list value (`'(1 2 3)`). Each
         // arg's evaluated form ends up in the typed-defun's args slice
         // and must round-trip through Plist::new without re-eval.
-        // `(defun mktag () "answer")` would strip the string as a
-        // docstring and leave the body empty. Use `progn` to force the
-        // string to be the actual return value.
         ctx.eval_string(
             r#"
         (defun mkx () 10)
         (defun mky () 32)
-        (defun mktag () (progn "answer"))
+        (defun mktag () "answer")
         (defun outer ()
           (cfg-summary :x (mkx) :y (mky) :tag (mktag) :xs '(1 2 3)))
         "#,

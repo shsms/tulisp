@@ -1570,7 +1570,7 @@ mod tests {
     fn macro_docstrings_and_empty_bodies() {
         let ctx = &mut TulispContext::new();
         eval_assert_equal(ctx, r#"(defmacro ds1 () "doc" "real") (ds1)"#, r#""real""#);
-        eval_assert_equal(ctx, r#"(defmacro ds2 () "doc") (ds2)"#, "nil");
+        eval_assert_equal(ctx, r#"(defmacro ds2 () "doc") (ds2)"#, r#""doc""#);
         eval_assert_equal(ctx, "(defmacro ds3 ()) (ds3)", "nil");
     }
 

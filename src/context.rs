@@ -64,6 +64,7 @@ intern_from_obarray! {
     pub(crate) struct Keywords {
         amp_optional: "&optional",
         amp_rest: "&rest",
+        declare: "declare",
         lambda: "lambda",
         progn: "progn",
     }

@@ -17,6 +17,7 @@ pub(crate) fn define_macro(
     let (name, params, body): (TulispObject, TulispObject, Rest<TulispObject>) =
         args.destructure(ctx)?;
     crate::builtin::check_param_list(ctx, &params)?;
+    let body = crate::builtin::drop_declare_after_docstring(ctx, body.into())?;
     let lambda = list!(,ctx.keywords.lambda.clone() ,params ,@body)?;
     ctx.set_function_value(
         &name,

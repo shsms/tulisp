@@ -29,6 +29,16 @@ pub(super) fn compile_fn_lambda(
     Ok(result)
 }
 
+/// BODY without its docstring: a leading string with more forms after it. A
+/// string that is the only form is the body's value.
+pub(super) fn strip_docstring(body: TulispObject) -> Result<TulispObject, Error> {
+    if body.car()?.stringp() && body.cdr()?.consp() {
+        body.cdr()
+    } else {
+        Ok(body)
+    }
+}
+
 /// `(function ARG)`, also written `#'ARG`: a `(lambda ...)` ARG makes a
 /// closure, as `lambda` does, and any other ARG is its value unevaluated, as
 /// with `quote`.
@@ -57,12 +67,7 @@ pub(super) fn compile_lambda(
     let params = args.car()?;
     let body = args.cdr()?;
     crate::builtin::check_param_list(ctx, &params)?;
-    // Strip an optional docstring as the first body form.
-    let body = if body.car()?.stringp() {
-        body.cdr()?
-    } else {
-        body
-    };
+    let body = strip_docstring(body)?;
 
     // Parse params: required, &optional group, &rest group.
     let mut param_names: Vec<TulispObject> = Vec::new();
@@ -284,6 +289,33 @@ mod tests {
         eval_assert_equal, eval_assert_equal_fresh, eval_assert_error_line, listing,
     };
     use crate::{Error, TulispContext, TulispObject, TulispValue};
+
+    // A string that is the only body form is the value, as in Emacs; it is a
+    // docstring only when more forms follow it.
+    #[test]
+    fn a_lone_string_body_is_the_value() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            r#"(defun ls-version () "1.2.3")
+               (defmacro ls-m () "x")
+               (defun ls-g () "doc" 5)
+               (list (ls-version) (funcall (lambda () "doc")) (ls-m) (ls-g))"#,
+            r#"'("1.2.3" "doc" "x" 5)"#,
+        );
+        // `defun` and `defmacro` drop one `(declare ...)` after the string
+        // first, as Emacs does; a `lambda` does not.
+        eval_assert_equal(
+            ctx,
+            r#"(defun ls-d () "doc" (declare (indent 1)))
+               (defmacro ls-dm () "doc" (declare (indent 1)))
+               (defun ls-dd () "doc" (declare (indent 1)) (declare (indent 2)))
+               (defun ls-dp () "doc" (+ 1 2))
+               (list (ls-d) (ls-dm) (ls-dd) (ls-dp)
+                     (funcall (lambda () "doc" (declare (indent 1)))))"#,
+            r#"'("doc" "doc" nil 3 nil)"#,
+        );
+    }
 
     // `#'(lambda ...)` and `(function (lambda ...))` make a closure over the
     // variables around them, as `(lambda ...)` does, and `#'` of anything else

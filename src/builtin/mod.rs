@@ -131,6 +131,22 @@ pub(crate) fn check_defvar_name(name: &TulispObject) -> Result<(), Error> {
     Ok(())
 }
 
+/// BODY of a `defun` or `defmacro` without the `(declare ...)` form that
+/// follows its leading string, as Emacs drops it before it tells a
+/// docstring from a string that is the value.
+pub(crate) fn drop_declare_after_docstring(
+    ctx: &TulispContext,
+    body: TulispObject,
+) -> Result<TulispObject, Error> {
+    let first = body.car()?;
+    let rest = body.cdr()?;
+    let next = rest.car()?;
+    if first.stringp() && next.consp() && next.car()?.eq(&ctx.keywords.declare) {
+        return Ok(TulispObject::cons(first, rest.cdr()?));
+    }
+    Ok(body)
+}
+
 /// Checks the parameter list of a `defun`, `defmacro` or `lambda`: a
 /// list of symbols, with at most one symbol after `&rest`. `&optional`
 /// and `&rest` are the interned symbols, as the compilers read them.
