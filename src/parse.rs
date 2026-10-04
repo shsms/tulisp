@@ -2,6 +2,10 @@ use std::{collections::HashMap, iter::Peekable, str::Chars};
 
 use crate::{Error, Number, Rest, TulispContext, TulispObject, TulispValue, object::Span};
 
+/// The characters that end a number or symbol. Emacs also ends one at any other
+/// character below a space and at a no-break space.
+const TOKEN_ENDS: &str = "()[]'\";`,# \t\n\r";
+
 struct Tokenizer<'a> {
     file_id: usize,
     chars: Peekable<Chars<'a>>,
@@ -307,7 +311,7 @@ impl Tokenizer<'_> {
         mut output: String,
     ) -> Option<Token> {
         while let Some(ch) = self.peek_char() {
-            if matches!(ch, ')' | '[' | ']' | ' ' | '\t' | '\n' | '\r') {
+            if TOKEN_ENDS.contains(ch) {
                 break;
             }
             output.push(ch);
@@ -1330,6 +1334,21 @@ mod tests {
         let ctx = &mut TulispContext::new();
         eval_assert_equal(ctx, "(let ((_ 42)) _)", "42");
         eval_assert_equal(ctx, "(let ((_x 7)) _x)", "7");
+    }
+
+    // A number or symbol ends at a parenthesis, a quote, a comma, a string, a
+    // `#` or a comment, as in Emacs.
+    #[test]
+    fn a_token_ends_at_a_delimiter() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "'(1;c\n)", "'(1)");
+        eval_assert_equal(ctx, "'(1'a)", "'(1 'a)");
+        eval_assert_equal(ctx, "'(a(b))", "'(a (b))");
+        eval_assert_equal(ctx, r#"'(a"x")"#, r#"'(a "x")"#);
+        eval_assert_equal(ctx, "'(a#'b)", "'(a #'b)");
+        eval_assert_equal(ctx, "'(a#x10)", "'(a 16)");
+        eval_assert_equal(ctx, "(length '(1`a))", "2");
+        eval_assert_equal(ctx, "`(1,(+ 1 1))", "'(1 2)");
     }
 
     #[test]
