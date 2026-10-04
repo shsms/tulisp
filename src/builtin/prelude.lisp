@@ -75,25 +75,6 @@
 (defmacro prog2 (first second &rest body)
   `(progn ,first (prog1 ,second ,@body)))
 
-(defun sort (seq pred)
-  ;; Simple insertion sort — O(n^2), fine for typical Lisp-side use.
-  ;; `pred` is called as `(pred a b)` and returns non-nil when `a`
-  ;; should sort before `b`, matching Emacs' `sort` contract.
-  (length seq)
-  (let ((out nil))
-    (dolist (item seq)
-      (let ((inserted nil) (new nil))
-        (dolist (x out)
-          (if (and (not inserted) (funcall pred item x))
-              (progn (setq new (cons item new))
-                     (setq new (cons x new))
-                     (setq inserted t))
-            (setq new (cons x new))))
-        (unless inserted
-          (setq new (cons item new)))
-        (setq out (reverse new))))
-    out))
-
 ;; `push' for a variable PLACE, the common case of the Emacs macro.
 ;; Other places, like (car X), need generalized variables, which
 ;; tulisp does not have.

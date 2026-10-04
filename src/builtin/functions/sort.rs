@@ -6,6 +6,76 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defun("value<", |a: TulispObject, b: TulispObject| {
         value_less(&a, &b)
     });
+    ctx.defun(
+        "sort",
+        |ctx: &mut TulispContext, seq: TulispObject, pred: TulispObject| {
+            let sorted = merge_sort(elements(&seq)?, &mut |a, b| ordered(ctx, &pred, a, b))?;
+            write_back(&seq, sorted)?;
+            Ok::<_, Error>(seq)
+        },
+    );
+}
+
+/// The elements of SEQ, a list.
+fn elements(seq: &TulispObject) -> Result<Vec<TulispObject>, Error> {
+    if !seq.listp() {
+        return Err(Error::type_mismatch(format!("Expected list, got: {seq}")));
+    }
+    let mut iter = seq.base_iter();
+    let items = iter.by_ref().collect();
+    iter.take_error()?;
+    Ok(items)
+}
+
+/// Whether A goes before B under PRED, or under `value<` when PRED is nil.
+fn ordered(
+    ctx: &mut TulispContext,
+    pred: &TulispObject,
+    a: &TulispObject,
+    b: &TulispObject,
+) -> Result<bool, Error> {
+    if pred.null() {
+        return value_less(a, b);
+    }
+    Ok(ctx.funcall(pred, (a.clone(), b.clone()))?.is_truthy())
+}
+
+/// ITEMS sorted by LESS, keeping equal items in their order. LESS can fail, and
+/// need not be a consistent order.
+fn merge_sort(
+    mut items: Vec<TulispObject>,
+    less: &mut impl FnMut(&TulispObject, &TulispObject) -> Result<bool, Error>,
+) -> Result<Vec<TulispObject>, Error> {
+    if items.len() < 2 {
+        return Ok(items);
+    }
+    let right = items.split_off(items.len() / 2);
+    let left = merge_sort(items, less)?;
+    let right = merge_sort(right, less)?;
+    let mut out = Vec::with_capacity(left.len() + right.len());
+    let mut left = left.into_iter().peekable();
+    let mut right = right.into_iter().peekable();
+    while let (Some(a), Some(b)) = (left.peek(), right.peek()) {
+        let next = if less(b, a)? {
+            right.next()
+        } else {
+            left.next()
+        };
+        out.extend(next);
+    }
+    out.extend(left);
+    out.extend(right);
+    Ok(out)
+}
+
+/// Puts ITEMS, in order, into the cells of the list SEQ.
+fn write_back(seq: &TulispObject, items: Vec<TulispObject>) -> Result<(), Error> {
+    let mut cell = seq.clone();
+    for item in items {
+        cell.set_car(item)?;
+        cell = cell.cdr()?;
+    }
+    Ok(())
 }
 
 /// Whether A comes before B, as Emacs's `value<` orders them: numbers by value,
@@ -102,6 +172,73 @@ mod tests {
             (
                 "(let ((l (list 1))) (setcdr l l) (value< l l))",
                 "ERR OutOfRange: Circular list",
+            ),
+        ] {
+            eval_assert_error_line(ctx, program, line);
+        }
+    }
+
+    // `(sort SEQ PRED)` sorts the list in place and returns it; equal elements
+    // keep their order, and a nil PRED means `value<`.
+    #[test]
+    fn sort_with_a_predicate_sorts_in_place() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(let ((l (list 3 1 2))) (list (eq l (sort l '<)) l))",
+            "'(t (1 2 3))",
+        );
+        eval_assert_equal(
+            ctx,
+            "(sort (list '(1 . a) '(0 . b) '(1 . c)) (lambda (x y) (< (car x) (car y))))",
+            "'((0 . b) (1 . a) (1 . c))",
+        );
+        eval_assert_equal(ctx, "(sort (list 3 1 2) nil)", "'(1 2 3)");
+        eval_assert_equal(ctx, "(sort nil '<)", "nil");
+        eval_assert_equal(
+            ctx,
+            r#"(sort '("sort" "hello" "a" "world") 'string<)"#,
+            r#"'("a" "hello" "sort" "world")"#,
+        );
+        eval_assert_equal(
+            ctx,
+            r#"(sort '("sort" "hello" "a" "world") 'string>)"#,
+            r#"'("world" "sort" "hello" "a")"#,
+        );
+        eval_assert_equal(ctx, "(sort '(20 10 30 15 45) '>)", "'(45 30 20 15 10)");
+        eval_assert_equal(
+            ctx,
+            "(defun << (v1 v2) (> v1 v2)) (sort '(20 10 30 15 45) '<<)",
+            "'(45 30 20 15 10)",
+        );
+        eval_assert_equal(
+            ctx,
+            "(sort '(20 10 30 15 45) '(lambda (v1 v2) (> v1 v2)))",
+            "'(45 30 20 15 10)",
+        );
+    }
+
+    #[test]
+    fn sort_errors() {
+        let ctx = &mut TulispContext::new();
+        for (program, line) in [
+            ("(sort 5 '<)", "ERR TypeMismatch: Expected list, got: 5"),
+            (
+                "(sort '(2 1) 'no-such-function)",
+                "ERR Undefined: function is void: no-such-function",
+            ),
+            ("(sort '(2 1))", "ERR ArityMismatch: Too few arguments"),
+            (
+                "(sort '(1 . 2) '<)",
+                "ERR TypeMismatch: Expected list, got: 2",
+            ),
+            (
+                r#"(sort '("b" "a") '>)"#,
+                r#"ERR TypeMismatch: Expected number, got: "a""#,
+            ),
+            (
+                "(sort (list 2 1) (lambda (a b) (error \"boom\")))",
+                "ERR LispError: boom",
             ),
         ] {
             eval_assert_error_line(ctx, program, line);

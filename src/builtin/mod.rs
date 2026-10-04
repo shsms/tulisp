@@ -202,7 +202,7 @@ pub(crate) fn check_settable_target(target: &TulispObject) -> Result<(), Error> 
 #[cfg(test)]
 mod tests {
     use crate::TulispContext;
-    use crate::test_utils::{eval_assert_equal, eval_assert_error, eval_assert_error_line};
+    use crate::test_utils::{eval_assert_equal, eval_assert_error_line};
 
     // An uninterned symbol named `&rest` is an ordinary parameter, as
     // in Emacs.
@@ -297,87 +297,6 @@ mod tests {
                 "ERR OutOfRange: Circular list",
             );
         }
-    }
-
-    #[test]
-    fn sort_orders_by_the_predicate() {
-        let ctx = &mut TulispContext::new();
-        eval_assert_equal(ctx, "(sort '(20 10 30 15 45) '<)", "'(10 15 20 30 45)");
-        eval_assert_equal(ctx, "(sort '(20 10 30 15 45) '>)", "'(45 30 20 15 10)");
-        // With a `>`-typed predicate applied to strings, the inner
-        // `funcall` hits a number-only operator and errors. The exact
-        // string that trips it depends on the sort walk order; `hello`
-        // happens to be first under the current Lisp implementation.
-        //
-        // The trace frames inside the prelude carry the crate-absolute
-        // path to `prelude.lisp` (see `eval_prelude` in `context.rs`),
-        // so we inject that at compile time via `CARGO_MANIFEST_DIR`.
-        let prelude = concat!(env!("CARGO_MANIFEST_DIR"), "/src/builtin/prelude.lisp");
-        eval_assert_error(
-            ctx,
-            r#"(sort '("sort" "hello" "a" "world") '>)"#,
-            &format!(
-                r#"ERR TypeMismatch: Expected number, got: "hello"
-{0}:87.35-87.55:  at (funcall pred item x)
-{0}:87.15-87.56:  at (and (not inserted) (funcall pred item x))
-{0}:87.11-91.36:  at (if (and (not inserted) (funcall pred item x)) (progn (setq new (cons item new))...
-{0}:86.9-91.37:  at (let ((tail out)) (while tail (let ((x (car tail))) (if (and (not inserted) (fun...
-{0}:85.7-94.33:  at (let ((inserted nil) (new nil)) (let ((tail out)) (while tail (let ((x (car tail...
-{0}:84.5-94.34:  at (let ((tail seq)) (while tail (let ((item (car tail))) (let ((inserted nil) (new...
-{0}:83.3-95.8:  at (let ((out nil)) (let ((tail seq)) (while tail (let ((item (car tail))) (let ((i...
-<eval_string>:1.1-1.39:  at (sort '("sort" "hello" "a" "world") '>)
-"#,
-                prelude
-            ),
-        );
-        eval_assert_equal(
-            ctx,
-            r#"(sort '("sort" "hello" "a" "world") 'string<)"#,
-            r#"'("a" "hello" "sort" "world")"#,
-        );
-        eval_assert_equal(
-            ctx,
-            r#"(sort '("sort" "hello" "a" "world") 'string>)"#,
-            r#"'("world" "sort" "hello" "a")"#,
-        );
-        // `sort` is written in Lisp, so an unknown predicate fails at
-        // the inner `funcall`, and the trace has the sort body's
-        // frames.
-        eval_assert_error(
-            ctx,
-            "(sort '(20 10 30 15 45) '<<)",
-            &format!(
-                r#"ERR Undefined: function is void: <<
-{0}:87.35-87.55:  at (funcall pred item x)
-{0}:87.15-87.56:  at (and (not inserted) (funcall pred item x))
-{0}:87.11-91.36:  at (if (and (not inserted) (funcall pred item x)) (progn (setq new (cons item new))...
-{0}:86.9-91.37:  at (let ((tail out)) (while tail (let ((x (car tail))) (if (and (not inserted) (fun...
-{0}:85.7-94.33:  at (let ((inserted nil) (new nil)) (let ((tail out)) (while tail (let ((x (car tail...
-{0}:84.5-94.34:  at (let ((tail seq)) (while tail (let ((item (car tail))) (let ((inserted nil) (new...
-{0}:83.3-95.8:  at (let ((out nil)) (let ((tail seq)) (while tail (let ((item (car tail))) (let ((i...
-<eval_string>:1.1-1.28:  at (sort '(20 10 30 15 45) '<<)
-"#,
-                prelude
-            ),
-        );
-        eval_assert_error(
-            ctx,
-            "(sort '(20 10 30 15 45))",
-            r#"ERR ArityMismatch: Too few arguments
-<eval_string>:1.1-1.24:  at (sort '(20 10 30 15 45))
-"#,
-        );
-        eval_assert_equal(
-            ctx,
-            "(defun << (v1 v2) (> v1 v2)) (sort '(20 10 30 15 45) '<<)",
-            "'(45 30 20 15 10)",
-        );
-
-        eval_assert_equal(
-            ctx,
-            "(sort '(20 10 30 15 45) '(lambda (v1 v2) (> v1 v2)))",
-            "'(45 30 20 15 10)",
-        );
     }
 
     // `push` conses onto a variable, evaluating NEWELT first, and
