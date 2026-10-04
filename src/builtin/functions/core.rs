@@ -294,8 +294,14 @@ pub(crate) fn add(ctx: &mut TulispContext) {
          remove: Option<TulispObject>,
          testfn: Option<TulispObject>|
          -> Result<TulispObject, Error> {
-            // TODO: implement remove after `setf`.
-            crate::alist::alist_get(ctx, &key, &alist, default_value, remove, testfn)
+            // REMOVE makes `(setf (alist-get ...) nil)` delete an entry,
+            // and there is no `setf`, so a non-nil one is an error.
+            if remove.is_some() {
+                return Err(Error::not_implemented(
+                    "alist-get: REMOVE argument is not implemented (no `setf` support yet)",
+                ));
+            }
+            crate::alist::alist_get(ctx, &key, &alist, default_value, testfn)
         },
     );
 
@@ -496,6 +502,18 @@ mod tests {
         eval_assert_error_line,
     };
     use crate::{Error, TulispContext, TulispObject};
+
+    // `alist-get` refuses a non-nil REMOVE, which needs `setf`.
+    #[test]
+    fn alist_get_refuses_remove() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(alist-get 'a '((a . 1)) nil nil)", "1");
+        eval_assert_error_line(
+            ctx,
+            "(alist-get 'a '((a . 1)) nil t)",
+            "ERR NotImplemented: alist-get: REMOVE argument is not implemented (no `setf` support yet)",
+        );
+    }
 
     // A Lisp macro that replaces a function reaches the calls compiled
     // to the function: they raise, as calling a macro does in Emacs.
