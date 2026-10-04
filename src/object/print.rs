@@ -72,8 +72,9 @@ struct OpenList {
     circular: bool,
     /// Whether all but the closing parenthesis has been printed.
     closing: bool,
-    /// Whether the list printed as `#'X`, so it closes without a parenthesis.
-    function_form: bool,
+    /// Whether the list printed as `#'X` or `'X`, so it closes without a
+    /// parenthesis.
+    prefixed: bool,
 }
 
 /// The lists being printed by one `print`, innermost last. Each is on
@@ -154,7 +155,7 @@ fn print_lists(
             return Ok(());
         };
         if list.closing {
-            if !list.function_form {
+            if !list.prefixed {
                 f.write_char(')')?;
             }
             open.lists.pop();
@@ -194,10 +195,9 @@ fn print_lists(
     }
 }
 
-/// X when OBJ is the two-element list `(function X)`.
-pub(crate) fn function_form_arg(obj: &TulispObject) -> Option<TulispObject> {
-    let head = obj.car().ok()?;
-    if head.inner_ref().0.symbol_name() != Some("function") {
+/// X when OBJ is the two-element list `(HEAD X)`.
+fn sole_arg(obj: &TulispObject, head: &str) -> Option<TulispObject> {
+    if obj.car().ok()?.inner_ref().0.symbol_name() != Some(head) {
         return None;
     }
     let rest = obj.cdr().ok()?;
@@ -207,10 +207,23 @@ pub(crate) fn function_form_arg(obj: &TulispObject) -> Option<TulispObject> {
     rest.car().ok()
 }
 
+/// X when OBJ is the two-element list `(function X)`.
+pub(crate) fn function_form_arg(obj: &TulispObject) -> Option<TulispObject> {
+    sole_arg(obj, "function")
+}
+
+/// The prefix to print and X when OBJ is the two-element list `(function X)`,
+/// printed as `#'X`, or `(quote X)`, printed as `'X`.
+fn prefix_form(obj: &TulispObject) -> Option<(&'static str, TulispObject)> {
+    [("function", "#'"), ("quote", "'")]
+        .into_iter()
+        .find_map(|(head, prefix)| Some((prefix, sole_arg(obj, head)?)))
+}
+
 /// Prints the start of OBJ: all of an atom, the prefix of a quote form, whose
 /// quoted form it returns to print next, and the opening of a list, which it
-/// adds to OPEN; for a `(function X)` list the opening is `#'`, and it returns
-/// X to print next.
+/// adds to OPEN; for a `(function X)` or `(quote X)` list the opening is `#'`
+/// or `'`, and it returns X to print next.
 fn print_one(
     obj: &TulispObject,
     f: &mut fmt::Formatter<'_>,
@@ -234,18 +247,19 @@ fn print_one(
         if open.top_counted() {
             PRINTING.with(|printing| printing.borrow_mut().push(addr));
         }
-        // `(function X)` prints as `#'X`, as in Emacs, but stays among the
-        // lists being printed until X is printed, in case X leads back to it.
-        let arg = function_form_arg(obj);
-        let function_form = arg.is_some();
-        f.write_str(if function_form { "#'" } else { "(" })?;
+        // `(function X)` prints as `#'X` and `(quote X)` as `'X`, as in Emacs,
+        // but stays among the lists being printed until X is printed, in case X
+        // leads back to it.
+        let (prefix, arg) = prefix_form(obj).unzip();
+        let prefixed = prefix.is_some();
+        f.write_str(prefix.unwrap_or("("))?;
         open.lists.push(OpenList {
             rest: list,
             cycle: CycleCheck::new(),
             started: false,
             circular: false,
-            closing: function_form,
-            function_form,
+            closing: prefixed,
+            prefixed,
         });
         return Ok(arg);
     }
@@ -308,6 +322,29 @@ mod tests {
             r#"(format "%S" '(1 (2 "s" (3 . 4)) 'a `(b ,c ,@d) #'e (f . 'g)))"#,
             r#""(1 (2 \"s\" (3 . 4)) 'a `(b ,c ,@d) #'e (f . 'g))""#,
         );
+        Ok(())
+    }
+
+    // A `(quote X)` list prints as `'X`, as `(function X)` prints as `#'X`.
+    #[test]
+    fn a_quote_list_prints_as_a_quote() -> Result<(), Error> {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(prin1-to-string (list 'quote 'x))", r#""'x""#);
+        eval_assert_equal(
+            ctx,
+            "(prin1-to-string (list 'quote (list 1 2)))",
+            r#""'(1 2)""#,
+        );
+        eval_assert_equal(ctx, "(prin1-to-string '(quote x y))", r#""(quote x y)""#);
+        eval_assert_equal(ctx, "(prin1-to-string '(quote))", r#""(quote)""#);
+        eval_assert_equal(ctx, "(prin1-to-string '(quote . x))", r#""(quote . x)""#);
+        eval_assert_equal(
+            ctx,
+            "(prin1-to-string (list 'a 'quote 'b))",
+            r#""(a quote b)""#,
+        );
+        ctx.eval_string("(setq a (list 'quote nil)) (setcar (cdr a) a)")?;
+        eval_assert_equal(ctx, "(prin1-to-string a)", r##""'#0""##);
         Ok(())
     }
 
