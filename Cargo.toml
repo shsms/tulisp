@@ -8,6 +8,7 @@ edition = "2024"
 keywords = ["lisp", "scripting", "emacs-lisp"]
 categories = ["compilers", "config"]
 rust-version = "1.88.0"
+include = ["/src", "/examples", "/tests/*.lisp", "/README.md", "/LICENSE"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
