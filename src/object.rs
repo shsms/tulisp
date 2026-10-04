@@ -449,8 +449,9 @@ impl TulispObject {
         }
     }
 
-    /// Returns true if `self` and `other` are [`eq`](Self::eq), or
-    /// numbers of the same kind and value (see [`Number::eql`]).
+    /// Returns true if `self` and `other` are [`eq`](Self::eq), or numbers of
+    /// the same kind and value. Floats compare by their bits, so `0.0` and
+    /// `-0.0` differ, and a NaN is `eql` to itself.
     ///
     /// Read more about Emacs `eql`
     /// [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Comparison-of-Numbers.html#index-eql)
@@ -1150,10 +1151,9 @@ fn shared_t() -> TulispObject {
 }
 
 impl From<bool> for TulispObject {
-    /// `true` is the shared cell from [`shared_t`], so a true result
-    /// does not allocate. The same rule as the small int cache above
-    /// applies: never call `assign` / `take` on it. `false` is a fresh
-    /// `nil` cell every time.
+    // `true` is the shared cell from `shared_t`, so a true result does not
+    // allocate. The same rule as the small int cache above applies: never call
+    // `assign` / `take` on it. `false` is a fresh `nil` cell every time.
     fn from(vv: bool) -> Self {
         if vv { shared_t() } else { TulispObject::nil() }
     }
