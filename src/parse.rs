@@ -125,7 +125,7 @@ impl Tokenizer<'_> {
 
     fn read_num_ident(&mut self) -> Option<Token> {
         let start_pos = (self.line, self.pos + 1);
-        self.read_num_ident_impl(start_pos, String::new(), true, false)
+        self.read_num_ident_impl(start_pos, String::new())
     }
 
     /// Read a `#x` / `#o` / `#b` integer literal. Caller has just
@@ -288,139 +288,56 @@ impl Tokenizer<'_> {
         }
     }
 
+    /// Read the rest of a number or symbol token after `output`.
     fn read_num_ident_impl(
         &mut self,
         start_pos: (usize, usize),
         mut output: String,
-        mut is_int: bool,
-        mut is_float: bool,
     ) -> Option<Token> {
-        let mut first_char = output.is_empty();
-        // Scientific-notation state. `seen_e` blocks a second `e`/`E`,
-        // `expect_exp_sign` lets one `+`/`-` follow `e`/`E` without
-        // tipping the token into ident mode.
-        let mut seen_e = false;
-        let mut expect_exp_sign = false;
-
         while let Some(ch) = self.peek_char() {
-            match ch {
-                ')' | '[' | ']' | ' ' | '\t' | '\n' | '\r' => {
-                    break;
-                }
-                'e' | 'E' if (is_int || is_float) && !first_char && !seen_e => {
-                    // Enter exponent mode: any preceding digits/dot
-                    // make this a float, regardless of `is_int`.
-                    is_int = false;
-                    is_float = true;
-                    seen_e = true;
-                    expect_exp_sign = true;
-                    output.push(ch);
-                }
-                '-' | '+' if expect_exp_sign && (is_int || is_float) => {
-                    // Sign of the exponent — stays in float mode.
-                    expect_exp_sign = false;
-                    output.push(ch);
-                }
-                '-' => {
-                    if !first_char {
-                        is_int = false;
-                        is_float = false;
-                    }
-                    output.push(ch);
-                }
-                '0'..='9' => {
-                    expect_exp_sign = false;
-                    output.push(ch);
-                }
-                '_' if (is_int || is_float) && !first_char => {}
-                '.' => {
-                    if is_int && !is_float {
-                        is_int = false;
-                        is_float = true;
-                    } else if is_float {
-                        is_float = false;
-                    }
-                    output.push(ch)
-                }
-                ch => {
-                    is_int = false;
-                    is_float = false;
-                    output.push(ch);
-                }
+            if matches!(ch, ')' | '[' | ']' | ' ' | '\t' | '\n' | '\r') {
+                break;
             }
+            output.push(ch);
             self.next_char()?;
-            first_char = false;
         }
-        if is_int && output != "-" {
-            let span = Span::new(self.file_id, start_pos, (self.line, self.pos));
-            match output.parse::<i64>() {
-                Ok(value) => Some(Token::Integer { span, value }),
-                Err(e) => Some(Token::ParserError(ParserError::syntax_error(
-                    format!("{e}: {output}"),
-                    span,
-                ))),
-            }
-        } else if is_float {
-            let span = Span::new(self.file_id, start_pos, (self.line, self.pos));
-            match output.parse::<f64>() {
-                Ok(value) => Some(Token::Float { span, value }),
-                // `1e` / `1e+` (and similar) eagerly entered exponent
-                // mode but never produced an exponent digit. Emacs
-                // reads these as identifiers — fall back rather than
-                // erroring on a syntactically valid Lisp symbol.
-                Err(_) if seen_e => Some(Token::Ident {
-                    span,
-                    value: output,
-                }),
-                Err(e) => Some(Token::ParserError(ParserError::syntax_error(
-                    format!("{e}: {output}"),
-                    span,
-                ))),
-            }
-        } else {
-            let span = Span::new(self.file_id, start_pos, (self.line, self.pos));
-            // Emacs' `1.0e+INF` / `-1.0e+INF` / `0.0e+NaN` /
-            // `-0.0e+NaN` shapes — uppercase suffix only, only `e+`
-            // (not `e-`). Mantissa value is ignored; only its sign
-            // matters. Lowercase / `e-` variants stay as identifiers,
-            // matching Emacs' reader.
-            if let Some(value) = parse_emacs_inf_nan(&output) {
-                return Some(Token::Float { span, value });
-            }
-            Some(Token::Ident {
-                span,
-                value: output,
-            })
-        }
+        let span = Span::new(self.file_id, start_pos, (self.line, self.pos));
+        Some(number_or_symbol(output, span))
     }
 }
 
-/// Recognize the `<mantissa>e+INF` / `<mantissa>e+NaN` shapes that
-/// Emacs' reader uses for the special float values. The mantissa
-/// value is irrelevant (`5.5e+INF` and `1.0e+INF` both produce
-/// `+INF`); only its sign carries through. Returns `None` for
-/// anything else (so the caller can fall back to identifier).
-fn parse_emacs_inf_nan(s: &str) -> Option<f64> {
-    for (suffix, base) in [("e+INF", f64::INFINITY), ("e+NaN", f64::NAN)] {
-        let Some(prefix) = s.strip_suffix(suffix) else {
-            continue;
-        };
-        // Mantissa must itself be a finite f64 (rules out empty,
-        // double-dot, leading-letter, etc.). The mantissa's value is
-        // discarded — only its sign matters.
-        if let Ok(mantissa) = prefix.parse::<f64>()
-            && mantissa.is_finite()
-        {
-            return Some(if prefix.starts_with('-') {
-                // `-f64::NAN` flips the sign bit; `-f64::INFINITY`
-                // produces `f64::NEG_INFINITY`.
-                -base
-            } else {
-                base
-            });
-        }
+/// Read `text` as Emacs does: an integer like `+1` or `10.`, a float like `.5`,
+/// `1e3` or `-1.0e+INF`, or else a symbol.
+fn number_or_symbol(text: String, span: Span) -> Token {
+    let unsigned = text.strip_prefix(['+', '-']).unwrap_or(&text);
+    let lead = unsigned.bytes().take_while(u8::is_ascii_digit).count();
+    let rest = &unsigned[lead..];
+    let rest = rest.strip_prefix('.').unwrap_or(rest);
+    let trail = rest.bytes().take_while(u8::is_ascii_digit).count();
+    let tail = &rest[trail..];
+
+    if lead + trail == 0 {
+        return Token::Ident { span, value: text };
     }
-    None
+    if trail == 0 && tail.is_empty() {
+        let digits = text.strip_suffix('.').unwrap_or(&text);
+        return match digits.parse::<i64>() {
+            Ok(value) => Token::Integer { span, value },
+            Err(e) => Token::ParserError(ParserError::syntax_error(format!("{e}: {text}"), span)),
+        };
+    }
+    // `-f64::NAN` flips the sign bit.
+    let signed = |value: f64| if text.starts_with('-') { -value } else { value };
+    let float = match tail.strip_prefix(['e', 'E']) {
+        Some("+INF") => Some(signed(f64::INFINITY)),
+        Some("+NaN") => Some(signed(f64::NAN)),
+        // Rust reads the same shape: digits, a dot, digits and an exponent.
+        _ => text.parse::<f64>().ok(),
+    };
+    match float {
+        Some(value) => Token::Float { span, value },
+        None => Token::Ident { span, value: text },
+    }
 }
 
 impl Iterator for Tokenizer<'_> {
@@ -478,7 +395,7 @@ impl Iterator for Tokenizer<'_> {
                     let start_pos = (self.line, self.pos + 1);
                     self.next_char()?;
                     if matches!(self.peek_char(), Some('0'..='9')) {
-                        return self.read_num_ident_impl(start_pos, String::from("."), false, true);
+                        return self.read_num_ident_impl(start_pos, String::from("."));
                     }
                     return Some(Token::Dot {
                         span: Span::new(self.file_id, (self.line, self.pos), (self.line, self.pos)),
@@ -960,7 +877,8 @@ pub fn parse(
 #[cfg(test)]
 mod tests {
     use crate::test_utils::{
-        eval_assert_equal, eval_assert_equal_fresh, eval_assert_error, eval_assert_error_line,
+        eval_assert, eval_assert_equal, eval_assert_equal_fresh, eval_assert_error,
+        eval_assert_error_line,
     };
     use crate::{Error, TulispContext};
 
@@ -1343,20 +1261,30 @@ mod tests {
         eval_assert_equal(ctx, r#"(format "%S" -0.0e+NaN)"#, r#""-0.0e+NaN""#);
         eval_assert_equal(ctx, r#"(format "%S" 5.5e+INF)"#, r#""1.0e+INF""#);
         eval_assert_equal(ctx, r#"(format "%S" 1e+INF)"#, r#""1.0e+INF""#);
+        eval_assert_equal(ctx, r#"(format "%S" -1e999)"#, r#""-1.0e+INF""#);
         eval_assert_equal(ctx, "(progn (setq 1.0e+inf 5) 1.0e+inf)", "5");
         eval_assert_equal(ctx, "(progn (setq 1.0e-INF 5) 1.0e-INF)", "5");
         eval_assert_equal(ctx, "(progn (setq inf 5) inf)", "5");
     }
 
+    // Numbers read as Emacs reads them: a leading `+` and a trailing `.` still
+    // give an integer, and a token that is no number is a symbol.
     #[test]
-    fn underscores_in_numbers() {
+    fn numbers_read_as_in_emacs() {
         let ctx = &mut TulispContext::new();
-        eval_assert_equal(ctx, "1_000", "1000");
-        eval_assert_equal(ctx, "1_000_000", "1000000");
-        eval_assert_equal(ctx, "(+ 1_000 2_000)", "3000");
-        eval_assert_equal(ctx, "1_000.5", "1000.5");
-        eval_assert_equal(ctx, "1_000.000_1", "1000.0001");
-        eval_assert_equal(ctx, ".1_5", "0.15");
+        eval_assert_equal(
+            ctx,
+            "(list +1 10. -10. +1.5 +.5 -.5 1.e3)",
+            "'(1 10 -10 1.5 0.5 -0.5 1000.0)",
+        );
+        eval_assert(ctx, "(integerp +1)");
+        eval_assert(ctx, "(integerp 10.)");
+        eval_assert(ctx, "(floatp 1.e3)");
+        for symbol in [
+            "1_000", "1_000.5", ".1_5", "+.", "-.", "1.5.3", "1e5.0", "1e+INFx", "e+INF", "+e+INF",
+        ] {
+            eval_assert(ctx, &format!("(symbolp '{symbol})"));
+        }
     }
 
     // A lone or leading underscore makes a symbol.
@@ -1365,7 +1293,6 @@ mod tests {
         let ctx = &mut TulispContext::new();
         eval_assert_equal(ctx, "(let ((_ 42)) _)", "42");
         eval_assert_equal(ctx, "(let ((_x 7)) _x)", "7");
-        eval_assert_equal(ctx, "1_000", "1000");
     }
 
     #[test]
@@ -1377,20 +1304,13 @@ mod tests {
     }
 
     #[test]
-    fn bad_number_literals_are_errors() {
+    fn a_too_large_integer_is_an_error() {
         let ctx = &mut TulispContext::new();
         eval_assert_error(
             ctx,
             "99999999999999999999",
             r#"ERR ParsingError: SyntaxError number too large to fit in target type: 99999999999999999999
 <eval_string>:1.1-1.20:  at nil
-"#,
-        );
-        eval_assert_error(
-            ctx,
-            "-.",
-            r#"ERR ParsingError: SyntaxError invalid float literal: -.
-<eval_string>:1.1-1.2:  at nil
 "#,
         );
     }
