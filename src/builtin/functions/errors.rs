@@ -427,7 +427,8 @@ mod tests {
         Ok(())
     }
 
-    // A void variable names its symbol in the data, as in Emacs 30.1.
+    // A void variable or function names its symbol in the data, as in Emacs
+    // 30.1.
     #[test]
     fn void_errors_carry_their_symbol() {
         let ctx = &mut TulispContext::new();
@@ -436,6 +437,36 @@ mod tests {
                 "cc-void-variable",
                 "'(void-variable cc-void-variable)",
                 "Symbol's value as variable is void: cc-void-variable",
+            ),
+            (
+                "(cc-void-function 1)",
+                "'(void-function cc-void-function)",
+                "Symbol's function definition is void: cc-void-function",
+            ),
+            (
+                "(funcall 'cc-void-function)",
+                "'(void-function cc-void-function)",
+                "Symbol's function definition is void: cc-void-function",
+            ),
+            (
+                "(funcall nil)",
+                "'(void-function nil)",
+                "Symbol's function definition is void: nil",
+            ),
+            (
+                "(progn (setq cc-v 'car) (funcall 'cc-v '(1)))",
+                "'(void-function cc-v)",
+                "Symbol's function definition is void: cc-v",
+            ),
+            (
+                "(progn (setq cc-n 1) (funcall 'cc-n))",
+                "'(void-function cc-n)",
+                "Symbol's function definition is void: cc-n",
+            ),
+            (
+                "(progn (setq cc-l '(lambda (x) x)) (funcall 'cc-l 1))",
+                "'(void-function cc-l)",
+                "Symbol's function definition is void: cc-l",
             ),
             (
                 "(progn (defun cc-g () cc-void-variable) (cc-g))",
@@ -454,6 +485,26 @@ mod tests {
                 &format!("{message:?}"),
             );
         }
+    }
+
+    // A symbol set to a plain value, such as 1, is an error only when it is
+    // called, as in Emacs.
+    #[test]
+    fn a_void_function_is_an_error_only_when_called() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(progn (setq cc-n 1) (assoc 5 nil 'cc-n))", "nil");
+    }
+
+    // Calling a value that is not a function names the value in the data.
+    // Emacs signals invalid-function here instead.
+    #[test]
+    fn calling_a_non_function_names_it() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(condition-case e (funcall 1) (error (list e (error-message-string e))))",
+            r#"'((void-function 1) "Symbol's function definition is void: 1")"#,
+        );
     }
 
     // A closure that reads a captured variable before it is set names the

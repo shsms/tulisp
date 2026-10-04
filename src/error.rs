@@ -155,10 +155,13 @@ impl Error {
         Error::type_mismatch(format!("Can't set constant symbol: {name}"))
     }
 
-    /// The error for calling NAME when it holds no function. Emacs
-    /// signals `void-function` here.
-    pub fn void_function(name: impl std::fmt::Display) -> Error {
-        Error::undefined(format!("function is void: {name}"))
+    /// The error for calling FUNCTION, which is not a function: a symbol with
+    /// no function, or any other value. Emacs signals `void-function` for a
+    /// symbol, with `(SYMBOL)` as its data; this error does the same for any
+    /// value.
+    pub fn void_function(function: &TulispObject) -> Error {
+        Error::undefined(format!("function is void: {function}"))
+            .with_data(ErrorData::Symbol(Some(function.clone())))
     }
 
     /// The error for reading SYMBOL when it has no value. Emacs signals
@@ -180,7 +183,8 @@ impl Error {
 /// DATA list.
 #[derive(Clone)]
 enum ErrorData {
-    /// `(SYMBOL)`, for `void-variable`. SYMBOL is `None` until a
+    /// `(SYMBOL)`, for `void-variable` and `void-function`; for a void
+    /// function, SYMBOL is whatever was called. SYMBOL is `None` until a
     /// `TulispObject` method fills it in.
     Symbol(Option<TulispObject>),
 }
@@ -431,7 +435,10 @@ impl Error {
     /// The error's data, what a `condition-case` handler sees after the error
     /// symbol:
     ///
-    /// - `(SYMBOL)` for a void variable whose symbol is set, as in Emacs;
+    /// - `(SYMBOL)` for a void variable whose symbol is set, or for calling a
+    ///   symbol with no function, as in Emacs;
+    /// - `(VALUE)` for calling any other value that is not a function, a macro
+    ///   or a special form, where Emacs signals `invalid-function`;
     /// - nil for an `ArithError`, as in Emacs;
     /// - `(DESC)`, the error's description, for any other built-in error;
     /// - the data given to `signal` for a `Signal`;
@@ -495,6 +502,7 @@ mod tests {
         let other = ctx.intern("y");
         for (err, expected) in [
             (Error::void_variable(symbol.clone()), "'(x)"),
+            (Error::void_function(&symbol), "'(x)"),
             (
                 Error::void_variable_unfilled("m"),
                 r#"'("Variable definition is void: m")"#,

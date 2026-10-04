@@ -1326,8 +1326,8 @@ fn funcall_inline(
     call_function(ctx, &resolved, args)
 }
 
-/// Calls FUNCTION, a function value `resolve_function` gave, with
-/// ARGS, which are passed as they are.
+/// Calls FUNCTION, such as the value `resolve_function` gave, with ARGS, which
+/// are passed as they are. A FUNCTION that is not a function value is an error.
 pub(crate) fn call_function(
     ctx: &mut TulispContext,
     function: &TulispObject,
@@ -1351,7 +1351,7 @@ pub(crate) fn call_function(
         TulispValue::SpecialForm | TulispValue::Special { .. } => Err(Error::invalid_argument(
             format!("invalid function: {function}"),
         )),
-        _ => Err(Error::undefined(format!("function is void: {}", function))),
+        _ => Err(Error::void_function(function)),
     }
 }
 

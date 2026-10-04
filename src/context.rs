@@ -1838,7 +1838,7 @@ mod tests {
         let g = ctx.intern("g");
         let rust = ctx.funcall(&g, (1i64,)).unwrap_err();
         for err in [lisp, rust] {
-            assert!(err.to_string().contains("function is void: car"), "{err}");
+            assert!(err.to_string().contains("function is void: g"), "{err}");
         }
     }
 

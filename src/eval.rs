@@ -14,12 +14,13 @@ pub(crate) fn is_lambda_list(ctx: &TulispContext, obj: &TulispObject) -> bool {
             .unwrap_or(false)
 }
 
-/// Turn the evaluated first argument of `funcall` / `apply` into
-/// the function to call. A symbol resolves to the function bound to
-/// it, one lookup as in Emacs. A `(lambda ...)` list is compiled into
-/// a function that sees global and special variables, on each call. A
-/// macro or a special form is rejected here, as in Emacs. Anything else
-/// is returned as is, and `funcall` rejects it if it is not callable.
+/// Turn the evaluated first argument of `funcall` / `apply` into the function
+/// to call. A symbol resolves to the function bound to it, one lookup as in
+/// Emacs; a symbol bound to anything else stays the symbol, so that calling it
+/// names the symbol. A `(lambda ...)` list is compiled into a function that
+/// sees global and special variables, on each call. A macro or a special form
+/// is rejected here, as in Emacs. Any other value is returned as is, and
+/// `funcall` rejects it if it is not callable.
 pub(crate) fn resolve_function(
     ctx: &mut TulispContext,
     func: &TulispObject,
@@ -31,17 +32,22 @@ pub(crate) fn resolve_function(
     } else {
         func.clone()
     };
-    // A macro or a special form is not a function, as in Emacs.
-    if matches!(
-        &resolved.inner_ref().0,
-        TulispValue::Macro(_)
-            | TulispValue::Defmacro { .. }
-            | TulispValue::SpecialForm
-            | TulispValue::Special { .. }
-    ) {
+    if resolved.inner_ref().0.is_function_value() {
+        return Ok(resolved);
+    }
+    // Past the function values above, a value that is fbound is a macro or a
+    // special form, which is not a function, as in Emacs.
+    if resolved.inner_ref().0.is_fbound() {
         return Err(Error::invalid_argument(format!("invalid function: {func}")));
     }
-    Ok(resolved)
+    // Any other value is not a function either: `call_function` rejects it when
+    // it is called. A symbol stays itself, so the error names what the program
+    // called, as in Emacs.
+    if func.symbolp() {
+        Ok(func.clone())
+    } else {
+        Ok(resolved)
+    }
 }
 
 /// The arguments of `apply`: all but the last, then the elements of
