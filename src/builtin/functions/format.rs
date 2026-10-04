@@ -160,29 +160,7 @@ fn convert(spec: &Spec, arg: &TulispObject) -> Result<Field, Error> {
         's' => Ok(Field::text(cut(arg.fmt_string(), spec.precision))),
         'S' => Ok(Field::text(cut(arg.to_string(), spec.precision))),
         'd' | 'x' | 'X' | 'o' => integer(spec, arg.try_int()?),
-        'f' => {
-            let value = arg.try_float()?;
-            let sign = spec.sign(value.is_sign_negative());
-            if !value.is_finite() {
-                let body = if value.is_nan() { "nan" } else { "inf" };
-                return Ok(Field {
-                    sign,
-                    prefix: "",
-                    body: body.to_string(),
-                    zero_pad: false,
-                });
-            }
-            let precision = spec.precision.unwrap_or(6);
-            let shown = precision.min(MAX_FRACTION_DIGITS);
-            let mut body = format!("{:.shown$}", value.abs());
-            push_repeated(&mut body, '0', precision - shown)?;
-            Ok(Field {
-                sign,
-                prefix: "",
-                body,
-                zero_pad: true,
-            })
-        }
+        'f' => float(spec, arg.try_float()?),
         other => Err(invalid_operation(other)),
     }
 }
@@ -190,6 +168,43 @@ fn convert(spec: &Spec, arg: &TulispObject) -> Result<Field, Error> {
 /// Emacs's error for a conversion `format` does not know.
 fn invalid_operation(conversion: char) -> Error {
     Error::lisp_error(format!("Invalid format operation %{conversion}"))
+}
+
+/// VALUE under SPEC's float conversion, `%f`.
+fn float(spec: &Spec, value: f64) -> Result<Field, Error> {
+    let sign = spec.sign(value.is_sign_negative());
+    if !value.is_finite() {
+        let body = if value.is_nan() { "nan" } else { "inf" };
+        return Ok(Field {
+            sign,
+            prefix: "",
+            body: body.to_string(),
+            zero_pad: false,
+        });
+    }
+    let precision = spec.precision.unwrap_or(6);
+    let body = match spec.conversion {
+        'f' => fixed_form(value.abs(), precision, spec.alt)?,
+        other => return Err(invalid_operation(other)),
+    };
+    Ok(Field {
+        sign,
+        prefix: "",
+        body,
+        zero_pad: true,
+    })
+}
+
+/// VALUE, not negative, as `%f` prints it: PRECISION digits after the point.
+/// With ALT, the point stays when no digits follow it.
+fn fixed_form(value: f64, precision: usize, alt: bool) -> Result<String, Error> {
+    let shown = precision.min(MAX_FRACTION_DIGITS);
+    let mut body = format!("{value:.shown$}");
+    push_repeated(&mut body, '0', precision - shown)?;
+    if alt && precision == 0 {
+        body.push('.');
+    }
+    Ok(body)
 }
 
 /// VALUE under SPEC's integer conversion: `%d`, `%x`, `%X` or `%o`.
@@ -519,5 +534,12 @@ mod tests {
             r#"(format "%x" "a")"#,
             "ERR LispError: Format specifier doesn\u{2019}t match argument type",
         );
+    }
+
+    // The `#` flag keeps the point of `%.0f`, as in Emacs.
+    #[test]
+    fn format_alt_keeps_the_point() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, r#"(format "%#.0f|%.0f" 2.0 2.0)"#, r#""2.|2""#);
     }
 }
