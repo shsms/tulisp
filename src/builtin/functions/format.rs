@@ -137,8 +137,8 @@ fn convert(spec: &Spec, arg: &TulispObject) -> Result<Field, Error> {
         ));
     }
     match spec.conversion {
-        's' => Ok(Field::text(arg.fmt_string())),
-        'S' => Ok(Field::text(arg.to_string())),
+        's' => Ok(Field::text(cut(arg.fmt_string(), spec.precision))),
+        'S' => Ok(Field::text(cut(arg.to_string(), spec.precision))),
         'd' => {
             // In Emacs a `%d` precision pads with zeros, so one whose digits
             // overflowed is too wide for any string there.
@@ -146,10 +146,21 @@ fn convert(spec: &Spec, arg: &TulispObject) -> Result<Field, Error> {
                 return Err(string_too_long());
             }
             let value = arg.try_int()?;
+            let mut body = String::new();
+            let digits = value.unsigned_abs().to_string();
+            match spec.precision {
+                Some(0) if value == 0 => {}
+                Some(precision) => {
+                    push_repeated(&mut body, '0', precision.saturating_sub(digits.len()))?;
+                    body.push_str(&digits);
+                }
+                None => body = digits,
+            }
             Ok(Field {
                 sign: if value < 0 { "-" } else { "" },
-                body: value.unsigned_abs().to_string(),
-                zero_pad: true,
+                body,
+                // A precision gives the digits; the width pads with spaces.
+                zero_pad: spec.precision.is_none(),
             })
         }
         'f' => {
@@ -176,6 +187,14 @@ fn convert(spec: &Spec, arg: &TulispObject) -> Result<Field, Error> {
         other => Err(Error::lisp_error(format!(
             "Invalid format operation %{other}"
         ))),
+    }
+}
+
+/// The first PRECISION characters of TEXT, or all of it with no precision.
+fn cut(text: String, precision: Option<usize>) -> String {
+    match precision {
+        Some(precision) => text.chars().take(precision).collect(),
+        None => text,
     }
 }
 
@@ -365,5 +384,31 @@ mod tests {
         );
         eval_assert_equal(ctx, r#"(format "%08f" 0.0e+NaN)"#, r#""     nan""#);
         eval_assert_equal(ctx, r#"(format "%05s|" "ab")"#, r#""   ab|""#);
+    }
+
+    // A precision keeps the first characters of `%s` and `%S`, and gives `%d`
+    // at least that many digits, as in Emacs.
+    #[test]
+    fn format_precision_cuts_text_and_pads_digits() {
+        let ctx = &mut TulispContext::new();
+        let cases = [
+            (r#"(format "%.2s" "hello")"#, r#""he""#),
+            (
+                r#"(format "%5.2s|%-5.2s|" "hello" "hello")"#,
+                r#""   he|he   |""#,
+            ),
+            (r#"(format "%.2S" "hello")"#, r#""\"h""#),
+            (r#"(format "%.2s|%.2s" 'symbol 1.5)"#, r#""sy|1.""#),
+            (r#"(format "%.1s" "éa")"#, r#""é""#),
+            (r#"(format "%.3d|%.3d" 5 -5)"#, r#""005|-005""#),
+            (
+                r#"(format "%6.3d|%06.3d|%-6.3d|" 5 5 -5)"#,
+                r#""   005|   005|-005  |""#,
+            ),
+            (r#"(format "%.0d|%.0d" 0 5)"#, r#""|5""#),
+        ];
+        for (program, expected) in cases {
+            eval_assert_equal(ctx, program, expected);
+        }
     }
 }
