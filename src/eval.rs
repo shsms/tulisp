@@ -1587,7 +1587,7 @@ mod tests {
                 "1.33-1.39:  at (car 5)",
             ),
         ] {
-            let err = ctx.eval_string(program).unwrap_err().format(ctx);
+            let err = ctx.eval_string(program).unwrap_err().to_string();
             assert!(err.contains(needle), "{program}: {err}");
         }
     }
@@ -1683,7 +1683,7 @@ mod tests {
             "(defmacro ua () (list 'progn 1 'unbound-zz))\n(ua)",
             "\n(progn 1 unbound-zz)",
         ] {
-            let err = ctx.eval_string(program).unwrap_err().format(ctx);
+            let err = ctx.eval_string(program).unwrap_err().to_string();
             assert!(err.contains("<eval_string>:2.1-2."), "{program}: {err}");
         }
     }
@@ -1710,7 +1710,7 @@ mod tests {
             ("\n(sm)", "<eval_string>:2.1-2.4"),
             ("\n\n\n(sm)", "<eval_string>:4.1-4.4"),
         ] {
-            let err = ctx.eval_string(program).unwrap_err().format(ctx);
+            let err = ctx.eval_string(program).unwrap_err().to_string();
             assert!(err.contains(needle), "{program}: {err}");
         }
     }
@@ -1809,7 +1809,7 @@ mod tests {
             .spawn(|| {
                 let ctx = &mut TulispContext::new();
                 let program = "(defmacro rr () (macroexpand '(rr))) (rr)";
-                let err = ctx.eval_string(program).unwrap_err().format(ctx);
+                let err = ctx.eval_string(program).unwrap_err().to_string();
                 assert!(err.contains("max-eval-depth"), "{err}");
             })
             .unwrap()

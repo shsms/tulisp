@@ -3,7 +3,8 @@ use std::process;
 
 use tulisp::{Error, ErrorKind, TulispContext};
 
-fn run(ctx: &mut TulispContext) -> Result<(), Error> {
+fn run() -> Result<(), Error> {
+    let ctx = &mut TulispContext::new();
     let args: Vec<String> = env::args().skip(1).collect();
     for arg in args {
         ctx.eval_file(&arg)?;
@@ -13,15 +14,13 @@ fn run(ctx: &mut TulispContext) -> Result<(), Error> {
 }
 
 fn main() {
-    let mut ctx = TulispContext::new();
-
-    if let Err(e) = run(&mut ctx) {
+    if let Err(e) = run() {
         // The reader went away, as in `tulisp foo.lisp | head`.
         // Stop quietly like other Unix filters.
         if matches!(e.kind(), ErrorKind::BrokenPipe) {
             process::exit(0);
         }
-        eprintln!("{}", e.format(&ctx));
+        eprintln!("{e}");
         process::exit(-1);
     }
 }

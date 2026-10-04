@@ -726,9 +726,10 @@ mod tests {
             "ERR InvalidArgument: invalid function: if",
         );
         let if_ = ctx.intern("if");
-        let err = ctx.funcall(&if_, (1i64, 2i64)).unwrap_err().format(ctx);
-        assert!(
-            err.starts_with("ERR InvalidArgument: invalid function: if\n"),
+        let err = ctx.funcall(&if_, (1i64, 2i64)).unwrap_err().to_string();
+        assert_eq!(
+            err.lines().next(),
+            Some("ERR InvalidArgument: invalid function: if"),
             "{err}"
         );
     }
@@ -747,7 +748,7 @@ mod tests {
         eval_assert_equal(ctx, "(apply 'apply '+ '((1 2)))", "3");
         let if_sym = ctx.intern("if");
         let err = ctx.funcall(&if_sym, (true, 1, 2)).unwrap_err();
-        assert!(err.format(ctx).contains("invalid function: if"));
+        assert!(err.to_string().contains("invalid function: if"));
         let funcall = ctx.intern("funcall");
         let plus = ctx.intern("+");
         assert_eq!(
@@ -760,7 +761,7 @@ mod tests {
             .unwrap();
         assert_eq!(ctx.map(&funcall, &thunks).unwrap().to_string(), "(1 2)");
         let err = ctx.funcall(&funcall, ()).unwrap_err();
-        assert!(err.format(ctx).contains("Too few arguments"));
+        assert!(err.to_string().contains("Too few arguments"));
     }
 
     // `eval` takes Emacs's optional LEXICAL argument and ignores it.

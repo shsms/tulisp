@@ -278,7 +278,7 @@ mod tests {
             .unwrap();
         let x = ctx.eval_string("x").unwrap();
         let err = Person::from_alist(&mut ctx, &x).unwrap_err();
-        let msg = err.format(&ctx);
+        let msg = err.to_string();
         assert!(msg.contains("Missing age field"), "got: {msg}");
     }
 
@@ -289,7 +289,7 @@ mod tests {
             .unwrap();
         let x = ctx.eval_string("x").unwrap();
         let err = Person::from_alist(&mut ctx, &x).unwrap_err();
-        let msg = err.format(&ctx);
+        let msg = err.to_string();
         assert!(msg.contains("Unexpected key in alist"), "got: {msg}");
     }
 
@@ -308,7 +308,7 @@ mod tests {
         let x = ctx.eval_string("x").unwrap();
         let key = ctx.intern("missing");
         let err = super::assoc(&mut ctx, &key, &x, None).unwrap_err();
-        let msg = err.format(&ctx);
+        let msg = err.to_string();
         assert!(msg.contains("Circular list"), "got: {msg}");
     }
 

@@ -1190,7 +1190,7 @@ mod tests {
         let ctx = &mut TulispContext::new();
         let nosuch = ctx.intern("nosuch");
         let err = ctx.funcall(&nosuch, ()).unwrap_err();
-        assert_eq!(err.format(ctx), "ERR Undefined: function is void: nosuch\n");
+        assert_eq!(err.to_string(), "ERR Undefined: function is void: nosuch");
     }
 
     // `fboundp` is true for a name that holds a function, a macro or a
@@ -1292,7 +1292,7 @@ mod tests {
         ] {
             let err = ctx.fset("f", value).unwrap_err();
             assert!(
-                err.format(ctx)
+                err.to_string()
                     .starts_with("ERR TypeMismatch: fset: expected a function, got: ")
             );
         }
@@ -1384,7 +1384,7 @@ mod tests {
                 ctx.reduce(&plus, &seq, &0.into()),
             ];
             for result in results {
-                let err = result.unwrap_err().format(ctx);
+                let err = result.unwrap_err().to_string();
                 assert_eq!(err.lines().next(), Some(expected.as_str()));
             }
         }
@@ -1552,9 +1552,9 @@ mod tests {
             assert!(direct.equal(&compiled), "{program}: {direct} vs {compiled}");
         }
         let unbound = ctx.intern("atom-unbound");
-        let direct = ctx.eval(&unbound).unwrap_err().format(ctx);
+        let direct = ctx.eval(&unbound).unwrap_err().to_string();
         let program = TulispObject::cons(unbound, TulispObject::nil());
-        let compiled = ctx.eval_progn(&program).unwrap_err().format(ctx);
+        let compiled = ctx.eval_progn(&program).unwrap_err().to_string();
         assert_eq!(direct, compiled);
         Ok(())
     }
@@ -1672,7 +1672,7 @@ mod tests {
                         "(defmacro pm () (progn (progn (progn (progn (progn (pm))))))) (pm)",
                     )
                     .unwrap_err()
-                    .format(&ctx);
+                    .to_string();
                 assert!(err.contains("used in its own body"), "{err}");
                 // A long chain of macros, each using the next in its body,
                 // compiles one body inside another.
@@ -1682,7 +1682,7 @@ mod tests {
                     .map(|i| format!("(defmacro chain-{i} () (list 'quote (chain-{})))", i + 1))
                     .collect::<String>()
                     + "(chain-0)";
-                let err = ctx.eval_string(&chain).unwrap_err().format(&ctx);
+                let err = ctx.eval_string(&chain).unwrap_err().to_string();
                 assert!(err.contains("max-eval-depth"), "{err}");
             })
             .unwrap()
@@ -1794,9 +1794,9 @@ mod tests {
                 Ok(val) => panic!("{label}: expected max-eval-depth error, got: {val}"),
             };
             assert!(
-                err.format(&ctx).contains("max-eval-depth"),
+                err.to_string().contains("max-eval-depth"),
                 "{label}: unexpected error: {}",
-                err.format(&ctx)
+                err
             );
             assert_eq!(ctx.eval_depth, 0, "{label}");
         }

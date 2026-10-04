@@ -150,7 +150,7 @@ mod tests {
     #[track_caller]
     fn assert_quits(ctx: &mut TulispContext, program: &str) {
         let err = ctx.eval_string(program).expect_err(program);
-        assert!(err.is_a(ctx, "quit"), "{program}: {}", err.format(ctx));
+        assert!(err.is_a(ctx, "quit"), "{program}: {}", err);
     }
 
     #[track_caller]

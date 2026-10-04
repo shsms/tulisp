@@ -272,7 +272,7 @@ mod tests {
     fn eval_to_string(ctx: &mut TulispContext, program: &str) -> String {
         match ctx.eval_string(program) {
             Ok(value) => value.to_string(),
-            Err(err) => err.format(ctx),
+            Err(err) => err.to_string(),
         }
     }
 
@@ -423,7 +423,7 @@ mod tests {
             },
         );
         let program = "(let ((x 1)) (keep-form (+ x 1))) (run-kept)";
-        let got = ctx.eval_string(program).unwrap_err().format(ctx);
+        let got = ctx.eval_string(program).unwrap_err().to_string();
         assert!(
             got.contains("a form ran after its special form returned"),
             "{got}"
@@ -508,7 +508,7 @@ mod tests {
         eval_assert_not(ctx, "(functionp 'quote-it)");
         let sym = ctx.intern("quote-it");
         let err = ctx.funcall(&sym, (1,)).unwrap_err();
-        assert!(err.format(ctx).contains("invalid function: quote-it"));
+        assert!(err.to_string().contains("invalid function: quote-it"));
     }
 
     #[test]

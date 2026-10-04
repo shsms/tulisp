@@ -16,7 +16,8 @@ Requires Rust 1.88 or higher.
 use std::process;
 use tulisp::{TulispContext, Error};
 
-fn run(ctx: &mut TulispContext) -> Result<(), Error> {
+fn run() -> Result<(), Error> {
+    let ctx = &mut TulispContext::new();
     ctx.defun("add-round", |a: f64, b: f64| -> i64 {
         (a + b).round() as i64
     });
@@ -27,9 +28,8 @@ fn run(ctx: &mut TulispContext) -> Result<(), Error> {
 }
 
 fn main() {
-    let mut ctx = TulispContext::new();
-    if let Err(e) = run(&mut ctx) {
-        println!("{}", e.format(&ctx));
+    if let Err(e) = run() {
+        println!("{e}");
         process::exit(-1);
     }
 }

@@ -251,20 +251,18 @@ mod tests {
         assert_eq!(
             ctx.eval_string("(time-less-p '(test . 10) 1758549822)")
                 .unwrap_err()
-                .format(ctx),
+                .to_string(),
             r#"ERR TypeMismatch: expected (ticks . hz) pair
 <eval_string>:1.15-1.25:  at (test . 10)
-<eval_string>:1.1-1.37:  at (time-less-p '(test . 10) 1758549822)
-"#
+<eval_string>:1.1-1.37:  at (time-less-p '(test . 10) 1758549822)"#
         );
 
         assert_eq!(
             ctx.eval_string("(time-less-p 'test 1758549822)")
                 .unwrap_err()
-                .format(ctx),
+                .to_string(),
             r#"ERR TypeMismatch: expected integer or (ticks . hz) pair. found: test
-<eval_string>:1.1-1.30:  at (time-less-p 'test 1758549822)
-"#
+<eval_string>:1.1-1.30:  at (time-less-p 'test 1758549822)"#
         );
 
         Ok(())

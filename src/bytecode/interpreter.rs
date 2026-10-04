@@ -1508,7 +1508,7 @@ mod tests {
             ctx.funcall(&raw, (sym, form.clone())).unwrap_err(),
             ctx.apply(&raw, &form).unwrap_err(),
         ] {
-            assert!(err.format(&ctx).contains("invalid function: raw"));
+            assert!(err.to_string().contains("invalid function: raw"));
         }
     }
 

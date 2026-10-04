@@ -59,7 +59,7 @@ pub mod as_symbol;
 mod test_utils {
     #[track_caller]
     fn eval_string(ctx: &mut crate::TulispContext, s: &str) -> Result<crate::TulispObject, String> {
-        ctx.eval_string(s).map_err(|e| e.format(ctx))
+        ctx.eval_string(s).map_err(|e| format!("{e}\n"))
     }
 
     #[track_caller]
@@ -76,7 +76,7 @@ mod test_utils {
     pub(crate) fn listing(ctx: &mut crate::TulispContext, program: &str) -> String {
         match ctx.compile_string(program, true) {
             Ok(bytecode) => bytecode.to_string(),
-            Err(e) => panic!("{}", e.format(ctx)),
+            Err(e) => panic!("{e}"),
         }
     }
 
@@ -127,7 +127,7 @@ mod test_utils {
     pub(crate) fn eval_assert_error(ctx: &mut crate::TulispContext, a: &str, msg: &str) {
         match eval_string(ctx, a) {
             Ok(v) => panic!("Expected error but got {} for {}", v, a),
-            Err(e) => assert_eq!(e.to_string(), msg, "Error message mismatch for {}", a),
+            Err(e) => assert_eq!(e, msg, "Error message mismatch for {}", a),
         }
     }
 

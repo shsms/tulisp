@@ -683,7 +683,9 @@ mod tests {
             ("7", "Expected a plist or alist"),
         ] {
             let value = ctx.eval_string(source).unwrap();
-            let err = Config::from_tulisp(&mut ctx, &value).unwrap_err();
+            let err = Config::from_tulisp(&mut ctx, &value)
+                .unwrap_err()
+                .with_file_names(&ctx);
             assert!(err.to_string().contains(message), "{source}: {err}");
         }
     }
@@ -856,21 +858,21 @@ mod tests {
                 r#"'(:host "h" :bogus 1)"#,
                 concat!(
                     "ERR PlistError: Unexpected key in plist: :bogus\n",
-                    "<eval_string>:1.2-1.21:  at (:host \"h\" :bogus 1)\n"
+                    "<eval_string>:1.2-1.21:  at (:host \"h\" :bogus 1)"
                 ),
             ),
             (
                 r#"'(:host "h" :port-number)"#,
                 concat!(
                     "ERR PlistError: Expected an even number of items in the plist\n",
-                    "<eval_string>:1.2-1.25:  at (:host \"h\" :port-number)\n"
+                    "<eval_string>:1.2-1.25:  at (:host \"h\" :port-number)"
                 ),
             ),
             (
                 r#"'((bogus . 1))"#,
                 concat!(
                     "ERR AlistError: Unexpected key in alist: bogus\n",
-                    "<eval_string>:1.2-1.14:  at ((bogus . 1))\n"
+                    "<eval_string>:1.2-1.14:  at ((bogus . 1))"
                 ),
             ),
             (
@@ -878,41 +880,43 @@ mod tests {
                 concat!(
                     "ERR PlistError: Unexpected key in plist: :m\n",
                     "<eval_string>:1.10-1.15:  at (:m 1)\n",
-                    "<eval_string>:1.2-1.16:  at (:inner (:m 1))\n"
+                    "<eval_string>:1.2-1.16:  at (:inner (:m 1))"
                 ),
             ),
             (
                 r#"'(:inner (:n 1))"#,
                 concat!(
                     "ERR PlistError: Missing :host field\n",
-                    "<eval_string>:1.2-1.16:  at (:inner (:n 1))\n"
+                    "<eval_string>:1.2-1.16:  at (:inner (:n 1))"
                 ),
             ),
             (
                 "nil",
                 concat!(
                     "ERR PlistError: Missing :host field\n",
-                    "<eval_string>:1.1-1.3:  at nil\n"
+                    "<eval_string>:1.1-1.3:  at nil"
                 ),
             ),
             (
                 r#"'((port-number . 1))"#,
                 concat!(
                     "ERR AlistError: Missing host field\n",
-                    "<eval_string>:1.2-1.20:  at ((port-number . 1))\n"
+                    "<eval_string>:1.2-1.20:  at ((port-number . 1))"
                 ),
             ),
             (
                 r#"'(1 2 . 3)"#,
                 concat!(
                     "ERR TypeMismatch: Expected a plist or alist for Config, got: (1 2 . 3)\n",
-                    "<eval_string>:1.2-1.10:  at (1 2 . 3)\n"
+                    "<eval_string>:1.2-1.10:  at (1 2 . 3)"
                 ),
             ),
         ] {
             let value = ctx.eval_string(source).unwrap();
-            let err = Config::from_tulisp(&mut ctx, &value).unwrap_err();
-            assert_eq!(err.format(&ctx), formatted, "{source}");
+            let err = Config::from_tulisp(&mut ctx, &value)
+                .unwrap_err()
+                .with_file_names(&ctx);
+            assert_eq!(err.to_string(), formatted, "{source}");
         }
     }
 
@@ -929,7 +933,9 @@ mod tests {
             ),
         ] {
             let value = ctx.eval_string(source).unwrap();
-            let err = Config::from_tulisp(&mut ctx, &value).unwrap_err();
+            let err = Config::from_tulisp(&mut ctx, &value)
+                .unwrap_err()
+                .with_file_names(&ctx);
             assert!(err.to_string().contains(message), "{source}: {err}");
         }
         let seven = ctx.eval_string("7").unwrap();
@@ -950,11 +956,7 @@ mod tests {
         let mut ctx = TulispContext::new();
         let value = ctx.eval_string(r#"'(:host "h" :inner (:n "x"))"#).unwrap();
         let err = Config::from_tulisp(&mut ctx, &value).unwrap_err();
-        assert!(
-            err.format(&ctx).contains("at (:n \"x\")"),
-            "{}",
-            err.format(&ctx)
-        );
+        assert!(err.to_string().contains("at (:n \"x\")"), "{err}");
     }
 
     #[test]

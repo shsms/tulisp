@@ -986,7 +986,7 @@ mod tests {
         (defun caller () (helper 1))
         "#,
         );
-        let msg = err.unwrap_err().format(&ctx);
+        let msg = err.unwrap_err().to_string();
         assert!(
             msg.contains("Too few arguments: tail call to helper takes 2 arguments, got 1"),
             "expected too-few error from mutual tail-call, got: {}",
@@ -1001,7 +1001,7 @@ mod tests {
         (defun caller () (helper 1 2 3))
         "#,
         );
-        let msg = err.unwrap_err().format(&ctx);
+        let msg = err.unwrap_err().to_string();
         assert!(
             msg.contains("Too many arguments: tail call to helper takes 1 argument, got 3"),
             "expected too-many error from mutual tail-call, got: {}",
@@ -1016,7 +1016,7 @@ mod tests {
         (defun caller () (helper 1 2 3 4))
         "#,
         );
-        let msg = err.unwrap_err().format(&ctx);
+        let msg = err.unwrap_err().to_string();
         assert!(
             msg.contains("Too many arguments: tail call to helper takes 1 to 3 arguments, got 4"),
             "expected the &optional range, got: {}",
@@ -1029,7 +1029,7 @@ mod tests {
         (defun caller () (helper))
         "#,
         );
-        let msg = err.unwrap_err().format(&ctx);
+        let msg = err.unwrap_err().to_string();
         assert!(
             msg.contains("Too few arguments: tail call to helper takes at least 1 argument, got 0"),
             "expected the &rest floor, got: {}",
@@ -1047,7 +1047,7 @@ mod tests {
         (defun b (n) (if (= n 0) 'done (a (- n 1))))
         "#,
         );
-        let msg = err.unwrap_err().format(&ctx);
+        let msg = err.unwrap_err().to_string();
         assert!(
             msg.contains("too few arguments") || msg.contains("Too few arguments"),
             "expected too-few error in cyclic case, got: {}",
@@ -1217,18 +1217,18 @@ mod tests {
                 "(defun f (a b) (f a))",
                 "ERR ArityMismatch: Too few arguments: f takes 2 arguments, got 1\n\
                  <eval_string>:1.16-1.20:  at (f a)\n\
-                 <eval_string>:1.1-1.21:  at (defun f (a b) (f a))\n",
+                 <eval_string>:1.1-1.21:  at (defun f (a b) (f a))",
             ),
             (
                 "(defun g (x) x) (defun f (a) (g a a))",
                 "ERR ArityMismatch: Too many arguments: tail call to g takes 1 argument, got 2\n\
                  <eval_string>:1.30-1.36:  at (g a a)\n\
-                 <eval_string>:1.17-1.37:  at (defun f (a) (g a a))\n",
+                 <eval_string>:1.17-1.37:  at (defun f (a) (g a a))",
             ),
         ] {
             let ctx = &mut TulispContext::new();
             let err = ctx.eval_string(program).unwrap_err();
-            assert_eq!(err.format(ctx), expected);
+            assert_eq!(err.to_string(), expected);
         }
         // The same at run time, when the called function changed after
         // the call compiled.
@@ -1238,10 +1238,10 @@ mod tests {
         ctx.eval_string("(defun g (x y) x)").unwrap();
         let err = ctx.eval_string("(f 1)").unwrap_err();
         assert_eq!(
-            err.format(ctx),
+            err.to_string(),
             "ERR ArityMismatch: Too few arguments\n\
              <eval_string>:1.30-1.34:  at (g a)\n\
-             <eval_string>:1.1-1.5:  at (f 1)\n"
+             <eval_string>:1.1-1.5:  at (f 1)"
         );
     }
 
@@ -1262,7 +1262,7 @@ mod tests {
           (if (= a 0) b (f (- a 1) (+ b a) (* b 2))))
         "#,
         );
-        let msg = err.unwrap_err().format(&ctx);
+        let msg = err.unwrap_err().to_string();
         assert!(
             msg.contains("Too many arguments: f takes 2 arguments, got 3"),
             "expected too-many error from self tail-call, got: {}",
@@ -1279,7 +1279,7 @@ mod tests {
           (if (= a 0) b (f (- a 1))))
         "#,
         );
-        let msg = err.unwrap_err().format(&ctx);
+        let msg = err.unwrap_err().to_string();
         assert!(
             msg.contains("Too few arguments: f takes 2 arguments, got 1"),
             "expected too-few error from self tail-call, got: {}",
@@ -1327,9 +1327,9 @@ mod tests {
         <eval_string>:2.16-2.51:  at (if (= n 2) (error \"boom-on-2\") nil)\n\
         <eval_string>:3.33-3.39:  at (bad 2)\n\
         <eval_string>:3.18-3.46:  at (progn (bad 1) (bad 2) 'done)\n\
-        <eval_string>:1.1-1.8:  at (caller)\n";
+        <eval_string>:1.1-1.8:  at (caller)";
         assert_eq!(
-            ctx.eval_string("(caller)").unwrap_err().format(&ctx),
+            ctx.eval_string("(caller)").unwrap_err().to_string(),
             expected_call2,
             "trace for boom-on-2"
         );
@@ -1349,9 +1349,9 @@ mod tests {
         <eval_string>:2.16-2.51:  at (if (= n 1) (error \"boom-on-1\") nil)\n\
         <eval_string>:3.25-3.31:  at (bad 1)\n\
         <eval_string>:3.18-3.46:  at (progn (bad 1) (bad 2) 'done)\n\
-        <eval_string>:1.1-1.8:  at (caller)\n";
+        <eval_string>:1.1-1.8:  at (caller)";
         assert_eq!(
-            ctx.eval_string("(caller)").unwrap_err().format(&ctx),
+            ctx.eval_string("(caller)").unwrap_err().to_string(),
             expected_call1,
             "trace for boom-on-1"
         );
@@ -1373,9 +1373,9 @@ mod tests {
         <eval_string>:2.16-2.52:  at (if (= n -1) (error \"nested-boom\") n)\n\
         <eval_string>:3.23-3.30:  at (bad -1)\n\
         <eval_string>:3.18-3.31:  at (bad (bad -1))\n\
-        <eval_string>:1.1-1.8:  at (caller)\n";
+        <eval_string>:1.1-1.8:  at (caller)";
         assert_eq!(
-            ctx.eval_string("(caller)").unwrap_err().format(&ctx),
+            ctx.eval_string("(caller)").unwrap_err().to_string(),
             expected_nested,
             "trace for nested same-function call"
         );
@@ -1489,7 +1489,7 @@ mod tests {
         for _ in 0..1000 {
             let result = ctx.eval_string(call);
             if !errors && let Err(e) = result {
-                panic!("{}: eval failed: {}", label, e.format(ctx));
+                panic!("{}: eval failed: {}", label, e);
             }
             assert_eq!(
                 ctx.debug_locals_len(),
@@ -1650,10 +1650,10 @@ mod tests {
             let mut ctx = TulispContext::new();
             eprintln!("case: {}", label);
             ctx.eval_string(prog)
-                .unwrap_or_else(|e| panic!("{} setup failed: {}", label, e.format(&ctx)));
+                .unwrap_or_else(|e| panic!("{} setup failed: {}", label, e));
             // First, sanity-check: a single call works without panicking.
             ctx.eval_string(call)
-                .unwrap_or_else(|e| panic!("{} sanity call failed: {}", label, e.format(&ctx)));
+                .unwrap_or_else(|e| panic!("{} sanity call failed: {}", label, e));
             assert_no_leak(&mut ctx, prog, call, label, false);
         }
         Ok(())
@@ -1724,7 +1724,7 @@ mod tests {
             let mut ctx = TulispContext::new();
             eprintln!("case: {}", label);
             ctx.eval_string(prog)
-                .unwrap_or_else(|e| panic!("{} setup failed: {}", label, e.format(&ctx)));
+                .unwrap_or_else(|e| panic!("{} setup failed: {}", label, e));
             // First, sanity-check: a single call really does error
             // (otherwise the test would tautologically pass).
             let single = ctx.eval_string(call);
@@ -1768,9 +1768,9 @@ mod tests {
         for (label, prog, call) in cases {
             let mut ctx = TulispContext::new();
             ctx.eval_string(prog)
-                .unwrap_or_else(|e| panic!("{} setup failed: {}", label, e.format(&ctx)));
+                .unwrap_or_else(|e| panic!("{} setup failed: {}", label, e));
             ctx.eval_string(call)
-                .unwrap_or_else(|e| panic!("{} sanity call failed: {}", label, e.format(&ctx)));
+                .unwrap_or_else(|e| panic!("{} sanity call failed: {}", label, e));
             assert_no_leak(&mut ctx, prog, call, label, false);
         }
         Ok(())

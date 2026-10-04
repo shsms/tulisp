@@ -174,7 +174,7 @@ mod tests {
         let x = ctx.eval_string("x").unwrap();
         let missing = ctx.intern(":missing");
         let err = plist_get(&x, &missing).unwrap_err();
-        let msg = err.format(&ctx);
+        let msg = err.to_string();
         assert!(msg.contains("Circular list"), "got: {msg}");
     }
 

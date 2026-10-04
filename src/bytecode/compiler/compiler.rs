@@ -648,7 +648,7 @@ mod tests {
         let ctx = &mut TulispContext::new();
         match ctx.eval_string(program) {
             Ok(value) => value.to_string(),
-            Err(e) => e.format(ctx).lines().next().unwrap_or("").to_string(),
+            Err(e) => e.to_string().lines().next().unwrap_or("").to_string(),
         }
     }
 

@@ -1363,20 +1363,22 @@ mod tests {
                 "'(1 2 . 3)",
                 concat!(
                     "ERR TypeMismatch: Expected list, got: 3\n",
-                    "<eval_string>:1.2-1.10:  at (1 2 . 3)\n"
+                    "<eval_string>:1.2-1.10:  at (1 2 . 3)"
                 ),
             ),
             (
                 r#"'(1 "x" 3)"#,
                 concat!(
                     "ERR TypeMismatch: Expected integer: \"x\"\n",
-                    "<eval_string>:1.2-1.10:  at (1 \"x\" 3)\n"
+                    "<eval_string>:1.2-1.10:  at (1 \"x\" 3)"
                 ),
             ),
         ] {
             let value = ctx.eval_string(source).unwrap();
-            let err = Vec::<i64>::try_from(&value).unwrap_err();
-            assert_eq!(err.format(&ctx), formatted, "{source}");
+            let err = Vec::<i64>::try_from(&value)
+                .unwrap_err()
+                .with_file_names(&ctx);
+            assert_eq!(err.to_string(), formatted, "{source}");
         }
     }
 

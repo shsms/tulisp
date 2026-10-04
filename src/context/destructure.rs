@@ -159,10 +159,10 @@ mod tests {
         let ctx = &mut TulispContext::new();
         let l = list(ctx, "'(1 2 3)");
         let err = l.destructure::<(i64, i64)>(ctx).unwrap_err();
-        assert_eq!(err.format(ctx), "ERR ArityMismatch: Too many arguments\n");
+        assert_eq!(err.to_string(), "ERR ArityMismatch: Too many arguments");
         let l = list(ctx, "'(1)");
         let err = l.destructure::<(i64, i64)>(ctx).unwrap_err();
-        assert_eq!(err.format(ctx), "ERR ArityMismatch: Too few arguments\n");
+        assert_eq!(err.to_string(), "ERR ArityMismatch: Too few arguments");
     }
 
     #[test]

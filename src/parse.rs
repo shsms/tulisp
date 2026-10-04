@@ -910,7 +910,7 @@ mod tests {
             let Err(err) = ctx.eval_string(program) else {
                 panic!("{program} compiled");
             };
-            let message = err.format(ctx);
+            let message = err.to_string();
             assert!(
                 message.starts_with("ERR TypeMismatch: expected list, got: 3\n"),
                 "{message}"

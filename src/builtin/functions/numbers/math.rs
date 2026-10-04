@@ -75,10 +75,9 @@ mod tests {
         eval_assert_equal(&mut ctx, "(isnan 1.0e+INF)", "nil");
         // Emacs strict: errors on non-float.
         assert_eq!(
-            ctx.eval_string("(isnan 5)").unwrap_err().format(&ctx),
+            ctx.eval_string("(isnan 5)").unwrap_err().to_string(),
             r#"ERR TypeMismatch: isnan: expected float, got: 5
-<eval_string>:1.1-1.9:  at (isnan 5)
-"#
+<eval_string>:1.1-1.9:  at (isnan 5)"#
         );
     }
 
@@ -104,10 +103,9 @@ mod tests {
         eval_assert_equal(ctx, "(numberp (expt 0 -2))", "t");
         // Integer overflow is an arithmetic error.
         assert_eq!(
-            ctx.eval_string("(expt 2 64)").unwrap_err().format(ctx),
+            ctx.eval_string("(expt 2 64)").unwrap_err().to_string(),
             r#"ERR ArithError: integer overflow: expt 2 64
-<eval_string>:1.1-1.11:  at (expt 2 64)
-"#
+<eval_string>:1.1-1.11:  at (expt 2 64)"#
         );
     }
 }

@@ -4,7 +4,7 @@ use tulisp::{Error, Iter, TulispContext, TulispObject};
 macro_rules! tulisp_assert {
     (@impl $ctx: expr, program:$input:expr, result:$result:expr $(,)?) => {
         let output = $ctx.eval_string($input).unwrap_or_else(|err| {
-            panic!("{}:{}: execution failed: {}", file!(), line!(), err.format(&$ctx))
+            panic!("{}:{}: execution failed: {}", file!(), line!(), err)
         });
         let expected = $ctx.eval_string($result)?;
         assert!(
@@ -20,7 +20,7 @@ macro_rules! tulisp_assert {
 
     (@impl $ctx: expr, program:$input:expr, result_str:$result:expr $(,)?) => {
         let output = $ctx.eval_string($input).map_err(|err| {
-            println!("{}:{}: execution failed: {}", file!(), line!(),err.format(&$ctx));
+            println!("{}:{}: execution failed: {}", file!(), line!(), err);
             err
         })?;
         let expected = $ctx.eval_string($result)?;
@@ -37,7 +37,7 @@ macro_rules! tulisp_assert {
     (@impl $ctx: expr, program:$input:expr, error:$desc:expr $(,)?) => {
         let output = $ctx.eval_string($input);
         assert!(output.is_err());
-        assert_eq!(output.unwrap_err().format(&$ctx), $desc);
+        assert_eq!(format!("{}\n", output.unwrap_err()), $desc);
     };
 
     (ctx: $ctx: expr, program: $($tail:tt)+) => {
@@ -124,10 +124,9 @@ fn test_eval_prelude_error_propagates_with_filename() -> Result<(), Error> {
         Ok(val) => panic!("expected an error, got: {val}"),
     };
     assert_eq!(
-        err.format(&ctx),
+        err.to_string(),
         r#"ERR TypeMismatch: Expected number, got: "one"
-user-prelude.lisp:1.1-1.11:  at (+ 1 "one")
-"#
+user-prelude.lisp:1.1-1.11:  at (+ 1 "one")"#
     );
     Ok(())
 }
@@ -459,7 +458,7 @@ fn test_typed_defun_arity_checked_before_arg_eval() -> Result<(), Error> {
     // Too few is rejected at compile time.
     counter.store(0, Ordering::Relaxed);
     let err = ctx.eval_string("(narrow)");
-    let msg = err.unwrap_err().format(&ctx);
+    let msg = err.unwrap_err().to_string();
     assert!(
         msg.starts_with("ERR ArityMismatch: Too few arguments"),
         "expected too-few error, got: {}",
@@ -471,7 +470,7 @@ fn test_typed_defun_arity_checked_before_arg_eval() -> Result<(), Error> {
     // runs.
     counter.store(0, Ordering::Relaxed);
     let err = ctx.eval_string("(narrow (bump 1) (bump 2) (bump 3))");
-    let msg = err.unwrap_err().format(&ctx);
+    let msg = err.unwrap_err().to_string();
     assert!(
         msg.starts_with("ERR ArityMismatch: Too many arguments"),
         "expected too-many error, got: {}",
@@ -507,13 +506,9 @@ fn test_closure_invoked_in_fresh_ctx() -> Result<(), Error> {
         let closure = ctx_a.eval_string(&prog)?;
 
         let mut ctx_b = TulispContext::new();
-        let result = ctx_b.funcall(&closure, ()).unwrap_or_else(|e| {
-            panic!(
-                "cross-ctx funcall of `{}` failed: {}",
-                prog,
-                e.format(&ctx_b)
-            )
-        });
+        let result = ctx_b
+            .funcall(&closure, ())
+            .unwrap_or_else(|e| panic!("cross-ctx funcall of `{}` failed: {}", prog, e));
         assert_eq!(
             result.to_string(),
             expected,
