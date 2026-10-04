@@ -1220,6 +1220,40 @@ mod etags_tests {
         Ok(())
     }
 
+    // A definition read from a string has no file to point at, so the table
+    // leaves it out, and still has the rest.
+    #[test]
+    fn test_etags_skips_a_definition_from_a_string() -> Result<(), crate::Error> {
+        let mut ctx = TulispContext::new();
+        ctx.eval_string("(defun from-a-string () 1)")?;
+        let tags = ctx.tags_table(None)?;
+        assert!(!tags.contains("<eval_string>"), "{tags}");
+        let fresh = TulispContext::new().tags_table(None)?;
+        let sorted = |text: &str| {
+            let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
+            lines.sort();
+            lines
+        };
+        assert_eq!(sorted(&tags), sorted(&fresh));
+        Ok(())
+    }
+
+    // A tag whose line is past the end of its file, as for a Rust registration
+    // whose source path names a shorter file from the working directory, is
+    // left out.
+    #[test]
+    fn test_etags_skips_a_line_past_the_end_of_the_file() -> Result<(), crate::Error> {
+        let (path, _cleanup) = write_temp_file("short_tags.rs", "fn main() {}\n");
+        let path_str = path.to_str().unwrap().to_string();
+        let mut ctx = TulispContext::new();
+        ctx.tags_table
+            .entry(path_str.clone())
+            .or_default()
+            .insert("far-away".to_string(), 50);
+        assert!(!ctx.tags_table(None)?.contains("far-away"));
+        Ok(())
+    }
+
     #[test]
     fn test_etags_builtin_functions_tracked() -> Result<(), crate::Error> {
         let mut ctx = TulispContext::new();

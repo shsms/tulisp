@@ -334,19 +334,19 @@ impl TulispContext {
 
         let mut ret = String::new();
         for (filename, tags) in &self.tags_table {
-            let file = std::fs::read_to_string(filename)
-                .map_err(|e| {
-                    Error::os_error(format!(
-                        "Unable to read file for tag table: {filename}. Error: {e}"
-                    ))
-                })?
+            // A file that cannot be read now, such as `<eval_string>`, has no
+            // lines to point at.
+            let Ok(file) = std::fs::read_to_string(filename) else {
+                continue;
+            };
+            let file = file
                 .split('\n')
                 .map(|line| line.to_string())
                 .collect::<Vec<_>>();
 
             let tags = tags
                 .iter()
-                .map(|(name, loc)| {
+                .filter_map(|(name, loc)| {
                     // `loc` is the source line of the `ctx.defun(`
                     // call (Rust track_caller) or the `(defun NAME)`
                     // form (Lisp parse). For multi-line Rust
@@ -373,14 +373,17 @@ impl TulispContext {
                             }
                         }
                     }
-                    format!(
-                        "{}{name}{},{}",
-                        file[adjusted - 1],
+                    // A line past the end of the file, as for a Rust
+                    // registration whose path names a shorter file from here,
+                    // has no text to point at.
+                    let line = file.get(adjusted - 1)?;
+                    Some(format!(
+                        "{line}{name}{},{}",
                         adjusted,
                         file[0..adjusted.saturating_sub(2)]
                             .iter()
                             .fold(1, |acc, line| acc + line.len() + 1)
-                    )
+                    ))
                 })
                 .collect::<Vec<_>>()
                 .join("\n");
