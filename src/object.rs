@@ -1235,7 +1235,7 @@ macro_rules! extractor_cxr_fn {
 }
 
 macro_rules! extractor_cxr_and_then_fn {
-    ($name: ident, $doc: literal) => {
+    ($name: ident, $field: ident, $doc: literal) => {
         #[doc=concat!(
             "Executes the given function on the ", $doc, " of `self` and returns the result."
         )]
@@ -1244,11 +1244,13 @@ macro_rules! extractor_cxr_and_then_fn {
             &self,
             f: impl FnOnce(&TulispObject) -> Result<Out, Error>,
         ) -> Result<Out, Error> {
-            self.rc
-                .borrow()
-                .0
-                .$name(f)
-        .map_err(|e| e.with_trace(self.clone()))
+            let inner = self.rc.borrow();
+            let result = match &inner.0 {
+                TulispValue::List { cons, .. } => f(cons.$field()),
+                TulispValue::Nil => Ok(Out::default()),
+                _ => Err(inner.0.not_a_list()),
+            };
+            result.map_err(|e| e.with_trace(self.clone()))
         }
     };
 }
@@ -1296,8 +1298,8 @@ impl TulispObject {
     extractor_cxr_fn!(cdddar);
     extractor_cxr_fn!(cddddr);
 
-    extractor_cxr_and_then_fn!(car_and_then, "`car`");
-    extractor_cxr_and_then_fn!(cdr_and_then, "`cdr`");
+    extractor_cxr_and_then_fn!(car_and_then, car, "`car`");
+    extractor_cxr_and_then_fn!(cdr_and_then, cdr, "`cdr`");
 }
 
 #[cfg(test)]

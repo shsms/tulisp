@@ -964,30 +964,6 @@ impl TulispValue {
     make_cxr!(cddadr, |x| x.cdr().cddar());
     make_cxr!(cdddar, |x| x.car().cdddr());
     make_cxr!(cddddr, |x| x.cdr().cdddr());
-
-    #[inline(always)]
-    pub(crate) fn car_and_then<Out: Default>(
-        &self,
-        func: impl FnOnce(&TulispObject) -> Result<Out, Error>,
-    ) -> Result<Out, Error> {
-        match self {
-            TulispValue::List { cons, .. } => func(cons.car()),
-            TulispValue::Nil => Ok(Out::default()),
-            _ => Err(self.not_a_list()),
-        }
-    }
-
-    #[inline(always)]
-    pub(crate) fn cdr_and_then<Out: Default>(
-        &self,
-        func: impl FnOnce(&TulispObject) -> Result<Out, Error>,
-    ) -> Result<Out, Error> {
-        match self {
-            TulispValue::List { cons, .. } => func(cons.cdr()),
-            TulispValue::Nil => Ok(Out::default()),
-            _ => Err(self.not_a_list()),
-        }
-    }
 }
 
 #[cfg(test)]
