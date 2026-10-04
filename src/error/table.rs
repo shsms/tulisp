@@ -100,6 +100,21 @@ const BUILT_IN_ERRORS: &[(&str, &str, &[&str])] = &[
     ),
 ];
 
+/// The error symbols of the built-in error kinds whose data can be just their
+/// description, `(DESC)`. `error-message-string` prints that description
+/// unquoted. The list follows `Error::symbol_name`, less `error` and
+/// `file-error`, which print plainly anyway, and `arith-error`, whose data is
+/// nil.
+const DESCRIPTION_DATA_SYMBOLS: &[&str] = &[
+    "wrong-type-argument",
+    "args-out-of-range",
+    "wrong-number-of-arguments",
+    "void-function",
+    "void-variable",
+    "invalid-read-syntax",
+    "not-implemented",
+];
+
 impl ErrorTable {
     pub(crate) fn new() -> Self {
         let mut table = Self {
@@ -176,7 +191,8 @@ impl ErrorTable {
     /// following its `print_error_message`: the message, then `: ` and DATA's
     /// elements joined by `, `. For `error`, and for errors under `file-error`
     /// with data, the message is DATA's first element. A symbol with no message
-    /// reads "peculiar error".
+    /// reads "peculiar error". For one of the built-in error symbols whose data
+    /// is a lone string, it prints that string unquoted.
     pub(crate) fn message_string(&self, symbol: &str, data: &TulispObject) -> String {
         let mut items = data.base_iter().peekable();
         let file_error = symbol != "error" && self.matches(symbol, "file-error");
@@ -188,7 +204,13 @@ impl ErrorTable {
         } else {
             self.defs.get(symbol).and_then(|def| def.message.clone())
         };
-        let plain = file_error || symbol == "user-error" || symbol == "end-of-file";
+        let plain = file_error
+            || symbol == "user-error"
+            || symbol == "end-of-file"
+            || (DESCRIPTION_DATA_SYMBOLS.contains(&symbol)
+                && data.consp()
+                && data.cdr().is_ok_and(|rest| rest.null())
+                && data.car().is_ok_and(|first| first.stringp()));
         let rest = items
             .map(|item| {
                 if plain {
@@ -360,6 +382,43 @@ mod tests {
                 r#"'(numberp "x")"#,
                 r#"Wrong type argument: numberp, "x""#,
             ),
+        ] {
+            let data = ctx.eval_string(data)?;
+            assert_eq!(
+                table.message_string(symbol, &data),
+                expected,
+                "({symbol} . {data})"
+            );
+        }
+        Ok(())
+    }
+
+    // The built-in error symbols print a lone message string once, unquoted.
+    // Other data prints as in Emacs.
+    #[test]
+    fn a_lone_message_prints_unquoted() -> Result<(), crate::Error> {
+        let ctx = &mut crate::TulispContext::new();
+        let mut table = ErrorTable::new();
+        table.define("my-error", "My error", &["error"]);
+        for (symbol, data, expected) in [
+            (
+                "wrong-type-argument",
+                r#"'("Expected list, got: 1")"#,
+                "Wrong type argument: Expected list, got: 1",
+            ),
+            ("args-out-of-range", r#"'("x")"#, "Args out of range: x"),
+            (
+                "void-variable",
+                r#"'("x")"#,
+                "Symbol's value as variable is void: x",
+            ),
+            (
+                "wrong-type-argument",
+                r#"'("a" "b")"#,
+                r#"Wrong type argument: "a", "b""#,
+            ),
+            ("arith-error", r#"'("x")"#, r#"Arithmetic error: "x""#),
+            ("my-error", r#"'("x")"#, r#"My error: "x""#),
         ] {
             let data = ctx.eval_string(data)?;
             assert_eq!(

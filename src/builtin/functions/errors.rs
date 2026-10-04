@@ -598,6 +598,51 @@ mod tests {
         );
     }
 
+    // An error without structured data gives its description as data, and
+    // error-message-string prints that description once.
+    #[test]
+    fn an_error_without_structured_data_prints_its_message_once() {
+        let ctx = &mut TulispContext::new();
+        eval_assert(
+            ctx,
+            r#"(condition-case e (aset "ab" 9 ?x)
+                 (args-out-of-range
+                  (and (stringp (cadr e)) (null (cddr e))
+                       (equal (error-message-string e)
+                              (concat "Args out of range: " (cadr e))))))"#,
+        );
+    }
+
+    // error-message-string prints no built-in error kind's description in
+    // quotes.
+    #[test]
+    fn every_built_in_kind_prints_a_lone_description_unquoted() {
+        let ctx = &mut TulispContext::new();
+        for err in [
+            crate::Error::arith_error("x"),
+            crate::Error::invalid_argument("x"),
+            crate::Error::lisp_error("x"),
+            crate::Error::not_implemented("x"),
+            crate::Error::out_of_range("x"),
+            crate::Error::os_error("x"),
+            crate::Error::broken_pipe("x"),
+            crate::Error::type_mismatch("x"),
+            crate::Error::plist_error("x"),
+            crate::Error::alist_error("x"),
+            crate::Error::missing_argument("x"),
+            crate::Error::arity_mismatch("x"),
+            crate::Error::undefined("x"),
+            crate::Error::uninitialized("x"),
+            crate::Error::parsing_error("x"),
+            crate::Error::syntax_error("x"),
+        ] {
+            let name = err.symbol_name().expect("not a throw");
+            let data = err.data(ctx);
+            let message = ctx.error_table.message_string(&name, &data);
+            assert!(!message.contains('"'), "{name}: {message}");
+        }
+    }
+
     // A symbol set to a plain value, such as 1, is an error only when it is
     // called, as in Emacs.
     #[test]
