@@ -408,6 +408,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     // predicates end
 
     ctx.define_special_form("declare");
+    ctx.define_special_form("interactive");
 
     ctx.define_special_form("defvar");
 }

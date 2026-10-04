@@ -63,7 +63,8 @@ Tulisp has no vector type — sequence functions are list-only.
 
 # Functions and macros
 
-- **Definitions**: `defun`, `defmacro`, `lambda`, `declare`.
+- **Definitions**: `defun`, `defmacro`, `lambda`, `declare` and `interactive`
+  (both accepted and ignored).
 - **Invocation**: `eval`, `funcall`, `apply`, `macroexpand`, `macroexpand-1`,
   `macroexpand-all`.
 - **Loading**: `load`, which evaluates a file, found under the load path when

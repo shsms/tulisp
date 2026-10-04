@@ -517,7 +517,7 @@ pub(super) fn compile_fn_defvar(
     })
 }
 
-/// `(declare ...)` does nothing; its value is nil.
+/// `(declare ...)` and `(interactive ...)` do nothing; their value is nil.
 pub(super) fn compile_fn_declare(
     ctx: &mut TulispContext,
     _name: &TulispObject,
@@ -1828,5 +1828,23 @@ mod tests {
             "(defun f (a &optional x) (let ((g (lambda () (setq x a)))) (funcall g) x)) (f 3)",
             "3",
         );
+    }
+
+    // `(interactive ...)` in a body is accepted and gives nil, as `declare`
+    // does; its arguments do not run.
+    #[test]
+    fn interactive_is_accepted_and_ignored() {
+        let cases = [
+            ("(defun ia-f () (interactive) 5) (ia-f)", "5"),
+            (
+                r#"(defun ia-g (x) "doc" (interactive "p") (+ x 1)) (ia-g 1)"#,
+                "2",
+            ),
+            ("(funcall (lambda () (interactive) 7))", "7"),
+            ("(list (interactive (error \"not run\")))", "'(nil)"),
+        ];
+        for (program, expected) in cases {
+            eval_assert_equal_fresh(program, expected);
+        }
     }
 }

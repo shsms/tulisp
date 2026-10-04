@@ -118,6 +118,7 @@ impl VMCompilers {
             ("condition-case", errors::compile_fn_condition_case),
             ("defvar", other_functions::compile_fn_defvar),
             ("declare", other_functions::compile_fn_declare),
+            ("interactive", other_functions::compile_fn_declare),
         }
         VMCompilers { functions }
     }
