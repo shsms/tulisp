@@ -70,6 +70,20 @@ intern_from_obarray! {
     }
 }
 
+/// FILENAME opened for reading, or an `os-error` naming it.
+pub(crate) fn open_source_file(filename: &str) -> Result<fs::File, Error> {
+    fs::File::open(filename).map_err(|e| unreadable_source_file(filename, e))
+}
+
+/// The text of FILE, opened from FILENAME, or an `os-error` naming it.
+pub(crate) fn read_source(filename: &str, file: fs::File) -> Result<String, Error> {
+    std::io::read_to_string(file).map_err(|e| unreadable_source_file(filename, e))
+}
+
+fn unreadable_source_file(filename: &str, err: std::io::Error) -> Error {
+    Error::os_error(format!("Unable to read file: {filename}. Error: {err}"))
+}
+
 /// The nesting cap a normal (non-test) build uses, sized to leave the
 /// 8 MiB main thread (used by `cargo run` and typical embeddings)
 /// headroom before it overflows. The per-call native frame varies
@@ -1171,15 +1185,22 @@ impl TulispContext {
     /// Re-parsing the same path reuses the existing entry; the table
     /// only grows on first sight of a new path.
     pub fn parse_file(&mut self, filename: &str) -> Result<TulispObject, Error> {
-        let contents = fs::read_to_string(filename)
-            .map_err(|e| Error::os_error(format!("Unable to read file: {filename}. Error: {e}")))?;
-        let idx = self.intern_filename(filename);
+        let contents = read_source(filename, open_source_file(filename)?)?;
+        self.parse_file_text(filename, &contents)
+    }
 
-        let string: &str = &contents;
+    /// Parses CONTENTS, the text of FILENAME, as
+    /// [`parse_file`](Self::parse_file) does.
+    pub(crate) fn parse_file_text(
+        &mut self,
+        filename: &str,
+        contents: &str,
+    ) -> Result<TulispObject, Error> {
+        let idx = self.intern_filename(filename);
         parse(
             self,
             idx,
-            string,
+            contents,
             #[cfg(feature = "etags")]
             false,
         )
