@@ -39,6 +39,8 @@ differences from Emacs are called out inline.
 - **Sequence operations**: `reverse`, `sort`, `mapcar`, `mapconcat`,
   `string-join`, `seq-map`, `seq-filter`, `seq-reduce`, `seq-find`,
   `seq-take`, `seq-drop`.
+- **Ordering**: `value<`, the order `sort` uses when given no predicate:
+  numbers by value, strings and symbols by name, lists element by element.
 - **Alists**: `assoc`, `alist-get`.
 - **Plists**: `plist-get`.
 

@@ -1,6 +1,6 @@
 //! Emacs's `sort` and `value<`.
 
-use crate::{Error, Number, TulispContext, TulispObject, cons::CycleCheck};
+use crate::{Error, Number, Rest, TulispContext, TulispObject, cons::CycleCheck};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defun("value<", |a: TulispObject, b: TulispObject| {
@@ -8,23 +8,72 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     });
     ctx.defun(
         "sort",
-        |ctx: &mut TulispContext, seq: TulispObject, pred: TulispObject| {
-            let sorted = merge_sort(elements(&seq)?, &mut |a, b| ordered(ctx, &pred, a, b))?;
-            write_back(&seq, sorted)?;
-            Ok::<_, Error>(seq)
+        |ctx: &mut TulispContext, seq: TulispObject, args: Rest<TulispObject>| {
+            sort(ctx, seq, &args)
         },
     );
 }
 
+/// Emacs's `sort`. The old form, `(sort SEQ PRED)`, sorts SEQ in place by
+/// PRED. Emacs 30's `(sort SEQ &key KEY LESSP REVERSE IN-PLACE)` sorts by
+/// LESSP, or `value<`, on what KEY gives for each element, into a new list
+/// unless IN-PLACE. REVERSE sorts backwards, keeping equal elements in order.
+fn sort(
+    ctx: &mut TulispContext,
+    seq: TulispObject,
+    args: &[TulispObject],
+) -> Result<TulispObject, Error> {
+    let (mut key, mut lessp) = (TulispObject::nil(), TulispObject::nil());
+    let (mut reverse, mut in_place) = (false, false);
+    if let [pred] = args {
+        (lessp, in_place) = (pred.clone(), true);
+    } else {
+        for pair in args.chunks(2) {
+            let [name, value] = pair else {
+                return Err(invalid_keyword(&pair[0]));
+            };
+            match name.symbol_name().ok().as_deref() {
+                Some(":key") => key = value.clone(),
+                Some(":lessp") => lessp = value.clone(),
+                Some(":reverse") => reverse = value.is_truthy(),
+                Some(":in-place") => in_place = value.is_truthy(),
+                _ => return Err(invalid_keyword(name)),
+            }
+        }
+    }
+    let mut pairs = Vec::new();
+    for item in elements(&seq)? {
+        let sort_key = if key.null() {
+            item.clone()
+        } else {
+            ctx.funcall(&key, (item.clone(),))?
+        };
+        pairs.push((sort_key, item));
+    }
+    if reverse {
+        pairs.reverse();
+    }
+    let mut pairs = merge_sort(pairs, &mut |a, b| ordered(ctx, &lessp, &a.0, &b.0))?;
+    if reverse {
+        pairs.reverse();
+    }
+    let sorted = pairs.into_iter().map(|(_, item)| item);
+    if in_place {
+        write_back(&seq, sorted.collect())?;
+        Ok(seq)
+    } else {
+        Ok(sorted.collect())
+    }
+}
+
+/// Emacs's error for a keyword `sort` does not take.
+fn invalid_keyword(name: &TulispObject) -> Error {
+    Error::lisp_error(format!("Invalid keyword argument {name}"))
+}
+
 /// The elements of SEQ, a list.
 fn elements(seq: &TulispObject) -> Result<Vec<TulispObject>, Error> {
-    if !seq.listp() {
-        return Err(Error::type_mismatch(format!("Expected list, got: {seq}")));
-    }
-    let mut iter = seq.base_iter();
-    let items = iter.by_ref().collect();
-    iter.take_error()?;
-    Ok(items)
+    seq.iter::<TulispObject>()?.collect()
 }
 
 /// Whether A goes before B under PRED, or under `value<` when PRED is nil.
@@ -42,10 +91,10 @@ fn ordered(
 
 /// ITEMS sorted by LESS, keeping equal items in their order. LESS can fail, and
 /// need not be a consistent order.
-fn merge_sort(
-    mut items: Vec<TulispObject>,
-    less: &mut impl FnMut(&TulispObject, &TulispObject) -> Result<bool, Error>,
-) -> Result<Vec<TulispObject>, Error> {
+fn merge_sort<T>(
+    mut items: Vec<T>,
+    less: &mut impl FnMut(&T, &T) -> Result<bool, Error>,
+) -> Result<Vec<T>, Error> {
     if items.len() < 2 {
         return Ok(items);
     }
@@ -227,7 +276,14 @@ mod tests {
                 "(sort '(2 1) 'no-such-function)",
                 "ERR Undefined: function is void: no-such-function",
             ),
-            ("(sort '(2 1))", "ERR ArityMismatch: Too few arguments"),
+            (
+                "(sort '(2 1) :bogus 1)",
+                "ERR LispError: Invalid keyword argument :bogus",
+            ),
+            (
+                r#"(sort (list "b" 'c))"#,
+                r#"ERR TypeMismatch: Cannot compare c and "b""#,
+            ),
             (
                 "(sort '(1 . 2) '<)",
                 "ERR TypeMismatch: Expected list, got: 2",
@@ -242,6 +298,40 @@ mod tests {
             ),
         ] {
             eval_assert_error_line(ctx, program, line);
+        }
+    }
+
+    // Emacs 30's keyword form copies the list unless `:in-place` is given, and
+    // orders by `value<` unless `:lessp` is given.
+    #[test]
+    fn sort_takes_keywords() {
+        let ctx = &mut TulispContext::new();
+        let cases = [
+            (
+                "(let ((l (list 3 1 2))) (list (sort l) l))",
+                "'((1 2 3) (3 1 2))",
+            ),
+            (
+                "(let ((l (list 3 1 2))) (list (sort l :lessp #'>) l))",
+                "'((3 2 1) (3 1 2))",
+            ),
+            (
+                "(let ((l (list 3 1 2))) (list (eq l (sort l :in-place t)) l))",
+                "'(t (1 2 3))",
+            ),
+            ("(sort (list '(b 1) '(a 2)) :key #'car)", "'((a 2) (b 1))"),
+            ("(sort (list 1 2 3) :reverse t)", "'(3 2 1)"),
+            ("(sort (list 2 1 3) :reverse t :lessp #'<)", "'(3 2 1)"),
+            (
+                "(sort (list '(1 . a) '(1 . b) '(0 . c)) :key #'car :reverse t)",
+                "'((1 . a) (1 . b) (0 . c))",
+            ),
+            ("(sort (list 'b 'a nil t))", "'(a b nil t)"),
+            ("(sort (list 3 1 2) :key nil :lessp nil)", "'(1 2 3)"),
+            ("(sort nil)", "nil"),
+        ];
+        for (program, expected) in cases {
+            eval_assert_equal(ctx, program, expected);
         }
     }
 }
