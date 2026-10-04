@@ -207,9 +207,10 @@ impl Tokenizer<'_> {
     }
 
     /// Read the escape after a backslash, as Emacs does: `\n`, `\s`, `\d` and
-    /// the other letters, octal `\101`, hex `\x41`, `\u00e9` and `\U0001F600`.
-    /// Any other character stands for itself. In a string, a backslash before a
-    /// newline or a space reads as nothing, given as `None`.
+    /// the other letters, octal `\101`, hex `\x41`, `\u00e9`, `\U0001F600`, and
+    /// control characters `\C-a` and `\^a`. Any other character stands for
+    /// itself. In a string, a backslash before a newline or a space reads as
+    /// nothing, given as `None`.
     fn read_escape(&mut self, in_string: bool) -> Result<Option<u32>, String> {
         let ch = self
             .next_char()
@@ -252,6 +253,11 @@ impl Tokenizer<'_> {
                 }
                 code
             }
+            'C' if dash => {
+                self.next_char();
+                self.read_control_char(in_string)?
+            }
+            '^' => self.read_control_char(in_string)?,
             c => c as u32,
         };
         Ok(Some(code))
@@ -277,6 +283,26 @@ impl Tokenizer<'_> {
             count += 1;
         }
         Ok((value, count))
+    }
+
+    /// Read the character after `\C-` or `\^`, which may be an escape itself,
+    /// and return its control character: `\C-a` is 1 and `\C-?` is 127.
+    fn read_control_char(&mut self, in_string: bool) -> Result<u32, String> {
+        let base = match self.next_char() {
+            Some('\\') => self
+                .read_escape(in_string)?
+                .ok_or_else(|| "No control character for a space".to_string())?,
+            Some(c) => c as u32,
+            None => return Err("Unexpected EOF after \\C-".to_string()),
+        };
+        match base {
+            0x3f => Ok(0x7f),
+            0x40..=0x5f | 0x61..=0x7a => Ok(base & 0x1f),
+            _ => Err(match char::from_u32(base) {
+                Some(c) => format!("No control character for {c}"),
+                None => format!("No control character for {base}"),
+            }),
+        }
     }
 
     fn read_num_ident_impl(
@@ -1220,6 +1246,11 @@ mod tests {
         eval_assert_equal(ctx, r"?\x0041", "65");
         eval_assert_equal(ctx, r"?\u00e9", "233");
         eval_assert_equal(ctx, r"?\U0001F600", "128512");
+        eval_assert_equal(ctx, r"?\C-a", "1");
+        eval_assert_equal(ctx, r"?\C-A", "1");
+        eval_assert_equal(ctx, r"?\^a", "1");
+        eval_assert_equal(ctx, r"?\^@", "0");
+        eval_assert_equal(ctx, r"?\^?", "127");
         eval_assert_equal(ctx, r"?\(", "40");
         eval_assert_equal(ctx, r"?\8", "56");
         eval_assert_equal(ctx, r"(list ?\s ?\d)", "'(32 127)");
@@ -1233,6 +1264,7 @@ mod tests {
             (r"?\M-a", r"Modifier keys are not supported: \M-"),
             (r"?\s-a", r"Modifier keys are not supported: \s-"),
             (r"?\H-a", r"Modifier keys are not supported: \H-"),
+            (r"?\C-%", "No control character for %"),
             (r"?\N{LATIN SMALL LETTER A}", r"\N{NAME} is not supported"),
             (r"?\x", r"\x not followed by a hex digit"),
             (r"?\u00e", r"\u needs 4 hex digits"),
