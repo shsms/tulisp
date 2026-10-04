@@ -3,10 +3,9 @@ use tulisp::{Error, Iter, TulispContext, TulispObject};
 
 macro_rules! tulisp_assert {
     (@impl $ctx: expr, program:$input:expr, result:$result:expr $(,)?) => {
-        let output = $ctx.eval_string($input).map_err(|err| {
-            panic!("{}:{}: execution failed: {}", file!(), line!(),err.format(&$ctx));
-
-        })?;
+        let output = $ctx.eval_string($input).unwrap_or_else(|err| {
+            panic!("{}:{}: execution failed: {}", file!(), line!(), err.format(&$ctx))
+        });
         let expected = $ctx.eval_string($result)?;
         assert!(
             output.equal(&expected),

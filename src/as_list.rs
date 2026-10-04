@@ -319,7 +319,7 @@ macro_rules! AsList {
     // The value of a field whose key is absent from the list: its
     // default, `from_absent` for a field that may be absent, an error
     // otherwise.
-    (@absent $ctx:ident, $shape:ty, $key:expr, $type:ty, $default:expr) => { Ok($default) };
+    (@absent $ctx:ident, $shape:ty, $key:expr, $type:ty, $default:expr) => { Ok::<_, $crate::Error>($default) };
     (@absent $ctx:ident, $shape:ty, $key:expr, $type:ty,) => {
         if <$type as $crate::TulispConvertible>::REQUIRED {
             Err(<$shape as $crate::as_list::Shape>::error(format!(

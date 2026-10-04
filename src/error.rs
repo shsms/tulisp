@@ -180,6 +180,20 @@ impl std::fmt::Debug for Error {
     }
 }
 
+impl std::error::Error for Error {}
+
+/// An I/O error becomes a `BrokenPipe` error for a broken pipe, and an
+/// `OSError` otherwise, with the I/O error's message.
+impl From<std::io::Error> for Error {
+    fn from(err: std::io::Error) -> Self {
+        if err.kind() == std::io::ErrorKind::BrokenPipe {
+            Error::broken_pipe(err.to_string())
+        } else {
+            Error::os_error(err.to_string())
+        }
+    }
+}
+
 impl Error {
     /// Creates a new [`Error`] with the given kind and description.
     pub(crate) fn new(kind: ErrorKind, desc: impl Into<String>) -> Self {
@@ -346,5 +360,30 @@ impl Error {
             ErrorKind::Throw(_) | ErrorKind::Interrupted => return None,
         };
         Some(Cow::Borrowed(name))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Error, ErrorKind};
+
+    // `?` carries an `Error` into a `Box<dyn std::error::Error>`, and an
+    // I/O error converts to an `OSError`.
+    #[test]
+    fn error_works_with_std_error_handling() {
+        fn run() -> Result<(), Box<dyn std::error::Error>> {
+            Err(Error::lisp_error("boom"))?
+        }
+        assert_eq!(run().unwrap_err().to_string(), "ERR LispError: boom");
+
+        let io = std::io::Error::new(std::io::ErrorKind::NotFound, "no such file");
+        let err: Error = io.into();
+        assert!(matches!(err.kind(), ErrorKind::OSError));
+        assert_eq!(err.to_string(), "ERR OSError: no such file");
+
+        let io = std::io::Error::new(std::io::ErrorKind::BrokenPipe, "closed");
+        let err: Error = io.into();
+        assert!(matches!(err.kind(), ErrorKind::BrokenPipe));
+        assert_eq!(err.to_string(), "ERR BrokenPipe: closed");
     }
 }
