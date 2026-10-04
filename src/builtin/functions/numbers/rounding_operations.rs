@@ -11,24 +11,59 @@ enum Rounding {
 }
 
 /// N divided by DIVISOR and rounded, as Emacs's `floor` and its kin do.
+/// Integers divide exactly; a float makes the whole sum a float one.
 fn rounded(
     n: Number,
     divisor: Option<Number>,
     rounding: Rounding,
     name: &str,
 ) -> Result<i64, Error> {
-    let value = match divisor.map(to_f64) {
-        None => to_f64(n),
-        Some(0.0) => return Err(division_by_zero()),
-        Some(d) => to_f64(n) / d,
+    match (n, divisor) {
+        (Number::Int(n), None) => Ok(n),
+        (Number::Int(n), Some(Number::Int(d))) => divide_int(n, d, rounding),
+        (n, divisor) => {
+            let value = match divisor.map(to_f64) {
+                None => to_f64(n),
+                Some(0.0) => return Err(division_by_zero()),
+                Some(d) => to_f64(n) / d,
+            };
+            let value = match rounding {
+                Rounding::Floor => value.floor(),
+                Rounding::Ceiling => value.ceil(),
+                Rounding::Truncate => value.trunc(),
+                Rounding::Round => value.round_ties_even(),
+            };
+            f64_to_i64_checked(value, name)
+        }
+    }
+}
+
+/// N divided by D, both integers, and rounded.
+fn divide_int(n: i64, d: i64, rounding: Rounding) -> Result<i64, Error> {
+    if d == 0 {
+        return Err(division_by_zero());
+    }
+    let quotient = n
+        .checked_div(d)
+        .ok_or_else(|| Error::arith_error(format!("integer overflow: {n} / {d}")))?;
+    let remainder = n % d;
+    if remainder == 0 {
+        return Ok(quotient);
+    }
+    // The exact quotient lies between QUOTIENT and the integer next to it, away
+    // from zero.
+    let away = if (n < 0) != (d < 0) { -1 } else { 1 };
+    let step = match rounding {
+        Rounding::Floor => away < 0,
+        Rounding::Ceiling => away > 0,
+        Rounding::Truncate => false,
+        Rounding::Round => {
+            let twice = 2 * i128::from(remainder).abs();
+            let divisor = i128::from(d).abs();
+            twice > divisor || (twice == divisor && quotient % 2 != 0)
+        }
     };
-    let value = match rounding {
-        Rounding::Floor => value.floor(),
-        Rounding::Ceiling => value.ceil(),
-        Rounding::Truncate => value.trunc(),
-        Rounding::Round => value.round_ties_even(),
-    };
-    f64_to_i64_checked(value, name)
+    Ok(if step { quotient + away } else { quotient })
 }
 
 fn to_f64(n: Number) -> f64 {
@@ -65,7 +100,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 #[cfg(test)]
 mod tests {
     use crate::TulispContext;
-    use crate::test_utils::{eval_assert_equal, eval_assert_error};
+    use crate::test_utils::{eval_assert_equal, eval_assert_error, eval_assert_error_line};
 
     #[test]
     fn rounding_operations() {
@@ -105,6 +140,45 @@ mod tests {
             r#"ERR ArityMismatch: Too many arguments
 <eval_string>:1.1-1.18:  at (fround 3.14 3.14)
 "#,
+        );
+    }
+
+    // Integer arguments divide and round exactly, as in Emacs, not through a
+    // float.
+    #[test]
+    fn integers_round_exactly() {
+        let ctx = &mut TulispContext::new();
+        let cases = [
+            ("(floor 1759000000999999999 1000000000)", "1759000000"),
+            (
+                "(list (truncate 9007199254740993) (round 9007199254740993))",
+                "'(9007199254740993 9007199254740993)",
+            ),
+            (
+                "(list (floor -7 2) (floor 7 -2) (ceiling -7 2) (ceiling 7 -2))",
+                "'(-4 -4 -3 -3)",
+            ),
+            (
+                "(list (truncate -7 2) (truncate 7 -2) (floor 3) (ceiling 3))",
+                "'(-3 -3 3 3)",
+            ),
+            (
+                "(list (round 5 2) (round -5 2) (round 7 2) (round -7 2) (round 9 -2))",
+                "'(2 -2 4 -4 -4)",
+            ),
+            ("(list (round 7 3) (round 8 3) (round -8 3))", "'(2 3 -3)"),
+            ("(list (floor 7 2.0) (floor 7.5 2))", "'(3 3)"),
+        ];
+        for (program, expected) in cases {
+            eval_assert_equal(ctx, program, expected);
+        }
+        for program in ["(floor 5 0)", "(round 5 0)"] {
+            eval_assert_error_line(ctx, program, "ERR ArithError: Division by zero");
+        }
+        eval_assert_error_line(
+            ctx,
+            "(floor -9223372036854775808 -1)",
+            "ERR ArithError: integer overflow: -9223372036854775808 / -1",
         );
     }
 }
