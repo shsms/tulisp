@@ -30,21 +30,53 @@ pub(crate) fn define_macro(
     Ok(name)
 }
 
+/// Evaluates FILENAME, found under the load path when one is set, as Emacs
+/// Lisp's `load` does, and returns t. With NOERROR, a file that cannot be
+/// opened, or a directory, gives nil instead of an error; a file that is not
+/// UTF-8 text, or an error in its code, still raises.
+fn load_file(
+    ctx: &mut TulispContext,
+    filename: &str,
+    noerror: bool,
+) -> Result<TulispObject, Error> {
+    let full_path = if let Some(ref load_path) = ctx.load_path {
+        load_path.join(filename)
+    } else {
+        std::path::PathBuf::from(filename)
+    };
+    let Some(full_path) = full_path.to_str() else {
+        return Err(Error::invalid_argument(format!(
+            "load: Invalid path: {}",
+            full_path.to_string_lossy()
+        )));
+    };
+    let file = match crate::context::open_source_file(full_path) {
+        Ok(file) if noerror && file.metadata().is_ok_and(|meta| meta.is_dir()) => {
+            return Ok(TulispObject::nil());
+        }
+        Ok(file) => file,
+        Err(_) if noerror => return Ok(TulispObject::nil()),
+        Err(err) => return Err(err),
+    };
+    let contents = crate::context::read_source(full_path, file)?;
+    let forms = ctx.parse_file_text(full_path, &contents)?;
+    ctx.eval_progn(&forms)?;
+    Ok(TulispObject::t())
+}
+
 pub(crate) fn add(ctx: &mut TulispContext) {
-    ctx.defun("load", |ctx: &mut TulispContext, filename: String| {
-        let full_path = if let Some(ref load_path) = ctx.load_path {
-            load_path.join(&filename)
-        } else {
-            std::path::PathBuf::from(&filename)
-        };
-        let Some(full_path) = full_path.to_str() else {
-            return Err(Error::invalid_argument(format!(
-                "load: Invalid path: {}",
-                full_path.to_string_lossy()
-            )));
-        };
-        ctx.eval_file(full_path)
-    });
+    // NOMESSAGE, NOSUFFIX and MUST-SUFFIX are taken and ignored.
+    ctx.defun(
+        "load",
+        |ctx: &mut TulispContext,
+         filename: String,
+         noerror: Option<TulispObject>,
+         _nomessage: Option<TulispObject>,
+         _nosuffix: Option<TulispObject>,
+         _must_suffix: Option<TulispObject>| {
+            load_file(ctx, &filename, noerror.is_some())
+        },
+    );
 
     ctx.defun(
         "intern",
@@ -1491,7 +1523,8 @@ mod tests {
     fn test_load() -> Result<(), Error> {
         let mut ctx = TulispContext::new();
 
-        eval_assert_equal(&mut ctx, r#"(load "tests/good-load.lisp")"#, "'(1 2 3)");
+        // `load` returns t, whatever the file's last value, as in Emacs.
+        eval_assert_equal(&mut ctx, r#"(load "tests/good-load.lisp")"#, "t");
 
         // The loaded file's definitions survive the load: a later call
         // reaches them, and so does a load inside a function body.
@@ -1504,8 +1537,42 @@ mod tests {
             &mut ctx,
             r#"(defun load-it () (load "tests/good-load.lisp"))
                     (list (load-it) (loaded-fn 1))"#,
-            "'((1 2 3) 5)",
+            "'(t 5)",
         );
+
+        // With NOERROR, a missing file gives nil; the other optional arguments
+        // are taken and ignored, called directly or through `funcall`.
+        eval_assert_equal(
+            &mut ctx,
+            r#"(list (load "tests/no-such-file.lisp" t)
+                     (load "tests/good-load.lisp" nil t t t)
+                     (funcall 'load "tests/no-such-file.lisp" t)
+                     (funcall 'load "tests/good-load.lisp" nil t))"#,
+            "'(nil t nil t)",
+        );
+        eval_assert_equal(&mut ctx, r#"(load "tests" t)"#, "nil");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let path = std::env::temp_dir().join(format!(
+                "tulisp_load_unreadable_{}.lisp",
+                std::process::id()
+            ));
+            std::fs::write(&path, "(setq load-unreadable t)").unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+            // Root can still open the file, and then loads it.
+            let unreadable = std::fs::File::open(&path).is_err();
+            let result = ctx.eval_string(&format!("(load {:?} t)", path.to_str().unwrap()));
+            std::fs::remove_file(&path).ok();
+            assert_eq!(result?.null(), unreadable);
+        }
+        // A file that opens but cannot be read as text still raises.
+        let path =
+            std::env::temp_dir().join(format!("tulisp_load_not_utf8_{}.lisp", std::process::id()));
+        std::fs::write(&path, b"(setq x \"\xff\")").unwrap();
+        let result = ctx.eval_string(&format!("(load {:?} t)", path.to_str().unwrap()));
+        std::fs::remove_file(&path).ok();
+        assert!(result.is_err());
 
         eval_assert_error(
             &mut ctx,
@@ -1517,7 +1584,7 @@ tests/bad-load.lisp:1.9-1.9:  at nil
         );
 
         ctx.set_load_path(Some("tests/"))?;
-        eval_assert_equal(&mut ctx, r#"(load "good-load.lisp")"#, "'(1 2 3)");
+        eval_assert_equal(&mut ctx, r#"(load "good-load.lisp")"#, "t");
 
         Ok(())
     }

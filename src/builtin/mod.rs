@@ -63,7 +63,8 @@ Tulisp has no vector type — sequence functions are list-only.
 - **Definitions**: `defun`, `defmacro`, `lambda`, `declare`.
 - **Invocation**: `eval`, `funcall`, `apply`, `macroexpand`.
 - **Loading**: `load`, which evaluates a file, found under the load path when
-  [`set_load_path`](crate::TulispContext::set_load_path) set one.
+  [`set_load_path`](crate::TulispContext::set_load_path) set one, and
+  returns `t`; with NOERROR, a missing file gives nil.
 - **Quoting**: `quote` (also written `'expr`), `function` (also written
   `#'expr`; makes a closure of a `lambda`), backquote / unquote / splice
   (`` ` ``, `,`, `,@`).
