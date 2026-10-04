@@ -1,5 +1,7 @@
 //! Emacs's `format`.
 
+use std::{iter::Peekable, str::Chars};
+
 use crate::{Error, TulispObject};
 
 /// No float has a digit other than zero past this many after the point:
@@ -29,6 +31,51 @@ fn push_repeated(out: &mut String, ch: char, count: usize) -> Result<(), Error> 
     Ok(())
 }
 
+/// One `%` spec of a format string.
+struct Spec {
+    /// The `-` flag: pad on the right.
+    left: bool,
+    /// The `0` flag: pad a number with zeros after its sign.
+    zero: bool,
+    width: usize,
+    precision: Option<usize>,
+    conversion: char,
+}
+
+impl Spec {
+    /// Reads the spec after a `%`, up to and including its conversion.
+    fn read(chars: &mut Peekable<Chars<'_>>) -> Result<Spec, Error> {
+        let (mut left, mut zero, mut width) = (false, false, 0);
+        loop {
+            match chars.peek() {
+                Some('-') => left = true,
+                Some('0') if width == 0 => zero = true,
+                Some(c) if c.is_ascii_digit() => width = add_digit(width, *c),
+                _ => break,
+            }
+            chars.next();
+        }
+        let mut precision = None;
+        if chars.next_if_eq(&'.').is_some() {
+            let mut digits = 0;
+            while let Some(c) = chars.next_if(char::is_ascii_digit) {
+                digits = add_digit(digits, c);
+            }
+            precision = Some(digits);
+        }
+        let conversion = chars
+            .next()
+            .ok_or_else(|| Error::lisp_error("Format string ends in middle of format specifier"))?;
+        Ok(Spec {
+            left,
+            zero,
+            width,
+            precision,
+            conversion,
+        })
+    }
+}
+
 /// Formats IN_STRING with ARGS as Emacs's `format` does, for the specs Tulisp
 /// supports. A format string it cannot use, one that asks for more ARGS than
 /// there are, or a spec whose argument has the wrong type is an `error`, with
@@ -51,73 +98,36 @@ pub(crate) fn format_string(
             output.push(ch);
             continue;
         }
-        let mut left_align = false;
-        let mut zero_pad = false;
-        let mut width: usize = 0;
-        loop {
-            match in_chars.peek() {
-                Some('-') => {
-                    left_align = true;
-                    in_chars.next();
-                }
-                Some('0') if width == 0 => {
-                    zero_pad = true;
-                    in_chars.next();
-                }
-                Some(c) if c.is_ascii_digit() => {
-                    width = add_digit(width, *c);
-                    in_chars.next();
-                }
-                _ => break,
-            }
-        }
-        let mut precision: Option<usize> = None;
-        if in_chars.peek() == Some(&'.') {
-            in_chars.next();
-            let mut p: usize = 0;
-            while let Some(c) = in_chars.peek() {
-                if !c.is_ascii_digit() {
-                    break;
-                }
-                p = add_digit(p, *c);
-                in_chars.next();
-            }
-            precision = Some(p);
-        }
-        let Some(type_char) = in_chars.next() else {
-            return Err(Error::lisp_error(
-                "Format string ends in middle of format specifier",
-            ));
-        };
+        let spec = Spec::read(&mut in_chars)?;
         // A width whose digits overflowed is too wide for any string, as in
         // Emacs.
-        if width == usize::MAX {
+        if spec.width == usize::MAX {
             return Err(string_too_long());
         }
-        if type_char == '%' {
+        if spec.conversion == '%' {
             output.push('%');
             continue;
         }
         let Some(next_arg) = args.next() else {
             return Err(Error::lisp_error("Not enough arguments for format string"));
         };
-        if matches!(type_char, 'd' | 'f') && !next_arg.numberp() {
+        if matches!(spec.conversion, 'd' | 'f') && !next_arg.numberp() {
             return Err(Error::lisp_error(
                 "Format specifier doesn\u{2019}t match argument type",
             ));
         }
         // In Emacs a `%d` precision pads with zeros, so one whose digits
         // overflowed is too wide for any string there.
-        if type_char == 'd' && precision == Some(usize::MAX) {
+        if spec.conversion == 'd' && spec.precision == Some(usize::MAX) {
             return Err(string_too_long());
         }
-        let formatted = match type_char {
+        let formatted = match spec.conversion {
             's' => next_arg.fmt_string(),
             'S' => next_arg.to_string(),
             'd' => next_arg.try_int()?.to_string(),
             'f' => {
                 let v = next_arg.try_float()?;
-                match precision {
+                match spec.precision {
                     Some(p) => {
                         let shown = p.min(MAX_FRACTION_DIGITS);
                         let mut formatted = format!("{v:.shown$}");
@@ -131,22 +141,23 @@ pub(crate) fn format_string(
             }
             _ => {
                 return Err(Error::lisp_error(format!(
-                    "Invalid format operation %{type_char}"
+                    "Invalid format operation %{}",
+                    spec.conversion
                 )));
             }
         };
         let len = formatted.chars().count();
-        if width > len {
-            let pad_char = if zero_pad && !left_align && matches!(type_char, 'd' | 'f') {
+        if spec.width > len {
+            let pad_char = if spec.zero && !spec.left && matches!(spec.conversion, 'd' | 'f') {
                 '0'
             } else {
                 ' '
             };
-            if left_align {
+            if spec.left {
                 output.push_str(&formatted);
-                push_repeated(&mut output, pad_char, width - len)?;
+                push_repeated(&mut output, pad_char, spec.width - len)?;
             } else {
-                push_repeated(&mut output, pad_char, width - len)?;
+                push_repeated(&mut output, pad_char, spec.width - len)?;
                 output.push_str(&formatted);
             }
         } else {
