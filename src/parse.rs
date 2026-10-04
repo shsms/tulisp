@@ -88,7 +88,7 @@ impl Tokenizer<'_> {
                 }
                 '\\' => {
                     let escape = self.read_escape(true).and_then(|code| {
-                        char::from_u32(code).ok_or_else(|| format!("Not a character: \\x{code:x}"))
+                        char::from_u32(code).ok_or_else(|| format!("Not a character: {code:#x}"))
                     });
                     match escape {
                         Ok(ch) => output.push(ch),
@@ -218,14 +218,11 @@ impl Tokenizer<'_> {
                 return Err("\\N{NAME} is not supported".to_string());
             }
             'N' => return Err("Expected opening brace after \\N".to_string()),
-            '0'..='7' => self.read_digits(ch as u32 - '0' as u32, 8, 2)?.0,
-            'x' => match self.read_digits(0, 16, usize::MAX)? {
-                (_, 0) => return Err("\\x not followed by a hex digit".to_string()),
-                (code, _) => code,
-            },
+            '0'..='7' => self.read_digits(ch as u32 - '0' as u32, 8, 2).0,
+            'x' => self.read_hex_escape()?,
             'u' | 'U' => {
                 let len = if ch == 'u' { 4 } else { 8 };
-                let (code, count) = self.read_digits(0, 16, len)?;
+                let (code, count) = self.read_digits(0, 16, len);
                 if count != len {
                     return Err(format!("\\{ch} needs {len} hex digits"));
                 }
@@ -251,25 +248,35 @@ impl Tokenizer<'_> {
     }
 
     /// Read up to `max` digits in `radix`, adding them to `value`. Returns the
-    /// result and how many digits were read.
-    fn read_digits(
-        &mut self,
-        mut value: u32,
-        radix: u32,
-        max: usize,
-    ) -> Result<(u32, usize), String> {
+    /// result and how many digits were read. Eight hex digits at most fit.
+    fn read_digits(&mut self, mut value: u32, radix: u32, max: usize) -> (u32, usize) {
         let mut count = 0;
         while count < max
             && let Some(digit) = self.peek_char().and_then(|c| c.to_digit(radix))
         {
             self.next_char();
-            value = value
-                .checked_mul(radix)
-                .and_then(|v| v.checked_add(digit))
-                .ok_or_else(|| "Escape value is too large".to_string())?;
+            value = value * radix + digit;
             count += 1;
         }
-        Ok((value, count))
+        (value, count)
+    }
+
+    /// Read the hex digits of a `\x` escape, up to `\xFFFFFFF`, the largest
+    /// value Emacs takes.
+    fn read_hex_escape(&mut self) -> Result<u32, String> {
+        let (mut code, mut count) = (0, 0);
+        while let Some(digit) = self.peek_char().and_then(|c| c.to_digit(16)) {
+            self.next_char();
+            code = code * 16 + digit;
+            count += 1;
+            if code > 0xfff_ffff {
+                return Err(format!("Hex character out of range: \\x{code:x}..."));
+            }
+        }
+        if count == 0 {
+            return Err("\\x not followed by a hex digit".to_string());
+        }
+        Ok(code)
     }
 
     /// Read the character after `\C-` or `\^`, which may be an escape itself,
@@ -1150,6 +1157,7 @@ mod tests {
         eval_assert_equal(ctx, r"?\101", "65");
         eval_assert_equal(ctx, r"?\x41", "65");
         eval_assert_equal(ctx, r"?\x0041", "65");
+        eval_assert_equal(ctx, r"?\xFFFFF00", "268435200");
         eval_assert_equal(ctx, r"?\u00e9", "233");
         eval_assert_equal(ctx, r"?\U0001F600", "128512");
         eval_assert_equal(ctx, r"?\C-a", "1");
@@ -1178,6 +1186,8 @@ mod tests {
             ("\"a\\\nb\"", "ab"),
             (r#""\C-a\^?""#, "\u{1}\u{7f}"),
             (r#""\q""#, "q"),
+            (r#""\1012""#, "A2"),
+            (r#""\u00e9a\U0001F600a""#, "\u{e9}a\u{1F600}a"),
             (r#""\C-\ x\C- x\^ x""#, "\u{0}x\u{0}x\u{0}x"),
         ];
         for (program, expected) in cases {
@@ -1196,7 +1206,9 @@ mod tests {
         let cases = [
             (r#""\M-a""#, r"Modifier keys are not supported: \M-"),
             (r#""\C-%""#, "No control character for '%'"),
-            (r#""\x110000""#, r"Not a character: \x110000"),
+            (r#""\x110000""#, "Not a character: 0x110000"),
+            (r#""\xFFFFFFF""#, "Not a character: 0xfffffff"),
+            (r#""\ud800""#, "Not a character: 0xd800"),
             (
                 r#""\Ca""#,
                 r"Invalid escape char syntax: \C not followed by -",
@@ -1231,6 +1243,11 @@ mod tests {
             (r"?\S", r"Invalid escape char syntax: \S not followed by -"),
             (r"?\N", r"Expected opening brace after \N"),
             (r"?\C- ", "No control character for ' '"),
+            (r"?\x10000000", r"Hex character out of range: \x10000000..."),
+            (
+                r"?\x123456789",
+                r"Hex character out of range: \x12345678...",
+            ),
             ("?\\\n", r"Invalid escape char syntax: \<newline>"),
         ];
         for (program, desc) in cases {
