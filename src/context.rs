@@ -713,6 +713,51 @@ impl TulispContext {
             .is_ok_and(|value| value.inner_ref().0.is_fbound())
     }
 
+    /// Declares NAME a special variable, as Emacs Lisp's `defvar` does: a `let`
+    /// of it binds it dynamically, so functions called in the `let` see the
+    /// binding. VALUE becomes its top-level value only if it has none; while a
+    /// binding of NAME runs, VALUE shows once the binding ends. Read the value
+    /// with [`TulispObject::get`] and [`convert`](TulispObject::convert), and
+    /// set it with [`TulispObject::set`].
+    ///
+    /// ```rust
+    /// use tulisp::TulispContext;
+    ///
+    /// let mut ctx = TulispContext::new();
+    /// ctx.defvar("depth", 0).unwrap();
+    /// ctx.eval_string("(defun get-depth () depth)").unwrap();
+    /// let seen = ctx.eval_string("(let ((depth 3)) (get-depth))").unwrap();
+    /// assert_eq!(seen.to_string(), "3");
+    ///
+    /// // A name with a value keeps it. Read it with `get` and `convert`.
+    /// ctx.defvar("depth", 9).unwrap();
+    /// let depth = ctx.intern("depth").get().unwrap();
+    /// let depth: i64 = depth.convert(&mut ctx).unwrap();
+    /// assert_eq!(depth, 0);
+    /// ```
+    ///
+    /// A function and a variable of the same name share one value in Tulisp, so
+    /// a name that holds a function keeps it. Setting the variable later
+    /// replaces the function for `funcall`, `apply` and similar functions, but
+    /// where NAME names a function defined in Lisp, a call `(NAME ...)` still
+    /// runs that function.
+    ///
+    /// Returns an Error if NAME is `nil`, `t` or a keyword.
+    pub fn defvar(
+        &mut self,
+        name: &str,
+        value: impl crate::TulispConvertible,
+    ) -> Result<(), Error> {
+        let sym = self.intern(name);
+        crate::builtin::check_defvar_name(&sym)?;
+        sym.set_special()?;
+        if sym.global().is_none() {
+            let value = value.into_tulisp(self);
+            sym.set_global(value)?;
+        }
+        Ok(())
+    }
+
     /// Makes NAME call FUNCTION, like Emacs Lisp's `fset`. FUNCTION must
     /// be a function (such as the value of a `lambda` form), a macro, or a
     /// special form made with [`defspecial`](Self::defspecial).
@@ -1574,6 +1619,46 @@ mod tests {
         std::fs::remove_file(path).ok();
         let span = forms.car().unwrap().span().unwrap();
         assert_eq!(ctx.file_name(&span), Some(path));
+    }
+
+    // `defvar` refuses a constant name, as the Lisp `defvar` does.
+    #[test]
+    fn defvar_refuses_a_constant() {
+        let ctx = &mut TulispContext::new();
+        for name in ["nil", "t"] {
+            let err = ctx.defvar(name, 1).unwrap_err();
+            assert_eq!(err.desc(), format!("Can't set constant symbol: {name}"));
+        }
+        assert!(ctx.defvar(":k", 1).is_err());
+        eval_assert_equal(ctx, ":k", ":k");
+    }
+
+    // A name that holds a function, or a variable holding a lambda, keeps its
+    // value, as with the Lisp `defvar`.
+    #[test]
+    fn defvar_keeps_a_function_value() {
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string("(defun holder () 1) (setq hook (lambda (x) x))")
+            .unwrap();
+        ctx.defvar("holder", 3).unwrap();
+        ctx.defvar("hook", 3).unwrap();
+        eval_assert_equal(ctx, "(list (holder) (funcall hook 9))", "'(1 9)");
+    }
+
+    // Under a binding of a name with no value, VALUE goes to the top-level
+    // value and shows once the binding ends, as with Emacs's `defvar`.
+    #[test]
+    fn defvar_under_a_binding_sets_the_top_level_value() {
+        let ctx = &mut TulispContext::new();
+        let name = ctx.intern("under");
+        let inner = ctx
+            .with_binding(&name, 1.into(), |ctx| {
+                ctx.defvar("under", 7)?;
+                name.get()
+            })
+            .unwrap();
+        assert_eq!(inner.to_string(), "1");
+        eval_assert_equal(ctx, "under", "7");
     }
 
     // A program run while a protected body compiles fails to compile
