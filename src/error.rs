@@ -170,7 +170,7 @@ impl Error {
 #[derive(Clone)]
 pub struct Error {
     kind: ErrorKind,
-    desc: String,
+    desc: Box<str>,
     backtrace: Vec<TraceEntry>,
 }
 
@@ -258,7 +258,7 @@ impl Error {
     pub(crate) fn new(kind: ErrorKind, desc: impl Into<String>) -> Self {
         Self {
             kind,
-            desc: desc.into(),
+            desc: desc.into().into_boxed_str(),
             backtrace: vec![],
         }
     }
@@ -380,7 +380,10 @@ impl Error {
         match &self.kind {
             ErrorKind::Throw(_) | ErrorKind::ArithError => TulispObject::nil(),
             ErrorKind::Signal { data, .. } => data.clone(),
-            _ => TulispObject::cons(TulispObject::from(self.desc.clone()), TulispObject::nil()),
+            _ => TulispObject::cons(
+                TulispObject::from(self.desc.to_string()),
+                TulispObject::nil(),
+            ),
         }
     }
 
@@ -419,6 +422,16 @@ impl Error {
 #[cfg(test)]
 mod tests {
     use super::{Error, ErrorKind};
+
+    // Every `Result` in the VM carries an `Error`.
+    #[test]
+    fn an_error_stays_small() {
+        assert!(
+            std::mem::size_of::<Error>() <= 64,
+            "{}",
+            std::mem::size_of::<Error>()
+        );
+    }
 
     // `?` carries an `Error` into a `Box<dyn std::error::Error>`, and an
     // I/O error converts to an `OSError`.
