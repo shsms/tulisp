@@ -249,7 +249,8 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         "puthash",
         |key: TulispObject, value: TulispObject, table: HashTable| {
             let key = table.key(key);
-            table.inner.borrow_mut().insert(key, value);
+            table.inner.borrow_mut().insert(key, value.clone());
+            value
         },
     );
 }
@@ -575,6 +576,17 @@ mod tests {
           (list (gethash 4 tbl) (gethash 2 tbl)))
         "#,
             "'(nil 20)",
+        );
+    }
+
+    // `puthash` returns VALUE, as in Emacs.
+    #[test]
+    fn puthash_returns_the_value() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(let ((h (make-hash-table))) (list (puthash 'k 42 h) (or (gethash 'j h) (puthash 'j 7 h))))",
+            "'(42 7)",
         );
     }
 }
