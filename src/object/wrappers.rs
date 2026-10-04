@@ -1,5 +1,21 @@
 use crate::{Error, TulispContext, TulispObject};
 
+/// The body of a macro registered with [`defmacro`](TulispContext::defmacro):
+/// it gets the call's arguments, unevaluated, as a list, and returns the form
+/// to run in the call's place. With the `sync` feature it must be `Send` and
+/// `Sync`.
+///
+/// ```rust
+/// use tulisp::{TulispContext, TulispFn};
+///
+/// fn register(ctx: &mut TulispContext, name: &str, body: impl TulispFn) {
+///     ctx.defmacro(name, body);
+/// }
+///
+/// let mut ctx = TulispContext::new();
+/// register(&mut ctx, "first-arg", |_, args| args.car());
+/// assert_eq!(ctx.eval_string("(first-arg 7 8)").unwrap().to_string(), "7");
+/// ```
 pub trait TulispFn:
     Fn(&mut TulispContext, &TulispObject) -> Result<TulispObject, Error> + generic::SyncSend + 'static
 {
@@ -29,6 +45,17 @@ impl<T> DefunFn for T where
 /// that returns an [`Interrupt`](crate::Interrupt), or a `bool`, to stop the
 /// running evaluation. With the `sync` feature it must be `Send`, as it moves
 /// with the context, but need not be `Sync`, as only the context calls it.
+///
+/// ```rust
+/// use tulisp::{InterruptCheckFn, TulispContext};
+///
+/// fn install(ctx: &mut TulispContext, check: impl InterruptCheckFn<bool>) {
+///     ctx.set_interrupt_check(check);
+/// }
+///
+/// let mut ctx = TulispContext::new();
+/// install(&mut ctx, || false);
+/// ```
 pub trait InterruptCheckFn<R>: FnMut() -> R + generic::SendIfSync + 'static {}
 impl<T, R> InterruptCheckFn<R> for T where T: FnMut() -> R + generic::SendIfSync + 'static {}
 
@@ -55,12 +82,30 @@ pub mod generic {
 
     use super::*;
 
+    /// `Send + Sync` with the `sync` feature, and no bound without it: what a
+    /// value Tulisp shares, such as a [`TulispAny`] value or a registered
+    /// closure, must be.
+    ///
+    /// ```rust
+    /// fn keep<T: tulisp::SyncSend + 'static>(_: T) {}
+    /// keep(5);
+    /// ```
     pub trait SyncSend {}
     impl<T> SyncSend for T {}
 
+    /// `Send` with the `sync` feature, and no bound without it: what a value
+    /// only the context calls, such as an interrupt check, must be.
+    ///
+    /// ```rust
+    /// fn keep<T: tulisp::SendIfSync + 'static>(_: T) {}
+    /// keep(5);
+    /// ```
     pub trait SendIfSync {}
     impl<T> SendIfSync for T {}
 
+    /// A shared pointer: an `Rc` without the `sync` feature, and an `Arc` with
+    /// it. A [`TulispAny`] value goes into a Lisp object through one, and
+    /// [`TulispObject::downcast`] gives it back as one.
     #[repr(transparent)]
     #[derive(Debug)]
     pub struct Shared<T: ?Sized>(std::rc::Rc<T>);
@@ -137,6 +182,9 @@ pub mod generic {
         }
     }
 
+    /// A shared cell that can change: an `Rc<RefCell<T>>` without the `sync`
+    /// feature, and an `Arc<RwLock<T>>` with it. A [`TulispAny`] value can keep
+    /// changing state in one and work in both builds.
     #[repr(transparent)]
     #[derive(Debug)]
     pub struct SharedMut<T>(std::rc::Rc<std::cell::RefCell<T>>);
@@ -195,12 +243,30 @@ pub mod generic {
 
     use super::*;
 
+    /// `Send + Sync` with the `sync` feature, and no bound without it: what a
+    /// value Tulisp shares, such as a [`TulispAny`] value or a registered
+    /// closure, must be.
+    ///
+    /// ```rust
+    /// fn keep<T: tulisp::SyncSend + 'static>(_: T) {}
+    /// keep(5);
+    /// ```
     pub trait SyncSend: Sync + Send {}
     impl<T> SyncSend for T where T: Send + Sync {}
 
+    /// `Send` with the `sync` feature, and no bound without it: what a value
+    /// only the context calls, such as an interrupt check, must be.
+    ///
+    /// ```rust
+    /// fn keep<T: tulisp::SendIfSync + 'static>(_: T) {}
+    /// keep(5);
+    /// ```
     pub trait SendIfSync: Send {}
     impl<T> SendIfSync for T where T: Send {}
 
+    /// A shared pointer: an `Rc` without the `sync` feature, and an `Arc` with
+    /// it. A [`TulispAny`] value goes into a Lisp object through one, and
+    /// [`TulispObject::downcast`] gives it back as one.
     #[repr(transparent)]
     #[derive(Debug)]
     pub struct Shared<T: ?Sized>(std::sync::Arc<T>);
@@ -277,6 +343,9 @@ pub mod generic {
         }
     }
 
+    /// A shared cell that can change: an `Rc<RefCell<T>>` without the `sync`
+    /// feature, and an `Arc<RwLock<T>>` with it. A [`TulispAny`] value can keep
+    /// changing state in one and work in both builds.
     #[repr(transparent)]
     #[derive(Debug)]
     pub struct SharedMut<T>(std::sync::Arc<std::sync::RwLock<T>>);

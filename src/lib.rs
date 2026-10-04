@@ -39,8 +39,10 @@ pub(crate) use value::TulispValue;
 
 mod object;
 pub use {
-    object::TulispObject, object::conversions::TulispConvertible,
-    object::wrappers::generic::Shared, object::wrappers::generic::SharedMut,
+    object::TulispObject,
+    object::conversions::TulispConvertible,
+    object::wrappers::generic::{SendIfSync, Shared, SharedMut, SyncSend},
+    object::wrappers::{InterruptCheckFn, TulispFn},
 };
 
 mod as_symbol;
