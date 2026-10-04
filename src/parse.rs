@@ -82,16 +82,16 @@ impl Tokenizer<'_> {
         let mut output = String::new();
         while let Some(ch) = self.next_char() {
             match ch {
+                // A backslash before a newline or a space reads as nothing.
+                '\\' if matches!(self.peek_char(), Some('\n' | ' ')) => {
+                    self.next_char();
+                }
                 '\\' => {
                     let escape = self.read_escape(true).and_then(|code| {
-                        code.map(|code| {
-                            char::from_u32(code)
-                                .ok_or_else(|| format!("Not a character: \\x{code:x}"))
-                        })
-                        .transpose()
+                        char::from_u32(code).ok_or_else(|| format!("Not a character: \\x{code:x}"))
                     });
                     match escape {
-                        Ok(ch) => output.extend(ch),
+                        Ok(ch) => output.push(ch),
                         Err(desc) => {
                             let pos = (self.line, self.pos);
                             let span = Span::new(self.file_id, pos, pos);
@@ -173,9 +173,7 @@ impl Tokenizer<'_> {
         let start_pos = (self.line, self.pos + 1);
         self.next_char()?; // consume '?'
         let value = match self.next_char() {
-            Some('\\') => self
-                .read_escape(false)
-                .map(|code| code.unwrap_or(' ' as u32)),
+            Some('\\') => self.read_escape(false),
             Some(c) => Ok(c as u32),
             None => Err("Unexpected EOF after ?".to_string()),
         };
@@ -192,9 +190,8 @@ impl Tokenizer<'_> {
     /// Read the escape after a backslash, as Emacs does: `\n`, `\s`, `\d` and
     /// the other letters, octal `\101`, hex `\x41`, `\u00e9`, `\U0001F600`, and
     /// control characters `\C-a` and `\^a`. Any other character stands for
-    /// itself. In a string, a backslash before a newline or a space reads as
-    /// nothing, given as `None`.
-    fn read_escape(&mut self, in_string: bool) -> Result<Option<u32>, String> {
+    /// itself.
+    fn read_escape(&mut self, in_string: bool) -> Result<u32, String> {
         let ch = self
             .next_char()
             .ok_or_else(|| "Unexpected EOF after \\".to_string())?;
@@ -209,7 +206,6 @@ impl Tokenizer<'_> {
             'r' => '\r' as u32,
             't' => '\t' as u32,
             'v' => 0x0b,
-            '\n' | ' ' if in_string => return Ok(None),
             's' if !in_string && dash => {
                 return Err("Modifier keys are not supported: \\s-".to_string());
             }
@@ -243,7 +239,7 @@ impl Tokenizer<'_> {
             '^' => self.read_control_char(in_string)?,
             c => c as u32,
         };
-        Ok(Some(code))
+        Ok(code)
     }
 
     /// Read up to `max` digits in `radix`, adding them to `value`. Returns the
@@ -272,9 +268,7 @@ impl Tokenizer<'_> {
     /// and return its control character: `\C-a` is 1 and `\C-?` is 127.
     fn read_control_char(&mut self, in_string: bool) -> Result<u32, String> {
         let base = match self.next_char() {
-            Some('\\') => self
-                .read_escape(in_string)?
-                .ok_or_else(|| "No control character for a space".to_string())?,
+            Some('\\') => self.read_escape(in_string)?,
             Some(c) => c as u32,
             None => return Err("Unexpected EOF after \\C-".to_string()),
         };
