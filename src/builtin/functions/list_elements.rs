@@ -3,12 +3,12 @@ use crate::{Error, TulispContext, TulispObject, lists};
 pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defun(
         "nth",
-        |n: i64, list: TulispObject| -> Result<TulispObject, Error> { lists::nth(n, list) },
+        |n: i64, list: TulispObject| -> Result<TulispObject, Error> { lists::nth(n, &list) },
     );
 
     ctx.defun(
         "nthcdr",
-        |n: i64, list: TulispObject| -> Result<TulispObject, Error> { lists::nthcdr(n, list) },
+        |n: i64, list: TulispObject| -> Result<TulispObject, Error> { lists::nthcdr(n, &list) },
     );
 
     ctx.defun(

@@ -90,10 +90,10 @@ pub fn last(list: &TulispObject, n: Option<i64>) -> Result<TulispObject, Error> 
             )));
         }
         if n < len {
-            return nthcdr(len - n, list.clone());
+            return nthcdr(len - n, list);
         }
     } else {
-        return nthcdr(len - 1, list.clone());
+        return nthcdr(len - 1, list);
     }
     Ok(list.clone())
 }
@@ -103,8 +103,16 @@ pub fn last(list: &TulispObject, n: Option<i64>) -> Result<TulispObject, Error> 
 /// In a list whose cdrs loop back, as in Emacs, it counts the cells of the loop
 /// and skips the full rounds, so the time it takes grows with the list's
 /// length, not with N.
-pub fn nthcdr(n: i64, list: TulispObject) -> Result<TulispObject, Error> {
-    let mut next = list;
+///
+/// ```rust
+/// use tulisp::{TulispContext, lists};
+///
+/// let mut ctx = TulispContext::new();
+/// let list = ctx.eval_string("'(a b c)").unwrap();
+/// assert_eq!(lists::nthcdr(1, &list).unwrap().to_string(), "(b c)");
+/// ```
+pub fn nthcdr(n: i64, list: &TulispObject) -> Result<TulispObject, Error> {
+    let mut next = list.clone();
     let mut cycle = CycleCheck::new();
     let mut step = 0;
     while step < n {
@@ -124,7 +132,16 @@ pub fn nthcdr(n: i64, list: TulispObject) -> Result<TulispObject, Error> {
     Ok(next)
 }
 
-/// Returns the n-th element in the given list.
-pub fn nth(n: i64, list: TulispObject) -> Result<TulispObject, Error> {
+/// Returns the n-th element in the given list, counting from 0, as Emacs Lisp's
+/// `nth` does.
+///
+/// ```rust
+/// use tulisp::{TulispContext, lists};
+///
+/// let mut ctx = TulispContext::new();
+/// let list = ctx.eval_string("'(a b c)").unwrap();
+/// assert_eq!(lists::nth(1, &list).unwrap().to_string(), "b");
+/// ```
+pub fn nth(n: i64, list: &TulispObject) -> Result<TulispObject, Error> {
     nthcdr(n, list).and_then(|x| x.car())
 }
