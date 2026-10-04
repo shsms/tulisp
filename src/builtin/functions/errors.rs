@@ -487,6 +487,49 @@ mod tests {
         }
     }
 
+    // A wrong-type error names the predicate the value failed and the value, as
+    // in Emacs 30.1.
+    #[test]
+    fn built_in_errors_carry_emacs_data() {
+        let ctx = &mut TulispContext::new();
+        for (form, expected, message) in [
+            (
+                "(car 1)",
+                "'(wrong-type-argument listp 1)",
+                "Wrong type argument: listp, 1",
+            ),
+            (
+                "(cadr '(1 . 5))",
+                "'(wrong-type-argument listp 5)",
+                "Wrong type argument: listp, 5",
+            ),
+        ] {
+            eval_assert_equal(
+                ctx,
+                &format!("(condition-case e {form} (error e))"),
+                expected,
+            );
+            eval_assert_equal(
+                ctx,
+                &format!("(condition-case e {form} (error (error-message-string e)))"),
+                &format!("{message:?}"),
+            );
+        }
+    }
+
+    // A handler can raise the error it caught again, data and all.
+    #[test]
+    fn a_re_signalled_built_in_error_keeps_its_data() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(condition-case outer
+                 (condition-case e (car 1) (error (signal (car e) (cdr e))))
+               (error outer))",
+            "'(wrong-type-argument listp 1)",
+        );
+    }
+
     // A symbol set to a plain value, such as 1, is an error only when it is
     // called, as in Emacs.
     #[test]

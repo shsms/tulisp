@@ -164,6 +164,17 @@ impl Error {
             .with_data(ErrorData::Symbol(Some(function.clone())))
     }
 
+    /// The error for a value failing PREDICATE, with DESC as its description,
+    /// from a check that has no `TulispObject` for the value: the method that
+    /// called it fills the value in with `fill_value`. Emacs signals
+    /// `wrong-type-argument` here, with `(PREDICATE VALUE)` as its data.
+    pub(crate) fn wrong_type_unfilled(predicate: &'static str, desc: impl Into<String>) -> Error {
+        Error::type_mismatch(desc).with_data(ErrorData::WrongType {
+            predicate,
+            value: None,
+        })
+    }
+
     /// The error for reading SYMBOL when it has no value. Emacs signals
     /// `void-variable` here, with `(SYMBOL)` as its data.
     pub(crate) fn void_variable(symbol: TulispObject) -> Error {
@@ -183,6 +194,13 @@ impl Error {
 /// DATA list.
 #[derive(Clone)]
 enum ErrorData {
+    /// `(PREDICATE VALUE)`, for `wrong-type-argument`. PREDICATE is a symbol
+    /// name, interned when the data is built. VALUE is `None` until a
+    /// `TulispObject` method fills it in.
+    WrongType {
+        predicate: &'static str,
+        value: Option<TulispObject>,
+    },
     /// `(SYMBOL)`, for `void-variable` and `void-function`; for a void
     /// function, SYMBOL is whatever was called. SYMBOL is `None` until a
     /// `TulispObject` method fills it in.
@@ -303,7 +321,7 @@ impl Error {
     /// value is already set, or that has none, is returned as is.
     pub(crate) fn fill_value(mut self, object: &TulispObject) -> Self {
         if let Some(data) = self.data.as_deref_mut() {
-            let ErrorData::Symbol(slot) = data;
+            let (ErrorData::WrongType { value: slot, .. } | ErrorData::Symbol(slot)) = data;
             slot.get_or_insert_with(|| object.clone());
         }
         self
@@ -316,8 +334,12 @@ impl Error {
 
     /// The error's data built from its `ErrorData`, once its value is filled
     /// in.
-    fn filled_data(&self, _ctx: &mut TulispContext) -> Option<TulispObject> {
+    fn filled_data(&self, ctx: &mut TulispContext) -> Option<TulispObject> {
         match self.data.as_deref()? {
+            ErrorData::WrongType { predicate, value } => Some(TulispObject::cons(
+                ctx.intern(predicate),
+                TulispObject::cons(value.clone()?, TulispObject::nil()),
+            )),
             ErrorData::Symbol(symbol) => {
                 Some(TulispObject::cons(symbol.clone()?, TulispObject::nil()))
             }
@@ -435,6 +457,8 @@ impl Error {
     /// The error's data, what a `condition-case` handler sees after the error
     /// symbol:
     ///
+    /// - `(PREDICATE VALUE)` for a wrong-type error whose value is set, as in
+    ///   Emacs;
     /// - `(SYMBOL)` for a void variable whose symbol is set, or for calling a
     ///   symbol with no function, as in Emacs;
     /// - `(VALUE)` for calling any other value that is not a function, a macro
@@ -492,6 +516,33 @@ impl Error {
 #[cfg(test)]
 mod tests {
     use super::{Error, ErrorKind};
+    use crate::TulispObject;
+
+    // A wrong-type error gives `(PREDICATE VALUE)` once its value is filled in,
+    // and never takes a second value.
+    #[test]
+    fn data_holds_the_predicate_and_value() {
+        let ctx = &mut crate::TulispContext::new();
+        let one = TulispObject::from(1);
+        let two = TulispObject::from(2);
+        for (err, expected) in [
+            (Error::wrong_type_unfilled("listp", "m"), r#"'("m")"#),
+            (
+                Error::wrong_type_unfilled("listp", "m").fill_value(&one),
+                "'(listp 1)",
+            ),
+            (
+                Error::wrong_type_unfilled("listp", "m")
+                    .fill_value(&one)
+                    .fill_value(&two),
+                "'(listp 1)",
+            ),
+        ] {
+            let expected = ctx.eval_string(expected).unwrap();
+            let data = err.data(ctx);
+            assert!(data.equal(&expected), "{data} != {expected}");
+        }
+    }
 
     // Each error gives Emacs's data: its symbol once filled in, its description
     // otherwise.

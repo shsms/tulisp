@@ -912,11 +912,11 @@ macro_rules! make_cxr {
 
 // cxr implementations
 impl TulispValue {
-    /// The error for a list operation applied to a non-list; a
-    /// `TypeMismatch`, which `condition-case` sees as
-    /// `wrong-type-argument`.
+    /// The error for a list operation applied to a non-list: a `TypeMismatch`,
+    /// which `condition-case` sees as `(wrong-type-argument listp VALUE)` once
+    /// a `TulispObject` method fills VALUE in.
     pub(crate) fn not_a_list(&self) -> Error {
-        Error::type_mismatch(format!("Expected list, got: {self}"))
+        Error::wrong_type_unfilled("listp", format!("Expected list, got: {self}"))
     }
 
     #[inline(always)]

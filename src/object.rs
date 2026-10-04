@@ -523,7 +523,7 @@ impl TulispObject {
         Error: From<T::Error>,
     {
         if !self.listp() {
-            return Err(self.inner_ref().0.not_a_list());
+            return Err(self.inner_ref().0.not_a_list().fill_value(self));
         }
         Ok(cons::Iter::new(self.base_iter()))
     }
@@ -1218,7 +1218,7 @@ macro_rules! extractor_cxr_fn {
                 .borrow()
                 .0
                 .$name()
-                .map_err(|e| e.with_trace(self.clone()))
+                .map_err(|e| e.fill_and_trace(self))
         }
     };
     ($name: ident) => {
@@ -1229,7 +1229,7 @@ macro_rules! extractor_cxr_fn {
                 .borrow()
                 .0
                 .$name()
-                .map_err(|e| e.with_trace(self.clone()))
+                .map_err(|e| e.fill_and_trace(self))
         }
     };
 }
@@ -1248,7 +1248,7 @@ macro_rules! extractor_cxr_and_then_fn {
             let result = match &inner.0 {
                 TulispValue::List { cons, .. } => f(cons.$field()),
                 TulispValue::Nil => Ok(Out::default()),
-                _ => Err(inner.0.not_a_list()),
+                _ => Err(inner.0.not_a_list().fill_value(self)),
             };
             result.map_err(|e| e.with_trace(self.clone()))
         }
@@ -1305,6 +1305,41 @@ impl TulispObject {
 #[cfg(test)]
 mod tests {
     use crate::{Error, Iter, TulispContext, TulispConvertible, TulispObject};
+
+    // An error from the function given to `car_and_then` keeps its own data:
+    // the list check does not fill it in.
+    #[test]
+    fn a_callback_error_gets_no_list_data() {
+        let ctx = &mut TulispContext::new();
+        let list = ctx.eval_string("'(1 2)").unwrap();
+        let err = list
+            .car_and_then(|_| -> Result<(), Error> {
+                Err(Error::wrong_type_unfilled("integerp", "m"))
+            })
+            .unwrap_err();
+        let expected = ctx.eval_string(r#"'("m")"#).unwrap();
+        assert!(err.data(ctx).equal(&expected), "{}", err.data(ctx));
+    }
+
+    /// Asserts that ERR's data is EXPECTED, read as Lisp.
+    fn assert_data(ctx: &mut TulispContext, err: Error, expected: &str) {
+        let expected = ctx.eval_string(expected).unwrap();
+        let data = err.data(ctx);
+        assert!(data.equal(&expected), "got {data}, expected {expected}");
+    }
+
+    // A list check names the predicate and the value, as in Emacs.
+    #[test]
+    fn list_checks_give_emacs_data() {
+        let ctx = &mut TulispContext::new();
+        let one = TulispObject::from(1);
+        let err = one.iter::<TulispObject>().err().unwrap();
+        assert_data(ctx, err, "'(listp 1)");
+        let err = one.car_and_then(|_| Ok(())).unwrap_err();
+        assert_data(ctx, err, "'(listp 1)");
+        let err = one.cdr_and_then(|_| Ok(())).unwrap_err();
+        assert_data(ctx, err, "'(listp 1)");
+    }
 
     // `iter` also takes a type whose conversion cannot fail, such as
     // `TulispObject` itself.
