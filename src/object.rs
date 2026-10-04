@@ -578,7 +578,7 @@ impl TulispObject {
     ///
     /// Returns an Error if `self` is not a symbol, or is a constant:
     /// `nil`, `t` or a keyword.
-    pub fn set_scope(&self, to_set: TulispObject) -> Result<(), Error> {
+    pub(crate) fn set_scope(&self, to_set: TulispObject) -> Result<(), Error> {
         self.rc
             .borrow_mut()
             .0
@@ -614,7 +614,7 @@ impl TulispObject {
     /// Calls compiled already may still find a function unset here. To
     /// leave a name with no function, use
     /// [`TulispContext::fmakunbound`](crate::TulispContext::fmakunbound).
-    pub fn unset(&self) -> Result<(), Error> {
+    pub(crate) fn unset(&self) -> Result<(), Error> {
         self.rc
             .borrow_mut()
             .0
@@ -904,8 +904,7 @@ impl TulispObject {
         self.rc.borrow().1
     }
 
-    #[doc(hidden)]
-    pub fn deep_copy(&self) -> Result<TulispObject, Error> {
+    pub(crate) fn deep_copy(&self) -> Result<TulispObject, Error> {
         if self.is_symbol_variant() {
             return Ok(self.clone());
         }
