@@ -145,27 +145,30 @@ fn convert(spec: &Spec, arg: &TulispObject) -> Result<Field, Error> {
             if spec.precision == Some(usize::MAX) {
                 return Err(string_too_long());
             }
+            let value = arg.try_int()?;
             Ok(Field {
-                sign: "",
-                body: arg.try_int()?.to_string(),
+                sign: if value < 0 { "-" } else { "" },
+                body: value.unsigned_abs().to_string(),
                 zero_pad: true,
             })
         }
         'f' => {
             let value = arg.try_float()?;
-            let body = match spec.precision {
-                Some(precision) => {
-                    let shown = precision.min(MAX_FRACTION_DIGITS);
-                    let mut body = format!("{value:.shown$}");
-                    if value.is_finite() {
-                        push_repeated(&mut body, '0', precision - shown)?;
-                    }
-                    body
-                }
-                None => value.to_string(),
-            };
+            let sign = if value.is_sign_negative() { "-" } else { "" };
+            if !value.is_finite() {
+                let body = if value.is_nan() { "nan" } else { "inf" };
+                return Ok(Field {
+                    sign,
+                    body: body.to_string(),
+                    zero_pad: false,
+                });
+            }
+            let precision = spec.precision.unwrap_or(6);
+            let shown = precision.min(MAX_FRACTION_DIGITS);
+            let mut body = format!("{:.shown$}", value.abs());
+            push_repeated(&mut body, '0', precision - shown)?;
             Ok(Field {
-                sign: "",
+                sign,
                 body,
                 zero_pad: true,
             })
@@ -209,7 +212,7 @@ mod tests {
         eval_assert_equal(
             ctx,
             r#"(format "Hello, %s! %%%d %f %s %d" "world" 22.8 22.8 10 10)"#,
-            r#""Hello, world! %22 22.8 10 10""#,
+            r#""Hello, world! %22 22.800000 10 10""#,
         );
         // Width: right-aligned by default, left-aligned with `-`.
         eval_assert_equal(ctx, r#"(format "[%10s]" "hi")"#, r#""[        hi]""#);
@@ -331,5 +334,36 @@ mod tests {
             r#"(condition-case nil (format "%d" 1e30) (arith-error 'arith))"#,
             "'arith",
         );
+    }
+
+    // `%f` shows 6 digits by default, and NaN prints as `nan`, as in Emacs.
+    #[test]
+    fn format_f_defaults_to_six_digits() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, r#"(format "%f" 1.5)"#, r#""1.500000""#);
+        eval_assert_equal(ctx, r#"(format "%f" 3)"#, r#""3.000000""#);
+        eval_assert_equal(ctx, r#"(format "%f" -0.0)"#, r#""-0.000000""#);
+        eval_assert_equal(
+            ctx,
+            r#"(format "%f|%f" 0.0e+NaN -0.0e+NaN)"#,
+            r#""nan|-nan""#,
+        );
+    }
+
+    // Zero padding goes after the sign, and not into `inf` or `nan`.
+    #[test]
+    fn zero_padding_goes_after_the_sign() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, r#"(format "%05d" -5)"#, r#""-0005""#);
+        eval_assert_equal(ctx, r#"(format "%08.2f" -1.5)"#, r#""-0001.50""#);
+        eval_assert_equal(ctx, r#"(format "%05.1f" -0.0)"#, r#""-00.0""#);
+        eval_assert_equal(ctx, r#"(format "%-05d|" -5)"#, r#""-5   |""#);
+        eval_assert_equal(
+            ctx,
+            r#"(format "%08f|%5f|" -1.0e+INF 1.0e+INF)"#,
+            r#""    -inf|  inf|""#,
+        );
+        eval_assert_equal(ctx, r#"(format "%08f" 0.0e+NaN)"#, r#""     nan""#);
+        eval_assert_equal(ctx, r#"(format "%05s|" "ab")"#, r#""   ab|""#);
     }
 }
