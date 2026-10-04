@@ -289,7 +289,7 @@ pub fn first_cons_or_symbol(value: &TulispObject) -> Result<Option<TulispObject>
 ///     format!("{scheme}://{}:{}", cfg.host, cfg.port)
 /// });
 /// let url = |ctx: &mut TulispContext, call: &str| {
-///     ctx.eval_string(call).unwrap().as_string().unwrap()
+///     ctx.eval_string(call).unwrap().convert::<String>(ctx).unwrap()
 /// };
 /// assert_eq!(
 ///     url(&mut ctx, r#"(make-server :host "localhost")"#),

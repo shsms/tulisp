@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::{Error, TulispObject, TulispValue};
+use crate::{Error, TulispObject};
 
 #[derive(Debug, Clone, Copy)]
 pub enum Number {
@@ -26,17 +26,19 @@ impl From<f64> for Number {
     }
 }
 
+impl TryFrom<&TulispObject> for Number {
+    type Error = Error;
+
+    fn try_from(value: &TulispObject) -> Result<Self, Self::Error> {
+        value.as_number()
+    }
+}
+
 impl TryFrom<TulispObject> for Number {
     type Error = Error;
 
     fn try_from(value: TulispObject) -> Result<Self, Self::Error> {
-        match &value.inner_ref().0 {
-            TulispValue::Number { value } => Ok(*value),
-            _ => Err(Error::type_mismatch(format!(
-                "Expected number, got: {}",
-                value
-            ))),
-        }
+        Number::try_from(&value)
     }
 }
 
@@ -302,5 +304,29 @@ impl PartialOrd<f64> for Number {
             Number::Int(l) => (*l as f64).partial_cmp(other),
             Number::Float(l) => l.partial_cmp(other),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Number;
+    use crate::{TulispContext, TulispObject};
+
+    // A value that is no number gives an error traced to it, by value and by
+    // reference.
+    #[test]
+    fn try_from_traces_a_value_that_is_no_number() {
+        let ctx = &mut TulispContext::new();
+        let list = ctx.eval_string("'((x))").unwrap().car().unwrap();
+        let expected =
+            "ERR TypeMismatch: Expected number, got: (x)\n<eval_string>:1.3-1.5:  at (x)";
+        let err = Number::try_from(&list).unwrap_err().with_file_names(ctx);
+        assert_eq!(err.to_string(), expected);
+        let err = Number::try_from(list).unwrap_err().with_file_names(ctx);
+        assert_eq!(err.to_string(), expected);
+        assert_eq!(
+            Number::try_from(&TulispObject::from(2.5)).unwrap(),
+            Number::Float(2.5)
+        );
     }
 }

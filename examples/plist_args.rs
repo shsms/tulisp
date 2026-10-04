@@ -30,7 +30,7 @@ fn main() -> Result<(), Error> {
         r#"(make-server :host "example.com" :port-number 443 :scheme "https")"#,
         r#"(make-server :host "api.local" :port-number 3000)"#,
     ] {
-        let url = ctx.eval_string(program)?.as_string()?;
+        let url = String::try_from(ctx.eval_string(program)?)?;
         println!("{program}\n  => {url}");
     }
 

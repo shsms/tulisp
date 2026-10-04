@@ -60,10 +60,8 @@ pub fn plist_get(plist: &TulispObject, property: &TulispObject) -> Result<Tulisp
 ///     ((p.x * p.x + p.y * p.y) as f64).sqrt()
 /// });
 ///
-/// assert_eq!(
-///     ctx.eval_string("(distance :x 3 :y 4)").unwrap().as_number().unwrap(),
-///     5.0
-/// );
+/// let distance = ctx.eval_string("(distance :x 3 :y 4)").unwrap();
+/// assert_eq!(distance.convert::<f64>(&mut ctx).unwrap(), 5.0);
 /// ```
 pub struct Plist<T: Plistable> {
     plist: T,

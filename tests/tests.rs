@@ -452,7 +452,7 @@ fn test_typed_defun_arity_checked_before_arg_eval() -> Result<(), Error> {
     // Happy-path baseline: 1 arg, evaluated once.
     counter.store(0, Ordering::Relaxed);
     let r = ctx.eval_string("(narrow (bump 7))")?;
-    assert_eq!(r.try_int()?, 7);
+    assert_eq!(i64::try_from(r)?, 7);
     assert_eq!(counter.load(Ordering::Relaxed), 1);
 
     // Too few is rejected at compile time.

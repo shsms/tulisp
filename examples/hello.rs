@@ -17,7 +17,7 @@ fn main() -> Result<(), Error> {
     let result = ctx.eval_string(program)?;
 
     // Pull the result back into Rust.
-    println!("{program} => {}", result.as_int()?);
+    println!("{program} => {}", i64::try_from(result)?);
 
     Ok(())
 }

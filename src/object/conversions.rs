@@ -29,8 +29,8 @@ use crate::{Error, Number, Shared, TulispAny, TulispContext, TulispObject, Tulis
 /// goes through this trait, so every value type a `defun` parameter accepts can
 /// be read the same way. With no context around, the primitives also convert
 /// through the `TryFrom` impls on [`TulispObject`]: `i64`, `f64`, `String`,
-/// `bool` and `Vec<T>` by value and by reference, `Number` by value only. For
-/// the types both cover, `try_into()` and `convert` accept and reject the same
+/// `bool`, `Number` and `Vec<T>`, each by value and by reference. For the
+/// types both cover, `try_into()` and `convert` accept and reject the same
 /// values. [`TulispObject::downcast`] recovers a host value.
 ///
 /// # Implementing for custom types
@@ -96,7 +96,7 @@ pub trait TulispConvertible {
 
 impl TulispConvertible for String {
     fn from_tulisp(_ctx: &mut TulispContext, value: &TulispObject) -> Result<String, Error> {
-        value.as_string().map_err(|e| e.with_trace(value.clone()))
+        String::try_from(value)
     }
 
     fn into_tulisp(self, _ctx: &mut TulispContext) -> TulispObject {
@@ -106,8 +106,7 @@ impl TulispConvertible for String {
 
 impl TulispConvertible for f64 {
     fn from_tulisp(_ctx: &mut TulispContext, value: &TulispObject) -> Result<f64, Error> {
-        let res = value.rc.borrow().0.try_float();
-        res.map_err(|e| e.with_trace(value.clone()))
+        f64::try_from(value)
     }
     fn into_tulisp(self, _ctx: &mut TulispContext) -> TulispObject {
         TulispValue::from(self).into_ref(None)
@@ -116,8 +115,7 @@ impl TulispConvertible for f64 {
 
 impl TulispConvertible for i64 {
     fn from_tulisp(_ctx: &mut TulispContext, value: &TulispObject) -> Result<i64, Error> {
-        let res = value.rc.borrow().0.as_int();
-        res.map_err(|e| e.with_trace(value.clone()))
+        i64::try_from(value)
     }
     fn into_tulisp(self, _ctx: &mut TulispContext) -> TulispObject {
         TulispValue::from(self).into_ref(None)
@@ -156,7 +154,7 @@ impl TulispConvertible for TulispObject {
 
 impl TulispConvertible for Number {
     fn from_tulisp(_ctx: &mut TulispContext, value: &TulispObject) -> Result<Number, Error> {
-        value.as_number().map_err(|e| e.with_trace(value.clone()))
+        Number::try_from(value)
     }
     fn into_tulisp(self, _ctx: &mut TulispContext) -> TulispObject {
         TulispValue::from(self).into_ref(None)

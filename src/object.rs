@@ -328,7 +328,7 @@ macro_rules! extractor_fn_with_err {
     ($retty: ty, $name: ident $(, $doc: literal)?) => {
         $(#[doc=$doc])?
         #[inline(always)]
-        pub fn $name(&self) -> Result<$retty, Error> {
+        pub(crate) fn $name(&self) -> Result<$retty, Error> {
             self.rc
                 .borrow()
                 .0

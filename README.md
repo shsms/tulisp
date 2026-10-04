@@ -150,14 +150,10 @@ ctx.defun("connect", |cfg: Plist<ServerConfig>| -> String {
 ctx.defun("connect-to", |cfg: ServerConfig| -> String {
     format!("{}:{}", cfg.host, cfg.port)
 });
-assert_eq!(
-    ctx.eval_string(r#"(connect :host "example.com" :port 443)"#).unwrap().as_string().unwrap(),
-    "example.com:443"
-);
-assert_eq!(
-    ctx.eval_string(r#"(connect-to '((host . "example.com")))"#).unwrap().as_string().unwrap(),
-    "example.com:8080"
-);
+let addr = ctx.eval_string(r#"(connect :host "example.com" :port 443)"#).unwrap();
+assert_eq!(addr.convert::<String>(&mut ctx).unwrap(), "example.com:443");
+let addr = ctx.eval_string(r#"(connect-to '((host . "example.com")))"#).unwrap();
+assert_eq!(addr.convert::<String>(&mut ctx).unwrap(), "example.com:8080");
 ```
 
 `{= expr}` provides a default, `field<":custom-key">` overrides the

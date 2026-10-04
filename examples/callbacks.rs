@@ -17,7 +17,7 @@ fn main() -> Result<(), Error> {
     // tuple element.
     let double = ctx.intern("double");
     let result = ctx.funcall(&double, (21,))?;
-    println!("(double 21) => {}", result.as_int()?);
+    println!("(double 21) => {}", i64::try_from(result)?);
 
     // `ctx.map` is the same shape as Emacs' `mapcar`: apply a function
     // value over each element of a list. The function can be anything
@@ -31,7 +31,7 @@ fn main() -> Result<(), Error> {
     // `ctx.reduce` folds with an initial value. Handy for aggregations.
     let plus = ctx.intern("+");
     let total = ctx.reduce(&plus, &squared, &TulispObject::from(0))?;
-    println!("sum of squares => {}", total.as_int()?);
+    println!("sum of squares => {}", i64::try_from(total)?);
 
     Ok(())
 }
