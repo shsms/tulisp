@@ -17,12 +17,14 @@ use crate::{Error, TulispContext, TulispObject};
 /// assert_eq!(ctx.eval_string("(first-arg 7 8)").unwrap().to_string(), "7");
 /// ```
 pub trait TulispFn:
-    Fn(&mut TulispContext, &TulispObject) -> Result<TulispObject, Error> + generic::SyncSend + 'static
+    Fn(&mut TulispContext, &TulispObject) -> Result<TulispObject, Error>
+    + generic::SendSyncIfSync
+    + 'static
 {
 }
 impl<T> TulispFn for T where
     T: Fn(&mut TulispContext, &TulispObject) -> Result<TulispObject, Error>
-        + generic::SyncSend
+        + generic::SendSyncIfSync
         + 'static
 {
 }
@@ -31,12 +33,14 @@ impl<T> TulispFn for T where
 /// arguments as values, evaluated by the caller or passed from Rust, as
 /// a slice. It may call back into `ctx`.
 pub trait DefunFn:
-    Fn(&mut TulispContext, &[TulispObject]) -> Result<TulispObject, Error> + generic::SyncSend + 'static
+    Fn(&mut TulispContext, &[TulispObject]) -> Result<TulispObject, Error>
+    + generic::SendSyncIfSync
+    + 'static
 {
 }
 impl<T> DefunFn for T where
     T: Fn(&mut TulispContext, &[TulispObject]) -> Result<TulispObject, Error>
-        + generic::SyncSend
+        + generic::SendSyncIfSync
         + 'static
 {
 }
@@ -63,13 +67,13 @@ impl<T, R> InterruptCheckFn<R> for T where T: FnMut() -> R + generic::SendIfSync
 /// unevaluated ones as forms, each in order.
 pub trait SpecialFn:
     Fn(&mut TulispContext, &[TulispObject], Vec<crate::Form>) -> Result<TulispObject, Error>
-    + generic::SyncSend
+    + generic::SendSyncIfSync
     + 'static
 {
 }
 impl<T> SpecialFn for T where
     T: Fn(&mut TulispContext, &[TulispObject], Vec<crate::Form>) -> Result<TulispObject, Error>
-        + generic::SyncSend
+        + generic::SendSyncIfSync
         + 'static
 {
 }
@@ -87,11 +91,11 @@ pub mod generic {
     /// closure, must be.
     ///
     /// ```rust
-    /// fn keep<T: tulisp::SyncSend + 'static>(_: T) {}
+    /// fn keep<T: tulisp::SendSyncIfSync + 'static>(_: T) {}
     /// keep(5);
     /// ```
-    pub trait SyncSend {}
-    impl<T> SyncSend for T {}
+    pub trait SendSyncIfSync {}
+    impl<T> SendSyncIfSync for T {}
 
     /// `Send` with the `sync` feature, and no bound without it: what a value
     /// only the context calls, such as an interrupt check, must be.
@@ -248,11 +252,11 @@ pub mod generic {
     /// closure, must be.
     ///
     /// ```rust
-    /// fn keep<T: tulisp::SyncSend + 'static>(_: T) {}
+    /// fn keep<T: tulisp::SendSyncIfSync + 'static>(_: T) {}
     /// keep(5);
     /// ```
-    pub trait SyncSend: Sync + Send {}
-    impl<T> SyncSend for T where T: Send + Sync {}
+    pub trait SendSyncIfSync: Sync + Send {}
+    impl<T> SendSyncIfSync for T where T: Send + Sync {}
 
     /// `Send` with the `sync` feature, and no bound without it: what a value
     /// only the context calls, such as an interrupt check, must be.

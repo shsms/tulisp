@@ -7,7 +7,7 @@ use crate::{
         Span,
         wrappers::{
             DefunFn, SpecialFn, TulispFn,
-            generic::{Shared, SharedMut, SyncSend},
+            generic::{SendSyncIfSync, Shared, SharedMut},
         },
     },
 };
@@ -210,7 +210,7 @@ impl SymbolBindings {
 /// downcast. One empty impl opts a type in. An implementor is
 /// [`Any`] (so it owns no borrowed data) and, under the `sync`
 /// feature, `Send + Sync`.
-pub trait TulispAny: Any + Display + SyncSend {
+pub trait TulispAny: Any + Display + SendSyncIfSync {
     /// The name a type mismatch reports for this type: its own name
     /// without module paths, unless overridden.
     fn lisp_type_name() -> Cow<'static, str>

@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::bytecode::{FormBlock, FrameState};
 use crate::context::callable::Token;
-use crate::object::wrappers::generic::{Shared, SyncSend};
+use crate::object::wrappers::generic::{SendSyncIfSync, Shared};
 use crate::{
     Error, Param, ParamKind, PositionalParam, Rest, Return, TulispContext, TulispConvertible,
     TulispObject,
@@ -240,7 +240,7 @@ macro_rules! impl_special_callable {
         #[allow(nonstandard_style)]
         impl<FnT, R, $($p,)* $($last,)?> SpecialCallable<($($p,)* $($last,)?), R, $ctx> for FnT
         where
-            FnT: Fn($($fn_ctx)* $($p,)* $($last)?) -> R + SyncSend + 'static,
+            FnT: Fn($($fn_ctx)* $($p,)* $($last)?) -> R + SendSyncIfSync + 'static,
             R: Return,
             $($p: SpecialPositionalParam,)*
             $($last: SpecialParam,)?

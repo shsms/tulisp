@@ -1,4 +1,4 @@
-use crate::object::wrappers::generic::SyncSend;
+use crate::object::wrappers::generic::SendSyncIfSync;
 use crate::value::DefunArity;
 use crate::{Error, Plist, Plistable, Rest, TulispContext, TulispConvertible, TulispObject};
 
@@ -201,7 +201,7 @@ macro_rules! impl_tulisp_callable {
         #[allow(nonstandard_style)]
         impl<FnT, R, $($p,)* $($last,)?> TulispCallable<($($p,)* $($last,)?), R, $ctx> for FnT
         where
-            FnT: Fn($($fn_ctx)* $($p,)* $($last)?) -> R + SyncSend + 'static,
+            FnT: Fn($($fn_ctx)* $($p,)* $($last)?) -> R + SendSyncIfSync + 'static,
             R: Return,
             $($p: PositionalParam,)*
             $($last: Param,)?
