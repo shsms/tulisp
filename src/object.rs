@@ -13,7 +13,28 @@ use crate::{
     value::TulispAny,
 };
 
+/// Where a form is in its source: `file_id`, the number the context that parsed
+/// it gives the file (see
+/// [`TulispContext::file_name`](crate::TulispContext::file_name)), and the line
+/// and column the form starts at and ends at, both counted from 1. The parser
+/// makes spans; [`TulispObject::span`] reads one.
+///
+/// ```rust
+/// use tulisp::{Span, TulispContext};
+///
+/// let mut ctx = TulispContext::new();
+/// let forms = ctx.eval_string("'((car 5))").unwrap();
+/// let span: Span = forms.car().unwrap().span().unwrap();
+/// assert_eq!((span.start, span.end), ((1, 3), (1, 9)));
+/// ```
+///
+/// Code outside Tulisp cannot make one:
+///
+/// ```compile_fail
+/// let span = tulisp::Span { file_id: 0, start: (1, 1), end: (1, 2) };
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
+#[non_exhaustive]
 pub struct Span {
     pub file_id: usize,
     pub start: (usize, usize),
@@ -21,7 +42,7 @@ pub struct Span {
 }
 
 impl Span {
-    pub fn new(file_id: usize, start: (usize, usize), end: (usize, usize)) -> Self {
+    pub(crate) fn new(file_id: usize, start: (usize, usize), end: (usize, usize)) -> Self {
         Span {
             file_id,
             start,
@@ -897,7 +918,13 @@ impl TulispObject {
         self.rc.borrow().0.is_bounce()
     }
 
-    #[doc(hidden)]
+    /// Where `self` is in its source, for a form the parser read; `None` for a
+    /// list or a string made in Rust or while a program runs, except that a
+    /// macro's expansion carries the span of its call.
+    ///
+    /// A symbol is one object wherever it is named, and an integer one object
+    /// wherever it appears in one parse, so the span of either is the last
+    /// place the parser read it.
     #[inline(always)]
     pub fn span(&self) -> Option<Span> {
         self.rc.borrow().1

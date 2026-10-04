@@ -1080,6 +1080,17 @@ impl TulispContext {
         self.eval_progn(&vv)
     }
 
+    /// The name of the file SPAN is in: the path given to
+    /// [`eval_file`](Self::eval_file) or [`parse_file`](Self::parse_file), the
+    /// name given to [`eval_prelude`](Self::eval_prelude), or `<eval_string>`.
+    /// `None` for a file id this context has no name for.
+    ///
+    /// File ids belong to the context that parsed the form, so ask that
+    /// context.
+    pub fn file_name(&self, span: &crate::Span) -> Option<&str> {
+        self.filenames.get(span.file_id).map(String::as_str)
+    }
+
     /// Interns `filename` in the context's filename table and returns
     /// its file id, reusing the entry if the name was seen before.
     fn intern_filename(&mut self, filename: &str) -> usize {
@@ -1545,6 +1556,24 @@ mod tests {
             let err = ctx.with_binding(&symbol, 1.into(), never).unwrap_err();
             assert_eq!(err.desc(), format!("Can't set constant symbol: {name}"));
         }
+    }
+
+    // A span's file name is the name the context read the form from.
+    #[test]
+    fn file_name_names_the_file_a_span_is_in() {
+        let ctx = &mut TulispContext::new();
+        let forms = ctx.eval_string("'((car 5))").unwrap();
+        let span = forms.car().unwrap().span().unwrap();
+        assert_eq!(ctx.file_name(&span), Some("<eval_string>"));
+
+        let path =
+            std::env::temp_dir().join(format!("tulisp_file_name_{}.lisp", std::process::id()));
+        std::fs::write(&path, "(car 5)").unwrap();
+        let path = path.to_str().unwrap();
+        let forms = ctx.parse_file(path).unwrap();
+        std::fs::remove_file(path).ok();
+        let span = forms.car().unwrap().span().unwrap();
+        assert_eq!(ctx.file_name(&span), Some(path));
     }
 
     // A program run while a protected body compiles fails to compile

@@ -78,7 +78,7 @@ impl Tokenizer<'_> {
 
     fn read_string(&mut self) -> Option<Token> {
         self.next_char()?; // consume the opening '"'
-        let start_pos = (self.line, self.pos + 1);
+        let start_pos = (self.line, self.pos);
         let mut output = String::new();
         while let Some(ch) = self.next_char() {
             match ch {
@@ -890,6 +890,19 @@ pub fn parse(
 mod tests {
     use crate::test_utils::{eval_assert_equal, eval_assert_equal_fresh, eval_assert_error};
     use crate::{Error, TulispContext};
+
+    // A string's span starts at its opening quote and ends at its closing one,
+    // as a list's covers its parentheses.
+    #[test]
+    fn a_string_span_covers_its_quotes() {
+        let ctx = &mut TulispContext::new();
+        let forms = ctx.eval_string(r#"'(x "ab" (y))"#).unwrap();
+        let string = forms.cdr().unwrap().car().unwrap();
+        let list = forms.cddr().unwrap().car().unwrap();
+        let (string, list) = (string.span().unwrap(), list.span().unwrap());
+        assert_eq!((string.start, string.end), ((1, 5), (1, 8)));
+        assert_eq!((list.start, list.end), ((1, 10), (1, 12)));
+    }
 
     // Marking tail calls rejects no form: one it cannot read is left
     // unmarked, and a malformed one is reported by its own form.

@@ -303,10 +303,7 @@ impl Error {
             if entry.file.is_none()
                 && let Some(span) = entry.printed_span()
             {
-                entry.file = ctx
-                    .filenames
-                    .get(span.file_id)
-                    .map(|name| name.as_str().into());
+                entry.file = ctx.file_name(&span).map(Box::from);
             }
         }
         self
