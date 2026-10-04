@@ -11,13 +11,8 @@ enum Rounding {
 }
 
 /// N divided by DIVISOR and rounded, as Emacs's `floor` and its kin do.
-/// Integers divide exactly; a float makes the whole sum a float one.
-fn rounded(
-    n: Number,
-    divisor: Option<Number>,
-    rounding: Rounding,
-    name: &str,
-) -> Result<i64, Error> {
+/// Integers divide exactly; a float makes the whole division a float one.
+fn rounded(n: Number, divisor: Option<Number>, rounding: Rounding) -> Result<i64, Error> {
     match (n, divisor) {
         (Number::Int(n), None) => Ok(n),
         (Number::Int(n), Some(Number::Int(d))) => divide_int(n, d, rounding),
@@ -27,11 +22,11 @@ fn rounded(
                 Some(0.0) => return Err(division_by_zero()),
                 Some(d) => to_f64(n) / d,
             };
-            let value = match rounding {
-                Rounding::Floor => value.floor(),
-                Rounding::Ceiling => value.ceil(),
-                Rounding::Truncate => value.trunc(),
-                Rounding::Round => value.round_ties_even(),
+            let (value, name) = match rounding {
+                Rounding::Floor => (value.floor(), "floor"),
+                Rounding::Ceiling => (value.ceil(), "ceiling"),
+                Rounding::Truncate => (value.trunc(), "truncate"),
+                Rounding::Round => (value.round_ties_even(), "round"),
             };
             f64_to_i64_checked(value, name)
         }
@@ -52,14 +47,16 @@ fn divide_int(n: i64, d: i64, rounding: Rounding) -> Result<i64, Error> {
     }
     // The exact quotient lies between QUOTIENT and the integer next to it, away
     // from zero.
-    let away = if (n < 0) != (d < 0) { -1 } else { 1 };
+    let negative = (n < 0) != (d < 0);
+    let away = if negative { -1 } else { 1 };
     let step = match rounding {
-        Rounding::Floor => away < 0,
-        Rounding::Ceiling => away > 0,
+        Rounding::Floor => negative,
+        Rounding::Ceiling => !negative,
         Rounding::Truncate => false,
         Rounding::Round => {
-            let twice = 2 * i128::from(remainder).abs();
-            let divisor = i128::from(d).abs();
+            // Below twice |D|, so at most u64::MAX - 1.
+            let twice = 2 * remainder.unsigned_abs();
+            let divisor = d.unsigned_abs();
             twice > divisor || (twice == divisor && quotient % 2 != 0)
         }
     };
@@ -79,16 +76,16 @@ fn division_by_zero() -> Error {
 
 pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defun("floor", |n: Number, divisor: Option<Number>| {
-        rounded(n, divisor, Rounding::Floor, "floor")
+        rounded(n, divisor, Rounding::Floor)
     });
     ctx.defun("ceiling", |n: Number, divisor: Option<Number>| {
-        rounded(n, divisor, Rounding::Ceiling, "ceiling")
+        rounded(n, divisor, Rounding::Ceiling)
     });
     ctx.defun("truncate", |n: Number, divisor: Option<Number>| {
-        rounded(n, divisor, Rounding::Truncate, "truncate")
+        rounded(n, divisor, Rounding::Truncate)
     });
     ctx.defun("round", |n: Number, divisor: Option<Number>| {
-        rounded(n, divisor, Rounding::Round, "round")
+        rounded(n, divisor, Rounding::Round)
     });
 
     ctx.defun("ffloor", |x: f64| x.floor());
@@ -191,5 +188,17 @@ mod tests {
             "(list (fround 2.5) (fround 3.5) (fround -2.5) (fround 0.5))",
             "'(2.0 4.0 -2.0 0.0)",
         );
+    }
+
+    // A float result out of the integer range names the function.
+    #[test]
+    fn rounding_names_itself_in_an_overflow() {
+        let ctx = &mut TulispContext::new();
+        for name in ["floor", "ceiling", "truncate", "round"] {
+            let line = format!(
+                "ERR ArithError: {name}: float 1000000000000000000000000000000 out of range for integer"
+            );
+            eval_assert_error_line(ctx, &format!("({name} 1e30)"), &line);
+        }
     }
 }
