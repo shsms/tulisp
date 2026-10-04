@@ -119,7 +119,7 @@ mod tests {
         eval_assert_equal(&mut fresh(), "(thread-first (- 5) (- 10) -)", "15");
         eval_assert_prints_as(
             &mut fresh(),
-            "(macroexpand '(thread-last
+            "(macroexpand-all '(thread-last
                             (if-let (b) (print b))
                             (if-let (a) (print a))
                             (if-let ((a) (b))

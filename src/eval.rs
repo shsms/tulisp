@@ -71,6 +71,32 @@ pub fn macroexpand_all(ctx: &mut TulispContext, inp: TulispObject) -> Result<Tul
     macroexpand_depth(ctx, inp, 0, 0)
 }
 
+/// Expands FORM until its head names no macro, or an expansion gives FORM
+/// itself back, as Emacs Lisp's `macroexpand` does; the forms inside it are
+/// left alone.
+pub(crate) fn macroexpand(
+    ctx: &mut TulispContext,
+    mut form: TulispObject,
+) -> Result<TulispObject, Error> {
+    let limit = ctx.max_nesting_depth();
+    for _ in 0..=limit {
+        match expand_macro_call(ctx, &form)? {
+            Some(expansion) if !expansion.eq_ptr(&form) => form = expansion,
+            Some(_) | None => return Ok(form),
+        }
+    }
+    Err(nesting_exceeded(limit))
+}
+
+/// Expands FORM once when its head names a macro, as Emacs Lisp's
+/// `macroexpand-1` does, and gives FORM itself otherwise.
+pub(crate) fn macroexpand_1(
+    ctx: &mut TulispContext,
+    form: TulispObject,
+) -> Result<TulispObject, Error> {
+    Ok(expand_macro_call(ctx, &form)?.unwrap_or(form))
+}
+
 /// The error for code nested deeper than LIMIT, `max-nesting-depth`.
 fn nesting_exceeded(limit: u32) -> Error {
     Error::lisp_error(format!("Lisp nesting exceeds max-nesting-depth ({limit})"))
@@ -692,7 +718,7 @@ mod tests {
                 let mut ctx = TulispContext::new();
                 let prog = "(let ((x 1)) \
                             (dotimes (i 1000) (setq x (list 'when t x))) \
-                            (condition-case nil (progn (macroexpand x) nil) (error 'caught)))";
+                            (condition-case nil (progn (macroexpand-all x) nil) (error 'caught)))";
                 let r = ctx.eval_string(prog).expect("should error, not overflow");
                 assert_eq!(r.to_string(), "caught");
             })
@@ -1421,6 +1447,56 @@ mod tests {
         );
     }
 
+    // `macroexpand` expands the form until its head is no macro, and leaves the
+    // forms inside alone; `macroexpand-1` expands it once, and
+    // `macroexpand-all` expands every macro in it, as in Emacs.
+    #[test]
+    fn macroexpand_expands_only_the_outer_form() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(defmacro me-m2 (x) `(list ,x))
+             (defmacro me-m3 (x) `(me-m2 ,x))
+             (list (macroexpand '(me-m2 (when a b)))
+                   (macroexpand '(progn (me-m2 1)))
+                   (macroexpand '(me-m3 1))
+                   (macroexpand-1 '(me-m3 1))
+                   (macroexpand-1 '(progn (me-m2 1)))
+                   (macroexpand-all '(progn (me-m3 (when a b)))))",
+            "'((list (when a b))
+               (progn (me-m2 1))
+               (list 1)
+               (me-m2 1)
+               (progn (me-m2 1))
+               (progn (list (if a (progn b)))))",
+        );
+        // ENVIRONMENT may be nil; another value is refused.
+        eval_assert_equal(
+            ctx,
+            "(list (macroexpand '(me-m2 1) nil)
+                   (macroexpand-1 '(me-m2 1) nil)
+                   (macroexpand-all '(me-m2 1) nil)
+                   (condition-case nil (macroexpand '(me-m2 1) '((x))) (error 'refused)))",
+            "'((list 1) (list 1) (list 1) refused)",
+        );
+        // An expansion that gives the form itself back ends the expansion; a
+        // macro that grows forever raises an error.
+        eval_assert_equal(
+            ctx,
+            "(defmacro me-same () '(me-same))
+             (defmacro me-grow () (list 'me-grow))
+             (list (macroexpand '(me-same))
+                   (condition-case nil (macroexpand '(me-grow)) (error 'too-deep)))",
+            "'((me-same) too-deep)",
+        );
+        // `macroexpand-all` expands the body of a `#'(lambda ...)`.
+        eval_assert_equal(
+            ctx,
+            "(macroexpand-all '#'(lambda (x) (when x 1)))",
+            "'#'(lambda (x) (if x (progn 1)))",
+        );
+    }
+
     #[test]
     fn defmacro_expands_and_checks_arity() {
         let ctx = &mut TulispContext::new();
@@ -1700,13 +1776,13 @@ mod tests {
         }
     }
 
-    // `macroexpand` expands the code an unquote or a splice runs, and
+    // `macroexpand-all` expands the code an unquote or a splice runs, and
     // leaves the rest of a backquote's template alone.
     #[test]
     fn macroexpand_expands_inside_unquotes() {
         let ctx = &mut TulispContext::new();
         let got = ctx
-            .eval_string("(macroexpand '`(when ,@(when x (list y))))")
+            .eval_string("(macroexpand-all '`(when ,@(when x (list y))))")
             .unwrap();
         assert_eq!(got.to_string(), "`(when ,@(if x (progn (list y))))");
     }

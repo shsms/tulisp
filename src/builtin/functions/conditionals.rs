@@ -354,7 +354,7 @@ mod tests {
         let ctx = &mut TulispContext::new();
         eval_assert_prints_as(
             ctx,
-            "(macroexpand '(while-let (c) (+ c 10)))",
+            "(macroexpand-all '(while-let (c) (+ c 10)))",
             "'(while (let* ((s (and t c))) (if s (progn (+ c 10) t) nil)))",
         );
         eval_assert_equal(

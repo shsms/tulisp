@@ -241,7 +241,7 @@ impl TulispContext {
         self.max_eval_depth = depth;
     }
 
-    /// Maximum *structural* nesting depth the parser and `macroexpand`
+    /// Maximum *structural* nesting depth the parser and macro expansion
     /// descend before raising a catchable error, bounding the
     /// native-stack recursion they'd do on deeply nested input. Derived
     /// as 4× [`max_eval_depth`](Self::set_max_eval_depth): data nests

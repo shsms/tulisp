@@ -64,6 +64,17 @@ fn load_file(
     Ok(TulispObject::t())
 }
 
+/// Refuses a non-nil ENVIRONMENT, which Tulisp's macro expansion does not
+/// support.
+fn check_no_macro_environment(name: &str, environment: Option<TulispObject>) -> Result<(), Error> {
+    match environment {
+        Some(environment) => Err(Error::not_implemented(format!(
+            "{name}: ENVIRONMENT is not supported, got: {environment}"
+        ))),
+        None => Ok(()),
+    }
+}
+
 pub(crate) fn add(ctx: &mut TulispContext) {
     // NOMESSAGE, NOSUFFIX and MUST-SUFFIX are taken and ignored.
     ctx.defun(
@@ -230,10 +241,27 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         },
     );
 
+    // Each takes Emacs's optional ENVIRONMENT; only nil, the usual value, is
+    // supported.
     ctx.defun(
         "macroexpand",
-        |ctx: &mut TulispContext, name: TulispObject| -> Result<TulispObject, Error> {
-            crate::eval::macroexpand_all(ctx, name)
+        |ctx: &mut TulispContext, form: TulispObject, environment: Option<TulispObject>| {
+            check_no_macro_environment("macroexpand", environment)?;
+            crate::eval::macroexpand(ctx, form)
+        },
+    );
+    ctx.defun(
+        "macroexpand-1",
+        |ctx: &mut TulispContext, form: TulispObject, environment: Option<TulispObject>| {
+            check_no_macro_environment("macroexpand-1", environment)?;
+            crate::eval::macroexpand_1(ctx, form)
+        },
+    );
+    ctx.defun(
+        "macroexpand-all",
+        |ctx: &mut TulispContext, form: TulispObject, environment: Option<TulispObject>| {
+            check_no_macro_environment("macroexpand-all", environment)?;
+            crate::eval::macroexpand_all(ctx, form)
         },
     );
 
