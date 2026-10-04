@@ -915,22 +915,6 @@ macro_rules! make_cxr {
     };
 }
 
-macro_rules! make_cxr_and_then {
-    ($name:ident, $($step:tt)+) => {
-        #[inline(always)]
-        pub(crate) fn $name<Out: Default>(
-            &self,
-            func: impl FnOnce(&TulispObject) -> Result<Out, Error>,
-        ) -> Result<Out, Error> {
-            match self {
-                TulispValue::List { cons, .. } => cons.$($step)+(func),
-                TulispValue::Nil => Ok(Out::default()),
-    _ => Err(self.not_a_list()),
-            }
-        }
-    };
-}
-
 // cxr implementations
 impl TulispValue {
     /// The error for a list operation applied to a non-list; a
@@ -1009,37 +993,6 @@ impl TulispValue {
             _ => Err(self.not_a_list()),
         }
     }
-
-    make_cxr_and_then!(caar_and_then, car().car_and_then);
-    make_cxr_and_then!(cadr_and_then, cdr().car_and_then);
-    make_cxr_and_then!(cdar_and_then, car().cdr_and_then);
-    make_cxr_and_then!(cddr_and_then, cdr().cdr_and_then);
-    make_cxr_and_then!(caaar_and_then, car().caar_and_then);
-    make_cxr_and_then!(caadr_and_then, cdr().caar_and_then);
-    make_cxr_and_then!(cadar_and_then, car().cadr_and_then);
-    make_cxr_and_then!(caddr_and_then, cdr().cadr_and_then);
-    make_cxr_and_then!(cdaar_and_then, car().cdar_and_then);
-    make_cxr_and_then!(cdadr_and_then, cdr().cdar_and_then);
-    make_cxr_and_then!(cddar_and_then, car().cddr_and_then);
-    make_cxr_and_then!(cdddr_and_then, cdr().cddr_and_then);
-
-    make_cxr_and_then!(caaaar_and_then, car().caaar_and_then);
-    make_cxr_and_then!(caaadr_and_then, cdr().caaar_and_then);
-    make_cxr_and_then!(caadar_and_then, car().caadr_and_then);
-    make_cxr_and_then!(caaddr_and_then, cdr().caadr_and_then);
-    make_cxr_and_then!(cadaar_and_then, car().cadar_and_then);
-    make_cxr_and_then!(cadadr_and_then, cdr().cadar_and_then);
-    make_cxr_and_then!(caddar_and_then, car().caddr_and_then);
-    make_cxr_and_then!(cadddr_and_then, cdr().caddr_and_then);
-
-    make_cxr_and_then!(cdaaar_and_then, car().cdaar_and_then);
-    make_cxr_and_then!(cdaadr_and_then, cdr().cdaar_and_then);
-    make_cxr_and_then!(cdadar_and_then, car().cdadr_and_then);
-    make_cxr_and_then!(cdaddr_and_then, cdr().cdadr_and_then);
-    make_cxr_and_then!(cddaar_and_then, car().cddar_and_then);
-    make_cxr_and_then!(cddadr_and_then, cdr().cddar_and_then);
-    make_cxr_and_then!(cdddar_and_then, car().cdddr_and_then);
-    make_cxr_and_then!(cddddr_and_then, cdr().cdddr_and_then);
 }
 
 #[cfg(test)]
