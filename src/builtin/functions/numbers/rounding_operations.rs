@@ -1,45 +1,59 @@
-use crate::{Error, TulispContext, number::f64_to_i64_checked};
+use crate::{Error, Number, TulispContext, number::f64_to_i64_checked};
 
-/// Combine N and optional DIVISOR into a single f64, matching Elisp's
-/// `(floor N &optional DIVISOR)` family which all divide N by DIVISOR before
-/// applying the rounding operation.
-fn combined(n: f64, divisor: Option<f64>) -> Result<f64, Error> {
-    match divisor {
-        None => Ok(n),
-        Some(0.0) => Err(Error::arith_error("Division by zero".to_string())),
-        Some(d) => Ok(n / d),
+/// How a rounding operation turns a quotient into an integer.
+#[derive(Clone, Copy)]
+enum Rounding {
+    Floor,
+    Ceiling,
+    Truncate,
+    /// To the nearest integer, and a half to the even one.
+    Round,
+}
+
+/// N divided by DIVISOR and rounded, as Emacs's `floor` and its kin do.
+fn rounded(
+    n: Number,
+    divisor: Option<Number>,
+    rounding: Rounding,
+    name: &str,
+) -> Result<i64, Error> {
+    let value = match divisor.map(to_f64) {
+        None => to_f64(n),
+        Some(0.0) => return Err(division_by_zero()),
+        Some(d) => to_f64(n) / d,
+    };
+    let value = match rounding {
+        Rounding::Floor => value.floor(),
+        Rounding::Ceiling => value.ceil(),
+        Rounding::Truncate => value.trunc(),
+        Rounding::Round => value.round_ties_even(),
+    };
+    f64_to_i64_checked(value, name)
+}
+
+fn to_f64(n: Number) -> f64 {
+    match n {
+        Number::Int(value) => value as f64,
+        Number::Float(value) => value,
     }
 }
 
+fn division_by_zero() -> Error {
+    Error::arith_error("Division by zero".to_string())
+}
+
 pub(crate) fn add(ctx: &mut TulispContext) {
-    ctx.defun("floor", |n: f64, divisor: Option<f64>| {
-        f64_to_i64_checked(combined(n, divisor)?.floor(), "floor")
+    ctx.defun("floor", |n: Number, divisor: Option<Number>| {
+        rounded(n, divisor, Rounding::Floor, "floor")
     });
-
-    ctx.defun("ceiling", |n: f64, divisor: Option<f64>| {
-        f64_to_i64_checked(combined(n, divisor)?.ceil(), "ceiling")
+    ctx.defun("ceiling", |n: Number, divisor: Option<Number>| {
+        rounded(n, divisor, Rounding::Ceiling, "ceiling")
     });
-
-    ctx.defun("truncate", |n: f64, divisor: Option<f64>| {
-        f64_to_i64_checked(combined(n, divisor)?.trunc(), "truncate")
+    ctx.defun("truncate", |n: Number, divisor: Option<Number>| {
+        rounded(n, divisor, Rounding::Truncate, "truncate")
     });
-
-    ctx.defun("round", |n: f64, divisor: Option<f64>| {
-        // Banker's rounding (round half to even) to match Elisp.
-        let v = combined(n, divisor)?;
-        let rounded = if (v - v.trunc()).abs() == 0.5 {
-            let truncated = f64_to_i64_checked(v.trunc(), "round")?;
-            if truncated % 2 == 0 {
-                truncated
-            } else if v > 0.0 {
-                truncated + 1
-            } else {
-                truncated - 1
-            }
-        } else {
-            f64_to_i64_checked(v.round(), "round")?
-        };
-        Ok(rounded)
+    ctx.defun("round", |n: Number, divisor: Option<Number>| {
+        rounded(n, divisor, Rounding::Round, "round")
     });
 
     ctx.defun("ffloor", |x: f64| x.floor());
