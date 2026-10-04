@@ -48,19 +48,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok::<_, crate::Error>(ret.build())
     });
 
+    // The rest of SEQ after N elements, shared with SEQ, as `nthcdr` gives it.
     ctx.defun("seq-drop", |seq: TulispObject, n: i64| {
-        let mut ret = crate::cons::ListBuilder::new();
-        let mut skipped = 0i64;
-        let mut iter = seq.base_iter();
-        for item in iter.by_ref() {
-            if skipped < n {
-                skipped += 1;
-                continue;
-            }
-            ret.push(item);
-        }
-        iter.take_error()?;
-        Ok(ret.build())
+        lists::nthcdr(n, &seq)
     });
 
     // `(aset STRING INDEX CHAR)` mutates the character at INDEX in
@@ -237,14 +227,19 @@ mod tests {
         eval_assert_equal(ctx, "(seq-drop '(1 2 3 4 5) 2)", "'(3 4 5)");
         eval_assert_equal(ctx, "(seq-drop '(1 2) 5)", "nil");
         eval_assert_equal(ctx, "(seq-drop '(1 2 3) 0)", "'(1 2 3)");
-        // The result is a copy, and a list that loops back has none.
-        // Emacs shares the rest of the list instead.
-        eval_assert_error(
+        // The result is the list's own tail, as `nthcdr` gives it, also for a
+        // dotted list or one that loops back.
+        eval_assert_equal(
             ctx,
-            "(let ((l (list 1 2 3))) (setcdr (cddr l) l) (seq-drop l 1))",
-            "ERR OutOfRange: Circular list\n\
-             <eval_string>:1.45-1.58:  at (seq-drop l 1)\n\
-             <eval_string>:1.1-1.59:  at (let ((l (list 1 2 3))) (setcdr (cddr l) l) (seq-drop l 1))\n",
+            "(let ((l (list 1 2 3))) (eq (cdr l) (seq-drop l 1)))",
+            "t",
+        );
+        eval_assert_equal(ctx, "(seq-drop '(1 2 . 3) 1)", "'(2 . 3)");
+        eval_assert_equal(ctx, "(seq-drop '(1 2 3) -1)", "'(1 2 3)");
+        eval_assert_equal(
+            ctx,
+            "(let ((l (list 1 2 3))) (setcdr (cddr l) l) (car (seq-drop l 1)))",
+            "2",
         );
     }
 
