@@ -635,10 +635,13 @@ impl TulispValue {
     pub(crate) fn as_symbol(&self) -> Result<String, Error> {
         match self {
             TulispValue::Symbol { value } => Ok(value.name.to_string()),
-            _ => Err(Error::type_mismatch(format!(
-                "Expected symbol, got: {}",
-                self
+            TulispValue::Nil | TulispValue::T => Err(Error::type_mismatch(format!(
+                "Expected symbol, got: {self}"
             ))),
+            _ => Err(Error::wrong_type_unfilled(
+                "symbolp",
+                format!("Expected symbol, got: {self}"),
+            )),
         }
     }
 
@@ -661,7 +664,10 @@ impl TulispValue {
                 value: Number::Float(value),
                 ..
             } => Ok(*value),
-            t => Err(Error::type_mismatch(format!("Expected float, got: {}", t))),
+            t => Err(Error::wrong_type_unfilled(
+                "floatp",
+                format!("Expected float, got: {t}"),
+            )),
         }
     }
 
@@ -676,7 +682,10 @@ impl TulispValue {
                 value: Number::Int(value),
                 ..
             } => Ok(*value as f64),
-            t => Err(Error::type_mismatch(format!("Expected number, got: {}", t))),
+            t => Err(Error::wrong_type_unfilled(
+                "numberp",
+                format!("Expected number, got: {t}"),
+            )),
         }
     }
 
@@ -687,7 +696,10 @@ impl TulispValue {
                 value: Number::Int(value),
                 ..
             } => Ok(*value),
-            t => Err(Error::type_mismatch(format!("Expected integer: {}", t))),
+            t => Err(Error::wrong_type_unfilled(
+                "integerp",
+                format!("Expected integer: {t}"),
+            )),
         }
     }
 
@@ -702,7 +714,10 @@ impl TulispValue {
                 value: Number::Int(value),
                 ..
             } => Ok(*value),
-            t => Err(Error::type_mismatch(format!("Expected number, got {}", t))),
+            t => Err(Error::wrong_type_unfilled(
+                "numberp",
+                format!("Expected number, got {t}"),
+            )),
         }
     }
 
@@ -710,7 +725,10 @@ impl TulispValue {
     pub(crate) fn as_number(&self) -> Result<Number, Error> {
         match self {
             TulispValue::Number { value, .. } => Ok(*value),
-            t => Err(Error::type_mismatch(format!("Expected number, got: {}", t))),
+            t => Err(Error::wrong_type_unfilled(
+                "numberp",
+                format!("Expected number, got: {t}"),
+            )),
         }
     }
 
@@ -786,10 +804,10 @@ impl TulispValue {
     pub(crate) fn as_string(&self) -> Result<String, Error> {
         match self {
             TulispValue::String { value, .. } => Ok(value.to_owned()),
-            _ => Err(Error::type_mismatch(format!(
-                "Expected string, got: {}",
-                self
-            ))),
+            _ => Err(Error::wrong_type_unfilled(
+                "stringp",
+                format!("Expected string, got: {self}"),
+            )),
         }
     }
 

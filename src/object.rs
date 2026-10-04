@@ -333,7 +333,7 @@ macro_rules! extractor_fn_with_err {
                 .borrow()
                 .0
                 .$name()
-        .map_err(|e| e.with_trace(self.clone()))
+        .map_err(|e| e.fill_and_trace(self))
         }
     };
 }
@@ -723,7 +723,12 @@ impl TulispObject {
     pub fn symbol_name(&self) -> Result<String, Error> {
         let name = self.inner_ref().0.symbol_name().map(str::to_string);
         name.ok_or_else(|| {
-            Error::type_mismatch(format!("Expected symbol, got: {self}")).with_trace(self.clone())
+            Error::wrong_type_argument(
+                "symbolp",
+                self.clone(),
+                format!("Expected symbol, got: {self}"),
+            )
+            .with_trace(self.clone())
         })
     }
     extractor_fn_with_err!(
@@ -1003,7 +1008,7 @@ impl TryFrom<TulispObject> for f64 {
 
     fn try_from(value: TulispObject) -> Result<Self, Self::Error> {
         let res = value.rc.borrow().0.try_float();
-        res.map_err(|e| e.with_trace(value))
+        res.map_err(|e| e.fill_and_trace(&value))
     }
 }
 
@@ -1012,7 +1017,7 @@ impl TryFrom<TulispObject> for i64 {
 
     fn try_from(value: TulispObject) -> Result<Self, Self::Error> {
         let res = value.rc.borrow().0.as_int();
-        res.map_err(|e| e.with_trace(value))
+        res.map_err(|e| e.fill_and_trace(&value))
     }
 }
 
@@ -1025,7 +1030,7 @@ impl TryFrom<&TulispObject> for f64 {
             .borrow()
             .0
             .try_float()
-            .map_err(|e| e.with_trace(value.clone()))
+            .map_err(|e| e.fill_and_trace(value))
     }
 }
 
@@ -1038,7 +1043,7 @@ impl TryFrom<&TulispObject> for i64 {
             .borrow()
             .0
             .as_int()
-            .map_err(|e| e.with_trace(value.clone()))
+            .map_err(|e| e.fill_and_trace(value))
     }
 }
 
@@ -1321,6 +1326,17 @@ mod tests {
         assert!(err.data(ctx).equal(&expected), "{}", err.data(ctx));
     }
 
+    // `nil` is a symbol, so refusing it as one keeps the message as data.
+    #[test]
+    fn as_symbol_on_nil_keeps_its_message() {
+        let ctx = &mut TulispContext::new();
+        let err = TulispObject::nil().as_symbol().unwrap_err();
+        let expected = ctx
+            .eval_string(r#"'("Expected symbol, got: nil")"#)
+            .unwrap();
+        assert!(err.data(ctx).equal(&expected), "{}", err.data(ctx));
+    }
+
     /// Asserts that ERR's data is EXPECTED, read as Lisp.
     fn assert_data(ctx: &mut TulispContext, err: Error, expected: &str) {
         let expected = ctx.eval_string(expected).unwrap();
@@ -1339,6 +1355,23 @@ mod tests {
         assert_data(ctx, err, "'(listp 1)");
         let err = one.cdr_and_then(|_| Ok(())).unwrap_err();
         assert_data(ctx, err, "'(listp 1)");
+    }
+
+    // A failed conversion names the predicate and the value, as in Emacs.
+    #[test]
+    fn conversions_give_emacs_data() {
+        let ctx = &mut TulispContext::new();
+        let a = TulispObject::from("a");
+        let one = TulispObject::from(1);
+        assert_data(
+            ctx,
+            f64::try_from(a.clone()).unwrap_err(),
+            r#"'(numberp "a")"#,
+        );
+        assert_data(ctx, i64::try_from(a).unwrap_err(), r#"'(integerp "a")"#);
+        assert_data(ctx, one.symbol_name().unwrap_err(), "'(symbolp 1)");
+        assert_data(ctx, one.as_symbol().unwrap_err(), "'(symbolp 1)");
+        assert_data(ctx, one.as_float().unwrap_err(), "'(floatp 1)");
     }
 
     // `iter` also takes a type whose conversion cannot fail, such as

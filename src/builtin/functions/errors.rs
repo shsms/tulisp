@@ -513,6 +513,26 @@ mod tests {
                 "'(wrong-type-argument listp 2)",
                 "Wrong type argument: listp, 2",
             ),
+            (
+                r#"(nth "a" '(1))"#,
+                r#"'(wrong-type-argument integerp "a")"#,
+                r#"Wrong type argument: integerp, "a""#,
+            ),
+            (
+                r#"(string= 1 "a")"#,
+                "'(wrong-type-argument stringp 1)",
+                "Wrong type argument: stringp, 1",
+            ),
+            (
+                r#"(define-error 1 "x")"#,
+                "'(wrong-type-argument symbolp 1)",
+                "Wrong type argument: symbolp, 1",
+            ),
+            (
+                r#"(sqrt "a")"#,
+                r#"'(wrong-type-argument numberp "a")"#,
+                r#"Wrong type argument: numberp, "a""#,
+            ),
         ] {
             eval_assert_equal(
                 ctx,
@@ -525,6 +545,16 @@ mod tests {
                 &format!("{message:?}"),
             );
         }
+    }
+
+    // The value in a wrong-type error is the object the program passed.
+    #[test]
+    fn a_wrong_type_error_holds_the_value_itself() {
+        let ctx = &mut TulispContext::new();
+        eval_assert(
+            ctx,
+            r#"(let ((s (concat "a" "b"))) (condition-case e (nth s '(1)) (error (eq (nth 2 e) s))))"#,
+        );
     }
 
     // A list function that walks into a dotted tail names the whole list, as in
