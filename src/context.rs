@@ -831,6 +831,51 @@ impl TulispContext {
         self.eval_progn(&TulispObject::cons(value.clone(), TulispObject::nil()))
     }
 
+    /// Binds SYMBOL to VALUE, as a `let` of it does, while F runs, and unbinds
+    /// it after, whether F succeeds or not. Lisp code that F runs and that
+    /// reads SYMBOL's value, such as a function using a variable `defvar`
+    /// declared, sees the binding.
+    ///
+    /// ```rust
+    /// use tulisp::TulispContext;
+    ///
+    /// let mut ctx = TulispContext::new();
+    /// ctx.eval_string("(defvar depth 0) (defun get-depth () depth)").unwrap();
+    /// let depth = ctx.intern("depth");
+    /// let seen = ctx
+    ///     .with_binding(&depth, 5.into(), |ctx| {
+    ///         ctx.eval_string("(get-depth)")
+    ///     })
+    ///     .unwrap();
+    /// assert_eq!(seen.to_string(), "5");
+    /// assert_eq!(ctx.eval_string("depth").unwrap().to_string(), "0");
+    /// ```
+    ///
+    /// A function and a variable of the same name share one value in Tulisp, so
+    /// while F runs, `funcall`, `apply` and similar functions call VALUE for
+    /// SYMBOL, but where SYMBOL names a function defined in Lisp, a call
+    /// `(SYMBOL ...)` still runs that function.
+    ///
+    /// Returns an Error if SYMBOL is not a symbol, or is a constant: `nil`, `t`
+    /// or a keyword.
+    pub fn with_binding<T>(
+        &mut self,
+        symbol: &TulispObject,
+        value: TulispObject,
+        f: impl FnOnce(&mut TulispContext) -> Result<T, Error>,
+    ) -> Result<T, Error> {
+        /// Unbinds the symbol when dropped, so a panic in F unbinds too.
+        struct Unbind(TulispObject);
+        impl Drop for Unbind {
+            fn drop(&mut self) {
+                let _ = self.0.unset();
+            }
+        }
+        symbol.set_scope(value)?;
+        let _unbind = Unbind(symbol.clone());
+        f(self)
+    }
+
     /// Evaluates EXPR as [`eval`](Self::eval) does, runs F on the value,
     /// and returns what F returns.
     pub fn eval_and_then<T>(
@@ -1454,6 +1499,50 @@ mod tests {
                     .contains("\n<eval_string>:1.2-1.10:  at (1 2 . 3)"),
                 "{err}"
             );
+        }
+    }
+
+    // `with_binding` binds the variable while its function runs, and unbinds it
+    // after, also when the function fails.
+    #[test]
+    fn with_binding_binds_for_the_call_only() {
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string("(defvar depth 0) (defun get-depth () depth)")
+            .unwrap();
+        let depth = ctx.intern("depth");
+        let seen = ctx
+            .with_binding(&depth, 5.into(), |ctx| ctx.eval_string("(get-depth)"))
+            .unwrap();
+        assert_eq!(seen.to_string(), "5");
+        eval_assert_equal(ctx, "depth", "0");
+
+        let failed = ctx.with_binding(&depth, 6.into(), |ctx| ctx.eval_string("(car depth)"));
+        assert!(failed.is_err());
+        eval_assert_equal(ctx, "depth", "0");
+
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            ctx.with_binding(&depth, 7.into(), |_| -> Result<(), Error> {
+                panic!("boom")
+            })
+        }));
+        assert!(panicked.is_err());
+        eval_assert_equal(ctx, "depth", "0");
+    }
+
+    // `with_binding` refuses a value that is no symbol, and a constant,
+    // without running its function.
+    #[test]
+    fn with_binding_refuses_a_non_symbol_or_a_constant() {
+        fn never(_: &mut TulispContext) -> Result<(), Error> {
+            unreachable!()
+        }
+        let ctx = &mut TulispContext::new();
+        let form = ctx.eval_string("'(a b)").unwrap();
+        assert!(ctx.with_binding(&form, 1.into(), never).is_err());
+        for name in ["nil", "t", ":k"] {
+            let symbol = ctx.intern(name);
+            let err = ctx.with_binding(&symbol, 1.into(), never).unwrap_err();
+            assert_eq!(err.desc(), format!("Can't set constant symbol: {name}"));
         }
     }
 
