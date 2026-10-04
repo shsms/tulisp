@@ -151,9 +151,6 @@ pub(crate) fn format_string(
 
 /// ARG formatted by SPEC's conversion.
 fn convert(spec: &Spec, arg: &TulispObject) -> Result<Field, Error> {
-    if matches!(spec.conversion, 'd' | 'x' | 'X' | 'o' | 'f' | 'e' | 'g') && !arg.numberp() {
-        return Err(wrong_type());
-    }
     match spec.conversion {
         's' => Ok(Field::text(cut(arg.fmt_string(), spec.precision))),
         'S' => Ok(Field::text(cut(arg.to_string(), spec.precision))),
@@ -161,8 +158,13 @@ fn convert(spec: &Spec, arg: &TulispObject) -> Result<Field, Error> {
             character(arg)?.to_string(),
             spec.precision,
         ))),
-        'd' | 'x' | 'X' | 'o' => integer(spec, arg.try_int()?),
-        'f' | 'e' | 'g' => float(spec, arg.try_float()?),
+        'd' => integer(spec, arg, |n| n.to_string(), ""),
+        'x' => integer(spec, arg, |n| format!("{n:x}"), "0x"),
+        'X' => integer(spec, arg, |n| format!("{n:X}"), "0X"),
+        'o' => integer(spec, arg, |n| format!("{n:o}"), "0"),
+        'f' => float(spec, arg, fixed_form),
+        'e' => float(spec, arg, exponent_form),
+        'g' => float(spec, arg, general_form),
         other => Err(invalid_operation(other)),
     }
 }
@@ -172,10 +174,7 @@ fn character(arg: &TulispObject) -> Result<char, Error> {
     if !arg.integerp() {
         return Err(wrong_type());
     }
-    u32::try_from(arg.try_int()?)
-        .ok()
-        .and_then(char::from_u32)
-        .ok_or_else(|| Error::type_mismatch(format!("Not a character: {arg}")))
+    super::core::to_char(arg)
 }
 
 /// Emacs's error for an argument of the wrong type for its conversion.
@@ -188,30 +187,31 @@ fn invalid_operation(conversion: char) -> Error {
     Error::lisp_error(format!("Invalid format operation %{conversion}"))
 }
 
-/// VALUE under SPEC's float conversion: `%f`, `%e` or `%g`.
-fn float(spec: &Spec, value: f64) -> Result<Field, Error> {
-    let sign = spec.sign(value.is_sign_negative());
-    if !value.is_finite() {
-        let body = if value.is_nan() { "nan" } else { "inf" };
-        return Ok(Field {
-            sign,
-            prefix: "",
-            body: body.to_string(),
-            zero_pad: false,
-        });
+/// ARG under a float conversion: FORM writes the number without its sign.
+fn float(
+    spec: &Spec,
+    arg: &TulispObject,
+    form: fn(f64, usize, bool) -> Result<String, Error>,
+) -> Result<Field, Error> {
+    if !arg.numberp() {
+        return Err(wrong_type());
     }
-    let precision = spec.precision.unwrap_or(6);
-    let body = match spec.conversion {
-        'f' => fixed_form(value.abs(), precision, spec.alt)?,
-        'e' => exponent_form(value.abs(), precision, spec.alt)?,
-        'g' => general_form(value.abs(), precision, spec.alt)?,
-        other => return Err(invalid_operation(other)),
+    let value = arg.try_float()?;
+    let (body, zero_pad) = if value.is_nan() {
+        ("nan".to_string(), false)
+    } else if value.is_infinite() {
+        ("inf".to_string(), false)
+    } else {
+        (
+            form(value.abs(), spec.precision.unwrap_or(6), spec.alt)?,
+            true,
+        )
     };
     Ok(Field {
-        sign,
+        sign: spec.sign(value.is_sign_negative()),
         prefix: "",
         body,
-        zero_pad: true,
+        zero_pad,
     })
 }
 
@@ -272,21 +272,24 @@ fn general_form(value: f64, precision: usize, alt: bool) -> Result<String, Error
     Ok(body)
 }
 
-/// VALUE under SPEC's integer conversion: `%d`, `%x`, `%X` or `%o`.
-fn integer(spec: &Spec, value: i64) -> Result<Field, Error> {
+/// ARG under an integer conversion: DIGITS writes the number without its sign,
+/// and the `#` flag puts ALT_PREFIX before them.
+fn integer(
+    spec: &Spec,
+    arg: &TulispObject,
+    digits: fn(u64) -> String,
+    alt_prefix: &'static str,
+) -> Result<Field, Error> {
+    if !arg.numberp() {
+        return Err(wrong_type());
+    }
+    let value = arg.try_int()?;
     // In Emacs a precision pads with zeros, so one whose digits overflowed is
     // too wide for any string there.
     if spec.precision == Some(usize::MAX) {
         return Err(string_too_long());
     }
-    let magnitude = value.unsigned_abs();
-    let (digits, alt_prefix) = match spec.conversion {
-        'd' => (magnitude.to_string(), ""),
-        'x' => (format!("{magnitude:x}"), "0x"),
-        'X' => (format!("{magnitude:X}"), "0X"),
-        'o' => (format!("{magnitude:o}"), "0"),
-        other => return Err(invalid_operation(other)),
-    };
+    let digits = digits(value.unsigned_abs());
     let mut body = String::new();
     match spec.precision {
         Some(0) if value == 0 => {}
