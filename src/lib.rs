@@ -1,4 +1,5 @@
 #![doc = include_str!("../README.md")]
+#![cfg_attr(docsrs, feature(doc_cfg), doc(auto_cfg = false))]
 
 pub(crate) mod bytecode;
 mod eval;

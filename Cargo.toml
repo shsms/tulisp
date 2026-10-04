@@ -38,3 +38,7 @@ harness = false
 [features]
 sync = []
 etags = []
+
+[package.metadata.docs.rs]
+features = ["etags"]
+rustdoc-args = ["--cfg", "docsrs"]

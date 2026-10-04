@@ -317,7 +317,19 @@ impl TulispContext {
             .sum()
     }
 
+    /// Returns the text of an Emacs `TAGS` file that points at where each
+    /// function, macro and variable was defined: the Rust call that registered
+    /// it with [`defun`](Self::defun), [`defspecial`](Self::defspecial) or
+    /// [`defmacro`](Self::defmacro), and the `defun`, `defmacro` and `defvar`
+    /// forms in FILES, in the files they `load` by a string name (read from the
+    /// working directory, not the load path), and in the files this context
+    /// read before. A file it cannot read now, such as `<eval_string>` for code
+    /// read from a string, is left out. Saved as a file named `TAGS`, the text
+    /// lets Emacs jump to a definition.
+    ///
+    /// Returns an Error if one of FILES cannot be read.
     #[cfg(feature = "etags")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "etags")))]
     pub fn tags_table(&mut self, files: Option<&[&str]>) -> Result<String, Error> {
         if let Some(files) = files {
             for filename in files {
