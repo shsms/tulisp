@@ -273,6 +273,10 @@ impl Error {
 
     /// Formats the error into a human-readable string, including backtrace
     /// information, followed by a newline.
+    #[deprecated(
+        since = "0.31.0",
+        note = "print the error with `Display`; call `with_file_names` first for an error that did not come from a `TulispContext` method"
+    )]
     pub fn format(&self, ctx: &TulispContext) -> String {
         let mut text = self.clone().with_file_names(ctx).to_string();
         text.push('\n');
@@ -487,6 +491,20 @@ mod tests {
             err.to_string()
                 .contains("\nnamed.lisp:1.15-1.21:  at (car 5)"),
             "{err}"
+        );
+    }
+
+    // The deprecated `format` fills in the file names from CTX, and ends
+    // in a newline.
+    #[test]
+    #[allow(deprecated)]
+    fn format_names_the_files_and_ends_in_a_newline() {
+        let ctx = &mut crate::TulispContext::new();
+        let value = ctx.eval_string("'(1 . 2)").unwrap();
+        let err = Vec::<i64>::try_from(&value).unwrap_err();
+        assert_eq!(
+            err.format(ctx),
+            "ERR TypeMismatch: Expected list, got: 2\n<eval_string>:1.2-1.8:  at (1 . 2)\n"
         );
     }
 
