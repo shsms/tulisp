@@ -153,7 +153,7 @@ pub(crate) fn format_string(
 
 /// ARG formatted by SPEC's conversion.
 fn convert(spec: &Spec, arg: &TulispObject) -> Result<Field, Error> {
-    if matches!(spec.conversion, 'd' | 'f') && !arg.numberp() {
+    if matches!(spec.conversion, 'd' | 'x' | 'X' | 'o' | 'f') && !arg.numberp() {
         return Err(Error::lisp_error(
             "Format specifier doesn\u{2019}t match argument type",
         ));
@@ -161,30 +161,7 @@ fn convert(spec: &Spec, arg: &TulispObject) -> Result<Field, Error> {
     match spec.conversion {
         's' => Ok(Field::text(cut(arg.fmt_string(), spec.precision))),
         'S' => Ok(Field::text(cut(arg.to_string(), spec.precision))),
-        'd' => {
-            // In Emacs a `%d` precision pads with zeros, so one whose digits
-            // overflowed is too wide for any string there.
-            if spec.precision == Some(usize::MAX) {
-                return Err(string_too_long());
-            }
-            let value = arg.try_int()?;
-            let mut body = String::new();
-            let digits = value.unsigned_abs().to_string();
-            match spec.precision {
-                Some(0) if value == 0 => {}
-                Some(precision) => {
-                    push_repeated(&mut body, '0', precision.saturating_sub(digits.len()))?;
-                    body.push_str(&digits);
-                }
-                None => body = digits,
-            }
-            Ok(Field {
-                sign: spec.sign(value < 0),
-                body,
-                // A precision gives the digits; the width pads with spaces.
-                zero_pad: spec.precision.is_none(),
-            })
-        }
+        'd' | 'x' | 'X' | 'o' => integer(spec, arg.try_int()?),
         'f' => {
             let value = arg.try_float()?;
             let sign = spec.sign(value.is_sign_negative());
@@ -206,10 +183,45 @@ fn convert(spec: &Spec, arg: &TulispObject) -> Result<Field, Error> {
                 zero_pad: true,
             })
         }
-        other => Err(Error::lisp_error(format!(
-            "Invalid format operation %{other}"
-        ))),
+        other => Err(invalid_operation(other)),
     }
+}
+
+/// Emacs's error for a conversion `format` does not know.
+fn invalid_operation(conversion: char) -> Error {
+    Error::lisp_error(format!("Invalid format operation %{conversion}"))
+}
+
+/// VALUE under SPEC's integer conversion: `%d`, `%x`, `%X` or `%o`.
+fn integer(spec: &Spec, value: i64) -> Result<Field, Error> {
+    // In Emacs a precision pads with zeros, so one whose digits overflowed is
+    // too wide for any string there.
+    if spec.precision == Some(usize::MAX) {
+        return Err(string_too_long());
+    }
+    let magnitude = value.unsigned_abs();
+    let digits = match spec.conversion {
+        'd' => magnitude.to_string(),
+        'x' => format!("{magnitude:x}"),
+        'X' => format!("{magnitude:X}"),
+        'o' => format!("{magnitude:o}"),
+        other => return Err(invalid_operation(other)),
+    };
+    let mut body = String::new();
+    match spec.precision {
+        Some(0) if value == 0 => {}
+        Some(precision) => {
+            push_repeated(&mut body, '0', precision.saturating_sub(digits.len()))?;
+            body.push_str(&digits);
+        }
+        None => body = digits,
+    }
+    Ok(Field {
+        sign: spec.sign(value < 0),
+        body,
+        // A precision gives the digits; the width pads with spaces.
+        zero_pad: spec.precision.is_none(),
+    })
 }
 
 /// The first PRECISION characters of TEXT, or all of it with no precision.
@@ -460,5 +472,28 @@ mod tests {
         for (program, expected) in cases {
             eval_assert_equal(ctx, program, expected);
         }
+    }
+
+    // `%x`, `%X` and `%o` print an integer in hex or octal, as in Emacs.
+    #[test]
+    fn format_hex_and_octal() {
+        let ctx = &mut TulispContext::new();
+        let cases = [
+            (r#"(format "%x %X %o" 255 255 8)"#, r#""ff FF 10""#),
+            (r#"(format "%x|%o|%x" -255 -8 255.9)"#, r#""-ff|-10|ff""#),
+            (r#"(format "%X" 3735928559)"#, r#""DEADBEEF""#),
+            (
+                r#"(format "%08x|%-8x|%.4x|%+x" 255 255 255 255)"#,
+                r#""000000ff|ff      |00ff|+ff""#,
+            ),
+        ];
+        for (program, expected) in cases {
+            eval_assert_equal(ctx, program, expected);
+        }
+        eval_assert_error_line(
+            ctx,
+            r#"(format "%x" "a")"#,
+            "ERR LispError: Format specifier doesn\u{2019}t match argument type",
+        );
     }
 }
