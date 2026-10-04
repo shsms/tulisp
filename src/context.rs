@@ -294,20 +294,20 @@ impl TulispContext {
         }
     }
 
-    /// Debug-only: how many lexical-variable slots the machine holds.
+    /// Test-only: how many lexical-variable slots the machine holds.
     /// Zero between runs, and bounded while a tail-call loop runs.
-    #[doc(hidden)]
-    pub fn debug_locals_len(&self) -> usize {
+    #[cfg(test)]
+    pub(crate) fn debug_locals_len(&self) -> usize {
         self.vm.locals.len()
     }
 
-    /// Debug-only: sum of `SymbolBindings::items.len()` across every
+    /// Test-only: sum of `SymbolBindings::items.len()` across every
     /// symbol in the obarray. Counterpart to `debug_locals_len`, but
     /// for ~defvar~-declared (special / dynamic) variables. Steady
     /// growth indicates a `BeginScope` for a special var without a
     /// matching `EndScope` on some control-flow path.
-    #[doc(hidden)]
-    pub fn debug_special_stacks_total(&self) -> usize {
+    #[cfg(test)]
+    pub(crate) fn debug_special_stacks_total(&self) -> usize {
         self.obarray
             .values()
             .map(|sym| match &sym.inner_ref().0 {

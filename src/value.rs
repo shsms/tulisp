@@ -96,10 +96,10 @@ impl Drop for SymbolBindings {
 }
 
 impl SymbolBindings {
-    /// Debug-only: number of values currently pushed onto this
+    /// Test-only: number of values currently pushed onto this
     /// symbol's stack. Used by `TulispContext::debug_special_stacks_total`
     /// to detect ~defvar~ scope-leak regressions.
-    #[doc(hidden)]
+    #[cfg(test)]
     pub(crate) fn stack_depth(&self) -> usize {
         self.items.len()
     }
