@@ -93,7 +93,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     ctx.defun("ffloor", |x: f64| x.floor());
     ctx.defun("fceiling", |x: f64| x.ceil());
-    ctx.defun("fround", |x: f64| x.round());
+    ctx.defun("fround", |x: f64| x.round_ties_even());
     ctx.defun("ftruncate", |x: f64| x.trunc());
 }
 
@@ -179,6 +179,17 @@ mod tests {
             ctx,
             "(floor -9223372036854775808 -1)",
             "ERR ArithError: integer overflow: -9223372036854775808 / -1",
+        );
+    }
+
+    // `fround` breaks a tie to the even number, as `round` does.
+    #[test]
+    fn fround_breaks_ties_to_even() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(list (fround 2.5) (fround 3.5) (fround -2.5) (fround 0.5))",
+            "'(2.0 4.0 -2.0 0.0)",
         );
     }
 }

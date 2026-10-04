@@ -15,7 +15,8 @@ differences from Emacs are called out inline.
 - **Math**: `expt`, `sqrt`, `isnan`.
 - **Numerical conversion**: `floor`, `ceiling`, `truncate`, `round`,
   `ffloor`, `fceiling`, `ftruncate`, `fround`. The integer-returning
-  forms take an optional divisor; `round` uses banker's rounding.
+  forms take an optional divisor, and divide two integers exactly. `round`
+  and `fround` break a tie to the even number.
 
 # Strings
 
