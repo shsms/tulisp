@@ -59,6 +59,7 @@ impl VMCompilers {
             ("quote", other_functions::compile_fn_quote),
             ("defun", other_functions::compile_fn_defun),
             ("lambda", lambda::compile_fn_lambda),
+            ("function", lambda::compile_fn_function),
             ("funcall", lambda::compile_fn_funcall),
             ("apply", lambda::compile_fn_apply),
             ("progn", other_functions::compile_fn_progn),

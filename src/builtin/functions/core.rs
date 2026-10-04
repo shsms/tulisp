@@ -156,6 +156,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.define_special_form("defun");
 
     ctx.define_special_form("lambda");
+    ctx.define_special_form("function");
 
     ctx.define_special_form("defmacro");
 

@@ -64,8 +64,9 @@ Tulisp has no vector type — sequence functions are list-only.
 - **Invocation**: `eval`, `funcall`, `apply`, `macroexpand`.
 - **Loading**: `load`, which evaluates a file, found under the load path when
   [`set_load_path`](crate::TulispContext::set_load_path) set one.
-- **Quoting**: `quote` (also written `'expr`), backquote / unquote /
-  splice (`` ` ``, `,`, `,@`).
+- **Quoting**: `quote` (also written `'expr`), `function` (also written
+  `#'expr`; makes a closure of a `lambda`), backquote / unquote / splice
+  (`` ` ``, `,`, `,@`).
 - **Threading**: `->` / `thread-first`, `->>` / `thread-last`.
 
 Tail-call optimisation is applied to recursive functions automatically.

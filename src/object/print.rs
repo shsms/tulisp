@@ -287,7 +287,7 @@ mod tests {
         eval_assert_equal(
             ctx,
             r#"(format "%S" '(1 (2 "s" (3 . 4)) 'a `(b ,c ,@d) #'e (f . 'g)))"#,
-            r#""(1 (2 \"s\" (3 . 4)) 'a `(b ,c ,@d) 'e (f . 'g))""#,
+            r#""(1 (2 \"s\" (3 . 4)) 'a `(b ,c ,@d) #'e (f . 'g))""#,
         );
         Ok(())
     }
@@ -319,7 +319,7 @@ mod tests {
         eval_assert_equal(ctx, r#"(format "%S" c)"#, r#""(1 #'(2 #0))""#);
         eval_assert_equal(
             ctx,
-            r#"(format "%S" '(1 (function (function f)) (function (a b))))"#,
+            r#"(format "%S" '(1 #'#'f #'(a b)))"#,
             r#""(1 #'#'f #'(a b))""#,
         );
         // Only a list of `function` and one argument prints as `#'`.

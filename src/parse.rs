@@ -652,7 +652,23 @@ impl Parser<'_, '_> {
                 "Unexpected closing parenthesis".to_string(),
             )
             .with_trace(TulispValue::Nil.into_ref(Some(span)))),
-            Token::SharpQuote { span } | Token::Quote { span } => {
+            Token::SharpQuote { span } => {
+                let Some(next) = self.parse_value()? else {
+                    return Err(Error::parsing_error("Unexpected EOF".to_string())
+                        .with_trace(TulispValue::Nil.into_ref(Some(span))));
+                };
+                // `#'X` reads as `(function X)`, as in Emacs.
+                let span = match next.span() {
+                    Some(next_span) => Span::new(span.file_id, span.start, next_span.end),
+                    None => span,
+                };
+                let function = self.ctx.intern("function");
+                Ok(Some(
+                    TulispObject::cons(function, TulispObject::cons(next, TulispObject::nil()))
+                        .with_span(Some(span)),
+                ))
+            }
+            Token::Quote { span } => {
                 let next = match self.parse_value()? {
                     Some(next) => next,
                     None => {

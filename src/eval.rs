@@ -545,6 +545,14 @@ enum FormShape {
     Call,
 }
 
+/// Whether FORM is `(function (lambda ...))`, with no other argument.
+fn is_function_of_lambda(form: &TulispObject) -> bool {
+    crate::object::print::function_form_arg(form).is_some_and(|arg| {
+        arg.car()
+            .is_ok_and(|head| head.inner_ref().0.symbol_name() == Some("lambda"))
+    })
+}
+
 impl FormShape {
     /// The shape of `form`, a list at code level.
     fn of(form: &TulispObject) -> FormShape {
@@ -557,6 +565,10 @@ impl FormShape {
         let head = head.inner_ref();
         match head.0.symbol_name() {
             Some("quote") => FormShape::Quote,
+            // `(function (lambda ...))` holds a lambda, whose body is code; any
+            // other `function` form is data.
+            Some("function") if is_function_of_lambda(form) => FormShape::Call,
+            Some("function") => FormShape::Quote,
             Some("lambda") => FormShape::Lambda,
             Some("defun" | "defmacro") => FormShape::Defun,
             Some("defvar") => FormShape::Defvar,

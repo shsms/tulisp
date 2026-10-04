@@ -29,6 +29,22 @@ pub(super) fn compile_fn_lambda(
     Ok(result)
 }
 
+/// `(function ARG)`, also written `#'ARG`: a `(lambda ...)` ARG makes a
+/// closure, as `lambda` does, and any other ARG is its value unevaluated, as
+/// with `quote`.
+pub(super) fn compile_fn_function(
+    ctx: &mut TulispContext,
+    name: &TulispObject,
+    args: &TulispObject,
+) -> Result<Vec<Instruction>, Error> {
+    let arg = args.car()?;
+    if args.cdr()?.null() && crate::eval::is_lambda_list(ctx, &arg) {
+        compile_fn_lambda(ctx, name, &arg.cdr()?)
+    } else {
+        super::other_functions::compile_fn_quote(ctx, name, args)
+    }
+}
+
 /// Compiles ARGS, `(PARAMS BODY...)` of a `lambda` form, into the
 /// template its closures are made from, named NAME: nil for an
 /// anonymous lambda.
@@ -268,6 +284,43 @@ mod tests {
         eval_assert_equal, eval_assert_equal_fresh, eval_assert_error_line, listing,
     };
     use crate::{Error, TulispContext, TulispObject, TulispValue};
+
+    // `#'(lambda ...)` and `(function (lambda ...))` make a closure over the
+    // variables around them, as `(lambda ...)` does, and `#'` of anything else
+    // gives it unevaluated, as in Emacs.
+    #[test]
+    fn function_of_a_lambda_makes_a_closure() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(let ((n 10)) (mapcar #'(lambda (x) (+ x n)) '(1 2)))",
+            "'(11 12)",
+        );
+        eval_assert_equal(
+            ctx,
+            "(defun fn-adder (n) #'(lambda (x) (+ x n))) (funcall (fn-adder 4) 1)",
+            "5",
+        );
+        eval_assert_equal(ctx, "(funcall (function (lambda (x) (* 2 x))) 3)", "6");
+        eval_assert_equal(
+            ctx,
+            "(list (funcall #'car '(1 2)) (function car))",
+            "'(1 car)",
+        );
+        eval_assert_equal(ctx, "(car '#'f)", "'function");
+        // In a backquote, `#',X` names the function X holds.
+        eval_assert_equal(
+            ctx,
+            "(defmacro fn-map-car (f) `(mapcar #',f '((1 2) (3 4)))) (fn-map-car car)",
+            "'(1 3)",
+        );
+        // A `function` form takes one argument.
+        eval_assert_error_line(
+            ctx,
+            "(function (lambda (x) x) 1)",
+            "ERR ArityMismatch: Too many arguments",
+        );
+    }
 
     // A lambda with no body gives nil, and its parameter list is
     // checked as a `defun`'s is.
