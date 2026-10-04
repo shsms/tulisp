@@ -552,4 +552,29 @@ mod tests {
         eval_assert_equal(ctx, "(gethash (long 99999) h 'missing)", "'missing");
         Ok(())
     }
+
+    #[test]
+    fn puthash_and_gethash() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            r#"
+        (let ((tbl (make-hash-table)))
+          (puthash 'a 20 tbl)
+          (puthash 'b 30 tbl)
+          (gethash 'a tbl))
+        "#,
+            "20",
+        );
+        eval_assert_equal(
+            ctx,
+            r#"
+        (let ((tbl (make-hash-table)))
+          (puthash 2 20 tbl)
+          (puthash 3 30 tbl)
+          (list (gethash 4 tbl) (gethash 2 tbl)))
+        "#,
+            "'(nil 20)",
+        );
+    }
 }

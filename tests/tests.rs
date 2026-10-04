@@ -259,54 +259,6 @@ fn test_math() -> Result<(), Error> {
 }
 
 #[test]
-fn test_rounding_operations() -> Result<(), Error> {
-    tulisp_assert! { program: "(fround 3.14)",             result: "3.0"   }
-    tulisp_assert! { program: "(fround 3.5)",              result: "4.0"   }
-
-    tulisp_assert! { program: "(ftruncate 3.14)",          result: "3.0"   }
-    tulisp_assert! { program: "(ftruncate 3.8)",           result: "3.0"   }
-    tulisp_assert! { program: "(ftruncate -3.8)",          result: "-3.0"  }
-    tulisp_assert! { program: "(ftruncate -3.14)",         result: "-3.0"  }
-
-    tulisp_assert! { program: "(floor 3.7)",    result: "3"   }
-    tulisp_assert! { program: "(floor -3.2)",   result: "-4"  }
-    tulisp_assert! { program: "(floor 7 2)",    result: "3"   }
-    tulisp_assert! { program: "(floor 5)",      result: "5"   }
-
-    tulisp_assert! { program: "(ceiling 3.2)",  result: "4"   }
-    tulisp_assert! { program: "(ceiling -3.7)", result: "-3"  }
-    tulisp_assert! { program: "(ceiling 7 2)",  result: "4"   }
-
-    tulisp_assert! { program: "(truncate 3.7)", result: "3"   }
-    tulisp_assert! { program: "(truncate -3.7)",result: "-3"  }
-
-    tulisp_assert! { program: "(round 3.4)",    result: "3"   }
-    tulisp_assert! { program: "(round 3.6)",    result: "4"   }
-    // Round half to even.
-    tulisp_assert! { program: "(round 2.5)",    result: "2"   }
-    tulisp_assert! { program: "(round 3.5)",    result: "4"   }
-    tulisp_assert! { program: "(round -2.5)",   result: "-2"  }
-
-    tulisp_assert! { program: "(ffloor 3.7)",   result: "3.0" }
-    tulisp_assert! { program: "(fceiling 3.2)", result: "4.0" }
-
-    tulisp_assert! {
-        program: "(fround)",
-        error: r#"ERR ArityMismatch: Too few arguments
-<eval_string>:1.1-1.8:  at (fround)
-"#,
-    }
-    tulisp_assert! {
-        program: "(fround 3.14 3.14)",
-        error: r#"ERR ArityMismatch: Too many arguments
-<eval_string>:1.1-1.18:  at (fround 3.14 3.14)
-"#,
-    }
-
-    Ok(())
-}
-
-#[test]
 fn test_typed_defun_arity_checked_before_arg_eval() -> Result<(), Error> {
     // `TulispValue::Defun` carries arity metadata so `compile_form`
     // can reject mismatches before the user's closure runs, and
@@ -511,30 +463,6 @@ fn test_any() -> Result<(), Error> {
         error: r#"ERR ArityMismatch: Too few arguments
 <eval_string>:1.1-1.14:  at (maybe_add 10)
 "#
-    }
-
-    Ok(())
-}
-
-#[test]
-fn test_hash_table() -> Result<(), Error> {
-    tulisp_assert! {
-        program: r#"
-        (let ((tbl (make-hash-table)))
-          (puthash 'a 20 tbl)
-          (puthash 'b 30 tbl)
-          (gethash 'a tbl))
-        "#,
-        result: "20",
-    }
-    tulisp_assert! {
-        program: r#"
-        (let ((tbl (make-hash-table)))
-          (puthash 2 20 tbl)
-          (puthash 3 30 tbl)
-          (list (gethash 4 tbl) (gethash 2 tbl)))
-        "#,
-        result: "'(nil 20)",
     }
 
     Ok(())

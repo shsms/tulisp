@@ -47,3 +47,50 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defun("fround", |x: f64| x.round());
     ctx.defun("ftruncate", |x: f64| x.trunc());
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::TulispContext;
+    use crate::test_utils::{eval_assert_equal, eval_assert_error};
+
+    #[test]
+    fn rounding_operations() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(fround 3.14)", "3.0");
+        eval_assert_equal(ctx, "(fround 3.5)", "4.0");
+        eval_assert_equal(ctx, "(ftruncate 3.14)", "3.0");
+        eval_assert_equal(ctx, "(ftruncate 3.8)", "3.0");
+        eval_assert_equal(ctx, "(ftruncate -3.8)", "-3.0");
+        eval_assert_equal(ctx, "(ftruncate -3.14)", "-3.0");
+        eval_assert_equal(ctx, "(floor 3.7)", "3");
+        eval_assert_equal(ctx, "(floor -3.2)", "-4");
+        eval_assert_equal(ctx, "(floor 7 2)", "3");
+        eval_assert_equal(ctx, "(floor 5)", "5");
+        eval_assert_equal(ctx, "(ceiling 3.2)", "4");
+        eval_assert_equal(ctx, "(ceiling -3.7)", "-3");
+        eval_assert_equal(ctx, "(ceiling 7 2)", "4");
+        eval_assert_equal(ctx, "(truncate 3.7)", "3");
+        eval_assert_equal(ctx, "(truncate -3.7)", "-3");
+        eval_assert_equal(ctx, "(round 3.4)", "3");
+        eval_assert_equal(ctx, "(round 3.6)", "4");
+        eval_assert_equal(ctx, "(round 2.5)", "2");
+        eval_assert_equal(ctx, "(round 3.5)", "4");
+        eval_assert_equal(ctx, "(round -2.5)", "-2");
+        eval_assert_equal(ctx, "(ffloor 3.7)", "3.0");
+        eval_assert_equal(ctx, "(fceiling 3.2)", "4.0");
+        eval_assert_error(
+            ctx,
+            "(fround)",
+            r#"ERR ArityMismatch: Too few arguments
+<eval_string>:1.1-1.8:  at (fround)
+"#,
+        );
+        eval_assert_error(
+            ctx,
+            "(fround 3.14 3.14)",
+            r#"ERR ArityMismatch: Too many arguments
+<eval_string>:1.1-1.18:  at (fround 3.14 3.14)
+"#,
+        );
+    }
+}
