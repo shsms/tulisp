@@ -89,6 +89,16 @@ struct OpenLists {
     princ: bool,
 }
 
+impl OpenLists {
+    /// Adds LIST, and puts ADDR on `PRINTING` when LIST is counted.
+    fn push(&mut self, list: OpenList, addr: usize) {
+        if list.counted {
+            PRINTING.with(|printing| printing.borrow_mut().push(addr));
+        }
+        self.lists.push(list);
+    }
+}
+
 impl Drop for OpenLists {
     fn drop(&mut self) {
         let counted = self.lists.iter().filter(|list| list.counted).count();
@@ -254,11 +264,8 @@ fn print_one(
         // All lists in parentheses go on `PRINTING`, but for an outermost one
         // that is not counted.
         let counted = !prefixed && (open.outer_counted || !open.lists.is_empty());
-        if counted {
-            PRINTING.with(|printing| printing.borrow_mut().push(addr));
-        }
         f.write_str(prefix.unwrap_or("("))?;
-        open.lists.push(OpenList {
+        let list = OpenList {
             rest: list,
             cycle: CycleCheck::new(),
             started: false,
@@ -266,7 +273,8 @@ fn print_one(
             closing: prefixed,
             prefixed,
             counted,
-        });
+        };
+        open.push(list, addr);
         return Ok(arg);
     }
     // A quote form prints its value after letting go of the lock, as a list
@@ -379,6 +387,31 @@ mod tests {
             assert_eq!(ctx.eval_string(&program)?.as_string()?, printed, "{form}");
         }
         Ok(())
+    }
+
+    /// A writer that fails once it would hold more than its limit.
+    struct FailAfter(String, usize);
+
+    impl std::fmt::Write for FailAfter {
+        fn write_str(&mut self, s: &str) -> std::fmt::Result {
+            if self.0.len() + s.len() > self.1 {
+                return Err(std::fmt::Error);
+            }
+            self.0.push_str(s);
+            Ok(())
+        }
+    }
+
+    // A failed write leaves no list behind among the lists being printed.
+    #[test]
+    fn a_failed_print_leaves_no_list_open() {
+        use std::fmt::Write;
+        let inner = TulispObject::cons(2.into(), TulispObject::nil());
+        let list = TulispObject::cons(1.into(), TulispObject::cons(inner, TulispObject::nil()));
+        let mut out = FailAfter(String::new(), 3);
+        assert!(write!(out, "{list}").is_err());
+        assert_eq!(out.0, "(1 ");
+        assert!(super::PRINTING.with(|printing| printing.borrow().lists.is_empty()));
     }
 
     #[test]
