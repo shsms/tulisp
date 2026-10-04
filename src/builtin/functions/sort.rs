@@ -32,10 +32,10 @@ fn sort(
     if let [pred] = args {
         (lessp, in_place) = (pred.clone(), true);
     } else {
-        for pair in args.chunks(2) {
-            let [name, value] = pair else {
-                return Err(invalid_keyword(&pair[0]));
-            };
+        let (pairs, []) = args.as_chunks::<2>() else {
+            return Err(Error::lisp_error("Invalid argument list".to_string()));
+        };
+        for [name, value] in pairs {
             match name.symbol_name().ok().as_deref() {
                 Some(":key") => key = value.clone(),
                 Some(":lessp") => lessp = value.clone(),
@@ -333,6 +333,10 @@ mod tests {
             (
                 "(sort '(2 1) :bogus 1)",
                 "ERR LispError: Invalid keyword argument :bogus",
+            ),
+            (
+                "(sort (list 2 1) :bogus 1 :key)",
+                "ERR LispError: Invalid argument list",
             ),
             (
                 r#"(sort (list "b" 'c))"#,
