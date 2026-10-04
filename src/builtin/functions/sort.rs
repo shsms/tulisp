@@ -172,7 +172,7 @@ fn name_cmp(a: &TulispObject, b: &TulispObject) -> Result<Ordering, Error> {
 }
 
 /// `value_cmp` for two lists: by their first elements that differ, a list
-/// before a longer one that starts with it, and then by their tails.
+/// before a longer one that starts with it, and then by their leftover tails.
 fn list_cmp(a: &TulispObject, b: &TulispObject) -> Result<Ordering, Error> {
     let (mut a, mut b) = (a.clone(), b.clone());
     let (mut a_cycle, mut b_cycle) = (CycleCheck::new(), CycleCheck::new());
@@ -190,9 +190,8 @@ fn list_cmp(a: &TulispObject, b: &TulispObject) -> Result<Ordering, Error> {
         (true, true) => Ok(Ordering::Equal),
         (true, false) if b.consp() => Ok(Ordering::Less),
         (false, true) if a.consp() => Ok(Ordering::Greater),
-        (true, false) | (false, true) => Ok(Ordering::Equal),
-        // Both lists end in a tail that is not nil.
-        (false, false) => value_cmp(&a, &b),
+        // The tails left, at least one of them an atom that is not nil.
+        _ => value_cmp(&a, &b),
     }
 }
 
@@ -366,6 +365,32 @@ mod tests {
         ];
         for (program, expected) in cases {
             eval_assert_equal(ctx, program, expected);
+        }
+    }
+
+    // When one list runs out first, the leftover tails are compared with
+    // `value<` too, as in Emacs: nil against a symbol by name, and against a
+    // number or a string it is an error.
+    #[test]
+    fn value_less_compares_leftover_tails() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(list (value< '(1 . a) '(1)) (value< '(1) '(1 . a)))",
+            "'(t nil)",
+        );
+        eval_assert_equal(ctx, "(sort (list '(1) '(1 . a)) nil)", "'((1 . a) (1))");
+        for (program, line) in [
+            (
+                "(value< '(1 . 2) '(1))",
+                "ERR TypeMismatch: Cannot compare 2 and nil",
+            ),
+            (
+                r#"(value< '(1) '(1 . "s"))"#,
+                r#"ERR TypeMismatch: Cannot compare nil and "s""#,
+            ),
+        ] {
+            eval_assert_error_line(ctx, program, line);
         }
     }
 }
