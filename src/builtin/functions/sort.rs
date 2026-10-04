@@ -45,8 +45,16 @@ fn sort(
             }
         }
     }
+    let items = elements(&seq)?;
+    if items.len() < 2 {
+        return Ok(if in_place {
+            seq
+        } else {
+            items.into_iter().collect()
+        });
+    }
     let mut pairs = Vec::new();
-    for item in elements(&seq)? {
+    for item in items {
         let sort_key = if key.null() {
             item.clone()
         } else {
@@ -63,7 +71,7 @@ fn sort(
     }
     let sorted = pairs.into_iter().map(|(_, item)| item);
     if in_place {
-        write_back(&seq, sorted.collect())?;
+        write_back(&seq, sorted)?;
         Ok(seq)
     } else {
         Ok(sorted.collect())
@@ -121,10 +129,16 @@ fn merge_sort<T>(
     Ok(out)
 }
 
-/// Puts ITEMS, in order, into the cells of the list SEQ.
-fn write_back(seq: &TulispObject, items: Vec<TulispObject>) -> Result<(), Error> {
+/// Puts ITEMS, in order, into the cells of the list SEQ, as many as it has.
+fn write_back(
+    seq: &TulispObject,
+    items: impl IntoIterator<Item = TulispObject>,
+) -> Result<(), Error> {
     let mut cell = seq.clone();
-    for item in items {
+    let mut items = items.into_iter();
+    while cell.consp()
+        && let Some(item) = items.next()
+    {
         cell.set_car(item)?;
         cell = cell.cdr()?;
     }
@@ -423,5 +437,34 @@ mod tests {
         ] {
             eval_assert_error_line(ctx, program, depth);
         }
+    }
+
+    // As in Emacs: a list of fewer than two elements comes back without calling
+    // KEY, KEY runs once per element, and a predicate that shortens the list
+    // leaves the sorted elements that still fit.
+    #[test]
+    fn sort_takes_short_and_shrinking_lists() {
+        let ctx = &mut TulispContext::new();
+        let cases = [
+            ("(sort (list 1) :key 5)", "'(1)"),
+            ("(let ((l (list 1))) (eq l (sort l)))", "nil"),
+            ("(let ((l (list 1))) (eq l (sort l #'<)))", "t"),
+            (
+                "(let ((n 0)) (sort (list 3 1 2 5 4) :key (lambda (x) (setq n (1+ n)) x)) n)",
+                "5",
+            ),
+            (
+                "(let ((l (list 3 1 2 5 4))) (list (sort l (lambda (a b) (setcdr (cdr l) nil) (< a b))) l))",
+                "'((1 2) (1 2))",
+            ),
+        ];
+        for (program, expected) in cases {
+            eval_assert_equal(ctx, program, expected);
+        }
+        eval_assert_error_line(
+            ctx,
+            "(let ((l (list 2 1))) (setcdr (cdr l) l) (sort l #'<))",
+            "ERR OutOfRange: Circular list",
+        );
     }
 }
