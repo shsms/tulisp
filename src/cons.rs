@@ -399,29 +399,30 @@ pub(crate) fn collect_list<T>(
     Ok(vec)
 }
 
-pub struct Iter<T: std::convert::TryFrom<TulispObject>> {
+/// The elements of a list, each converted to `T`; see [`TulispObject::iter`].
+pub struct Iter<T: TryFrom<TulispObject>> {
     iter: BaseIter,
     _d: PhantomData<T>,
 }
 
-impl<T: std::convert::TryFrom<TulispObject>> Iter<T> {
+impl<T: TryFrom<TulispObject>> Iter<T> {
     pub fn new(iter: BaseIter) -> Self {
         Self {
             iter,
-            _d: Default::default(),
+            _d: PhantomData,
         }
     }
 }
 
-impl<T: 'static + std::convert::TryFrom<TulispObject>> Iterator for Iter<T> {
+impl<T: TryFrom<TulispObject>> Iterator for Iter<T>
+where
+    Error: From<T::Error>,
+{
     type Item = Result<T, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.iter.next() {
-            Some(vv) => Some(vv.clone().try_into().map_err(|_| {
-                let tid = std::any::type_name::<T>();
-                Error::type_mismatch(format!("Iter<{}> can't handle {}", tid, vv))
-            })),
+            Some(item) => Some(T::try_from(item).map_err(Error::from)),
             // An improper or circular list ends with its error, once.
             None => self.iter.take_error().err().map(Err),
         }

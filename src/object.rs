@@ -488,9 +488,16 @@ impl TulispObject {
         cons::BaseIter::starting_at(self.clone())
     }
 
-    /// Returns an iterator over the `TryInto` results on the values inside
-    /// `self`. An improper or circular list ends the iteration with the
-    /// list walk's error as its last item.
+    /// Returns an iterator over the elements of the list `self`, each converted
+    /// to `T` with `TryFrom`, with the conversion's error for an element that
+    /// does not convert. That error must convert into Tulisp's [`Error`], as
+    /// Tulisp's own `TryFrom` errors do. An improper or circular list ends the
+    /// iteration with the list walk's error as its last item.
+    ///
+    /// For a type that converts with
+    /// [`TulispConvertible`](crate::TulispConvertible) only, such as a tuple,
+    /// an `Option` or an [`AsList!`](crate::AsList) struct, use
+    /// [`convert`](Self::convert) to a `Vec<T>`.
     ///
     /// ## Example
     /// ```rust
@@ -501,14 +508,19 @@ impl TulispObject {
     /// #
     /// let items = ctx.eval_string("'(10 20 30 40 -5)")?;
     ///
-    /// let items_vec: Vec<i64> = items.iter::<i64>()?.collect::<Result<_, _>>()?;
+    /// let items_vec: Vec<i64> = items
+    ///     .iter::<i64>()?
+    ///     .collect::<Result<_, _>>()?;
     ///
     /// assert_eq!(items_vec, vec![10, 20, 30, 40, -5]);
     /// #
     /// # Ok(())
     /// # }
     /// ```
-    pub fn iter<T: std::convert::TryFrom<TulispObject>>(&self) -> Result<cons::Iter<T>, Error> {
+    pub fn iter<T: TryFrom<TulispObject>>(&self) -> Result<cons::Iter<T>, Error>
+    where
+        Error: From<T::Error>,
+    {
         if !self.listp() {
             return Err(self.inner_ref().0.not_a_list());
         }
@@ -1289,6 +1301,34 @@ impl TulispObject {
 #[cfg(test)]
 mod tests {
     use crate::{Error, Iter, TulispContext, TulispConvertible, TulispObject};
+
+    // `iter` also takes a type whose conversion cannot fail, such as
+    // `TulispObject` itself.
+    #[test]
+    fn iter_takes_an_infallible_conversion() {
+        let ctx = &mut TulispContext::new();
+        let list = ctx.eval_string("'(a b)").unwrap();
+        let items: Vec<TulispObject> = list.iter().unwrap().collect::<Result<_, _>>().unwrap();
+        assert_eq!(items.len(), 2);
+    }
+
+    // A bad element gives its conversion's own error, traced to the element.
+    #[test]
+    fn iter_keeps_the_conversion_error() {
+        let ctx = &mut TulispContext::new();
+        let mixed = ctx.eval_string("'(1 (2))").unwrap();
+        let err = mixed.iter::<i64>().unwrap().nth(1).unwrap().unwrap_err();
+        assert_eq!(
+            err.with_file_names(ctx).to_string(),
+            "ERR TypeMismatch: Expected integer: (2)\n<eval_string>:1.5-1.7:  at (2)"
+        );
+    }
+
+    // Code that names `Iter<T>` needs only the bound the struct has.
+    #[test]
+    fn iter_is_named_with_its_own_bound() {
+        fn _keep<T: TryFrom<TulispObject>>(_: Iter<T>) {}
+    }
 
     #[test]
     fn test_typed_iter() -> Result<(), Error> {

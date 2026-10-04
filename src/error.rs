@@ -233,6 +233,14 @@ impl std::fmt::Debug for Error {
 
 impl std::error::Error for Error {}
 
+/// A conversion that cannot fail, such as `TryFrom<TulispObject>` for
+/// `TulispObject`, has no error to give.
+impl From<std::convert::Infallible> for Error {
+    fn from(never: std::convert::Infallible) -> Self {
+        match never {}
+    }
+}
+
 /// An I/O error becomes a `BrokenPipe` error for a broken pipe, and an
 /// `OSError` otherwise, with the I/O error's message.
 impl From<std::io::Error> for Error {
