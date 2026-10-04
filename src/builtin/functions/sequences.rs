@@ -125,7 +125,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         elt: &TulispObject,
         eq: impl Fn(&TulispObject, &TulispObject) -> Result<bool, Error>,
     ) -> Result<TulispObject, Error> {
-        let mut cur = list;
+        let mut cur = list.clone();
         let mut cycle = CycleCheck::new();
         while cur.consp() {
             if cur.car_and_then(|car| eq(car, elt))? {
@@ -137,7 +137,11 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         // `cur` is non-cons: either nil (clean end) or an
         // improper-list tail. Reject the latter the way Emacs does.
         if !cur.null() {
-            return Err(Error::type_mismatch(format!("expected list, got: {cur}")));
+            return Err(Error::wrong_type_argument(
+                "listp",
+                list,
+                format!("expected list, got: {cur}"),
+            ));
         }
         Ok(TulispObject::nil())
     }

@@ -164,6 +164,20 @@ impl Error {
             .with_data(ErrorData::Symbol(Some(function.clone())))
     }
 
+    /// The error for VALUE failing PREDICATE, with DESC as its description.
+    /// Emacs signals `wrong-type-argument` here, with `(PREDICATE VALUE)` as
+    /// its data.
+    pub(crate) fn wrong_type_argument(
+        predicate: &'static str,
+        value: TulispObject,
+        desc: impl Into<String>,
+    ) -> Error {
+        Error::type_mismatch(desc).with_data(ErrorData::WrongType {
+            predicate,
+            value: Some(value),
+        })
+    }
+
     /// The error for a value failing PREDICATE, with DESC as its description,
     /// from a check that has no `TulispObject` for the value: the method that
     /// called it fills the value in with `fill_value`. Emacs signals
@@ -526,6 +540,10 @@ mod tests {
         let one = TulispObject::from(1);
         let two = TulispObject::from(2);
         for (err, expected) in [
+            (
+                Error::wrong_type_argument("listp", one.clone(), "m"),
+                "'(listp 1)",
+            ),
             (Error::wrong_type_unfilled("listp", "m"), r#"'("m")"#),
             (
                 Error::wrong_type_unfilled("listp", "m").fill_value(&one),

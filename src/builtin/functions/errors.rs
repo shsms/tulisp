@@ -503,6 +503,16 @@ mod tests {
                 "'(wrong-type-argument listp 5)",
                 "Wrong type argument: listp, 5",
             ),
+            (
+                "(length '(1 2 . 3))",
+                "'(wrong-type-argument listp 3)",
+                "Wrong type argument: listp, 3",
+            ),
+            (
+                "(mapcar #'1+ '(1 . 2))",
+                "'(wrong-type-argument listp 2)",
+                "Wrong type argument: listp, 2",
+            ),
         ] {
             eval_assert_equal(
                 ctx,
@@ -513,6 +523,34 @@ mod tests {
                 ctx,
                 &format!("(condition-case e {form} (error (error-message-string e)))"),
                 &format!("{message:?}"),
+            );
+        }
+    }
+
+    // A list function that walks into a dotted tail names the whole list, as in
+    // Emacs 30.1.
+    #[test]
+    fn a_dotted_list_error_names_the_whole_list() {
+        let ctx = &mut TulispContext::new();
+        for (form, expected) in [
+            ("(memq 1 '(2 . 3))", "'(wrong-type-argument listp (2 . 3))"),
+            (
+                "(member 1 '(2 . 3))",
+                "'(wrong-type-argument listp (2 . 3))",
+            ),
+            (
+                "(nthcdr 2 '(1 . 5))",
+                "'(wrong-type-argument listp (1 . 5))",
+            ),
+            (
+                "(nthcdr 3 '(1 2 . 5))",
+                "'(wrong-type-argument listp (1 2 . 5))",
+            ),
+        ] {
+            eval_assert_equal(
+                ctx,
+                &format!("(condition-case e {form} (error e))"),
+                expected,
             );
         }
     }

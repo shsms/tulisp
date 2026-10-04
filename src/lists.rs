@@ -46,7 +46,11 @@ pub fn length(list: &TulispObject) -> Result<i64, Error> {
             return Ok(count);
         }
         if !cur.consp() {
-            return Err(Error::type_mismatch(format!("expected list, got: {cur}")));
+            return Err(Error::wrong_type_argument(
+                "listp",
+                cur.clone(),
+                format!("expected list, got: {cur}"),
+            ));
         }
         cur = cur.cdr()?;
         count += 1;
@@ -121,7 +125,17 @@ pub fn nthcdr(n: i64, list: &TulispObject) -> Result<TulispObject, Error> {
         if next.null() {
             return Ok(next);
         }
-        next = next.cdr()?;
+        next = match next.cdr() {
+            Ok(cdr) => cdr,
+            Err(_) => {
+                return Err(Error::wrong_type_argument(
+                    "listp",
+                    list.clone(),
+                    format!("Expected list, got: {next}"),
+                )
+                .with_trace(next));
+            }
+        };
         step += 1;
         if let Some(loop_len) = cycle.looped(&next) {
             let steps_left = (n - step) % i64::from(loop_len);
