@@ -78,8 +78,7 @@ impl Display for Number {
             //   leading mantissa: `0.0e+NaN` (positive bit) or
             //   `-0.0e+NaN` (negative bit). Both still round-trip
             //   through `read` because Emacs accepts the same forms.
-            // - Whole-value finite floats keep the trailing `.0`
-            //   via `{:?}` (`2.0` => `"2.0"`, not `"2"`).
+            // - Other floats print as Emacs prints them; see `write_float`.
             Number::Float(v) => {
                 if v.is_infinite() {
                     if *v < 0.0 {
@@ -94,10 +93,52 @@ impl Display for Number {
                         f.write_str("0.0e+NaN")
                     }
                 } else {
-                    write!(f, "{:?}", v)
+                    write_float(f, *v)
                 }
             }
         }
+    }
+}
+
+/// Write a finite float as Emacs prints it: in C's `%g` style with the fewest
+/// significant digits that read back as the same float, from 15 up to 17, or
+/// from 1 for a subnormal float, and `.0` added when there is no point or
+/// exponent. So `1e21` prints as `1e+21`, `1e-5` as `1e-05` and `1e7` as
+/// `10000000.0`.
+fn write_float(f: &mut std::fmt::Formatter<'_>, value: f64) -> std::fmt::Result {
+    let sign = if value.is_sign_negative() { "-" } else { "" };
+    let value = value.abs();
+    // A subnormal float has fewer digits, so its search starts at 1.
+    let first = if value < f64::MIN_POSITIVE { 1 } else { 15 };
+    let (precision, rounded) = (first..17)
+        .find_map(|digits| {
+            let candidate = format!("{value:.*e}", digits - 1);
+            (candidate.parse::<f64>() == Ok(value)).then_some((digits, candidate))
+        })
+        .unwrap_or_else(|| (17, format!("{value:.16e}")));
+    let (mantissa, exponent) = rounded.split_once('e').unwrap_or((&rounded, "0"));
+    let exponent: i32 = exponent.parse().unwrap_or(0);
+    let mantissa = if mantissa.contains('.') {
+        mantissa.trim_end_matches('0').trim_end_matches('.')
+    } else {
+        mantissa
+    };
+    if exponent < -4 || exponent >= precision as i32 {
+        let exp_sign = if exponent < 0 { '-' } else { '+' };
+        return write!(f, "{sign}{mantissa}e{exp_sign}{:02}", exponent.abs());
+    }
+    let digits = mantissa.replace('.', "");
+    if exponent < 0 {
+        let zeros = "0".repeat((-exponent - 1) as usize);
+        return write!(f, "{sign}0.{zeros}{digits}");
+    }
+    let int_len = exponent as usize + 1;
+    if digits.len() > int_len {
+        let (int_part, frac_part) = digits.split_at(int_len);
+        write!(f, "{sign}{int_part}.{frac_part}")
+    } else {
+        let zeros = "0".repeat(int_len - digits.len());
+        write!(f, "{sign}{digits}{zeros}.0")
     }
 }
 
@@ -345,6 +386,37 @@ mod tests {
             Number::try_from(&TulispObject::from(2.5)).unwrap(),
             Number::Float(2.5)
         );
+    }
+
+    // Floats print as Emacs prints them.
+    #[test]
+    fn floats_print_as_in_emacs() {
+        let cases = [
+            (1e21, "1e+21"),
+            (1e15, "1e+15"),
+            (1e14, "100000000000000.0"),
+            (1e7, "10000000.0"),
+            (1e-5, "1e-05"),
+            (0.0001, "0.0001"),
+            (0.1 + 0.2, "0.30000000000000004"),
+            (6.02e23, "6.02e+23"),
+            (1.2345678901234568e17, "1.2345678901234568e+17"),
+            (100.0, "100.0"),
+            (-0.0, "-0.0"),
+            (-1.5e-7, "-1.5e-07"),
+            (1e100, "1e+100"),
+            (1234567890123456.0, "1234567890123456.0"),
+            (12345678901234567.0, "12345678901234568.0"),
+            (5e-324, "5e-324"),
+            (1.7976931348623157e308, "1.7976931348623157e+308"),
+            (886859985823519.0 + 0.25, "886859985823519.2"),
+            (235935360234784.0 + 0.125, "235935360234784.12"),
+            (7.120236347223045e-307, "7.1202363472230444e-307"),
+            (4.94e-322, "4.94e-322"),
+        ];
+        for (value, printed) in cases {
+            assert_eq!(Number::Float(value).to_string(), printed);
+        }
     }
 
     // A float with a whole value prints with a trailing `.0`.
