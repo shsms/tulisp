@@ -29,9 +29,10 @@ use crate::{Error, Number, Shared, TulispAny, TulispContext, TulispObject, Tulis
 /// goes through this trait, so every value type a `defun` parameter accepts can
 /// be read the same way. With no context around, the primitives also convert
 /// through the `TryFrom` impls on [`TulispObject`]: `i64`, `f64`, `String`,
-/// `bool`, `Number` and `Vec<T>`, each by value and by reference. For the
-/// types both cover, `try_into()` and `convert` accept and reject the same
-/// values. [`TulispObject::downcast`] recovers a host value.
+/// `bool`, `Number` and `Vec<T>`, each by value and by reference. For the types
+/// both cover, `try_into()` and `convert` accept and reject the same values.
+/// The integer types narrower than `i64` (`i8` to `i32`, `u8` to `u32`) convert
+/// with `TryFrom` only. [`TulispObject::downcast`] recovers a host value.
 ///
 /// # Implementing for custom types
 ///
@@ -121,6 +122,38 @@ impl TulispConvertible for i64 {
         TulispValue::from(self).into_ref(None)
     }
 }
+
+/// The integer types narrower than `i64` convert from a Lisp integer with
+/// `TryFrom`; a value out of the type's range is an `OutOfRange` error.
+macro_rules! impl_narrow_integer {
+    ($($ty:ty),*) => {$(
+        impl TryFrom<&TulispObject> for $ty {
+            type Error = Error;
+
+            fn try_from(value: &TulispObject) -> Result<Self, Error> {
+                let n = i64::try_from(value)?;
+                <$ty>::try_from(n).map_err(|_| {
+                    Error::out_of_range(format!(
+                        "Expected integer from {} to {}, got: {n}",
+                        <$ty>::MIN,
+                        <$ty>::MAX
+                    ))
+                })
+            }
+        }
+
+        impl TryFrom<TulispObject> for $ty {
+            type Error = Error;
+
+            fn try_from(value: TulispObject) -> Result<Self, Error> {
+                <$ty>::try_from(&value)
+            }
+        }
+
+    )*};
+}
+
+impl_narrow_integer!(i8, i16, i32, u8, u16, u32);
 
 impl TulispConvertible for bool {
     fn from_tulisp(_ctx: &mut TulispContext, value: &TulispObject) -> Result<bool, Error> {
@@ -257,6 +290,21 @@ impl<T: TulispAny> TulispConvertible for Shared<T> {
 mod tests {
     use super::TulispConvertible;
     use crate::{ErrorKind, Number, TulispContext, TulispObject};
+
+    // The smaller integer types read a Lisp integer in their range, and a value
+    // out of it is an `OutOfRange` error.
+    #[test]
+    fn small_integers_read_a_value_in_their_range() {
+        assert_eq!(i8::try_from(TulispObject::from(-3)).unwrap(), -3);
+        assert_eq!(u16::try_from(&TulispObject::from(7)).unwrap(), 7);
+        assert_eq!(
+            i32::try_from(TulispObject::from(i64::from(i32::MAX))).unwrap(),
+            i32::MAX
+        );
+        let err = u32::try_from(TulispObject::from(-1)).unwrap_err();
+        assert!(matches!(err.kind(), ErrorKind::OutOfRange), "{err}");
+        assert_eq!(err.desc(), "Expected integer from 0 to 4294967295, got: -1");
+    }
 
     #[test]
     fn primitives_round_trip_through_the_context() {
