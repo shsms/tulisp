@@ -1,3 +1,11 @@
+//! Compares two benchmark results, as CI does for a pull request: each
+//! `cargo bench -- FILE` run writes one, and a benchmark slower than the
+//! threshold (10% unless given) fails the comparison. Run it with:
+//!
+//! ```text
+//! cargo run --release --example bench_compare -- BASELINE CURRENT [THRESHOLD_PCT]
+//! ```
+
 use std::{collections::HashMap, fs, path::Path, process};
 
 const DEFAULT_THRESHOLD_PCT: f64 = 10.0;

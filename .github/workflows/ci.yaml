@@ -27,7 +27,7 @@ jobs:
         fetch-depth: 0
 
     - name: Build compare tool from PR branch
-      run: cargo build --release --bin bench_compare
+      run: cargo build --release --example bench_compare
 
     - name: Run benchmarks on PR branch
       run: rm -f /tmp/current.bench && cargo bench -- /tmp/current.bench
@@ -42,4 +42,4 @@ jobs:
       run: git checkout ${{ github.sha }}
 
     - name: Compare benchmark results
-      run: ./target/release/bench_compare /tmp/baseline.bench /tmp/current.bench
+      run: ./target/release/examples/bench_compare /tmp/baseline.bench /tmp/current.bench
