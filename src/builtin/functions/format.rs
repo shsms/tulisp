@@ -320,11 +320,13 @@ fn integer(
 }
 
 /// The first PRECISION characters of TEXT, or all of it with no precision.
-fn cut(text: String, precision: Option<usize>) -> String {
-    match precision {
-        Some(precision) => text.chars().take(precision).collect(),
-        None => text,
+fn cut(mut text: String, precision: Option<usize>) -> String {
+    if let Some(precision) = precision
+        && let Some((end, _)) = text.char_indices().nth(precision)
+    {
+        text.truncate(end);
     }
+    text
 }
 
 /// Writes FIELD to OUT, padded to SPEC's width: with zeros after the sign when
@@ -332,24 +334,20 @@ fn cut(text: String, precision: Option<usize>) -> String {
 fn pad(out: &mut String, spec: &Spec, field: &Field) -> Result<(), Error> {
     let len = field.sign.len() + field.prefix.len() + field.body.chars().count();
     let fill = spec.width.saturating_sub(len);
-    if spec.left {
-        out.push_str(field.sign);
-        out.push_str(field.prefix);
-        out.push_str(&field.body);
-        push_repeated(out, ' ', fill)
-    } else if spec.zero && field.zero_pad {
-        out.push_str(field.sign);
-        out.push_str(field.prefix);
-        push_repeated(out, '0', fill)?;
-        out.push_str(&field.body);
-        Ok(())
-    } else {
+    let zeros = !spec.left && spec.zero && field.zero_pad;
+    if !spec.left && !zeros {
         push_repeated(out, ' ', fill)?;
-        out.push_str(field.sign);
-        out.push_str(field.prefix);
-        out.push_str(&field.body);
-        Ok(())
     }
+    out.push_str(field.sign);
+    out.push_str(field.prefix);
+    if zeros {
+        push_repeated(out, '0', fill)?;
+    }
+    out.push_str(&field.body);
+    if spec.left {
+        push_repeated(out, ' ', fill)?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
