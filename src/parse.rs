@@ -207,9 +207,9 @@ impl Tokenizer<'_> {
     }
 
     /// Read the escape after a backslash, as Emacs does: `\n`, `\s`, `\d` and
-    /// the other letters, and octal `\101`. Any other character stands for
-    /// itself. In a string, a backslash before a newline or a space reads as
-    /// nothing, given as `None`.
+    /// the other letters, octal `\101`, hex `\x41`, `\u00e9` and `\U0001F600`.
+    /// Any other character stands for itself. In a string, a backslash before a
+    /// newline or a space reads as nothing, given as `None`.
     fn read_escape(&mut self, in_string: bool) -> Result<Option<u32>, String> {
         let ch = self
             .next_char()
@@ -237,6 +237,21 @@ impl Tokenizer<'_> {
                 return Err("\\N{NAME} is not supported".to_string());
             }
             '0'..='7' => self.read_digits(ch as u32 - '0' as u32, 8, 2)?.0,
+            'x' => match self.read_digits(0, 16, usize::MAX)? {
+                (_, 0) => return Err("\\x not followed by a hex digit".to_string()),
+                (code, _) => code,
+            },
+            'u' | 'U' => {
+                let len = if ch == 'u' { 4 } else { 8 };
+                let (code, count) = self.read_digits(0, 16, len)?;
+                if count != len {
+                    return Err(format!("\\{ch} needs {len} hex digits"));
+                }
+                if code > 0x10ffff {
+                    return Err(format!("Not a Unicode character: \\{ch}{code:x}"));
+                }
+                code
+            }
             c => c as u32,
         };
         Ok(Some(code))
@@ -1201,6 +1216,10 @@ mod tests {
         eval_assert_equal(ctx, r"?\ ", "32");
         eval_assert_equal(ctx, r"?\d", "127");
         eval_assert_equal(ctx, r"?\101", "65");
+        eval_assert_equal(ctx, r"?\x41", "65");
+        eval_assert_equal(ctx, r"?\x0041", "65");
+        eval_assert_equal(ctx, r"?\u00e9", "233");
+        eval_assert_equal(ctx, r"?\U0001F600", "128512");
         eval_assert_equal(ctx, r"?\(", "40");
         eval_assert_equal(ctx, r"?\8", "56");
         eval_assert_equal(ctx, r"(list ?\s ?\d)", "'(32 127)");
@@ -1215,6 +1234,10 @@ mod tests {
             (r"?\s-a", r"Modifier keys are not supported: \s-"),
             (r"?\H-a", r"Modifier keys are not supported: \H-"),
             (r"?\N{LATIN SMALL LETTER A}", r"\N{NAME} is not supported"),
+            (r"?\x", r"\x not followed by a hex digit"),
+            (r"?\u00e", r"\u needs 4 hex digits"),
+            (r"?\U0001F60", r"\U needs 8 hex digits"),
+            (r"?\U00110000", r"Not a Unicode character: \U110000"),
         ];
         for (program, desc) in cases {
             let line = format!("ERR ParsingError: SyntaxError {desc}");
