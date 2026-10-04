@@ -24,9 +24,8 @@ pub(crate) struct TraceRange {
 /// A compiled function: its code, behind one shared handle, and the
 /// variables it captured, if it is a closure. A copy of it copies the
 /// handles, and every closure made from one form shares its code.
-#[doc(hidden)]
 #[derive(Clone)]
-pub struct CompiledDefun {
+pub(crate) struct CompiledDefun {
     code: Shared<CompiledCode>,
     /// The variables a closure captured; empty for a plain function.
     pub(crate) captures: Captures,
@@ -65,8 +64,7 @@ impl std::ops::Deref for CompiledDefun {
 
 /// A compiled function's code: what every function made from one
 /// compile of a form shares.
-#[doc(hidden)]
-pub struct CompiledCode {
+pub(crate) struct CompiledCode {
     pub(crate) name: TulispObject,
     pub(crate) instructions: SharedMut<Vec<Instruction>>,
     /// Trace ranges for `instructions`, populated by `assemble`. Empty

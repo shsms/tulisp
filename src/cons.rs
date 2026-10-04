@@ -6,7 +6,7 @@ use crate::error::Error;
 use crate::object::Span;
 
 #[derive(Debug, Clone)]
-pub struct Cons {
+pub(crate) struct Cons {
     car: TulispObject,
     cdr: TulispObject,
 }

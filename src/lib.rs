@@ -40,8 +40,7 @@ pub use number::Number;
 
 mod value;
 pub use value::TulispAny;
-#[doc(hidden)]
-pub use value::TulispValue;
+pub(crate) use value::TulispValue;
 
 mod object;
 pub use {

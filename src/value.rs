@@ -18,19 +18,13 @@ use std::{
     fmt::{Display, Write},
 };
 
-/// Compile-time arity metadata for a `ctx.defun`-registered fn.
-/// Recorded on `TulispValue::Defun` so the VM compiler can reject
-/// arity mismatches at compile time, before any args are pushed.
-/// Derived from the parameter types at registration time, so the
-/// values are exact; a `Plist<T>` tail counts as `has_rest`, since its
-/// keys are validated at runtime by `Plistable::from_plist_as_slice`.
-///
-/// Marked `pub` (and `#[doc(hidden)]`) only because it appears as a
-/// field of the public `TulispValue::Defun` variant — same reason
-/// `DefunFn` is `pub`.
-#[doc(hidden)]
+/// How many arguments a function takes. For a Rust function or special form, it
+/// comes from the parameter types when it is registered, and the VM compiler
+/// checks calls against it before any argument is pushed; a `Plist<T>` tail
+/// counts as `has_rest`, since its keys are checked when it runs. For a Lisp
+/// function, it comes from the lambda list.
 #[derive(Debug, Default, Clone)]
-pub struct DefunArity {
+pub(crate) struct DefunArity {
     pub required: usize,
     pub optional: usize,
     pub has_rest: bool,
@@ -76,7 +70,7 @@ impl DefunArity {
 }
 
 #[derive(Default, Clone, Debug)]
-pub struct SymbolBindings {
+pub(crate) struct SymbolBindings {
     name: String,
     constant: bool,
     // "Special" (dynamic) in Emacs' terminology: `defvar`-declared.
@@ -253,9 +247,8 @@ fn short_type_name(full: &str) -> String {
     out
 }
 
-#[doc(hidden)]
 #[derive(Clone)]
-pub enum TulispValue {
+pub(crate) enum TulispValue {
     Nil,
     T,
     Symbol {
