@@ -37,18 +37,38 @@ struct Spec {
     left: bool,
     /// The `0` flag: pad a number with zeros after its sign.
     zero: bool,
+    /// The `+` flag: sign a number that is not negative with `+`.
+    plus: bool,
+    /// The space flag: sign a number that is not negative with a space.
+    space: bool,
     width: usize,
     precision: Option<usize>,
     conversion: char,
 }
 
 impl Spec {
+    /// The sign of a number under this spec: `-` when NEGATIVE, or else what
+    /// the `+` or space flag asks for.
+    fn sign(&self, negative: bool) -> &'static str {
+        if negative {
+            "-"
+        } else if self.plus {
+            "+"
+        } else if self.space {
+            " "
+        } else {
+            ""
+        }
+    }
+
     /// Reads the spec after a `%`, up to and including its conversion.
     fn read(chars: &mut Peekable<Chars<'_>>) -> Result<Spec, Error> {
-        let (mut left, mut zero, mut width) = (false, false, 0);
+        let (mut left, mut zero, mut plus, mut space, mut width) = (false, false, false, false, 0);
         loop {
             match chars.peek() {
                 Some('-') => left = true,
+                Some('+') => plus = true,
+                Some(' ') => space = true,
                 Some('0') if width == 0 => zero = true,
                 Some(c) if c.is_ascii_digit() => width = add_digit(width, *c),
                 _ => break,
@@ -69,6 +89,8 @@ impl Spec {
         Ok(Spec {
             left,
             zero,
+            plus,
+            space,
             width,
             precision,
             conversion,
@@ -157,7 +179,7 @@ fn convert(spec: &Spec, arg: &TulispObject) -> Result<Field, Error> {
                 None => body = digits,
             }
             Ok(Field {
-                sign: if value < 0 { "-" } else { "" },
+                sign: spec.sign(value < 0),
                 body,
                 // A precision gives the digits; the width pads with spaces.
                 zero_pad: spec.precision.is_none(),
@@ -165,7 +187,7 @@ fn convert(spec: &Spec, arg: &TulispObject) -> Result<Field, Error> {
         }
         'f' => {
             let value = arg.try_float()?;
-            let sign = if value.is_sign_negative() { "-" } else { "" };
+            let sign = spec.sign(value.is_sign_negative());
             if !value.is_finite() {
                 let body = if value.is_nan() { "nan" } else { "inf" };
                 return Ok(Field {
@@ -406,6 +428,34 @@ mod tests {
                 r#""   005|   005|-005  |""#,
             ),
             (r#"(format "%.0d|%.0d" 0 5)"#, r#""|5""#),
+        ];
+        for (program, expected) in cases {
+            eval_assert_equal(ctx, program, expected);
+        }
+    }
+
+    // The `+` and space flags sign a number that is not negative.
+    #[test]
+    fn format_sign_flags() {
+        let ctx = &mut TulispContext::new();
+        let cases = [
+            (
+                r#"(format "%+d %+d % d % d" 5 -5 5 -5)"#,
+                r#""+5 -5  5 -5""#,
+            ),
+            (
+                r#"(format "%+f|% f|%+.0f" 1.5 1.5 0.0)"#,
+                r#""+1.500000| 1.500000|+0""#,
+            ),
+            (
+                r#"(format "%+f|% f|%+f" 1.0e+INF 0.0e+NaN -1.0e+INF)"#,
+                r#""+inf| nan|-inf""#,
+            ),
+            (
+                r#"(format "%+ d|%-+6d|%+05d|% 05d|" 5 5 5 5)"#,
+                r#""+5|+5    |+0005| 0005|""#,
+            ),
+            (r#"(format "%+s|% S" "a" 5)"#, r#""a|5""#),
         ];
         for (program, expected) in cases {
             eval_assert_equal(ctx, program, expected);
