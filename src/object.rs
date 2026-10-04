@@ -690,6 +690,27 @@ impl TulispObject {
         as_symbol,
         "Returns a string containing symbol name, if `self` is a symbol other than `nil` or `t`, and an Error otherwise."
     );
+
+    /// The name of the symbol `self`, as Emacs Lisp's `symbol-name` gives it:
+    /// `nil` and `t` give "nil" and "t".
+    ///
+    /// ```rust
+    /// use tulisp::{TulispContext, TulispObject};
+    ///
+    /// let mut ctx = TulispContext::new();
+    /// let form = ctx.eval_string("'(car x)").unwrap();
+    /// assert_eq!(form.car().unwrap().symbol_name().unwrap(), "car");
+    /// assert_eq!(TulispObject::nil().symbol_name().unwrap(), "nil");
+    /// assert!(TulispObject::from(5).symbol_name().is_err());
+    /// ```
+    ///
+    /// Returns an Error if `self` is not a symbol.
+    pub fn symbol_name(&self) -> Result<String, Error> {
+        let name = self.inner_ref().0.symbol_name().map(str::to_string);
+        name.ok_or_else(|| {
+            Error::type_mismatch(format!("Expected symbol, got: {self}")).with_trace(self.clone())
+        })
+    }
     extractor_fn_with_err!(
         String,
         as_string,
@@ -1498,6 +1519,19 @@ mod tests {
             );
         }
         Ok(())
+    }
+
+    // `symbol_name` of a value that is no symbol gives an error traced to the
+    // value.
+    #[test]
+    fn symbol_name_traces_a_value_that_is_no_symbol() {
+        let ctx = &mut TulispContext::new();
+        let list = ctx.eval_string("'((1))").unwrap().car().unwrap();
+        let err = list.symbol_name().unwrap_err().with_file_names(ctx);
+        assert_eq!(
+            err.to_string(),
+            "ERR TypeMismatch: Expected symbol, got: (1)\n<eval_string>:1.3-1.5:  at (1)"
+        );
     }
 
     // `set_default_toplevel_value` refuses a value that is no symbol, traced to
