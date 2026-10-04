@@ -50,7 +50,7 @@ macro_rules! list {
         $crate::list!(@__plain $l $b; $($rest)*)
     };
     (@__plain $l:lifetime $b:ident; @ $item:expr $(, $($rest:tt)*)?) => {
-        if let ::core::result::Result::Err(__e) = $crate::Splice::splice_into($item, &mut $b) {
+        if let ::core::result::Result::Err(__e) = $crate::__private::Splice::splice_into($item, &mut $b) {
             break $l ::core::result::Result::Err(__e);
         }
         $crate::list!(@__plain $l $b; $($($rest)*)?)
@@ -67,14 +67,14 @@ macro_rules! list {
     };
     (@__ctx $ctx:ident $l:lifetime $b:ident; @ $item:expr $(, $($rest:tt)*)?) => {
         if let ::core::result::Result::Err(__e) =
-            $crate::SpliceWithContext::splice_into($item, $ctx, &mut $b)
+            $crate::__private::SpliceWithContext::splice_into($item, $ctx, &mut $b)
         {
             break $l ::core::result::Result::Err(__e);
         }
         $crate::list!(@__ctx $ctx $l $b; $($($rest)*)?)
     };
     (@__ctx $ctx:ident $l:lifetime $b:ident; $item:expr $(, $($rest:tt)*)?) => {
-        let __item = $crate::ListItem::into_item($item, $ctx);
+        let __item = $crate::__private::ListItem::into_item($item, $ctx);
         $b.push(__item);
         $crate::list!(@__ctx $ctx $l $b; $($($rest)*)?)
     };
@@ -88,7 +88,7 @@ macro_rules! list {
         '__tulisp_list: {
             // `ctx` must be a `&mut TulispContext`, even with no element.
             let _: &mut $crate::TulispContext = $ctx;
-            let mut __list = $crate::ListMaker::new();
+            let mut __list = $crate::__private::ListMaker::new();
             $crate::list!(@__ctx $ctx '__tulisp_list __list; $($items)*);
             break '__tulisp_list ::core::result::Result::<$crate::TulispObject, $crate::Error>::Ok(
                 __list.finish(),
@@ -97,7 +97,7 @@ macro_rules! list {
     };
     ($($items:tt)+) => {
         '__tulisp_list: {
-            let mut __list = $crate::ListMaker::new();
+            let mut __list = $crate::__private::ListMaker::new();
             $crate::list!(@__plain '__tulisp_list __list; $($items)+);
             break '__tulisp_list ::core::result::Result::<$crate::TulispObject, $crate::Error>::Ok(
                 __list.finish(),

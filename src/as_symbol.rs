@@ -125,7 +125,7 @@ pub fn unknown_name(type_name: &str, name: &str, names: &[&str]) -> Error {
 #[macro_export]
 macro_rules! AsSymbol {
     (@symbol $variant:ident<$symbol:literal>) => { $symbol };
-    (@symbol $variant:ident) => { $crate::as_list::field_key(stringify!($variant)) };
+    (@symbol $variant:ident) => { $crate::__private::as_list::field_key(stringify!($variant)) };
 
     ($( #[doc = $doc:literal] )* #[lisp(strings)] $($rest:tt)*) => {
         $crate::AsSymbol!(@decl true $( #[doc = $doc] )* $($rest)*);
@@ -180,7 +180,7 @@ macro_rules! AsSymbol {
         }
 
         const _: () = assert!(
-            $crate::as_symbol::distinct($name::SYMBOL_NAMES),
+            $crate::__private::as_symbol::distinct($name::SYMBOL_NAMES),
             "AsSymbol! variants must map to distinct symbols"
         );
 
@@ -189,11 +189,11 @@ macro_rules! AsSymbol {
                 __ctx: &mut $crate::TulispContext,
                 __value: &$crate::TulispObject,
             ) -> Result<Self, $crate::Error> {
-                let Some(__result) = $crate::as_symbol::with_name(__value, $strings, |__name| {
+                let Some(__result) = $crate::__private::as_symbol::with_name(__value, $strings, |__name| {
                     <Self as ::std::str::FromStr>::from_str(__name)
                         .map_err(|__err| __err.with_trace(__value.clone()))
                 }) else {
-                    return Err($crate::as_symbol::not_a_name(
+                    return Err($crate::__private::as_symbol::not_a_name(
                         stringify!($name),
                         $strings,
                         Self::SYMBOL_NAMES,
@@ -223,7 +223,7 @@ macro_rules! AsSymbol {
 
             fn from_str(__name: &str) -> Result<Self, $crate::Error> {
                 Self::from_symbol_name(__name).ok_or_else(|| {
-                    $crate::as_symbol::unknown_name(stringify!($name), __name, Self::SYMBOL_NAMES)
+                    $crate::__private::as_symbol::unknown_name(stringify!($name), __name, Self::SYMBOL_NAMES)
                 })
             }
         }

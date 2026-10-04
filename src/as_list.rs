@@ -305,16 +305,16 @@ macro_rules! AsList {
     // The key a field declares, before the shape's spelling
     // rule adds or drops the leading `:`.
     (@key $field:ident<$key:literal>) => { $key };
-    (@key $field:ident) => { $crate::as_list::field_key(stringify!($field)) };
+    (@key $field:ident) => { $crate::__private::as_list::field_key(stringify!($field)) };
 
     // A field's key in each shape, spelled at expansion time when
     // the field declares no key of its own.
-    (@plist_key $field:ident<$key:literal>) => { &*$crate::as_list::plist_key($key) };
+    (@plist_key $field:ident<$key:literal>) => { &*$crate::__private::as_list::plist_key($key) };
     (@plist_key $field:ident) => {
-        &*$crate::as_list::plist_field_key(concat!(":", stringify!($field)))
+        &*$crate::__private::as_list::plist_field_key(concat!(":", stringify!($field)))
     };
-    (@alist_key $field:ident<$key:literal>) => { $crate::as_list::alist_key($key) };
-    (@alist_key $field:ident) => { $crate::as_list::field_key(stringify!($field)) };
+    (@alist_key $field:ident<$key:literal>) => { $crate::__private::as_list::alist_key($key) };
+    (@alist_key $field:ident) => { $crate::__private::as_list::field_key(stringify!($field)) };
 
     // The value of a field whose key is absent from the list: its
     // default, `from_absent` for a field that may be absent, an error
@@ -322,16 +322,16 @@ macro_rules! AsList {
     (@absent $ctx:ident, $shape:ty, $key:expr, $type:ty, $default:expr) => { Ok::<_, $crate::Error>($default) };
     (@absent $ctx:ident, $shape:ty, $key:expr, $type:ty,) => {
         if <$type as $crate::TulispConvertible>::REQUIRED {
-            Err(<$shape as $crate::as_list::Shape>::error(format!(
+            Err(<$shape as $crate::__private::as_list::Shape>::error(format!(
                 "Missing {} field",
-                <$shape as $crate::as_list::Shape>::key($key)
+                <$shape as $crate::__private::as_list::Shape>::key($key)
             )))
         } else {
             <$type as $crate::TulispConvertible>::from_absent($ctx)
                 .map_err(|__e| {
-                    <$shape as $crate::as_list::Shape>::error(format!(
+                    <$shape as $crate::__private::as_list::Shape>::error(format!(
                         "{} field: {__e}",
-                        <$shape as $crate::as_list::Shape>::key($key)
+                        <$shape as $crate::__private::as_list::Shape>::key($key)
                     ))
                 })
         }
@@ -340,8 +340,8 @@ macro_rules! AsList {
     // The serializer and the shape marker for the declared shape.
     (@render alist) => { $crate::Alistable::into_alist };
     (@render plist) => { $crate::Plistable::into_plist };
-    (@shape alist) => { $crate::as_list::AlistShape };
-    (@shape plist) => { $crate::as_list::PlistShape };
+    (@shape alist) => { $crate::__private::as_list::AlistShape };
+    (@shape plist) => { $crate::__private::as_list::PlistShape };
 
     // Matches `key` against the interned keys, in field order, and
     // stores the converted value unless the key was already seen; an
@@ -357,9 +357,9 @@ macro_rules! AsList {
                 }
             } else
         )+ {
-            return Err(<$shape as $crate::as_list::Shape>::error(format!(
+            return Err(<$shape as $crate::__private::as_list::Shape>::error(format!(
                 "Unexpected key in {}: {}",
-                <$shape as $crate::as_list::Shape>::NAME,
+                <$shape as $crate::__private::as_list::Shape>::NAME,
                 $key
             )));
         }
@@ -390,7 +390,7 @@ macro_rules! AsList {
             }
 
             const _: () = assert!(
-                $crate::as_list::distinct_keys(&[
+                $crate::__private::as_list::distinct_keys(&[
                     $( $crate::AsList!(@key $field $(<$key>)?) ),+
                 ]),
                 "AsList! fields must map to distinct keys"
@@ -406,7 +406,7 @@ macro_rules! AsList {
 
             /// Fills every key the list did not carry, naming an
             /// absent one the way `shape` spells it.
-            fn build<AsListShape: $crate::as_list::Shape>(
+            fn build<AsListShape: $crate::__private::as_list::Shape>(
                 __ctx: &mut $crate::TulispContext,
                 __shape: AsListShape,
                 __fields: AsListFields,
@@ -429,14 +429,14 @@ macro_rules! AsList {
                 ) -> Result<Self, $crate::Error> {
                     let mut __fields = AsListFields::default();
                     let __keys = AsListPlistKeys::new(__ctx);
-                    $crate::as_list::plist_slice_pairs(__kvs, |__key, __value| {
+                    $crate::__private::as_list::plist_slice_pairs(__kvs, |__key, __value| {
                         $crate::AsList!(
-                            @match $crate::as_list::PlistShape, __key, __value, __ctx, __fields, __keys,
+                            @match $crate::__private::as_list::PlistShape, __key, __value, __ctx, __fields, __keys,
                             ($( $field ),+)
                         );
                         Ok(())
                     })?;
-                    build(__ctx, $crate::as_list::PlistShape, __fields)
+                    build(__ctx, $crate::__private::as_list::PlistShape, __fields)
                 }
 
                 fn from_plist(
@@ -445,14 +445,14 @@ macro_rules! AsList {
                 ) -> Result<Self, $crate::Error> {
                     let mut __fields = AsListFields::default();
                     let __keys = AsListPlistKeys::new(__ctx);
-                    $crate::as_list::plist_pairs(__obj, |__key, __value| {
+                    $crate::__private::as_list::plist_pairs(__obj, |__key, __value| {
                         $crate::AsList!(
-                            @match $crate::as_list::PlistShape, __key, __value, __ctx, __fields, __keys,
+                            @match $crate::__private::as_list::PlistShape, __key, __value, __ctx, __fields, __keys,
                             ($( $field ),+)
                         );
                         Ok(())
                     })?;
-                    build(__ctx, $crate::as_list::PlistShape, __fields)
+                    build(__ctx, $crate::__private::as_list::PlistShape, __fields)
                         .map_err(|__e| __e.with_trace(__obj.clone()))
                 }
 
@@ -474,14 +474,14 @@ macro_rules! AsList {
                 ) -> Result<Self, $crate::Error> {
                     let mut __fields = AsListFields::default();
                     let __keys = AsListAlistKeys::new(__ctx);
-                    $crate::as_list::alist_pairs(__alist, |__key, __value| {
+                    $crate::__private::as_list::alist_pairs(__alist, |__key, __value| {
                         $crate::AsList!(
-                            @match $crate::as_list::AlistShape, __key, __value, __ctx, __fields, __keys,
+                            @match $crate::__private::as_list::AlistShape, __key, __value, __ctx, __fields, __keys,
                             ($( $field ),+)
                         );
                         Ok(())
                     })?;
-                    build(__ctx, $crate::as_list::AlistShape, __fields)
+                    build(__ctx, $crate::__private::as_list::AlistShape, __fields)
                         .map_err(|__e| __e.with_trace(__alist.clone()))
                 }
 
@@ -515,7 +515,7 @@ macro_rules! AsList {
                     if !__value.consp() {
                         return Err(__mismatch());
                     }
-                    match $crate::as_list::first_cons_or_symbol(__value).map_err(|_| __mismatch())? {
+                    match $crate::__private::as_list::first_cons_or_symbol(__value).map_err(|_| __mismatch())? {
                         Some(__first) if __first.consp() => {
                             <Self as $crate::Alistable>::from_alist(__ctx, __value)
                         }

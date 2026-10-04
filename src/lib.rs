@@ -23,8 +23,7 @@ pub use error::{Error, ErrorKind};
 pub mod alist;
 pub use alist::{Alistable, alist_from, alist_get, assoc};
 
-#[doc(hidden)]
-pub mod as_list;
+mod as_list;
 
 pub mod lists;
 
@@ -44,11 +43,22 @@ pub use {
     object::wrappers::generic::Shared, object::wrappers::generic::SharedMut,
 };
 
-#[doc(hidden)]
-pub use macros::{ListItem, ListMaker, Splice, SpliceWithContext};
+mod as_symbol;
 
+/// What the exported macros expand to call. Not part of the public API: it may
+/// change in any release.
 #[doc(hidden)]
-pub mod as_symbol;
+pub mod __private {
+    pub use crate::macros::{ListItem, ListMaker, Splice, SpliceWithContext};
+
+    pub mod as_list {
+        pub use crate::as_list::*;
+    }
+
+    pub mod as_symbol {
+        pub use crate::as_symbol::*;
+    }
+}
 
 #[cfg(test)]
 mod test_utils {
