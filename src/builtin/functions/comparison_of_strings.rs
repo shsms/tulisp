@@ -1,19 +1,27 @@
-use crate::TulispContext;
+use crate::{Error, TulispContext, TulispObject};
+
+/// The text OBJ compares by: a string's text or a symbol's name.
+fn text(obj: &TulispObject) -> Result<String, Error> {
+    obj.symbol_name().or_else(|_| obj.as_string())
+}
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    ctx.defun("string<", |a: String, b: String| -> bool { a < b });
-    ctx.defun("string>", |a: String, b: String| -> bool { a > b });
-    ctx.defun("string=", |a: String, b: String| -> bool { a == b });
-    ctx.defun("string-lessp", |a: String, b: String| -> bool { a < b });
-    ctx.defun("string-greaterp", |a: String, b: String| -> bool { a > b });
-    ctx.defun("string-equal", |a: String, b: String| -> bool { a == b });
+    let less = |a: TulispObject, b: TulispObject| Ok::<_, Error>(text(&a)? < text(&b)?);
+    let greater = |a: TulispObject, b: TulispObject| Ok::<_, Error>(text(&a)? > text(&b)?);
+    let equal = |a: TulispObject, b: TulispObject| Ok::<_, Error>(text(&a)? == text(&b)?);
+    ctx.defun("string<", less);
+    ctx.defun("string>", greater);
+    ctx.defun("string=", equal);
+    ctx.defun("string-lessp", less);
+    ctx.defun("string-greaterp", greater);
+    ctx.defun("string-equal", equal);
 }
 
 #[cfg(test)]
 mod tests {
     use crate::{
         TulispContext,
-        test_utils::{eval_assert, eval_assert_not},
+        test_utils::{eval_assert, eval_assert_error_line, eval_assert_not},
     };
 
     #[test]
@@ -38,5 +46,23 @@ mod tests {
         eval_assert_not(ctx, r#"(string-greaterp "hello" "hello")"#);
         eval_assert_not(ctx, r#"(string-equal "hello" "world")"#);
         eval_assert_not(ctx, r#"(string-equal "world" "hello")"#);
+    }
+
+    // A symbol compares by its name, as in Emacs; nil is "nil".
+    #[test]
+    fn a_symbol_compares_by_its_name() {
+        let ctx = &mut TulispContext::new();
+        eval_assert(ctx, r#"(string= 'abc "abc")"#);
+        eval_assert(ctx, "(string< 'abc 'abd)");
+        eval_assert(ctx, r#"(string> 'b "a")"#);
+        eval_assert(ctx, r#"(string-equal "a" 'a)"#);
+        eval_assert(ctx, r#"(string-lessp 'a "b")"#);
+        eval_assert(ctx, r#"(string-greaterp "b" 'a)"#);
+        eval_assert(ctx, r#"(string= nil "nil")"#);
+        eval_assert_error_line(
+            ctx,
+            r#"(string= 1 "1")"#,
+            "ERR TypeMismatch: Expected string, got: 1",
+        );
     }
 }
