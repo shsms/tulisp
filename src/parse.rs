@@ -273,18 +273,21 @@ impl Tokenizer<'_> {
     }
 
     /// Read the character after `\C-` or `\^`, which may be an escape itself,
-    /// and return its control character: `\C-a` is 1 and `\C-?` is 127.
+    /// and return its control character: `\C-a` is 1 and `\C-?` is 127. In a
+    /// string, a control space is 0.
     fn read_control_char(&mut self, in_string: bool) -> Result<u32, String> {
         let base = match self.next_char() {
-            Some('\\') => self.read_escape(in_string)?,
+            // A `\s-` here is a modifier key, even in a string.
+            Some('\\') => self.read_escape(false)?,
             Some(c) => c as u32,
             None => return Err("Unexpected EOF after \\C-".to_string()),
         };
         match base {
+            0x20 if in_string => Ok(0),
             0x3f => Ok(0x7f),
             0x40..=0x5f | 0x61..=0x7a => Ok(base & 0x1f),
             _ => Err(match char::from_u32(base) {
-                Some(c) => format!("No control character for {c}"),
+                Some(c) => format!("No control character for {c:?}"),
                 None => format!("No control character for {base}"),
             }),
         }
@@ -1175,6 +1178,7 @@ mod tests {
             ("\"a\\\nb\"", "ab"),
             (r#""\C-a\^?""#, "\u{1}\u{7f}"),
             (r#""\q""#, "q"),
+            (r#""\C-\ x\C- x\^ x""#, "\u{0}x\u{0}x\u{0}x"),
         ];
         for (program, expected) in cases {
             assert_eq!(
@@ -1191,13 +1195,14 @@ mod tests {
         let ctx = &mut TulispContext::new();
         let cases = [
             (r#""\M-a""#, r"Modifier keys are not supported: \M-"),
-            (r#""\C-%""#, "No control character for %"),
+            (r#""\C-%""#, "No control character for '%'"),
             (r#""\x110000""#, r"Not a character: \x110000"),
             (
                 r#""\Ca""#,
                 r"Invalid escape char syntax: \C not followed by -",
             ),
             (r#""\Na""#, r"Expected opening brace after \N"),
+            (r#""\C-\s-a""#, r"Modifier keys are not supported: \s-"),
         ];
         for (program, desc) in cases {
             let line = format!("ERR ParsingError: SyntaxError {desc}");
@@ -1213,7 +1218,7 @@ mod tests {
             (r"?\M-a", r"Modifier keys are not supported: \M-"),
             (r"?\s-a", r"Modifier keys are not supported: \s-"),
             (r"?\H-a", r"Modifier keys are not supported: \H-"),
-            (r"?\C-%", "No control character for %"),
+            (r"?\C-%", "No control character for '%'"),
             (r"?\N{LATIN SMALL LETTER A}", r"\N{NAME} is not supported"),
             (r"?\x", r"\x not followed by a hex digit"),
             (r"?\u00e", r"\u needs 4 hex digits"),
@@ -1225,6 +1230,7 @@ mod tests {
             (r"?\Ma", r"Invalid escape char syntax: \M not followed by -"),
             (r"?\S", r"Invalid escape char syntax: \S not followed by -"),
             (r"?\N", r"Expected opening brace after \N"),
+            (r"?\C- ", "No control character for ' '"),
             ("?\\\n", r"Invalid escape char syntax: \<newline>"),
         ];
         for (program, desc) in cases {
