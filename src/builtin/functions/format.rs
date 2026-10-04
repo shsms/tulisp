@@ -260,6 +260,13 @@ fn exponent_form(value: f64, precision: usize, alt: bool) -> Result<String, Erro
 /// in the form of `%e` when its exponent is below -4 or not below PRECISION, or
 /// else of `%f`. Trailing zeros after the point go, unless ALT.
 fn general_form(value: f64, precision: usize, alt: bool) -> Result<String, Error> {
+    // Without ALT the zeros past a float's last digit go, so a larger precision
+    // prints the same.
+    let precision = if alt {
+        precision
+    } else {
+        precision.min(MAX_FRACTION_DIGITS)
+    };
     let precision = precision.max(1);
     let (mantissa, exponent) = exponent_parts(value, precision - 1, alt)?;
     let exponent_i64 = i64::from(exponent);
@@ -763,6 +770,29 @@ mod tests {
             ctx,
             r#"(format "[%.0d][%+.0d][%05.0d][%.0x][%.0o][%.0d]" 0.5 -0.5 -0.5 0.5 0.5 0)"#,
             r#""[0][+0][    0][][][]""#,
+        );
+    }
+
+    // A huge `%g` precision prints only the digits the float has, as in Emacs;
+    // with `#` the zeros stay, so it is too long.
+    #[test]
+    fn format_g_takes_a_huge_precision() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            r#"(format "%.99999999999999999999g|%.5000g|%.5000g" 1.5 0.1 1e300)"#,
+            r#"(concat "1.5|" (format "%.55f" 0.1) "|" (format "%.0f" 1e300))"#,
+        );
+        // The largest subnormal float has the most digits: 767.
+        eval_assert_equal(
+            ctx,
+            r#"(format "%.5000g" 2.225073858507201e-308)"#,
+            r#"(format "%.766e" 2.225073858507201e-308)"#,
+        );
+        eval_assert_error_line(
+            ctx,
+            r#"(format "%#.99999999999999999999g" 1.5)"#,
+            "ERR LispError: Maximum string size exceeded",
         );
     }
 }
