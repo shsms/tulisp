@@ -9,7 +9,8 @@ differences from Emacs are called out inline.
 
 # Numbers
 
-- **Arithmetic**: `+`, `-`, `*`, `/`, `mod`, `1+`, `1-`.
+- **Arithmetic**: `+`, `-`, `*`, `/`, `%` (remainder, with the sign of the
+  dividend), `mod`, `1+`, `1-`.
 - **Comparison**: `=`, `<`, `>`, `<=`, `>=`, `eql`, `max`, `min`, `abs`.
 - **Math**: `expt`, `sqrt`, `isnan`.
 - **Numerical conversion**: `floor`, `ceiling`, `truncate`, `round`,
@@ -60,6 +61,8 @@ Tulisp has no vector type — sequence functions are list-only.
 
 - **Definitions**: `defun`, `defmacro`, `lambda`, `declare`.
 - **Invocation**: `eval`, `funcall`, `apply`, `macroexpand`.
+- **Loading**: `load`, which evaluates a file, found under the load path when
+  [`set_load_path`](crate::TulispContext::set_load_path) set one.
 - **Quoting**: `quote` (also written `'expr`), backquote / unquote /
   splice (`` ` ``, `,`, `,@`).
 - **Threading**: `->` / `thread-first`, `->>` / `thread-last`.
@@ -68,8 +71,8 @@ Tail-call optimisation is applied to recursive functions automatically.
 
 # Control flow
 
-- **Branches and loops**: `if`, `cond`, `when`, `unless`, `progn`,
-  `while`, `dolist`, `dotimes`.
+- **Branches and loops**: `if`, `cond`, `when`, `unless`, `progn`, `prog1`,
+  `prog2`, `while`, `dolist`, `dotimes`.
 - **Logic**: `and`, `or`, `not`, `xor`.
 - **Pattern-matching binds**: `if-let`, `if-let*`, `when-let`,
   `while-let`.
