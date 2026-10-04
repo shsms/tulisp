@@ -160,6 +160,29 @@ impl Error {
     pub fn void_function(name: impl std::fmt::Display) -> Error {
         Error::undefined(format!("function is void: {name}"))
     }
+
+    /// The error for reading SYMBOL when it has no value. Emacs signals
+    /// `void-variable` here, with `(SYMBOL)` as its data.
+    pub(crate) fn void_variable(symbol: TulispObject) -> Error {
+        Error::void_variable_unfilled(&symbol).fill_value(&symbol)
+    }
+
+    /// Like `void_variable`, for a check that has the symbol's NAME but not its
+    /// object: the `TulispObject` method that called it fills the symbol in
+    /// with `fill_value`.
+    pub(crate) fn void_variable_unfilled(name: impl std::fmt::Display) -> Error {
+        Error::uninitialized(format!("Variable definition is void: {name}"))
+            .with_data(ErrorData::Symbol(None))
+    }
+}
+
+/// The parts of a built-in error's data that `Error::data` turns into Emacs's
+/// DATA list.
+#[derive(Clone)]
+enum ErrorData {
+    /// `(SYMBOL)`, for `void-variable`. SYMBOL is `None` until a
+    /// `TulispObject` method fills it in.
+    Symbol(Option<TulispObject>),
 }
 
 /// Represents an error that occurred during Tulisp evaluation.
@@ -171,6 +194,9 @@ impl Error {
 pub struct Error {
     kind: ErrorKind,
     desc: Box<str>,
+    /// What `data` builds Emacs's DATA from; `None` for an error that has only
+    /// its description.
+    data: Option<Box<ErrorData>>,
     backtrace: Vec<TraceEntry>,
 }
 
@@ -259,7 +285,38 @@ impl Error {
         Self {
             kind,
             desc: desc.into().into_boxed_str(),
+            data: None,
             backtrace: vec![],
+        }
+    }
+
+    fn with_data(mut self, data: ErrorData) -> Self {
+        self.data = Some(Box::new(data));
+        self
+    }
+
+    /// Fills the error's unset value or symbol with OBJECT. An error whose
+    /// value is already set, or that has none, is returned as is.
+    pub(crate) fn fill_value(mut self, object: &TulispObject) -> Self {
+        if let Some(data) = self.data.as_deref_mut() {
+            let ErrorData::Symbol(slot) = data;
+            slot.get_or_insert_with(|| object.clone());
+        }
+        self
+    }
+
+    /// Like `fill_value`, and adds OBJECT to the error's trace too.
+    pub(crate) fn fill_and_trace(self, object: &TulispObject) -> Self {
+        self.fill_value(object).with_trace(object.clone())
+    }
+
+    /// The error's data built from its `ErrorData`, once its value is filled
+    /// in.
+    fn filled_data(&self, _ctx: &mut TulispContext) -> Option<TulispObject> {
+        match self.data.as_deref()? {
+            ErrorData::Symbol(symbol) => {
+                Some(TulispObject::cons(symbol.clone()?, TulispObject::nil()))
+            }
         }
     }
 
@@ -372,18 +429,24 @@ impl Error {
     }
 
     /// The error's data, what a `condition-case` handler sees after the error
-    /// symbol: nil for an `ArithError`, `(DESC)` for any other built-in kind,
-    /// the data given to `signal` for a `Signal`, and nil for a `throw` (a
-    /// Lisp `throw` with no `catch` for its tag is a `no-catch` signal
-    /// instead, whose data is `(TAG VALUE)`).
-    pub fn data(&self, _ctx: &mut TulispContext) -> TulispObject {
+    /// symbol:
+    ///
+    /// - `(SYMBOL)` for a void variable whose symbol is set, as in Emacs;
+    /// - nil for an `ArithError`, as in Emacs;
+    /// - `(DESC)`, the error's description, for any other built-in error;
+    /// - the data given to `signal` for a `Signal`;
+    /// - nil for a `throw` (a Lisp `throw` with no `catch` for its tag is a
+    ///   `no-catch` signal instead, whose data is `(TAG VALUE)`).
+    pub fn data(&self, ctx: &mut TulispContext) -> TulispObject {
         match &self.kind {
             ErrorKind::Throw(_) | ErrorKind::ArithError => TulispObject::nil(),
             ErrorKind::Signal { data, .. } => data.clone(),
-            _ => TulispObject::cons(
-                TulispObject::from(self.desc.to_string()),
-                TulispObject::nil(),
-            ),
+            _ => self.filled_data(ctx).unwrap_or_else(|| {
+                TulispObject::cons(
+                    TulispObject::from(self.desc.to_string()),
+                    TulispObject::nil(),
+                )
+            }),
         }
     }
 
@@ -423,11 +486,40 @@ impl Error {
 mod tests {
     use super::{Error, ErrorKind};
 
+    // Each error gives Emacs's data: its symbol once filled in, its description
+    // otherwise.
+    #[test]
+    fn data_holds_the_void_symbol() {
+        let ctx = &mut crate::TulispContext::new();
+        let symbol = ctx.intern("x");
+        let other = ctx.intern("y");
+        for (err, expected) in [
+            (Error::void_variable(symbol.clone()), "'(x)"),
+            (
+                Error::void_variable_unfilled("m"),
+                r#"'("Variable definition is void: m")"#,
+            ),
+            (
+                Error::void_variable_unfilled("m").fill_value(&symbol),
+                "'(x)",
+            ),
+            (
+                Error::void_variable(symbol.clone()).fill_value(&other),
+                "'(x)",
+            ),
+            (Error::out_of_range("m").fill_value(&symbol), r#"'("m")"#),
+        ] {
+            let expected = ctx.eval_string(expected).unwrap();
+            let data = err.data(ctx);
+            assert!(data.equal(&expected), "{data} != {expected}");
+        }
+    }
+
     // Every `Result` in the VM carries an `Error`.
     #[test]
     fn an_error_stays_small() {
         assert!(
-            std::mem::size_of::<Error>() <= 64,
+            std::mem::size_of::<Error>() <= 72,
             "{}",
             std::mem::size_of::<Error>()
         );

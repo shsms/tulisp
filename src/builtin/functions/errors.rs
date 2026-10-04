@@ -427,6 +427,48 @@ mod tests {
         Ok(())
     }
 
+    // A void variable names its symbol in the data, as in Emacs 30.1.
+    #[test]
+    fn void_errors_carry_their_symbol() {
+        let ctx = &mut TulispContext::new();
+        for (form, expected, message) in [
+            (
+                "cc-void-variable",
+                "'(void-variable cc-void-variable)",
+                "Symbol's value as variable is void: cc-void-variable",
+            ),
+            (
+                "(progn (defun cc-g () cc-void-variable) (cc-g))",
+                "'(void-variable cc-void-variable)",
+                "Symbol's value as variable is void: cc-void-variable",
+            ),
+        ] {
+            eval_assert_equal(
+                ctx,
+                &format!("(condition-case e {form} (error e))"),
+                expected,
+            );
+            eval_assert_equal(
+                ctx,
+                &format!("(condition-case e {form} (error (error-message-string e)))"),
+                &format!("{message:?}"),
+            );
+        }
+    }
+
+    // A closure that reads a captured variable before it is set names the
+    // variable in the data. Emacs gives void-function for this form, since it
+    // calls `cc-f` before the `defun` runs.
+    #[test]
+    fn reading_an_unset_captured_variable_names_it() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(condition-case e (let ((cc-y 1)) (cc-f) (defun cc-f () cc-y)) (error e))",
+            "'(void-variable cc-y)",
+        );
+    }
+
     // Emacs gives `(arith-error)`, with no data, for a division by zero.
     #[test]
     fn an_arith_error_has_no_data() {

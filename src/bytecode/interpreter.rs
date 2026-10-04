@@ -771,11 +771,8 @@ fn run_impl_inner(
                 let value = match &captured.value {
                     CapturedValue::Value(value) => value.clone(),
                     CapturedValue::Cell(cell) => cell.borrow().clone().ok_or_else(|| {
-                        Error::uninitialized(format!(
-                            "Variable definition is void: {}",
-                            captured.name
-                        ))
-                        .with_trace(captured.name.clone())
+                        Error::void_variable(captured.name.clone())
+                            .with_trace(captured.name.clone())
                     })?,
                 };
                 ctx.vm.stack.push(value);

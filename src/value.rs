@@ -181,10 +181,7 @@ impl SymbolBindings {
     #[inline(always)]
     pub(crate) fn get(&self) -> Result<TulispObject, Error> {
         if self.items.is_empty() {
-            return Err(Error::uninitialized(format!(
-                "Variable definition is void: {}",
-                self.name
-            )));
+            return Err(Error::void_variable_unfilled(&self.name));
         }
         Ok(self.items.last().unwrap().clone())
     }

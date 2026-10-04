@@ -669,11 +669,7 @@ impl TulispObject {
         if self.keywordp() || matches!(self.rc.borrow().0, TulispValue::Nil | TulispValue::T) {
             Ok(self.clone())
         } else {
-            self.rc
-                .borrow()
-                .0
-                .get()
-                .map_err(|e| e.with_trace(self.clone()))
+            self.rc.borrow().0.get().map_err(|e| e.fill_and_trace(self))
         }
     }
 
