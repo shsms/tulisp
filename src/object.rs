@@ -136,7 +136,6 @@ fn quoted_pair<'a>(
 ) -> Option<(&'a TulispObject, &'a TulispObject)> {
     match (a, b) {
         (TulispValue::Quote { value: a }, TulispValue::Quote { value: b })
-        | (TulispValue::Sharpquote { value: a }, TulispValue::Sharpquote { value: b })
         | (TulispValue::Backquote { value: a }, TulispValue::Backquote { value: b })
         | (TulispValue::Unquote { value: a }, TulispValue::Unquote { value: b })
         | (TulispValue::Splice { value: a }, TulispValue::Splice { value: b }) => Some((a, b)),

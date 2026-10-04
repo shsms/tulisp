@@ -84,10 +84,6 @@ fn equal_hash_at<H: Hasher>(obj: &TulispObject, state: &mut H, depth: u32) {
                 state.write_u8(7);
                 equal_hash_at(value, state, depth + 1);
             }
-            TulispValue::Sharpquote { value } => {
-                state.write_u8(8);
-                equal_hash_at(value, state, depth + 1);
-            }
             TulispValue::Backquote { value } => {
                 state.write_u8(9);
                 equal_hash_at(value, state, depth + 1);

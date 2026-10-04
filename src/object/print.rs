@@ -219,7 +219,6 @@ fn print_one(
         TulispValue::Backquote { value, .. } => ("`", value.clone()),
         TulispValue::Unquote { value, .. } => (",", value.clone()),
         TulispValue::Splice { value, .. } => (",@", value.clone()),
-        TulispValue::Sharpquote { value, .. } => ("#'", value.clone()),
         other => {
             write!(f, "{other}")?;
             return Ok(None);

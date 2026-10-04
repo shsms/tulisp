@@ -273,10 +273,6 @@ pub enum TulispValue {
     Quote {
         value: TulispObject,
     },
-    /// Sharpquotes are treated as normal quotes, because there is no compilation involved.
-    Sharpquote {
-        value: TulispObject,
-    },
     Backquote {
         value: TulispObject,
     },
@@ -327,7 +323,6 @@ impl Drop for TulispValue {
         // chain of them.
         match self {
             TulispValue::Quote { value }
-            | TulispValue::Sharpquote { value }
             | TulispValue::Backquote { value }
             | TulispValue::Unquote { value }
             | TulispValue::Splice { value } => crate::object::release(value),
@@ -350,9 +345,6 @@ impl std::fmt::Debug for TulispValue {
             Self::String { value } => f.debug_struct("String").field("value", value).finish(),
             Self::List { cons } => f.debug_struct("List").field("cons", cons).finish(),
             Self::Quote { value } => f.debug_struct("Quote").field("value", value).finish(),
-            Self::Sharpquote { value } => {
-                f.debug_struct("Sharpquote").field("value", value).finish()
-            }
             Self::Backquote { value } => f.debug_struct("Backquote").field("value", value).finish(),
             Self::Unquote { value } => f.debug_struct("Unquote").field("value", value).finish(),
             Self::Splice { value } => f.debug_struct("Splice").field("value", value).finish(),
@@ -388,9 +380,6 @@ impl PartialEq for TulispValue {
             (Self::String { value: l0, .. }, Self::String { value: r0, .. }) => l0 == r0,
             (Self::List { cons: l_cons, .. }, Self::List { cons: r_cons, .. }) => l_cons == r_cons,
             (Self::Quote { value: l0, .. }, Self::Quote { value: r0, .. }) => l0.equal(r0),
-            (Self::Sharpquote { value: l0, .. }, Self::Sharpquote { value: r0, .. }) => {
-                l0.equal(r0)
-            }
             (Self::Backquote { value: l0, .. }, Self::Backquote { value: r0, .. }) => l0.equal(r0),
             (Self::Unquote { value: l0, .. }, Self::Unquote { value: r0, .. }) => l0.equal(r0),
             (Self::Splice { value: l0, .. }, Self::Splice { value: r0, .. }) => l0.equal(r0),
@@ -434,7 +423,6 @@ impl std::fmt::Display for TulispValue {
             TulispValue::Backquote { value, .. } => f.write_fmt(format_args!("`{}", value)),
             TulispValue::Unquote { value, .. } => f.write_fmt(format_args!(",{}", value)),
             TulispValue::Splice { value, .. } => f.write_fmt(format_args!(",@{}", value)),
-            TulispValue::Sharpquote { value, .. } => f.write_fmt(format_args!("#'{}", value)),
             TulispValue::Any(value) => f.write_fmt(format_args!("{}", value)),
             TulispValue::T => f.write_str("t"),
             TulispValue::SpecialForm => f.write_str("SpecialForm"),

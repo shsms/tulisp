@@ -496,7 +496,6 @@ fn wrapped_operand(obj: &TulispObject, depth: u32, in_tail: bool) -> Option<Wrap
             (value, depth, |value| TulispValue::Quote { value })
         }
         TulispValue::Quote { .. }
-        | TulispValue::Sharpquote { .. }
         | TulispValue::Nil
         | TulispValue::T
         | TulispValue::Symbol { .. }

@@ -593,7 +593,7 @@ pub(crate) fn compile_expr(
             }
             Ok(result)
         }
-        (TulispValue::Quote { value }, _) | (TulispValue::Sharpquote { value }, _) => {
+        (TulispValue::Quote { value }, _) => {
             if compiler.keep_result {
                 Ok(vec![Instruction::Push(value.clone())])
             } else {
