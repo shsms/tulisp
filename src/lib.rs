@@ -130,6 +130,15 @@ mod test_utils {
         assert!(av.null(), "{}(=> {}) is not nil", a, av);
     }
 
+    /// Asserts that ERR's data, what a `condition-case` handler sees, is
+    /// EXPECTED, read as Lisp.
+    #[track_caller]
+    pub(crate) fn assert_data(ctx: &mut crate::TulispContext, err: crate::Error, expected: &str) {
+        let expected = must_eval_string(ctx, expected);
+        let data = err.data(ctx);
+        assert!(data.equal(&expected), "got {data}, expected {expected}");
+    }
+
     /// Asserts that `a` fails with the error `msg`, trace included.
     #[track_caller]
     pub(crate) fn eval_assert_error(ctx: &mut crate::TulispContext, a: &str, msg: &str) {

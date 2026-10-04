@@ -265,7 +265,7 @@ pub(crate) fn parse_handlers(handlers: &TulispObject) -> Result<ParsedHandlers, 
 #[cfg(test)]
 mod tests {
     use crate::test_utils::{
-        eval_assert, eval_assert_equal, eval_assert_error, eval_assert_error_line,
+        assert_data, eval_assert, eval_assert_equal, eval_assert_error, eval_assert_error_line,
     };
     use crate::{TulispContext, TulispObject};
 
@@ -425,8 +425,7 @@ mod tests {
         );
         assert!(err.data(ctx).equal(&expected), "{}", err.data(ctx));
         let err = ctx.eval_string("(throw 'tag 1)").unwrap_err();
-        let expected = ctx.eval_string("'(tag 1)")?;
-        assert!(err.data(ctx).equal(&expected), "{}", err.data(ctx));
+        assert_data(ctx, err, "'(tag 1)");
         Ok(())
     }
 
@@ -684,7 +683,7 @@ mod tests {
     fn an_arith_error_has_no_data() {
         let ctx = &mut TulispContext::new();
         let err = ctx.eval_string("(/ 1 0)").unwrap_err();
-        assert!(err.data(ctx).null(), "{}", err.data(ctx));
+        assert_data(ctx, err, "nil");
         eval_assert_equal(
             ctx,
             "(condition-case e (/ 5 0) (error (error-message-string e)))",
@@ -830,7 +829,7 @@ mod tests {
         let data = ctx.eval_string("'(1 2)")?;
         let err = ctx.signal("arith-error", data.clone());
         assert_eq!(err.desc(), "Arithmetic error: 1, 2");
-        assert!(err.data(ctx).equal(&data));
+        assert_data(ctx, err, "'(1 2)");
         Ok(())
     }
 
@@ -1115,7 +1114,7 @@ mod tests {
             Some(r#"ERR Throw(done): No catch for tag: done, "x""#)
         );
         assert!(!err.is_a(ctx, "error") && !err.is_a(ctx, "no-catch"));
-        assert!(err.data(ctx).null());
+        assert_data(ctx, err, "nil");
     }
 
     #[test]
@@ -1172,8 +1171,7 @@ mod tests {
         );
         let err = ctx.eval_string("(throw 'done 42)").unwrap_err();
         assert!(err.is_a(ctx, "no-catch") && err.is_a(ctx, "error"));
-        let expected = ctx.eval_string("'(done 42)")?;
-        assert!(err.data(ctx).equal(&expected), "{}", err.data(ctx));
+        assert_data(ctx, err, "'(done 42)");
         Ok(())
     }
 

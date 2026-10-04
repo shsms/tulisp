@@ -531,6 +531,7 @@ impl Error {
 mod tests {
     use super::{Error, ErrorKind};
     use crate::TulispObject;
+    use crate::test_utils::assert_data;
 
     // A wrong-type error gives `(PREDICATE VALUE)` once its value is filled in,
     // and never takes a second value.
@@ -556,9 +557,7 @@ mod tests {
                 "'(listp 1)",
             ),
         ] {
-            let expected = ctx.eval_string(expected).unwrap();
-            let data = err.data(ctx);
-            assert!(data.equal(&expected), "{data} != {expected}");
+            assert_data(ctx, err, expected);
         }
     }
 
@@ -586,9 +585,7 @@ mod tests {
             ),
             (Error::out_of_range("m").fill_value(&symbol), r#"'("m")"#),
         ] {
-            let expected = ctx.eval_string(expected).unwrap();
-            let data = err.data(ctx);
-            assert!(data.equal(&expected), "{data} != {expected}");
+            assert_data(ctx, err, expected);
         }
     }
 

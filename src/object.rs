@@ -1309,6 +1309,7 @@ impl TulispObject {
 
 #[cfg(test)]
 mod tests {
+    use crate::test_utils::assert_data;
     use crate::{Error, Iter, TulispContext, TulispConvertible, TulispObject};
 
     // An error from the function given to `car_and_then` keeps its own data:
@@ -1322,8 +1323,7 @@ mod tests {
                 Err(Error::wrong_type_unfilled("integerp", "m"))
             })
             .unwrap_err();
-        let expected = ctx.eval_string(r#"'("m")"#).unwrap();
-        assert!(err.data(ctx).equal(&expected), "{}", err.data(ctx));
+        assert_data(ctx, err, r#"'("m")"#);
     }
 
     // `nil` is a symbol, so refusing it as one keeps the message as data.
@@ -1331,17 +1331,7 @@ mod tests {
     fn as_symbol_on_nil_keeps_its_message() {
         let ctx = &mut TulispContext::new();
         let err = TulispObject::nil().as_symbol().unwrap_err();
-        let expected = ctx
-            .eval_string(r#"'("Expected symbol, got: nil")"#)
-            .unwrap();
-        assert!(err.data(ctx).equal(&expected), "{}", err.data(ctx));
-    }
-
-    /// Asserts that ERR's data is EXPECTED, read as Lisp.
-    fn assert_data(ctx: &mut TulispContext, err: Error, expected: &str) {
-        let expected = ctx.eval_string(expected).unwrap();
-        let data = err.data(ctx);
-        assert!(data.equal(&expected), "got {data}, expected {expected}");
+        assert_data(ctx, err, r#"'("Expected symbol, got: nil")"#);
     }
 
     // A list check names the predicate and the value, as in Emacs.
