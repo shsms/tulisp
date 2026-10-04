@@ -673,12 +673,12 @@ impl TulispObject {
     extractor_fn_with_err!(
         f64,
         as_float,
-        "Returns a float is `self` holds a float, and an Error otherwise."
+        "Returns a float if `self` holds a float, and an Error otherwise."
     );
     extractor_fn_with_err!(
         i64,
         as_int,
-        "Returns an int is `self` holds an int, and an Error otherwise."
+        "Returns an int if `self` holds an int, and an Error otherwise."
     );
     extractor_fn_with_err!(
         Number,

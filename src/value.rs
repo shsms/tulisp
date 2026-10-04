@@ -666,7 +666,7 @@ impl TulispValue {
                 value: Number::Float(value),
                 ..
             } => Ok(*value),
-            t => Err(Error::type_mismatch(format!("Expected number, got: {}", t))),
+            t => Err(Error::type_mismatch(format!("Expected float, got: {}", t))),
         }
     }
 
@@ -999,6 +999,13 @@ impl TulispValue {
 mod tests {
     use crate::TulispContext;
     use crate::test_utils::eval_assert_equal;
+
+    // `as_float` takes only a float, and says so when it gets anything else.
+    #[test]
+    fn as_float_asks_for_a_float() {
+        let err = crate::TulispObject::from(5).as_float().unwrap_err();
+        assert_eq!(err.desc(), "Expected float, got: 5");
+    }
 
     // A global value set while a `let` binds a name that had none goes
     // under the `let`'s binding, and stays when the `let` ends.
