@@ -76,10 +76,28 @@ impl Spec {
     }
 }
 
+/// An argument formatted by its spec, before padding.
+struct Field {
+    sign: &'static str,
+    body: String,
+    /// Whether the `0` flag pads it with zeros.
+    zero_pad: bool,
+}
+
+impl Field {
+    fn text(body: String) -> Field {
+        Field {
+            sign: "",
+            body,
+            zero_pad: false,
+        }
+    }
+}
+
 /// Formats IN_STRING with ARGS as Emacs's `format` does, for the specs Tulisp
-/// supports. A format string it cannot use, one that asks for more ARGS than
-/// there are, or a spec whose argument has the wrong type is an `error`, with
-/// Emacs's text.
+/// supports: `%[FLAGS][WIDTH][.PRECISION]CONVERSION`. A format string it cannot
+/// use, one that asks for more ARGS than there are, or a spec whose argument
+/// has the wrong type is an `error`, with Emacs's text.
 pub(crate) fn format_string(
     in_string: &str,
     args: impl IntoIterator<Item = TulispObject>,
@@ -87,12 +105,6 @@ pub(crate) fn format_string(
     let mut args = args.into_iter();
     let mut output = String::new();
     let mut in_chars = in_string.chars().peekable();
-    // Supports `%[-][0]WIDTH[.PRECISION]TYPE` where TYPE is one of `s S d f`,
-    // plus `%%` for a literal percent. The `-` flag left-aligns and the `0`
-    // flag pads numerics with zeros. PRECISION applies to `%f` (digits after
-    // the decimal point). See the Emacs manual for the full format-spec
-    // grammar:
-    // https://www.gnu.org/software/emacs/manual/html_node/elisp/Formatting-Strings.html
     while let Some(ch) = in_chars.next() {
         if ch != '%' {
             output.push(ch);
@@ -108,63 +120,82 @@ pub(crate) fn format_string(
             output.push('%');
             continue;
         }
-        let Some(next_arg) = args.next() else {
+        let Some(arg) = args.next() else {
             return Err(Error::lisp_error("Not enough arguments for format string"));
         };
-        if matches!(spec.conversion, 'd' | 'f') && !next_arg.numberp() {
-            return Err(Error::lisp_error(
-                "Format specifier doesn\u{2019}t match argument type",
-            ));
-        }
-        // In Emacs a `%d` precision pads with zeros, so one whose digits
-        // overflowed is too wide for any string there.
-        if spec.conversion == 'd' && spec.precision == Some(usize::MAX) {
-            return Err(string_too_long());
-        }
-        let formatted = match spec.conversion {
-            's' => next_arg.fmt_string(),
-            'S' => next_arg.to_string(),
-            'd' => next_arg.try_int()?.to_string(),
-            'f' => {
-                let v = next_arg.try_float()?;
-                match spec.precision {
-                    Some(p) => {
-                        let shown = p.min(MAX_FRACTION_DIGITS);
-                        let mut formatted = format!("{v:.shown$}");
-                        if v.is_finite() {
-                            push_repeated(&mut formatted, '0', p - shown)?;
-                        }
-                        formatted
-                    }
-                    None => v.to_string(),
-                }
-            }
-            _ => {
-                return Err(Error::lisp_error(format!(
-                    "Invalid format operation %{}",
-                    spec.conversion
-                )));
-            }
-        };
-        let len = formatted.chars().count();
-        if spec.width > len {
-            let pad_char = if spec.zero && !spec.left && matches!(spec.conversion, 'd' | 'f') {
-                '0'
-            } else {
-                ' '
-            };
-            if spec.left {
-                output.push_str(&formatted);
-                push_repeated(&mut output, pad_char, spec.width - len)?;
-            } else {
-                push_repeated(&mut output, pad_char, spec.width - len)?;
-                output.push_str(&formatted);
-            }
-        } else {
-            output.push_str(&formatted);
-        }
+        let field = convert(&spec, &arg)?;
+        pad(&mut output, &spec, &field)?;
     }
     Ok(output)
+}
+
+/// ARG formatted by SPEC's conversion.
+fn convert(spec: &Spec, arg: &TulispObject) -> Result<Field, Error> {
+    if matches!(spec.conversion, 'd' | 'f') && !arg.numberp() {
+        return Err(Error::lisp_error(
+            "Format specifier doesn\u{2019}t match argument type",
+        ));
+    }
+    match spec.conversion {
+        's' => Ok(Field::text(arg.fmt_string())),
+        'S' => Ok(Field::text(arg.to_string())),
+        'd' => {
+            // In Emacs a `%d` precision pads with zeros, so one whose digits
+            // overflowed is too wide for any string there.
+            if spec.precision == Some(usize::MAX) {
+                return Err(string_too_long());
+            }
+            Ok(Field {
+                sign: "",
+                body: arg.try_int()?.to_string(),
+                zero_pad: true,
+            })
+        }
+        'f' => {
+            let value = arg.try_float()?;
+            let body = match spec.precision {
+                Some(precision) => {
+                    let shown = precision.min(MAX_FRACTION_DIGITS);
+                    let mut body = format!("{value:.shown$}");
+                    if value.is_finite() {
+                        push_repeated(&mut body, '0', precision - shown)?;
+                    }
+                    body
+                }
+                None => value.to_string(),
+            };
+            Ok(Field {
+                sign: "",
+                body,
+                zero_pad: true,
+            })
+        }
+        other => Err(Error::lisp_error(format!(
+            "Invalid format operation %{other}"
+        ))),
+    }
+}
+
+/// Writes FIELD to OUT, padded to SPEC's width: with zeros after the sign when
+/// SPEC asks for them and FIELD takes them, or else with spaces.
+fn pad(out: &mut String, spec: &Spec, field: &Field) -> Result<(), Error> {
+    let len = field.sign.len() + field.body.chars().count();
+    let fill = spec.width.saturating_sub(len);
+    if spec.left {
+        out.push_str(field.sign);
+        out.push_str(&field.body);
+        push_repeated(out, ' ', fill)
+    } else if spec.zero && field.zero_pad {
+        out.push_str(field.sign);
+        push_repeated(out, '0', fill)?;
+        out.push_str(&field.body);
+        Ok(())
+    } else {
+        push_repeated(out, ' ', fill)?;
+        out.push_str(field.sign);
+        out.push_str(&field.body);
+        Ok(())
+    }
 }
 
 #[cfg(test)]
