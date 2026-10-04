@@ -167,9 +167,16 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         },
     );
 
-    ctx.defun("prin1-to-string", |arg: TulispObject| -> String {
-        arg.fmt_string()
-    });
+    ctx.defun(
+        "prin1-to-string",
+        |arg: TulispObject, noescape: Option<bool>| -> String {
+            if noescape.unwrap_or_default() {
+                arg.fmt_string()
+            } else {
+                arg.to_string()
+            }
+        },
+    );
 
     ctx.defun(
         "princ",
@@ -1682,6 +1689,13 @@ tests/bad-load.lisp:1.9-1.9:  at nil
             "(setq h '(list 25 'hello))(prin1-to-string h)",
             r#""(list 25 'hello)""#,
         );
-        eval_assert_equal(ctx, r#"(setq h "hello")(prin1-to-string h)"#, r#""hello""#);
+        eval_assert_equal(
+            ctx,
+            r#"(setq h "hello")(prin1-to-string h)"#,
+            r#""\"hello\"""#,
+        );
+        eval_assert_equal(ctx, r#"(prin1-to-string "hello" t)"#, r#""hello""#);
+        eval_assert_equal(ctx, r#"(prin1-to-string '("a") t)"#, r#""(a)""#);
+        eval_assert_equal(ctx, r#"(prin1-to-string '("a") nil)"#, r#""(\"a\")""#);
     }
 }
