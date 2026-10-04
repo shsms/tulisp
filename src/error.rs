@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use crate::{TulispContext, TulispObject};
+use crate::{TulispContext, TulispObject, object::Span};
 
 mod table;
 pub(crate) use table::ErrorTable;
@@ -170,7 +170,24 @@ impl Error {
 pub struct Error {
     kind: ErrorKind,
     desc: String,
-    backtrace: Vec<TulispObject>,
+    backtrace: Vec<TraceEntry>,
+}
+
+/// A form an error passed through.
+#[derive(Clone)]
+struct TraceEntry {
+    form: TulispObject,
+}
+
+impl TraceEntry {
+    /// Where the entry's form is, when `Display` prints the entry: it
+    /// skips a form with no span, and a number, a symbol or a string.
+    fn printed_span(&self) -> Option<Span> {
+        if self.form.numberp() || self.form.is_symbol_variant() || self.form.stringp() {
+            return None;
+        }
+        self.form.span()
+    }
 }
 
 impl std::fmt::Display for Error {
@@ -181,23 +198,21 @@ impl std::fmt::Display for Error {
         } else {
             write!(f, "ERR {}: {}", self.kind, desc)?;
         }
-        for span_obj in &self.backtrace {
-            if span_obj.numberp() || span_obj.is_symbol_variant() || span_obj.stringp() {
-                continue;
-            }
-            let prefix = if let Some(span) = span_obj.span() {
-                format!(
-                    "<file {}>:{}.{}-{}.{}:",
-                    span.file_id, span.start.0, span.start.1, span.end.0, span.end.1
-                )
-            } else {
+        for entry in &self.backtrace {
+            let Some(span) = entry.printed_span() else {
                 continue;
             };
-            let string = span_obj.to_string().replace('\n', "\\n");
+            write!(f, "\n<file {}>:", span.file_id)?;
+            write!(
+                f,
+                "{}.{}-{}.{}:  at ",
+                span.start.0, span.start.1, span.end.0, span.end.1
+            )?;
+            let string = entry.form.to_string().replace('\n', "\\n");
             if string.len() > 80 {
-                write!(f, "\n{}  at {:.80}...", prefix, string)?;
+                write!(f, "{string:.80}...")?;
             } else {
-                write!(f, "\n{}  at {}", prefix, string)?;
+                f.write_str(&string)?;
             }
         }
         Ok(())
@@ -270,7 +285,7 @@ impl Error {
         } else {
             format!("ERR {}: {}", self.kind, desc)
         };
-        for span in &self.backtrace {
+        for TraceEntry { form: span } in &self.backtrace {
             let prefix = self.format_span(ctx, span);
             if prefix.is_empty() {
                 continue;
@@ -310,10 +325,14 @@ impl Error {
     /// `addr_as_usize`) and update the call sites that rely on the
     /// last-only collapse.
     pub fn with_trace(mut self, span: TulispObject) -> Self {
-        if self.backtrace.last().is_some_and(|last| last.eq(&span)) {
+        if self
+            .backtrace
+            .last()
+            .is_some_and(|last| last.form.eq(&span))
+        {
             return self;
         }
-        self.backtrace.push(span);
+        self.backtrace.push(TraceEntry { form: span });
         self
     }
 
