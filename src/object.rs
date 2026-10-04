@@ -846,7 +846,7 @@ impl TulispObject {
     predicate_fn!(
         pub,
         boundp,
-        "Returns True if `self` is bound in the current scope."
+        "Returns True if `self` is a symbol with a value in the current scope. `nil`, `t` and keywords always have one: themselves."
     );
     predicate_fn!(pub, keywordp, "Returns True if `self` is a Keyword.");
 

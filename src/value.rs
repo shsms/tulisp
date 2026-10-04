@@ -589,7 +589,8 @@ impl TulispValue {
     #[inline(always)]
     pub(crate) fn boundp(&self) -> bool {
         match self {
-            TulispValue::Symbol { value } => value.boundp(),
+            TulispValue::Nil | TulispValue::T => true,
+            TulispValue::Symbol { value } => value.boundp() || value.is_constant(),
             _ => false,
         }
     }

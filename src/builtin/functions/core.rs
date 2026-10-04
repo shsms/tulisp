@@ -1140,6 +1140,17 @@ mod tests {
         );
     }
 
+    // nil, t and keywords are always bound, to themselves, as in Emacs.
+    #[test]
+    fn nil_t_and_keywords_are_bound() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(list (boundp nil) (boundp t) (boundp :k) (boundp 'zzz) (boundp 5))",
+            "'(t t t nil nil)",
+        );
+    }
+
     #[test]
     fn list_predicates() {
         let ctx = &mut TulispContext::new();
