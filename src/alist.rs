@@ -24,35 +24,20 @@ pub fn alist_from(input: impl IntoIterator<Item = (TulispObject, TulispObject)>)
 }
 
 /// Returns the first association for key in alist, comparing key against the
-/// alist elements using testfn if it is a function, and equal otherwise.
+/// alist elements using testfn, and with `equal` when testfn is `None` or nil.
 pub fn assoc(
     ctx: &mut TulispContext,
     key: &TulispObject,
     alist: &TulispObject,
     testfn: Option<TulispObject>,
 ) -> Result<TulispObject, Error> {
-    if !alist.listp() {
-        return Err(Error::type_mismatch(format!(
-            "expected alist. got: {}",
-            alist
-        )));
-    }
-    if let Some(testfn) = testfn {
-        let pred = resolve_function(ctx, &testfn)?;
-
-        let testfn = |_1: &TulispObject, _2: &TulispObject| -> Result<bool, Error> {
-            crate::bytecode::call_function(ctx, &pred, vec![_1.clone(), _2.clone()])
-                .map(|x| x.is_truthy())
-        };
-        assoc_find(key, alist, testfn)
-    } else {
-        let testfn = |_1: &TulispObject, _2: &TulispObject| _1.try_equal(_2);
-        assoc_find(key, alist, testfn)
-    }
+    assoc_by(ctx, key, alist, testfn, |a, b| a.try_equal(b))
 }
 
 /// Finds the first association (key . value) by comparing key with alist
-/// elements, and, if found, returns the value of that association.
+/// elements, and, if found, returns the value of that association. It compares
+/// with testfn, and with `eq` when testfn is `None` or nil, as Emacs Lisp's
+/// `alist-get` does.
 pub fn alist_get(
     ctx: &mut TulispContext,
     key: &TulispObject,
@@ -60,11 +45,37 @@ pub fn alist_get(
     default_value: Option<TulispObject>,
     testfn: Option<TulispObject>,
 ) -> Result<TulispObject, Error> {
-    let x = assoc(ctx, key, alist, testfn)?;
+    let x = assoc_by(ctx, key, alist, testfn, |a, b| Ok(a.eq(b)))?;
     if x.is_truthy() {
         x.cdr()
     } else {
         Ok(default_value.unwrap_or_else(TulispObject::nil))
+    }
+}
+
+/// The first association for key in alist, compared with testfn, or with
+/// `default` when testfn is `None` or nil.
+fn assoc_by(
+    ctx: &mut TulispContext,
+    key: &TulispObject,
+    alist: &TulispObject,
+    testfn: Option<TulispObject>,
+    default: impl FnMut(&TulispObject, &TulispObject) -> Result<bool, Error>,
+) -> Result<TulispObject, Error> {
+    if !alist.listp() {
+        return Err(Error::type_mismatch(format!(
+            "expected alist. got: {alist}"
+        )));
+    }
+    match testfn.filter(|testfn| !testfn.null()) {
+        Some(testfn) => {
+            let pred = resolve_function(ctx, &testfn)?;
+            assoc_find(key, alist, |a, b| {
+                crate::bytecode::call_function(ctx, &pred, vec![a.clone(), b.clone()])
+                    .map(|x| x.is_truthy())
+            })
+        }
+        None => assoc_find(key, alist, default),
     }
 }
 
@@ -337,5 +348,54 @@ mod tests {
         "##,
             r##"'((30 . 120) (30 . 120) "person" "person" nil nil "something" "something")"##,
         );
+    }
+
+    // `assoc` and `alist-get` refuse a value that is no list before they look
+    // at TESTFN.
+    #[test]
+    fn assoc_and_alist_get_reject_a_non_list_alist() {
+        let ctx = &mut TulispContext::new();
+        for form in [
+            "(alist-get 'a 5)",
+            "(alist-get 'a 5 nil nil 'equal)",
+            "(alist-get 'a 5 nil nil 'no-such-fn)",
+            "(assoc 'a 5)",
+            "(assoc 'a 5 'no-such-fn)",
+        ] {
+            crate::test_utils::eval_assert_error_line(
+                ctx,
+                form,
+                "ERR TypeMismatch: expected alist. got: 5",
+            );
+        }
+    }
+
+    // With no TESTFN, `alist-get` compares keys with `eq`, as in Emacs: a
+    // string key matches only with `equal` as TESTFN.
+    #[test]
+    fn alist_get_compares_keys_with_eq_by_default() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            r#"(let ((vv (list (cons "a" 1) (cons 1000 2) (cons 'k 3))))
+                 (list (alist-get "a" vv) (alist-get "a" vv nil nil 'equal)
+                       (alist-get 1000 vv) (alist-get 'k vv)))"#,
+            "'(nil 1 2 3)",
+        );
+    }
+
+    // From Rust, a nil TESTFN means no TESTFN, as in Emacs.
+    #[test]
+    fn a_nil_testfn_is_no_testfn() -> Result<(), Error> {
+        let ctx = &mut TulispContext::new();
+        let alist = ctx.eval_string(r#"(list (cons "a" 1))"#)?;
+        let key = crate::TulispObject::from("a");
+        let nil = Some(crate::TulispObject::nil());
+        assert!(alist_get(ctx, &key, &alist, None, nil.clone())?.null());
+        assert_eq!(
+            super::assoc(ctx, &key, &alist, nil)?.to_string(),
+            r#"("a" . 1)"#
+        );
+        Ok(())
     }
 }
