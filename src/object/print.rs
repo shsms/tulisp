@@ -1,4 +1,4 @@
-//! Printing objects as `prin1` does.
+//! Printing objects as `prin1` and `princ` do.
 //!
 //! The printer keeps the lists it is inside on a list of its own, instead of
 //! one stack frame per level, so a list of any depth prints.
@@ -83,6 +83,8 @@ struct OpenLists {
     lists: Vec<OpenList>,
     /// Whether the outermost list counts among the lists being printed.
     outer_counted: bool,
+    /// Whether strings print without quotes, as `princ` prints them.
+    princ: bool,
 }
 
 impl OpenLists {
@@ -113,21 +115,34 @@ impl Drop for OpenLists {
 /// list whose cdrs loop back ends in ` ...` after a few rounds of the loop,
 /// where the walk notices it.
 pub(super) fn print(obj: &TulispObject, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    print_lists(obj, f, true)
+    print_lists(obj, f, true, false)
+}
+
+/// Prints OBJ to F as `princ` does: as `prin1` prints it, but with strings,
+/// inside lists too, printed without quotes or escapes.
+pub(super) fn princ(obj: &TulispObject, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    print_lists(obj, f, true, true)
 }
 
 /// Prints OBJ, a list copied out of a value only to print it, as `print`
 /// does, but leaves OBJ off the lists being printed, as no list inside it can
 /// be the copy.
 pub(crate) fn print_copy(obj: &TulispObject, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    print_lists(obj, f, false)
+    print_lists(obj, f, false, false)
 }
 
-/// `print`, which counts OBJ among the lists being printed when OUTER_COUNTED.
-fn print_lists(obj: &TulispObject, f: &mut fmt::Formatter<'_>, outer_counted: bool) -> fmt::Result {
+/// `print`, which counts OBJ among the lists being printed when OUTER_COUNTED,
+/// and prints as `princ` when PRINC.
+fn print_lists(
+    obj: &TulispObject,
+    f: &mut fmt::Formatter<'_>,
+    outer_counted: bool,
+    princ: bool,
+) -> fmt::Result {
     let mut open = OpenLists {
         lists: Vec::new(),
         outer_counted,
+        princ,
     };
     let mut next = Some(obj.clone());
     loop {
@@ -242,6 +257,10 @@ fn print_one(
         TulispValue::Backquote { value, .. } => ("`", value.clone()),
         TulispValue::Unquote { value, .. } => (",", value.clone()),
         TulispValue::Splice { value, .. } => (",@", value.clone()),
+        TulispValue::String { value, .. } if open.princ => {
+            f.write_str(value)?;
+            return Ok(None);
+        }
         other => {
             write!(f, "{other}")?;
             return Ok(None);
@@ -369,6 +388,19 @@ mod tests {
         let once = list.to_string();
         let twice = TulispObject::cons(list.clone(), TulispObject::cons(list, TulispObject::nil()));
         assert_eq!(twice.to_string(), format!("({once} {once})"));
+    }
+
+    // `princ` and `%s` print strings without quotes, inside lists too.
+    #[test]
+    fn princ_prints_strings_without_quotes() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            r#"(format "%s" (list "a" '(b "c") ''"e"))"#,
+            r#""(a (b c) 'e)""#,
+        );
+        eval_assert_equal(ctx, r#"(format "%s" '("a" . "d"))"#, r#""(a . d)""#);
+        eval_assert_equal(ctx, r#"(format "%S" '("a"))"#, r#""(\"a\")""#);
     }
 
     // A printed string escapes `"`, `\`, newline and tab, so it reads back as

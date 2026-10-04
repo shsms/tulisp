@@ -554,7 +554,13 @@ impl TulispObject {
         if let TulispValue::String { value, .. } = &self.inner_ref().0 {
             return value.clone();
         }
-        self.to_string()
+        struct Princ<'a>(&'a TulispObject);
+        impl std::fmt::Display for Princ<'_> {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                print::princ(self.0, f)
+            }
+        }
+        Princ(self).to_string()
     }
 
     /// Sets the global value of `self`, as Emacs Lisp's
