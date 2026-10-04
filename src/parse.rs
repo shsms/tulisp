@@ -189,8 +189,9 @@ impl Tokenizer<'_> {
 
     /// Read the escape after a backslash, as Emacs does: `\n`, `\s`, `\d` and
     /// the other letters, octal `\101`, hex `\x41`, `\u00e9`, `\U0001F600`, and
-    /// control characters `\C-a` and `\^a`. Any other character stands for
-    /// itself.
+    /// control characters `\C-a` and `\^a`. Modifier keys such as `\M-a`,
+    /// `\N{NAME}` and a malformed escape are errors. Any other character stands
+    /// for itself.
     fn read_escape(&mut self, in_string: bool) -> Result<u32, String> {
         let ch = self
             .next_char()
@@ -216,6 +217,7 @@ impl Tokenizer<'_> {
             'N' if self.peek_char() == Some('{') => {
                 return Err("\\N{NAME} is not supported".to_string());
             }
+            'N' => return Err("Expected opening brace after \\N".to_string()),
             '0'..='7' => self.read_digits(ch as u32 - '0' as u32, 8, 2)?.0,
             'x' => match self.read_digits(0, 16, usize::MAX)? {
                 (_, 0) => return Err("\\x not followed by a hex digit".to_string()),
@@ -237,6 +239,12 @@ impl Tokenizer<'_> {
                 self.read_control_char(in_string)?
             }
             '^' => self.read_control_char(in_string)?,
+            'C' | 'M' | 'S' | 'H' | 'A' => {
+                return Err(format!(
+                    "Invalid escape char syntax: \\{ch} not followed by -"
+                ));
+            }
+            '\n' => return Err("Invalid escape char syntax: \\<newline>".to_string()),
             c => c as u32,
         };
         Ok(code)
@@ -1185,6 +1193,11 @@ mod tests {
             (r#""\M-a""#, r"Modifier keys are not supported: \M-"),
             (r#""\C-%""#, "No control character for %"),
             (r#""\x110000""#, r"Not a character: \x110000"),
+            (
+                r#""\Ca""#,
+                r"Invalid escape char syntax: \C not followed by -",
+            ),
+            (r#""\Na""#, r"Expected opening brace after \N"),
         ];
         for (program, desc) in cases {
             let line = format!("ERR ParsingError: SyntaxError {desc}");
@@ -1206,6 +1219,13 @@ mod tests {
             (r"?\u00e", r"\u needs 4 hex digits"),
             (r"?\U0001F60", r"\U needs 8 hex digits"),
             (r"?\U00110000", r"Not a Unicode character: \U110000"),
+            (r"?\S-a", r"Modifier keys are not supported: \S-"),
+            (r"?\A-a", r"Modifier keys are not supported: \A-"),
+            (r"?\C", r"Invalid escape char syntax: \C not followed by -"),
+            (r"?\Ma", r"Invalid escape char syntax: \M not followed by -"),
+            (r"?\S", r"Invalid escape char syntax: \S not followed by -"),
+            (r"?\N", r"Expected opening brace after \N"),
+            ("?\\\n", r"Invalid escape char syntax: \<newline>"),
         ];
         for (program, desc) in cases {
             let line = format!("ERR ParsingError: SyntaxError {desc}");
