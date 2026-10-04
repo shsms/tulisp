@@ -133,13 +133,17 @@ fn write_back(seq: &TulispObject, items: Vec<TulispObject>) -> Result<(), Error>
 
 /// Whether A comes before B, as Emacs's `value<` orders them.
 fn value_less(a: &TulispObject, b: &TulispObject) -> Result<bool, Error> {
-    Ok(value_cmp(a, b)? == Ordering::Less)
+    Ok(value_cmp(a, b, MAX_DEPTH)? == Ordering::Less)
 }
+
+/// How many nested elements `value_cmp` steps into, as in Emacs.
+const MAX_DEPTH: u32 = 200;
 
 /// How A and B compare, as Emacs's `value<` orders them: numbers by value,
 /// strings and symbols by name, and lists element by element. Values of
-/// different kinds are an error.
-fn value_cmp(a: &TulispObject, b: &TulispObject) -> Result<Ordering, Error> {
+/// different kinds are an error, and so is stepping into more than DEPTH nested
+/// elements.
+fn value_cmp(a: &TulispObject, b: &TulispObject, depth: u32) -> Result<Ordering, Error> {
     // The same object is equal to itself, and reading its name twice at once
     // would lock it twice.
     if a.eq(b) {
@@ -154,7 +158,7 @@ fn value_cmp(a: &TulispObject, b: &TulispObject) -> Result<Ordering, Error> {
     }
     // nil is the empty list next to a list, and a symbol next to a symbol.
     if (a.consp() || b.consp()) && a.listp() && b.listp() {
-        return list_cmp(a, b);
+        return list_cmp(a, b, depth);
     }
     if a.symbolp() && b.symbolp() {
         return name_cmp(a, b);
@@ -173,11 +177,14 @@ fn name_cmp(a: &TulispObject, b: &TulispObject) -> Result<Ordering, Error> {
 
 /// `value_cmp` for two lists: by their first elements that differ, a list
 /// before a longer one that starts with it, and then by their leftover tails.
-fn list_cmp(a: &TulispObject, b: &TulispObject) -> Result<Ordering, Error> {
+fn list_cmp(a: &TulispObject, b: &TulispObject, depth: u32) -> Result<Ordering, Error> {
     let (mut a, mut b) = (a.clone(), b.clone());
     let (mut a_cycle, mut b_cycle) = (CycleCheck::new(), CycleCheck::new());
     while a.consp() && b.consp() {
-        match value_cmp(&a.car()?, &b.car()?)? {
+        let inner = depth
+            .checked_sub(1)
+            .ok_or_else(|| Error::lisp_error("Maximum depth exceeded in comparison".to_string()))?;
+        match value_cmp(&a.car()?, &b.car()?, inner)? {
             Ordering::Equal => {}
             other => return Ok(other),
         }
@@ -191,7 +198,7 @@ fn list_cmp(a: &TulispObject, b: &TulispObject) -> Result<Ordering, Error> {
         (true, false) if b.consp() => Ok(Ordering::Less),
         (false, true) if a.consp() => Ok(Ordering::Greater),
         // The tails left, at least one of them an atom that is not nil.
-        _ => value_cmp(&a, &b),
+        _ => value_cmp(&a, &b, depth),
     }
 }
 
@@ -391,6 +398,30 @@ mod tests {
             ),
         ] {
             eval_assert_error_line(ctx, program, line);
+        }
+    }
+
+    // `value<` steps into at most 200 nested elements, as Emacs does, and then
+    // gives an error instead of overflowing the stack.
+    #[test]
+    fn value_less_limits_its_depth() {
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string("(defun nest (n leaf) (dotimes (_ n) (setq leaf (list leaf))) leaf)")
+            .unwrap();
+        eval_assert_equal(ctx, "(value< (nest 200 1) (nest 200 2))", "t");
+        eval_assert_equal(
+            ctx,
+            "(value< (list 0 (nest 199 1)) (list 0 (nest 199 2)))",
+            "t",
+        );
+        let depth = "ERR LispError: Maximum depth exceeded in comparison";
+        for program in [
+            "(value< (nest 201 1) (nest 201 2))",
+            "(value< (list 0 (nest 200 1)) (list 0 (nest 200 2)))",
+            "(let ((a (list 1)) (b (list 1))) (setcar a a) (setcar b b) (value< a b))",
+            "(sort (list (nest 3000 2) (nest 3000 1)) nil)",
+        ] {
+            eval_assert_error_line(ctx, program, depth);
         }
     }
 }
