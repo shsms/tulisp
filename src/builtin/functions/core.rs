@@ -1698,4 +1698,22 @@ tests/bad-load.lisp:1.9-1.9:  at nil
         eval_assert_equal(ctx, r#"(prin1-to-string '("a") t)"#, r#""(a)""#);
         eval_assert_equal(ctx, r#"(prin1-to-string '("a") nil)"#, r#""(\"a\")""#);
     }
+
+    #[test]
+    fn concat_joins_strings() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_error(
+            ctx,
+            "(concat 'hello 'world)",
+            "ERR TypeMismatch: Not a string: hello
+<eval_string>:1.1-1.22:  at (concat 'hello 'world)
+",
+        );
+        eval_assert_equal(ctx, r#"(concat "hello" " world")"#, r#""hello world""#);
+        eval_assert_equal(
+            ctx,
+            r#"(let ((hello "hello") (world "world")) (concat hello " " world))"#,
+            r#""hello world""#,
+        );
+    }
 }

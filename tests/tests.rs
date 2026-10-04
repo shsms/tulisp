@@ -132,23 +132,6 @@ user-prelude.lisp:1.1-1.11:  at (+ 1 "one")"#
 }
 
 #[test]
-fn test_strings() -> Result<(), Error> {
-    tulisp_assert! {
-        program: r##"(concat 'hello 'world)"##,
-        error: r#"ERR TypeMismatch: Not a string: hello
-<eval_string>:1.1-1.22:  at (concat 'hello 'world)
-"#
-    }
-    tulisp_assert! { program: r##"(concat "hello" " world")"##, result: r#""hello world""# }
-    tulisp_assert! {
-        program: r##"(let ((hello "hello") (world "world")) (concat hello " " world))"##,
-        result: r#""hello world""#,
-    }
-
-    Ok(())
-}
-
-#[test]
 fn test_cons() -> Result<(), Error> {
     tulisp_assert! {
         program: "(cons 1 2)",
