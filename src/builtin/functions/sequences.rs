@@ -16,17 +16,16 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     ctx.defun(
         "string-join",
-        |strings: TulispObject, sep: Option<String>| {
-            let sep = sep.unwrap_or_default();
+        |strings: TulispObject, sep: Option<TulispObject>| {
             let mut out = String::new();
             let mut first = true;
             let mut iter = strings.base_iter();
             for item in iter.by_ref() {
-                if !first {
-                    out.push_str(&sep);
+                if !first && let Some(sep) = &sep {
+                    super::core::push_text(&mut out, sep)?;
                 }
                 first = false;
-                out.push_str(&item.as_string()?);
+                super::core::push_text(&mut out, &item)?;
             }
             iter.take_error()?;
             Ok(TulispObject::from(out))
@@ -183,6 +182,11 @@ mod tests {
         );
         eval_assert_equal(ctx, r#"(mapconcat (lambda (s) s) '("x") ",")"#, r#""x""#);
         eval_assert_equal(ctx, r#"(mapconcat (lambda (s) s) '() ",")"#, r#""""#);
+        eval_assert_equal(
+            ctx,
+            r#"(mapconcat (lambda (s) s) '("a" nil "b") ",")"#,
+            r#""a,,b""#,
+        );
     }
 
     #[test]
@@ -191,6 +195,17 @@ mod tests {
         eval_assert_equal(ctx, r#"(string-join '("a" "b" "c") "-")"#, r#""a-b-c""#);
         eval_assert_equal(ctx, r#"(string-join '("a" "b"))"#, r#""ab""#);
         eval_assert_equal(ctx, r#"(string-join '())"#, r#""""#);
+        eval_assert_equal(ctx, r#"(string-join '("a" nil "b") ",")"#, r#""a,,b""#);
+        eval_assert_equal(ctx, r#"(string-join '("a" (98 99)) ",")"#, r#""a,bc""#);
+        // The separator is text as `concat` takes it, read only when used.
+        eval_assert_equal(ctx, r#"(string-join '("a" "b") '(44 32))"#, r#""a, b""#);
+        eval_assert_equal(ctx, r#"(string-join '("a" "b") nil)"#, r#""ab""#);
+        eval_assert_equal(ctx, r#"(string-join '("a") 'x)"#, r#""a""#);
+        eval_assert_error_line(
+            ctx,
+            r#"(string-join '("a" "b") 'x)"#,
+            "ERR TypeMismatch: Not a string: x",
+        );
     }
 
     #[test]

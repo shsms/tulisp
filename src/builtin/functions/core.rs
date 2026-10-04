@@ -138,12 +138,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         |rest: crate::Rest<TulispObject>| -> Result<String, Error> {
             let mut ret = String::new();
             for ele in rest {
-                match ele.as_string() {
-                    Ok(ref s) => ret.push_str(s),
-                    _ => {
-                        return Err(Error::type_mismatch(format!("Not a string: {}", ele)));
-                    }
-                }
+                push_text(&mut ret, &ele)?;
             }
             Ok(ret)
         },
@@ -408,6 +403,29 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.define_special_form("declare");
 
     ctx.define_special_form("defvar");
+}
+
+/// Adds the text of OBJ to OUT, as `concat` takes it: a string, nil, or a
+/// list of characters.
+pub(crate) fn push_text(out: &mut String, obj: &TulispObject) -> Result<(), Error> {
+    if let Ok(text) = obj.as_string() {
+        out.push_str(&text);
+        return Ok(());
+    }
+    if !obj.listp() {
+        return Err(Error::type_mismatch(format!("Not a string: {obj}")));
+    }
+    let mut iter = obj.base_iter();
+    for item in iter.by_ref() {
+        let ch = item
+            .as_int()
+            .ok()
+            .and_then(|code| u32::try_from(code).ok())
+            .and_then(char::from_u32)
+            .ok_or_else(|| Error::type_mismatch(format!("Not a character: {item}")))?;
+        out.push(ch);
+    }
+    iter.take_error()
 }
 
 /// No float has a digit other than zero past this many after the point:
@@ -1714,6 +1732,30 @@ tests/bad-load.lisp:1.9-1.9:  at nil
             ctx,
             r#"(let ((hello "hello") (world "world")) (concat hello " " world))"#,
             r#""hello world""#,
+        );
+    }
+
+    // `concat` takes nil and lists of characters too, as in Emacs.
+    #[test]
+    fn concat_takes_nil_and_character_lists() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, r#"(concat "x" nil "y")"#, r#""xy""#);
+        eval_assert_equal(ctx, r#"(concat "a" '(98 99) '(233))"#, r#""abcé""#);
+        eval_assert_error_line(
+            ctx,
+            r#"(concat "a" '(98 "c"))"#,
+            r#"ERR TypeMismatch: Not a character: "c""#,
+        );
+        eval_assert_error_line(
+            ctx,
+            "(concat '(-1))",
+            "ERR TypeMismatch: Not a character: -1",
+        );
+        eval_assert_error_line(ctx, "(concat 5)", "ERR TypeMismatch: Not a string: 5");
+        eval_assert_error_line(
+            ctx,
+            "(concat '(4294967393))",
+            "ERR TypeMismatch: Not a character: 4294967393",
         );
     }
 }
