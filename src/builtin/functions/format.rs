@@ -151,7 +151,7 @@ pub(crate) fn format_string(
 
 /// ARG formatted by SPEC's conversion.
 fn convert(spec: &Spec, arg: &TulispObject) -> Result<Field, Error> {
-    if matches!(spec.conversion, 'd' | 'x' | 'X' | 'o' | 'f' | 'e') && !arg.numberp() {
+    if matches!(spec.conversion, 'd' | 'x' | 'X' | 'o' | 'f' | 'e' | 'g') && !arg.numberp() {
         return Err(Error::lisp_error(
             "Format specifier doesn\u{2019}t match argument type",
         ));
@@ -160,7 +160,7 @@ fn convert(spec: &Spec, arg: &TulispObject) -> Result<Field, Error> {
         's' => Ok(Field::text(cut(arg.fmt_string(), spec.precision))),
         'S' => Ok(Field::text(cut(arg.to_string(), spec.precision))),
         'd' | 'x' | 'X' | 'o' => integer(spec, arg.try_int()?),
-        'f' | 'e' => float(spec, arg.try_float()?),
+        'f' | 'e' | 'g' => float(spec, arg.try_float()?),
         other => Err(invalid_operation(other)),
     }
 }
@@ -170,7 +170,7 @@ fn invalid_operation(conversion: char) -> Error {
     Error::lisp_error(format!("Invalid format operation %{conversion}"))
 }
 
-/// VALUE under SPEC's float conversion: `%f` or `%e`.
+/// VALUE under SPEC's float conversion: `%f`, `%e` or `%g`.
 fn float(spec: &Spec, value: f64) -> Result<Field, Error> {
     let sign = spec.sign(value.is_sign_negative());
     if !value.is_finite() {
@@ -186,6 +186,7 @@ fn float(spec: &Spec, value: f64) -> Result<Field, Error> {
     let body = match spec.conversion {
         'f' => fixed_form(value.abs(), precision, spec.alt)?,
         'e' => exponent_form(value.abs(), precision, spec.alt)?,
+        'g' => general_form(value.abs(), precision, spec.alt)?,
         other => return Err(invalid_operation(other)),
     };
     Ok(Field {
@@ -225,6 +226,31 @@ fn exponent_form(value: f64, precision: usize, alt: bool) -> Result<String, Erro
     }
     let exp_sign = if exponent < 0 { '-' } else { '+' };
     body.push_str(&format!("e{exp_sign}{:02}", exponent.unsigned_abs()));
+    Ok(body)
+}
+
+/// VALUE, not negative, as `%g` prints it, with PRECISION significant digits:
+/// in the form of `%e` when its exponent is below -4 or not below PRECISION, or
+/// else of `%f`. Trailing zeros after the point go, unless ALT.
+fn general_form(value: f64, precision: usize, alt: bool) -> Result<String, Error> {
+    let precision = precision.max(1);
+    let exponent_text = exponent_form(value, precision - 1, alt)?;
+    let exponent: i64 = exponent_text
+        .rsplit_once('e')
+        .and_then(|(_, exponent)| exponent.parse().ok())
+        .unwrap_or(0);
+    let mut body = if exponent < -4 || exponent >= precision as i64 {
+        exponent_text
+    } else {
+        fixed_form(value, (precision as i64 - 1 - exponent) as usize, alt)?
+    };
+    if !alt {
+        let (mantissa, exponent) = body.split_at(body.find('e').unwrap_or(body.len()));
+        if mantissa.contains('.') {
+            let mantissa = mantissa.trim_end_matches('0').trim_end_matches('.');
+            body = format!("{mantissa}{exponent}");
+        }
+    }
     Ok(body)
 }
 
@@ -604,5 +630,48 @@ mod tests {
     fn format_alt_keeps_the_point() {
         let ctx = &mut TulispContext::new();
         eval_assert_equal(ctx, r#"(format "%#.0f|%.0f" 2.0 2.0)"#, r#""2.|2""#);
+    }
+
+    // `%g` takes the `%e` form when the exponent is below -4 or not below the
+    // precision, and the `%f` form otherwise, and drops trailing zeros unless
+    // the `#` flag keeps them, as C and Emacs do.
+    #[test]
+    fn format_general_form() {
+        let ctx = &mut TulispContext::new();
+        let cases = [
+            (
+                r#"(format "%g %g %g %g" 100000.0 1000000.0 0.0001 0.00001)"#,
+                r#""100000 1e+06 0.0001 1e-05""#,
+            ),
+            (
+                r#"(format "%g|%g|%g|%g|%g" 3 0 0.5 -0.0 1e100)"#,
+                r#""3|0|0.5|-0|1e+100""#,
+            ),
+            (
+                r#"(format "%g|%.2g|%g" 123456789 0.000123456 99999.95)"#,
+                r#""1.23457e+08|0.00012|99999.9""#,
+            ),
+            (
+                r#"(format "%.3g|%.0g|%+g|%010g" 3.14159 15.0 1.5 -1.5)"#,
+                r#""3.14|2e+01|+1.5|-0000001.5""#,
+            ),
+            (
+                r#"(format "%#g|%#.3g|%#.0g|%#g" 1.0 1.0 2.0 0.0001)"#,
+                r#""1.00000|1.00|2.|0.000100000""#,
+            ),
+            (
+                r#"(format "%#g|%#.3g|%#.1g" 1e10 1e10 1e10)"#,
+                r#""1.00000e+10|1.00e+10|1.e+10""#,
+            ),
+            (r#"(format "%g|%g" 1.0e+INF 0.0e+NaN)"#, r#""inf|nan""#),
+        ];
+        for (program, expected) in cases {
+            eval_assert_equal(ctx, program, expected);
+        }
+        eval_assert_error_line(
+            ctx,
+            r#"(format "%G" 1.5)"#,
+            "ERR LispError: Invalid format operation %G",
+        );
     }
 }
