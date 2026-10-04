@@ -514,18 +514,21 @@ pub(super) fn compile_fn_defvar(
     ctx.compile_1_arg_call(name, args, true, |ctx, sym, rest| {
         let (value, _docstring): (Option<TulispObject>, Option<TulispObject>) =
             rest.destructure(ctx)?;
-        let value = value.unwrap_or_default();
         crate::builtin::check_defvar_name(sym)?;
         sym.set_special()?;
         let keep_result = ctx.compiler.as_ref().unwrap().keep_result;
-        let bound = ctx.compiler.as_mut().unwrap().new_label();
-        let mut result = vec![
-            Instruction::DefVar(sym.clone()),
-            Instruction::JumpIfNotNil(Pos::Label(bound.clone())),
-        ];
-        result.append(&mut compile_expr_keep_result(ctx, &value)?);
-        result.push(Instruction::StorePopGlobal(sym.clone()));
-        result.push(Instruction::Label(bound));
+        let mut result = vec![];
+        // With no VALUE, SYM is only marked special and stays void. An explicit
+        // nil VALUE destructures to `None` too, so check the form.
+        if rest.consp() {
+            let value = value.unwrap_or_default();
+            let bound = ctx.compiler.as_mut().unwrap().new_label();
+            result.push(Instruction::DefVar(sym.clone()));
+            result.push(Instruction::JumpIfNotNil(Pos::Label(bound.clone())));
+            result.append(&mut compile_expr_keep_result(ctx, &value)?);
+            result.push(Instruction::StorePopGlobal(sym.clone()));
+            result.push(Instruction::Label(bound));
+        }
         if keep_result {
             result.push(Instruction::Push(sym.clone()));
         }
@@ -627,8 +630,29 @@ mod tests {
             r#"(defun dv-doc () "doc" (declare (indent 1)) 5) (dv-doc)"#,
             "5",
         );
-        // With no VALUE, SYM is bound to nil, as before.
-        eval_assert_equal(ctx, "(defvar dv-none) dv-none", "nil");
+    }
+
+    // With no VALUE, `defvar` returns SYM, marks it special and leaves it void,
+    // as in Emacs.
+    #[test]
+    fn a_defvar_with_no_value_leaves_the_name_void() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(list (defvar dv-none) (boundp 'dv-none))",
+            "'(dv-none nil)",
+        );
+        eval_assert_equal(
+            ctx,
+            "(defun dv-read-none () dv-none) (let ((dv-none 5)) (dv-read-none))",
+            "5",
+        );
+        // An explicit nil VALUE is a value.
+        eval_assert_equal(
+            ctx,
+            "(defvar dv-nil nil) (list (boundp 'dv-nil) dv-nil)",
+            "'(t nil)",
+        );
     }
 
     // A `defvar` sets its value when it runs, once.
