@@ -375,7 +375,7 @@ impl Error {
     /// symbol: `(DESC)` for a built-in kind, the data given to `signal` for a
     /// `Signal`, and nil for a `throw` (a Lisp `throw` with no `catch` for its
     /// tag is a `no-catch` signal instead, whose data is `(TAG VALUE)`).
-    pub fn data(&self) -> TulispObject {
+    pub fn data(&self, _ctx: &mut TulispContext) -> TulispObject {
         match &self.kind {
             ErrorKind::Throw(_) => TulispObject::nil(),
             ErrorKind::Signal { data, .. } => data.clone(),

@@ -213,7 +213,7 @@ pub(crate) fn error_value(ctx: &mut TulispContext, kind_sym: &str, err: &Error) 
     if let ErrorKind::Signal { symbol, data } = err.kind() {
         return TulispObject::cons(symbol.clone(), data.clone());
     }
-    TulispObject::cons(ctx.intern(kind_sym), err.data())
+    TulispObject::cons(ctx.intern(kind_sym), err.data(ctx))
 }
 
 /// The handlers of a `condition-case`.
@@ -417,10 +417,10 @@ mod tests {
         let ctx = &mut TulispContext::new();
         let err = ctx.eval_string("(/ 1 0)").unwrap_err();
         let expected = ctx.eval_string(r#"'("Division by zero")"#)?;
-        assert!(err.data().equal(&expected), "{}", err.data());
+        assert!(err.data(ctx).equal(&expected), "{}", err.data(ctx));
         let err = ctx.eval_string("(throw 'tag 1)").unwrap_err();
         let expected = ctx.eval_string("'(tag 1)")?;
-        assert!(err.data().equal(&expected), "{}", err.data());
+        assert!(err.data(ctx).equal(&expected), "{}", err.data(ctx));
         Ok(())
     }
 
@@ -562,7 +562,7 @@ mod tests {
         let data = ctx.eval_string("'(1 2)")?;
         let err = ctx.signal("arith-error", data.clone());
         assert_eq!(err.desc(), "Arithmetic error: 1, 2");
-        assert!(err.data().equal(&data));
+        assert!(err.data(ctx).equal(&data));
         Ok(())
     }
 
@@ -847,7 +847,7 @@ mod tests {
             Some(r#"ERR Throw(done): No catch for tag: done, "x""#)
         );
         assert!(!err.is_a(ctx, "error") && !err.is_a(ctx, "no-catch"));
-        assert!(err.data().null());
+        assert!(err.data(ctx).null());
     }
 
     #[test]
@@ -905,7 +905,7 @@ mod tests {
         let err = ctx.eval_string("(throw 'done 42)").unwrap_err();
         assert!(err.is_a(ctx, "no-catch") && err.is_a(ctx, "error"));
         let expected = ctx.eval_string("'(done 42)")?;
-        assert!(err.data().equal(&expected), "{}", err.data());
+        assert!(err.data(ctx).equal(&expected), "{}", err.data(ctx));
         Ok(())
     }
 
