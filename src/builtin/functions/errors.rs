@@ -1,4 +1,4 @@
-use super::core::format_string;
+use super::format::format_string;
 use crate::{Error, ErrorKind, Rest, TulispContext, TulispObject, TulispValue};
 
 pub(crate) fn add(ctx: &mut TulispContext) {

@@ -5,6 +5,7 @@ mod conditionals;
 pub(crate) mod core;
 mod equality_predicates;
 pub(crate) mod errors;
+mod format;
 mod hash_table;
 mod list_elements;
 mod numbers;
