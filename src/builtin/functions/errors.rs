@@ -131,11 +131,14 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     // from Rust stays a `throw`. Nor is a stop from the host's interrupt
     // check (`Interrupt::Stop`).
     //
-    // VAR holds `(ERROR-SYMBOL . DATA)` in the handler body, DATA a
-    // list; a built-in error's DATA is `(MESSAGE)`. It is bound
-    // lexically, like a `let` variable, or dynamically when it is
-    // special. A `nil` VAR binds nothing; `t` or a keyword fails when a
-    // handler binds it.
+    // VAR holds `(ERROR-SYMBOL . DATA)` in the handler body, DATA a list. A
+    // built-in error's DATA is Emacs's `(PREDICATE VALUE)` for most type
+    // checks, `(SYMBOL)` for a void variable or for calling a symbol with no
+    // function, and nil for an arith error. Calling another value that is not a
+    // function, a macro or a special form gives `(VALUE)`, and other built-in
+    // errors give `(DESC)`, their description. It is bound lexically, like a
+    // `let` variable, or dynamically when it is special. A `nil` VAR binds
+    // nothing; `t` or a keyword fails when a handler binds it.
     //
     // A `(:success BODY...)` handler runs when BODYFORM does not fail, with VAR
     // bound to its value, and gives the result. An error in it is not caught by
