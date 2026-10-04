@@ -524,6 +524,38 @@ impl TulispObject {
         self.to_string()
     }
 
+    /// Sets the global value of `self`, as Emacs Lisp's
+    /// `set-default-toplevel-value` does: a running `let` binding of it keeps
+    /// its value, and the new value is seen once the `let` ends.
+    ///
+    /// ```rust
+    /// use tulisp::TulispContext;
+    ///
+    /// let mut ctx = TulispContext::new();
+    /// ctx.eval_string("(defvar level 1)").unwrap();
+    /// ctx.defun("raise-default", |ctx: &mut TulispContext| {
+    ///     ctx.intern("level").set_default_toplevel_value(10.into())
+    /// });
+    /// let seen = ctx
+    ///     .eval_string("(list (let ((level 2)) (raise-default) level) level)")
+    ///     .unwrap();
+    /// assert_eq!(seen.to_string(), "(2 10)");
+    /// ```
+    ///
+    /// Returns an Error if `self` is not a symbol, or is a constant: `nil`, `t`
+    /// or a keyword.
+    ///
+    /// A function and a variable of the same name share one value in Tulisp,
+    /// unlike in Emacs, so this replaces a function of that name for `funcall`,
+    /// `apply` and similar functions too, but where `self` is `foo` and names a
+    /// function defined in Lisp, a call `(foo ...)` still runs that function.
+    /// To change the function a name calls, use
+    /// [`TulispContext::fset`](crate::TulispContext::fset).
+    pub fn set_default_toplevel_value(&self, to_set: TulispObject) -> Result<(), Error> {
+        self.set_global(to_set)
+            .map_err(|e| e.with_trace(self.clone()))
+    }
+
     /// Sets a value to `self` in the current scope. If there was a previous
     /// value assigned to `self` in the current scope, it will be lost.
     ///
@@ -1489,5 +1521,22 @@ mod tests {
             );
         }
         Ok(())
+    }
+
+    // `set_default_toplevel_value` refuses a value that is no symbol, traced to
+    // it, and a constant.
+    #[test]
+    fn set_default_toplevel_value_refuses_a_non_symbol_or_a_constant() {
+        let ctx = &mut TulispContext::new();
+        let form = ctx.eval_string("'(a b)").unwrap();
+        let err = form.set_default_toplevel_value(1.into()).unwrap_err();
+        assert!(err.to_string().contains(":  at (a b)"), "{err}");
+        for name in ["nil", "t", ":k"] {
+            let err = ctx
+                .intern(name)
+                .set_default_toplevel_value(1.into())
+                .unwrap_err();
+            assert_eq!(err.desc(), format!("Can't set constant symbol: {name}"));
+        }
     }
 }
