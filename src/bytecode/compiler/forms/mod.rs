@@ -54,7 +54,6 @@ impl VMCompilers {
             ("*", arithmetic_operations::compile_fn_mul),
             ("/", arithmetic_operations::compile_fn_div),
             // other functions
-            ("load", other_functions::compile_fn_load_file),
             ("print", other_functions::compile_fn_print),
             ("quote", other_functions::compile_fn_quote),
             ("defun", other_functions::compile_fn_defun),

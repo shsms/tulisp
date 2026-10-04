@@ -469,22 +469,6 @@ pub(super) fn compile_fn_progn(
     compile_progn(ctx, args)
 }
 
-pub(super) fn compile_fn_load_file(
-    ctx: &mut TulispContext,
-    _name: &TulispObject,
-    args: &TulispObject,
-) -> Result<Vec<Instruction>, Error> {
-    ctx.compile_1_arg_call(_name, args, true, |ctx, arg, _| {
-        let mut result = compile_expr_keep_result(ctx, arg)?;
-        result.push(Instruction::LoadFile);
-        // `LoadFile` always pushes the loaded file's value.
-        if !ctx.compiler.as_ref().unwrap().keep_result {
-            result.push(Instruction::Pop);
-        }
-        Ok(result)
-    })
-}
-
 /// `(defmacro NAME PARAMS BODY...)` defines the macro when it
 /// compiles. Its value is the macro's name.
 pub(super) fn compile_fn_defmacro(
@@ -600,15 +584,6 @@ mod tests {
         crate::bytecode::run(ctx, bytecode)?;
         assert_eq!(ctx.eval_string("(built-macro)")?.to_string(), "5");
         Ok(())
-    }
-
-    #[test]
-    fn an_unused_load_drops_the_loaded_value() {
-        let ctx = &mut TulispContext::new();
-        let l = listing(ctx, r#"(load "file.lisp") 1"#);
-        assert!(l.contains("load_file") && l.contains("pop"), "{l}");
-        let l = listing(ctx, r#"(load "file.lisp")"#);
-        assert!(!l.contains("pop"), "{l}");
     }
 
     #[test]

@@ -190,7 +190,6 @@ pub(crate) enum Instruction {
         count: usize,
     },
     // io
-    LoadFile,
     PrintPop,
     Print,
     // comparison: pop two values and push whether the lower one
@@ -445,7 +444,6 @@ impl Instruction {
             | Instruction::EndScope(..)
             | Instruction::BinaryOp(..)
             | Instruction::ArithChain { .. }
-            | Instruction::LoadFile
             | Instruction::PrintPop
             | Instruction::Print
             | Instruction::Equal
@@ -603,7 +601,6 @@ impl std::fmt::Display for Instruction {
             Instruction::ArithChain { op, count } => {
                 write!(f, "    {}_chain {}", op.mnemonic(), count)
             }
-            Instruction::LoadFile => write!(f, "    load_file"),
             Instruction::PrintPop => write!(f, "    print_pop"),
             Instruction::Print => write!(f, "    print"),
             Instruction::Null => write!(f, "    null"),

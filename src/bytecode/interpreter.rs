@@ -583,32 +583,6 @@ fn run_impl_inner(
                 ctx.vm.stack.truncate(base);
                 ctx.vm.stack.push(result?);
             }
-            Instruction::LoadFile => {
-                let filename = ctx.vm.stack.pop().unwrap();
-                let filename = filename
-                    .as_string()
-                    .map_err(|err| err.with_trace(filename))?;
-                let full_path = if let Some(ref load_path) = ctx.load_path {
-                    load_path.join(&filename)
-                } else {
-                    std::path::PathBuf::from(&filename)
-                };
-                let full_path = full_path.to_str().ok_or_else(|| {
-                    Error::invalid_argument(format!(
-                        "load: Invalid path: {}",
-                        full_path.to_string_lossy()
-                    ))
-                })?;
-                // `(load …)` compiles the loaded file — so defuns
-                // in the loaded file register in `ctx.vm.functions`
-                // and subsequent calls dispatch directly via the
-                // `Call` instruction (same as if they had been
-                // written in the outer file).
-                drop(instr_ref);
-                let result = ctx.eval_file(full_path)?;
-                instr_ref = program.borrow_mut();
-                ctx.vm.stack.push(result);
-            }
             Instruction::PrintPop => {
                 let a = ctx.vm.stack.pop().unwrap();
                 crate::builtin::functions::print_to_stdout(&a.fmt_string(), true)?;
