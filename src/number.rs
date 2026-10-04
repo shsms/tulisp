@@ -100,6 +100,29 @@ impl Display for Number {
     }
 }
 
+/// TEXT, Rust's `{:e}` form of a float, split into its mantissa and exponent.
+pub(crate) fn split_exponent(text: &str) -> (&str, i32) {
+    let (mantissa, exponent) = text.split_once('e').unwrap_or((text, "0"));
+    (mantissa, exponent.parse().unwrap_or(0))
+}
+
+/// EXPONENT as C writes it after a mantissa: `e`, its sign and at least two
+/// digits.
+pub(crate) fn c_exponent(exponent: i32) -> String {
+    let sign = if exponent < 0 { '-' } else { '+' };
+    format!("e{sign}{:02}", exponent.unsigned_abs())
+}
+
+/// MANTISSA with the zeros at the end of its fraction gone, and the point too
+/// if nothing follows it.
+pub(crate) fn trim_fraction(mantissa: &str) -> &str {
+    if mantissa.contains('.') {
+        mantissa.trim_end_matches('0').trim_end_matches('.')
+    } else {
+        mantissa
+    }
+}
+
 /// Write a finite float as Emacs prints it: in C's `%g` style with the fewest
 /// significant digits that read back as the same float, from 15 up to 17, or
 /// from 1 for a subnormal float, and `.0` added when there is no point or
@@ -116,16 +139,10 @@ fn write_float(f: &mut std::fmt::Formatter<'_>, value: f64) -> std::fmt::Result 
             (candidate.parse::<f64>() == Ok(value)).then_some((digits, candidate))
         })
         .unwrap_or_else(|| (17, format!("{value:.16e}")));
-    let (mantissa, exponent) = rounded.split_once('e').unwrap_or((&rounded, "0"));
-    let exponent: i32 = exponent.parse().unwrap_or(0);
-    let mantissa = if mantissa.contains('.') {
-        mantissa.trim_end_matches('0').trim_end_matches('.')
-    } else {
-        mantissa
-    };
+    let (mantissa, exponent) = split_exponent(&rounded);
+    let mantissa = trim_fraction(mantissa);
     if exponent < -4 || exponent >= precision as i32 {
-        let exp_sign = if exponent < 0 { '-' } else { '+' };
-        return write!(f, "{sign}{mantissa}e{exp_sign}{:02}", exponent.abs());
+        return write!(f, "{sign}{mantissa}{}", c_exponent(exponent));
     }
     let digits = mantissa.replace('.', "");
     if exponent < 0 {

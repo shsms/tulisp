@@ -2,7 +2,10 @@
 
 use std::{iter::Peekable, str::Chars};
 
-use crate::{Error, TulispObject};
+use crate::{
+    Error, TulispObject,
+    number::{c_exponent, split_exponent, trim_fraction},
+};
 
 /// No float has a digit other than zero past this many after the point:
 /// 2^-1074, the smallest subnormal, ends there.
@@ -227,23 +230,27 @@ fn fixed_form(value: f64, precision: usize, alt: bool) -> Result<String, Error> 
     Ok(body)
 }
 
-/// VALUE, not negative, as `%e` prints it: one digit, the point and PRECISION
-/// digits, then `e` and the exponent with its sign and at least two digits.
-/// With ALT, the point stays when no digits follow it.
-fn exponent_form(value: f64, precision: usize, alt: bool) -> Result<String, Error> {
+/// VALUE, not negative, as `%e` prints it before the `e`: one digit, the
+/// point and PRECISION digits. Also its exponent.
+fn exponent_parts(value: f64, precision: usize, alt: bool) -> Result<(String, i32), Error> {
     // A float has fewer significant digits than this; the rest are zeros.
     let shown = precision.min(MAX_FRACTION_DIGITS);
-    // Rust's form, like `1.23e4`.
     let rust = format!("{value:.shown$e}");
-    let (mantissa, exponent) = rust.split_once('e').unwrap_or((&rust, "0"));
-    let exponent: i32 = exponent.parse().unwrap_or(0);
+    let (mantissa, exponent) = split_exponent(&rust);
     let mut body = mantissa.to_string();
     push_repeated(&mut body, '0', precision - shown)?;
     if alt && precision == 0 {
         body.push('.');
     }
-    let exp_sign = if exponent < 0 { '-' } else { '+' };
-    body.push_str(&format!("e{exp_sign}{:02}", exponent.unsigned_abs()));
+    Ok((body, exponent))
+}
+
+/// VALUE, not negative, as `%e` prints it: one digit, the point and PRECISION
+/// digits, then `e` and the exponent with its sign and at least two digits.
+/// With ALT, the point stays when no digits follow it.
+fn exponent_form(value: f64, precision: usize, alt: bool) -> Result<String, Error> {
+    let (mut body, exponent) = exponent_parts(value, precision, alt)?;
+    body.push_str(&c_exponent(exponent));
     Ok(body)
 }
 
@@ -252,24 +259,22 @@ fn exponent_form(value: f64, precision: usize, alt: bool) -> Result<String, Erro
 /// else of `%f`. Trailing zeros after the point go, unless ALT.
 fn general_form(value: f64, precision: usize, alt: bool) -> Result<String, Error> {
     let precision = precision.max(1);
-    let exponent_text = exponent_form(value, precision - 1, alt)?;
-    let exponent: i64 = exponent_text
-        .rsplit_once('e')
-        .and_then(|(_, exponent)| exponent.parse().ok())
-        .unwrap_or(0);
-    let mut body = if exponent < -4 || exponent >= precision as i64 {
-        exponent_text
-    } else {
-        fixed_form(value, (precision as i64 - 1 - exponent) as usize, alt)?
-    };
-    if !alt {
-        let (mantissa, exponent) = body.split_at(body.find('e').unwrap_or(body.len()));
-        if mantissa.contains('.') {
-            let mantissa = mantissa.trim_end_matches('0').trim_end_matches('.');
-            body = format!("{mantissa}{exponent}");
-        }
+    let (mantissa, exponent) = exponent_parts(value, precision - 1, alt)?;
+    let exponent_i64 = i64::from(exponent);
+    if exponent_i64 < -4 || exponent_i64 >= precision as i64 {
+        let mantissa = if alt {
+            &mantissa
+        } else {
+            trim_fraction(&mantissa)
+        };
+        return Ok(format!("{mantissa}{}", c_exponent(exponent)));
     }
-    Ok(body)
+    let body = fixed_form(value, (precision as i64 - 1 - exponent_i64) as usize, alt)?;
+    Ok(if alt {
+        body
+    } else {
+        trim_fraction(&body).to_string()
+    })
 }
 
 /// ARG under an integer conversion: DIGITS writes the number without its sign,
