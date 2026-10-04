@@ -184,53 +184,84 @@ impl Tokenizer<'_> {
         }
     }
 
-    /// Read a `?X` character literal. Returns the character's code
-    /// point as an `Integer` token. Supports the same backslash
-    /// escapes as string literals (`?\n`, `?\t`, `?\\`, `?\"`,
-    /// `?\r`, `?\b`, `?\f`, `?\v`, `?\a`, `?\e`, `?\0`); plus
-    /// `?\'` which is convenient for `?\'`-style apostrophe.
+    /// Read a `?X` character literal. Returns the character's code point as an
+    /// `Integer` token. `?\X` takes the escapes of `read_escape`.
     fn read_char_literal(&mut self) -> Option<Token> {
         let start_pos = (self.line, self.pos + 1);
         self.next_char()?; // consume '?'
-        let span_for = |toklen: &Tokenizer<'_>| -> Span {
-            Span::new(toklen.file_id, start_pos, (toklen.line, toklen.pos))
+        let value = match self.next_char() {
+            Some('\\') => self
+                .read_escape(false)
+                .map(|code| code.unwrap_or(' ' as u32)),
+            Some(c) => Ok(c as u32),
+            None => Err("Unexpected EOF after ?".to_string()),
         };
-        let value: i64 = match self.next_char() {
-            Some('\\') => match self.next_char() {
-                Some('n') => '\n' as i64,
-                Some('t') => '\t' as i64,
-                Some('r') => '\r' as i64,
-                Some('b') => 0x08,
-                Some('f') => 0x0c,
-                Some('v') => 0x0b,
-                Some('a') => 0x07,
-                Some('e') => 0x1b,
-                Some('0') => 0x00,
-                Some('\\') => '\\' as i64,
-                Some('\'') => '\'' as i64,
-                Some('"') => '"' as i64,
-                // Emacs reads `?\j` as just `j` for unknown escapes;
-                // keep that — easier to remove later than to add.
-                Some(c) => c as i64,
-                None => {
-                    return Some(Token::ParserError(ParserError::syntax_error(
-                        "Unexpected EOF after ?\\".to_string(),
-                        span_for(self),
-                    )));
-                }
+        let span = Span::new(self.file_id, start_pos, (self.line, self.pos));
+        Some(match value {
+            Ok(value) => Token::Integer {
+                span,
+                value: value.into(),
             },
-            Some(c) => c as i64,
-            None => {
-                return Some(Token::ParserError(ParserError::syntax_error(
-                    "Unexpected EOF after ?".to_string(),
-                    span_for(self),
-                )));
-            }
-        };
-        Some(Token::Integer {
-            span: span_for(self),
-            value,
+            Err(desc) => Token::ParserError(ParserError::syntax_error(desc, span)),
         })
+    }
+
+    /// Read the escape after a backslash, as Emacs does: `\n`, `\s`, `\d` and
+    /// the other letters, and octal `\101`. Any other character stands for
+    /// itself. In a string, a backslash before a newline or a space reads as
+    /// nothing, given as `None`.
+    fn read_escape(&mut self, in_string: bool) -> Result<Option<u32>, String> {
+        let ch = self
+            .next_char()
+            .ok_or_else(|| "Unexpected EOF after \\".to_string())?;
+        let dash = self.peek_char() == Some('-');
+        let code = match ch {
+            'a' => 0x07,
+            'b' => 0x08,
+            'd' => 0x7f,
+            'e' => 0x1b,
+            'f' => 0x0c,
+            'n' => '\n' as u32,
+            'r' => '\r' as u32,
+            't' => '\t' as u32,
+            'v' => 0x0b,
+            '\n' | ' ' if in_string => return Ok(None),
+            's' if !in_string && dash => {
+                return Err("Modifier keys are not supported: \\s-".to_string());
+            }
+            's' => ' ' as u32,
+            'M' | 'S' | 'H' | 'A' if dash => {
+                return Err(format!("Modifier keys are not supported: \\{ch}-"));
+            }
+            'N' if self.peek_char() == Some('{') => {
+                return Err("\\N{NAME} is not supported".to_string());
+            }
+            '0'..='7' => self.read_digits(ch as u32 - '0' as u32, 8, 2)?.0,
+            c => c as u32,
+        };
+        Ok(Some(code))
+    }
+
+    /// Read up to `max` digits in `radix`, adding them to `value`. Returns the
+    /// result and how many digits were read.
+    fn read_digits(
+        &mut self,
+        mut value: u32,
+        radix: u32,
+        max: usize,
+    ) -> Result<(u32, usize), String> {
+        let mut count = 0;
+        while count < max
+            && let Some(digit) = self.peek_char().and_then(|c| c.to_digit(radix))
+        {
+            self.next_char();
+            value = value
+                .checked_mul(radix)
+                .and_then(|v| v.checked_add(digit))
+                .ok_or_else(|| "Escape value is too large".to_string())?;
+            count += 1;
+        }
+        Ok((value, count))
     }
 
     fn read_num_ident_impl(
@@ -904,7 +935,9 @@ pub fn parse(
 
 #[cfg(test)]
 mod tests {
-    use crate::test_utils::{eval_assert_equal, eval_assert_equal_fresh, eval_assert_error};
+    use crate::test_utils::{
+        eval_assert_equal, eval_assert_equal_fresh, eval_assert_error, eval_assert_error_line,
+    };
     use crate::{Error, TulispContext};
 
     // A string's span starts at its opening quote and ends at its closing one,
@@ -1159,6 +1192,34 @@ mod tests {
         eval_assert_equal(ctx, r"?\t", "9");
         eval_assert_equal(ctx, r"?\\", "92");
         eval_assert_equal(ctx, r"?\0", "0");
+    }
+
+    #[test]
+    fn character_escapes() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, r"?\s", "32");
+        eval_assert_equal(ctx, r"?\ ", "32");
+        eval_assert_equal(ctx, r"?\d", "127");
+        eval_assert_equal(ctx, r"?\101", "65");
+        eval_assert_equal(ctx, r"?\(", "40");
+        eval_assert_equal(ctx, r"?\8", "56");
+        eval_assert_equal(ctx, r"(list ?\s ?\d)", "'(32 127)");
+    }
+
+    // Modifier keys, `\N{NAME}` and malformed escapes are read errors.
+    #[test]
+    fn bad_character_escapes_are_errors() {
+        let ctx = &mut TulispContext::new();
+        let cases = [
+            (r"?\M-a", r"Modifier keys are not supported: \M-"),
+            (r"?\s-a", r"Modifier keys are not supported: \s-"),
+            (r"?\H-a", r"Modifier keys are not supported: \H-"),
+            (r"?\N{LATIN SMALL LETTER A}", r"\N{NAME} is not supported"),
+        ];
+        for (program, desc) in cases {
+            let line = format!("ERR ParsingError: SyntaxError {desc}");
+            eval_assert_error_line(ctx, program, &line);
+        }
     }
 
     // `#x` / `#X` hex, `#o` octal, `#b` binary. The sign goes between the
