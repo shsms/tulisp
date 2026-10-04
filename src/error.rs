@@ -372,12 +372,13 @@ impl Error {
     }
 
     /// The error's data, what a `condition-case` handler sees after the error
-    /// symbol: `(DESC)` for a built-in kind, the data given to `signal` for a
-    /// `Signal`, and nil for a `throw` (a Lisp `throw` with no `catch` for its
-    /// tag is a `no-catch` signal instead, whose data is `(TAG VALUE)`).
+    /// symbol: nil for an `ArithError`, `(DESC)` for any other built-in kind,
+    /// the data given to `signal` for a `Signal`, and nil for a `throw` (a
+    /// Lisp `throw` with no `catch` for its tag is a `no-catch` signal
+    /// instead, whose data is `(TAG VALUE)`).
     pub fn data(&self, _ctx: &mut TulispContext) -> TulispObject {
         match &self.kind {
-            ErrorKind::Throw(_) => TulispObject::nil(),
+            ErrorKind::Throw(_) | ErrorKind::ArithError => TulispObject::nil(),
             ErrorKind::Signal { data, .. } => data.clone(),
             _ => TulispObject::cons(TulispObject::from(self.desc.clone()), TulispObject::nil()),
         }

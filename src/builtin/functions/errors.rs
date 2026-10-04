@@ -408,20 +408,36 @@ mod tests {
         eval_assert_equal(
             ctx,
             "(condition-case e (/ 1 0) (error e))",
-            r#"'(arith-error "Division by zero")"#,
+            "'(arith-error)",
         );
     }
 
     #[test]
     fn error_data_is_the_description_in_a_list() -> Result<(), crate::Error> {
         let ctx = &mut TulispContext::new();
-        let err = ctx.eval_string("(/ 1 0)").unwrap_err();
-        let expected = ctx.eval_string(r#"'("Division by zero")"#)?;
+        let err = ctx.eval_string(r#"(aset "ab" 9 ?x)"#).unwrap_err();
+        let expected = TulispObject::cons(
+            TulispObject::from(err.desc().to_string()),
+            TulispObject::nil(),
+        );
         assert!(err.data(ctx).equal(&expected), "{}", err.data(ctx));
         let err = ctx.eval_string("(throw 'tag 1)").unwrap_err();
         let expected = ctx.eval_string("'(tag 1)")?;
         assert!(err.data(ctx).equal(&expected), "{}", err.data(ctx));
         Ok(())
+    }
+
+    // Emacs gives `(arith-error)`, with no data, for a division by zero.
+    #[test]
+    fn an_arith_error_has_no_data() {
+        let ctx = &mut TulispContext::new();
+        let err = ctx.eval_string("(/ 1 0)").unwrap_err();
+        assert!(err.data(ctx).null(), "{}", err.data(ctx));
+        eval_assert_equal(
+            ctx,
+            "(condition-case e (/ 5 0) (error (error-message-string e)))",
+            r#""Arithmetic error""#,
+        );
     }
 
     #[test]
@@ -507,7 +523,7 @@ mod tests {
             "(condition-case outer
                  (condition-case e (/ 1 0) (error (signal (car e) (cdr e))))
                (arith-error outer))",
-            r#"'(arith-error "Division by zero")"#,
+            "'(arith-error)",
         );
     }
 
