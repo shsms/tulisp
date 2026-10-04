@@ -326,6 +326,7 @@ impl PartialOrd<f64> for Number {
 #[cfg(test)]
 mod tests {
     use super::Number;
+    use crate::test_utils::eval_assert_equal;
     use crate::{TulispContext, TulispObject};
 
     // A value that is no number gives an error traced to it, by value and by
@@ -344,5 +345,14 @@ mod tests {
             Number::try_from(&TulispObject::from(2.5)).unwrap(),
             Number::Float(2.5)
         );
+    }
+
+    // A float with a whole value prints with a trailing `.0`.
+    #[test]
+    fn a_whole_float_prints_with_a_point() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, r#"(format "%S" 1.0)"#, r#""1.0""#);
+        eval_assert_equal(ctx, r#"(format "%S" (+ 1.0 1))"#, r#""2.0""#);
+        eval_assert_equal(ctx, r#"(format "%S" 0.5)"#, r#""0.5""#);
     }
 }

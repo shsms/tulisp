@@ -145,15 +145,6 @@ fn test_strings() -> Result<(), Error> {
         result: r#""hello world""#,
     }
 
-    tulisp_assert! { program: "(prin1-to-string 'hello)", result: r#""hello""# }
-    tulisp_assert! { program: "(prin1-to-string #'hello)", result: r#""hello""# }
-    tulisp_assert! { program: "(prin1-to-string 25)", result: r#""25""# }
-    tulisp_assert! { program: "(setq h 25)(prin1-to-string h)", result: r#""25""# }
-    tulisp_assert! {
-        program: "(setq h '(list 25 'hello))(prin1-to-string h)",
-        result: r#""(list 25 'hello)""#
-    }
-    tulisp_assert! { program: r##"(setq h "hello")(prin1-to-string h)"##, result: r#""hello""# }
     Ok(())
 }
 
@@ -209,71 +200,6 @@ fn test_quote() -> Result<(), Error> {
 
 #[test]
 fn test_math() -> Result<(), Error> {
-    // Character literals: `?X` reads as the character's code point.
-    tulisp_assert! { program: "?A",       result: "65"  }
-    tulisp_assert! { program: "?z",       result: "122" }
-    tulisp_assert! { program: r#"?\n"#,   result: "10"  }
-    tulisp_assert! { program: r#"?\t"#,   result: "9"   }
-    tulisp_assert! { program: r#"?\\"#,   result: "92"  }
-    tulisp_assert! { program: r#"?\0"#,   result: "0"   }
-    // Radix-prefixed integer literals: `#x` / `#X` hex, `#o` octal,
-    // `#b` binary. Sign goes between the prefix and digits.
-    tulisp_assert! { program: "#x10",  result: "16"   }
-    tulisp_assert! { program: "#xff",  result: "255"  }
-    tulisp_assert! { program: "#xFF",  result: "255"  }
-    tulisp_assert! { program: "#X10",  result: "16"   }
-    tulisp_assert! { program: "#o10",  result: "8"    }
-    tulisp_assert! { program: "#b1010",result: "10"   }
-    tulisp_assert! { program: "#x-10", result: "-16"  }
-
-    // Whole-value floats round-trip with a trailing `.0` (Emacs:
-    // `(format "%S" 2.0) => "2.0"`).
-    tulisp_assert! { program: r#"(format "%S" 1.0)"#,       result: r#""1.0""# }
-    tulisp_assert! { program: r#"(format "%S" (+ 1.0 1))"#, result: r#""2.0""# }
-    tulisp_assert! { program: r#"(format "%S" 0.5)"#,       result: r#""0.5""# }
-
-    // Scientific notation parses as float (Emacs: `1e5 => 100000.0`).
-    tulisp_assert! { program: "(+ 1e5 1)",          result: "100001.0" }
-    tulisp_assert! { program: "(+ 1E5 1)",          result: "100001.0" }
-    tulisp_assert! { program: "(+ 1.5e2 0)",        result: "150.0"    }
-    tulisp_assert! { program: "(+ 1e+5 0)",         result: "100000.0" }
-    tulisp_assert! { program: "(+ -1.5e-3 0)",      result: "-0.0015"  }
-    tulisp_assert! { program: "(integerp 1e5)",     result: "nil"      }
-    tulisp_assert! { program: "(floatp 1e5)",       result: "t"        }
-    // `e5` and `1ee5` aren't scientific-notation floats — they read
-    // as ordinary symbols (Emacs matches).
-    tulisp_assert! { program: "(progn (setq e5 7) e5)",       result: "7" }
-    tulisp_assert! { program: "(progn (setq 1ee5 9) 1ee5)",   result: "9" }
-    // `1e` (no exponent digit) falls back to identifier rather than
-    // erroring — Emacs reads it as a symbol too.
-    tulisp_assert! { program: "(progn (setq 1e 11) 1e)",      result: "11" }
-
-    // Emacs-style infinity / NaN literals — `<mantissa>e+INF` and
-    // `<mantissa>e+NaN`, uppercase only, `e+` only. Mantissa value
-    // is ignored; only its sign matters.
-    tulisp_assert! { program: r#"(format "%S" 1.0e+INF)"#,    result: r#""1.0e+INF""# }
-    tulisp_assert! { program: r#"(format "%S" -1.0e+INF)"#,   result: r#""-1.0e+INF""# }
-    tulisp_assert! { program: r#"(format "%S" 0.0e+NaN)"#,    result: r#""0.0e+NaN""# }
-    tulisp_assert! { program: r#"(format "%S" -0.0e+NaN)"#,   result: r#""-0.0e+NaN""# }
-    // Mantissa is ignored — `5.5e+INF` and `1e+INF` both read as +INF.
-    tulisp_assert! { program: r#"(format "%S" 5.5e+INF)"#,    result: r#""1.0e+INF""# }
-    tulisp_assert! { program: r#"(format "%S" 1e+INF)"#,      result: r#""1.0e+INF""# }
-    // String Display escapes `"`, `\`, `\n`, `\t` so the printed
-    // form parses back to the same value (round-trip).
-    tulisp_assert! {
-        program: r#"(format "%S" "a\"b\\c")"#,
-        result: r#""\"a\\\"b\\\\c\"""#,
-    }
-    tulisp_assert! {
-        program: r#"(format "%S" "with\nnewline")"#,
-        result: r#""\"with\\nnewline\"""#,
-    }
-
-    // Lowercase / `e-` variants stay as identifiers (Emacs matches).
-    tulisp_assert! { program: "(progn (setq 1.0e+inf 5) 1.0e+inf)",  result: "5" }
-    tulisp_assert! { program: "(progn (setq 1.0e-INF 5) 1.0e-INF)",  result: "5" }
-    tulisp_assert! { program: "(progn (setq inf 5) inf)",            result: "5" }
-
     // setcar / setcdr mutate cons cells in place.
     tulisp_assert! {
         program: "(let ((x (list 1 2 3))) (setcar x 99) x)",
@@ -346,30 +272,6 @@ fn test_math() -> Result<(), Error> {
     tulisp_assert! { program: "(min 12 5 45)",             result: "5"     }
     tulisp_assert! { program: "(max 12 5 45.2 8)",         result: "45.2"  }
 
-    tulisp_assert! { program: "1_000",            result: "1000"      }
-    tulisp_assert! { program: "1_000_000",        result: "1000000"   }
-    tulisp_assert! { program: "(+ 1_000 2_000)",  result: "3000"      }
-    tulisp_assert! { program: "1_000.5",          result: "1000.5"    }
-    tulisp_assert! { program: "1_000.000_1",      result: "1000.0001" }
-
-    tulisp_assert! { program: ".5",               result: "0.5"       }
-    tulisp_assert! { program: ".25",              result: "0.25"      }
-    tulisp_assert! { program: "(+ .5 .25)",       result: "0.75"      }
-    tulisp_assert! { program: ".1_5",             result: "0.15"      }
-
-    tulisp_assert! {
-        program: "99999999999999999999",
-        error:
-r#"ERR ParsingError: SyntaxError number too large to fit in target type: 99999999999999999999
-<eval_string>:1.1-1.20:  at nil
-"#,
-    }
-    tulisp_assert! {
-        program: "-.",
-        error: r#"ERR ParsingError: SyntaxError invalid float literal: -.
-<eval_string>:1.1-1.2:  at nil
-"#,
-    }
     Ok(())
 }
 
@@ -687,17 +589,6 @@ fn test_symbol_creation() -> Result<(), Error> {
         result: r#"'(nil nil t t t)"#
     }
 
-    Ok(())
-}
-
-#[test]
-fn test_underscore_ident() -> Result<(), Error> {
-    // A lone underscore is a valid identifier, not a number.
-    tulisp_assert! { program: "(let ((_ 42)) _)", result: "42" }
-    // Leading underscore is also a valid identifier.
-    tulisp_assert! { program: "(let ((_x 7)) _x)", result: "7" }
-    // Underscore as numeric separator still works.
-    tulisp_assert! { program: "1_000", result: "1000" }
     Ok(())
 }
 

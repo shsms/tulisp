@@ -370,4 +370,17 @@ mod tests {
         let twice = TulispObject::cons(list.clone(), TulispObject::cons(list, TulispObject::nil()));
         assert_eq!(twice.to_string(), format!("({once} {once})"));
     }
+
+    // A printed string escapes `"`, `\`, newline and tab, so it reads back as
+    // the same string.
+    #[test]
+    fn a_printed_string_reads_back() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, r#"(format "%S" "a\"b\\c")"#, r#""\"a\\\"b\\\\c\"""#);
+        eval_assert_equal(
+            ctx,
+            r#"(format "%S" "with\nnewline")"#,
+            r#""\"with\\nnewline\"""#,
+        );
+    }
 }

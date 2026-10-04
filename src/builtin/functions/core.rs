@@ -1669,4 +1669,19 @@ tests/bad-load.lisp:1.9-1.9:  at nil
         );
         Ok(())
     }
+
+    #[test]
+    fn prin1_to_string() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(prin1-to-string 'hello)", r#""hello""#);
+        eval_assert_equal(ctx, "(prin1-to-string #'hello)", r#""hello""#);
+        eval_assert_equal(ctx, "(prin1-to-string 25)", r#""25""#);
+        eval_assert_equal(ctx, "(setq h 25)(prin1-to-string h)", r#""25""#);
+        eval_assert_equal(
+            ctx,
+            "(setq h '(list 25 'hello))(prin1-to-string h)",
+            r#""(list 25 'hello)""#,
+        );
+        eval_assert_equal(ctx, r#"(setq h "hello")(prin1-to-string h)"#, r#""hello""#);
+    }
 }

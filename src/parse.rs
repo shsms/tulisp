@@ -1149,6 +1149,111 @@ mod tests {
         );
         Ok(())
     }
+    // `?X` reads as the character's code point.
+    #[test]
+    fn character_literals_read_as_code_points() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "?A", "65");
+        eval_assert_equal(ctx, "?z", "122");
+        eval_assert_equal(ctx, r"?\n", "10");
+        eval_assert_equal(ctx, r"?\t", "9");
+        eval_assert_equal(ctx, r"?\\", "92");
+        eval_assert_equal(ctx, r"?\0", "0");
+    }
+
+    // `#x` / `#X` hex, `#o` octal, `#b` binary. The sign goes between the
+    // prefix and the digits.
+    #[test]
+    fn radix_prefixed_integers() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "#x10", "16");
+        eval_assert_equal(ctx, "#xff", "255");
+        eval_assert_equal(ctx, "#xFF", "255");
+        eval_assert_equal(ctx, "#X10", "16");
+        eval_assert_equal(ctx, "#o10", "8");
+        eval_assert_equal(ctx, "#b1010", "10");
+        eval_assert_equal(ctx, "#x-10", "-16");
+    }
+
+    // Scientific notation reads as a float. `e5`, `1ee5` and `1e` read as
+    // symbols.
+    #[test]
+    fn scientific_notation_reads_as_float() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(+ 1e5 1)", "100001.0");
+        eval_assert_equal(ctx, "(+ 1E5 1)", "100001.0");
+        eval_assert_equal(ctx, "(+ 1.5e2 0)", "150.0");
+        eval_assert_equal(ctx, "(+ 1e+5 0)", "100000.0");
+        eval_assert_equal(ctx, "(+ -1.5e-3 0)", "-0.0015");
+        eval_assert_equal(ctx, "(integerp 1e5)", "nil");
+        eval_assert_equal(ctx, "(floatp 1e5)", "t");
+        eval_assert_equal(ctx, "(progn (setq e5 7) e5)", "7");
+        eval_assert_equal(ctx, "(progn (setq 1ee5 9) 1ee5)", "9");
+        eval_assert_equal(ctx, "(progn (setq 1e 11) 1e)", "11");
+    }
+
+    // `<mantissa>e+INF` and `<mantissa>e+NaN`, uppercase and `e+` only. Only
+    // the mantissa's sign matters. Other spellings read as symbols.
+    #[test]
+    fn infinity_and_nan_literals() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, r#"(format "%S" 1.0e+INF)"#, r#""1.0e+INF""#);
+        eval_assert_equal(ctx, r#"(format "%S" -1.0e+INF)"#, r#""-1.0e+INF""#);
+        eval_assert_equal(ctx, r#"(format "%S" 0.0e+NaN)"#, r#""0.0e+NaN""#);
+        eval_assert_equal(ctx, r#"(format "%S" -0.0e+NaN)"#, r#""-0.0e+NaN""#);
+        eval_assert_equal(ctx, r#"(format "%S" 5.5e+INF)"#, r#""1.0e+INF""#);
+        eval_assert_equal(ctx, r#"(format "%S" 1e+INF)"#, r#""1.0e+INF""#);
+        eval_assert_equal(ctx, "(progn (setq 1.0e+inf 5) 1.0e+inf)", "5");
+        eval_assert_equal(ctx, "(progn (setq 1.0e-INF 5) 1.0e-INF)", "5");
+        eval_assert_equal(ctx, "(progn (setq inf 5) inf)", "5");
+    }
+
+    #[test]
+    fn underscores_in_numbers() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "1_000", "1000");
+        eval_assert_equal(ctx, "1_000_000", "1000000");
+        eval_assert_equal(ctx, "(+ 1_000 2_000)", "3000");
+        eval_assert_equal(ctx, "1_000.5", "1000.5");
+        eval_assert_equal(ctx, "1_000.000_1", "1000.0001");
+        eval_assert_equal(ctx, ".1_5", "0.15");
+    }
+
+    // A lone or leading underscore makes a symbol.
+    #[test]
+    fn underscore_symbols() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(let ((_ 42)) _)", "42");
+        eval_assert_equal(ctx, "(let ((_x 7)) _x)", "7");
+        eval_assert_equal(ctx, "1_000", "1000");
+    }
+
+    #[test]
+    fn a_float_can_start_with_a_dot() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, ".5", "0.5");
+        eval_assert_equal(ctx, ".25", "0.25");
+        eval_assert_equal(ctx, "(+ .5 .25)", "0.75");
+    }
+
+    #[test]
+    fn bad_number_literals_are_errors() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_error(
+            ctx,
+            "99999999999999999999",
+            r#"ERR ParsingError: SyntaxError number too large to fit in target type: 99999999999999999999
+<eval_string>:1.1-1.20:  at nil
+"#,
+        );
+        eval_assert_error(
+            ctx,
+            "-.",
+            r#"ERR ParsingError: SyntaxError invalid float literal: -.
+<eval_string>:1.1-1.2:  at nil
+"#,
+        );
+    }
 }
 
 #[cfg(all(test, feature = "etags"))]
