@@ -57,7 +57,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 #[cfg(test)]
 mod tests {
     use crate::TulispContext;
-    use crate::test_utils::eval_assert_equal;
+    use crate::test_utils::{eval_assert_equal, eval_assert_error_line};
 
     #[test]
     fn nth_and_nthcdr_index_a_list() {
@@ -93,5 +93,43 @@ mod tests {
         eval_assert_equal(ctx, "(nth 7 d)", "1");
         eval_assert_equal(ctx, "(eq (nthcdr 1000000000000 d) (nthcdr 2 d))", "t");
         Ok(())
+    }
+
+    // `last` counts the links of a list, so a dotted tail counts for none, an N
+    // of 0 gives the tail after the last link, and a negative N gives nil, as
+    // in Emacs.
+    #[test]
+    fn last_counts_links() {
+        let ctx = &mut TulispContext::new();
+        let cases = [
+            ("(last '(1 2 3))", "'(3)"),
+            (
+                "(list (last '(1 2 3) 2) (last '(1 2 3) 10))",
+                "'((2 3) (1 2 3))",
+            ),
+            (
+                "(list (last '(1 2 3) 0) (last '(1 2 3) -1) (last nil -1))",
+                "'(nil nil nil)",
+            ),
+            ("(last '(1 2 . 3))", "'(2 . 3)"),
+            (
+                "(list (last '(1 2 . 3) 2) (last '(1 2 . 3) 0))",
+                "'((1 2 . 3) 3)",
+            ),
+            ("(last 5)", "5"),
+            ("(list (last '(1 2 . 3) -1) (last 5 -1))", "'(nil nil)"),
+            (
+                "(let ((l (list 1 2))) (setcdr (cdr l) l) (last l -1))",
+                "nil",
+            ),
+        ];
+        for (program, expected) in cases {
+            eval_assert_equal(ctx, program, expected);
+        }
+        eval_assert_error_line(
+            ctx,
+            "(let ((l (list 1 2))) (setcdr (cdr l) l) (last l))",
+            "ERR OutOfRange: Circular list",
+        );
     }
 }

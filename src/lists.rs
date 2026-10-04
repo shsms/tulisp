@@ -69,33 +69,35 @@ pub(crate) fn sole_element(list: &TulispObject, empty_is_nil: bool) -> Result<Tu
     )))
 }
 
-/// Returns the last link in the given list.
+/// The last N links of `list`, one when `n` is `None`, as Emacs Lisp's `last`
+/// gives them. A dotted tail is no link, an `n` of 0 gives the tail after the
+/// last link, and a negative `n` gives nil.
+///
+/// ```rust
+/// use tulisp::{TulispContext, lists};
+///
+/// let mut ctx = TulispContext::new();
+/// let list = ctx.eval_string("'(a b . c)").unwrap();
+/// assert_eq!(lists::last(&list, None).unwrap().to_string(), "(b . c)");
+/// assert_eq!(lists::last(&list, Some(0)).unwrap().to_string(), "c");
+/// ```
 pub fn last(list: &TulispObject, n: Option<i64>) -> Result<TulispObject, Error> {
-    if list.null() {
+    let n = n.unwrap_or(1);
+    if n < 0 {
+        return Ok(TulispObject::nil());
+    }
+    let mut links = 0;
+    let mut cell = list.clone();
+    let mut cycle = CycleCheck::new();
+    while cell.consp() {
+        links += 1;
+        cell = cell.cdr()?;
+        cycle.step(&cell)?;
+    }
+    if n >= links {
         return Ok(list.clone());
     }
-    if !list.consp() {
-        return Err(Error::type_mismatch(format!(
-            "expected list, got: {}",
-            list
-        )));
-    }
-
-    let len = length(list)?;
-    if let Some(n) = n {
-        if n < 0 {
-            return Err(Error::out_of_range(format!(
-                "n must be positive. got: {}",
-                n
-            )));
-        }
-        if n < len {
-            return nthcdr(len - n, list);
-        }
-    } else {
-        return nthcdr(len - 1, list);
-    }
-    Ok(list.clone())
+    nthcdr(links - n, list)
 }
 
 /// Takes the cdr of LIST N times and returns it.
