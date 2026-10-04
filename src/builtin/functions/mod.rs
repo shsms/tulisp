@@ -10,6 +10,7 @@ mod hash_table;
 mod list_elements;
 mod numbers;
 mod sequences;
+mod sort;
 mod time_operations;
 
 pub(crate) fn add(ctx: &mut TulispContext) {
@@ -22,6 +23,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     list_elements::add(ctx);
     numbers::add(ctx);
     sequences::add(ctx);
+    sort::add(ctx);
     time_operations::add(ctx);
 }
 
