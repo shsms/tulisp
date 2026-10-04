@@ -83,38 +83,21 @@ impl Tokenizer<'_> {
         while let Some(ch) = self.next_char() {
             match ch {
                 '\\' => {
-                    // Common control-char escapes match Emacs / C.
-                    // Hex / octal / Unicode (`\xHH`, `\NNN`,
-                    // `\u{HHHH}`) aren't supported yet — the reader
-                    // errors on unknown escapes rather than passing
-                    // them through, partly to flag typos and partly
-                    // because Display only round-trips the four it
-                    // emits (`\"`, `\\`, `\n`, `\t`).
-                    let out_ch = match self.next_char()? {
-                        'n' => '\n',
-                        't' => '\t',
-                        'r' => '\r',
-                        'b' => '\u{08}', // backspace
-                        'f' => '\u{0c}', // form feed
-                        'v' => '\u{0b}', // vertical tab
-                        'a' => '\u{07}', // alarm / bell
-                        'e' => '\u{1b}', // escape
-                        '0' => '\u{00}', // null
-                        '\\' => '\\',
-                        '"' => '"',
-                        e => {
-                            return Some(Token::ParserError(ParserError::new(
-                                ParserErrorKind::SyntaxError,
-                                format!("Unknown escape char {}", e),
-                                Span {
-                                    file_id: self.file_id,
-                                    start: (self.line, self.pos),
-                                    end: (self.line, self.pos),
-                                },
-                            )));
+                    let escape = self.read_escape(true).and_then(|code| {
+                        code.map(|code| {
+                            char::from_u32(code)
+                                .ok_or_else(|| format!("Not a character: \\x{code:x}"))
+                        })
+                        .transpose()
+                    });
+                    match escape {
+                        Ok(ch) => output.extend(ch),
+                        Err(desc) => {
+                            let pos = (self.line, self.pos);
+                            let span = Span::new(self.file_id, pos, pos);
+                            return Some(Token::ParserError(ParserError::syntax_error(desc, span)));
                         }
-                    };
-                    output.push(out_ch);
+                    }
                 }
                 '"' => {
                     return Some(Token::String {
@@ -1254,6 +1237,47 @@ mod tests {
         eval_assert_equal(ctx, r"?\(", "40");
         eval_assert_equal(ctx, r"?\8", "56");
         eval_assert_equal(ctx, r"(list ?\s ?\d)", "'(32 127)");
+    }
+
+    // A string takes the escapes of a character literal. A backslash before a
+    // newline or a space reads as nothing, and can end a hex escape.
+    #[test]
+    fn string_escapes() -> Result<(), Error> {
+        let ctx = &mut TulispContext::new();
+        let cases = [
+            (r#""\(x\)""#, "(x)"),
+            (r#""a\sb""#, "a b"),
+            (r#""\s-a""#, " -a"),
+            (r#""\d""#, "\u{7f}"),
+            (r#""\101\102""#, "AB"),
+            (r#""\x41\ b""#, "Ab"),
+            (r#""\u00e9""#, "é"),
+            ("\"a\\\nb\"", "ab"),
+            (r#""\C-a\^?""#, "\u{1}\u{7f}"),
+            (r#""\q""#, "q"),
+        ];
+        for (program, expected) in cases {
+            assert_eq!(
+                ctx.eval_string(program)?.as_string()?,
+                expected,
+                "{program}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn bad_string_escapes_are_errors() {
+        let ctx = &mut TulispContext::new();
+        let cases = [
+            (r#""\M-a""#, r"Modifier keys are not supported: \M-"),
+            (r#""\C-%""#, "No control character for %"),
+            (r#""\x110000""#, r"Not a character: \x110000"),
+        ];
+        for (program, desc) in cases {
+            let line = format!("ERR ParsingError: SyntaxError {desc}");
+            eval_assert_error_line(ctx, program, &line);
+        }
     }
 
     // Modifier keys, `\N{NAME}` and malformed escapes are read errors.

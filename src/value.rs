@@ -392,11 +392,8 @@ impl std::fmt::Display for TulispValue {
             TulispValue::Symbol { value } => f.write_str(&value.name),
             TulispValue::Number { value, .. } => f.write_fmt(format_args!("{}", value)),
             TulispValue::String { value, .. } => {
-                // Round-trip: the parser only knows the `\n`, `\t`,
-                // `\\`, `\"` escapes (`parse.rs::read_string`). Match
-                // those four exactly so a Display'd string parses
-                // back to the same value. Other chars pass through —
-                // they read as literal one-char characters.
+                // Escape `"`, `\`, newline and tab, so the string reads back as
+                // the same string. Other characters print as they are.
                 f.write_char('"')?;
                 for ch in value.chars() {
                     match ch {
