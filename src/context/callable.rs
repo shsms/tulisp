@@ -128,6 +128,39 @@ pub(crate) fn arity(kinds: &[ParamKind]) -> DefunArity {
 /// `Fn(P1, .., Pn) -> R` or `Fn(&mut TulispContext, P1, .., Pn) -> R`
 /// for up to twelve parameters and a [`Return`]; every parameter but
 /// the last is a [`PositionalParam`], the last any [`Param`].
+///
+/// Code of an embedder can take one and pass it on to `defun`:
+///
+/// ```rust
+/// use tulisp::{TulispCallable, TulispContext};
+///
+/// fn register<Args: 'static, Output: 'static, const CTX: bool>(
+///     ctx: &mut TulispContext,
+///     name: &str,
+///     f: impl TulispCallable<Args, Output, CTX> + 'static,
+/// ) {
+///     ctx.defun(name, f);
+/// }
+///
+/// let mut ctx = TulispContext::new();
+/// register(&mut ctx, "twice", |x: i64| x * 2);
+/// assert_eq!(ctx.eval_string("(twice 4)").unwrap().to_string(), "8");
+/// ```
+///
+/// Only Tulisp implements it:
+///
+/// ```compile_fail
+/// struct Mine;
+/// impl tulisp::TulispCallable<(), i64, false> for Mine {
+///     fn add_to_context(
+///         self,
+///         _: &mut tulisp::TulispContext,
+///         _: &str,
+///         _: tulisp::Token,
+///     ) {
+///     }
+/// }
+/// ```
 #[diagnostic::on_unimplemented(
     message = "`defun` cannot register this closure",
     note = "up to twelve parameters, each `TulispConvertible`; only the last may be `Rest<T>` or `Plist<T>`",
@@ -135,8 +168,13 @@ pub(crate) fn arity(kinds: &[ParamKind]) -> DefunArity {
     note = "a `TulispAny` type converts by value only when it is `Clone`; `Shared<T>` converts one that is not"
 )]
 pub trait TulispCallable<Args: 'static, Output: 'static, const CTX: bool> {
-    fn add_to_context(self, ctx: &mut TulispContext, name: &str);
+    #[doc(hidden)]
+    fn add_to_context(self, ctx: &mut TulispContext, name: &str, _: Token);
 }
+
+/// Keeps [`TulispCallable`] and [`SpecialCallable`](crate::SpecialCallable) for
+/// Tulisp to implement: their method takes one, and no other crate can name it.
+pub struct Token(pub(crate) ());
 
 macro_rules! impl_tulisp_callable {
     // One impl per arity for closures with and without the context
@@ -154,7 +192,7 @@ macro_rules! impl_tulisp_callable {
             // `define_typed_defun` records the caller's location for TAGS.
             #[track_caller]
             #[allow(unused_mut, unused_variables)]
-            fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
+            fn add_to_context(self, ctx: &mut TulispContext, name: &str, _: Token) {
                 let arity = arity(&[$(<$p as Param>::KIND,)* $(<$last as Param>::KIND,)?]);
                 ctx.define_typed_defun(name, arity, move |$cx, args| {
                     let mut args = args;

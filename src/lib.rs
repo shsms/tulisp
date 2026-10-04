@@ -12,13 +12,9 @@ pub use cons::{BaseIter, Iter};
 
 mod context;
 pub use context::call_args::{ApplyArgs, FuncallArgs, SpreadArgs};
-#[doc(hidden)]
-pub use context::callable::TulispCallable;
-pub use context::callable::{Param, ParamKind, PositionalParam, Return};
+pub use context::callable::{Param, ParamKind, PositionalParam, Return, TulispCallable};
 pub use context::destructure::Destructure;
-#[doc(hidden)]
-pub use context::special::SpecialCallable;
-pub use context::special::{Form, SpecialArgs, SpecialParam, SpecialPositionalParam};
+pub use context::special::{Form, SpecialCallable, SpecialParam, SpecialPositionalParam};
 pub use context::{Interrupt, Rest, TulispContext};
 
 mod error;

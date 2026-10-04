@@ -475,7 +475,7 @@ impl TulispContext {
         name: &str,
         func: impl special::SpecialCallable<Args, Output, CTX> + 'static,
     ) -> &mut Self {
-        func.add_to_context(self, name);
+        func.add_to_context(self, name, callable::Token(()));
         self
     }
 
@@ -659,7 +659,7 @@ impl TulispContext {
         name: &str,
         func: impl TulispCallable<Args, Output, CTX> + 'static,
     ) -> &mut Self {
-        func.add_to_context(self, name);
+        func.add_to_context(self, name, callable::Token(()));
         self
     }
 

@@ -1,6 +1,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::bytecode::{FormBlock, FrameState};
+use crate::context::callable::Token;
 use crate::object::wrappers::generic::{Shared, SyncSend};
 use crate::{
     Error, Param, ParamKind, PositionalParam, Rest, Return, TulispContext, TulispConvertible,
@@ -120,6 +121,23 @@ pub struct SpecialArgs<'a> {
 /// argument is evaluated before the call, or a [`Form`],
 /// `Option<Form>` or [`Rest<Form>`], whose argument is not.
 ///
+/// Only Tulisp implements this trait. To add a parameter type, implement
+/// [`Param`].
+///
+/// ```compile_fail
+/// struct Mine;
+/// impl tulisp::SpecialParam for Mine {
+///     const KIND: tulisp::ParamKind =
+///         tulisp::ParamKind::Positional { required: true };
+///     fn take(
+///         _: &mut tulisp::TulispContext,
+///         _: &mut tulisp::SpecialArgs<'_>,
+///     ) -> Result<Self, tulisp::Error> {
+///         Ok(Mine)
+///     }
+/// }
+/// ```
+///
 /// `defspecial` refuses a hand-written [`Param`] whose kind is
 /// `ParamKind::Form` or `ParamKind::RestForm` when the program is
 /// built (`cargo check` does not report it):
@@ -210,7 +228,8 @@ impl SpecialPositionalParam for Option<Form> {}
     note = "the return type must be `TulispConvertible`, `()`, or a `Result` of one"
 )]
 pub trait SpecialCallable<Args: 'static, Output: 'static, const CTX: bool> {
-    fn add_to_context(self, ctx: &mut TulispContext, name: &str);
+    #[doc(hidden)]
+    fn add_to_context(self, ctx: &mut TulispContext, name: &str, _: Token);
 }
 
 macro_rules! impl_special_callable {
@@ -229,7 +248,7 @@ macro_rules! impl_special_callable {
             // `define_special` records the caller's location for TAGS.
             #[track_caller]
             #[allow(unused_mut, unused_variables)]
-            fn add_to_context(self, ctx: &mut TulispContext, name: &str) {
+            fn add_to_context(self, ctx: &mut TulispContext, name: &str, _: Token) {
                 let kinds = vec![$(<$p as SpecialParam>::KIND,)* $(<$last as SpecialParam>::KIND,)?];
                 ctx.define_special(name, kinds, move |$cx, values, forms| {
                     let mut args = SpecialArgs { values, forms: forms.into_iter() };
