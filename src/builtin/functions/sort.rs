@@ -1,6 +1,10 @@
 //! Emacs's `sort` and `value<`.
 
-use crate::{Error, Number, Rest, TulispContext, TulispObject, cons::CycleCheck};
+use std::cmp::Ordering;
+
+use crate::{
+    Error, Number, Rest, TulispContext, TulispObject, as_symbol::with_name, cons::CycleCheck,
+};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defun("value<", |a: TulispObject, b: TulispObject| {
@@ -127,38 +131,55 @@ fn write_back(seq: &TulispObject, items: Vec<TulispObject>) -> Result<(), Error>
     Ok(())
 }
 
-/// Whether A comes before B, as Emacs's `value<` orders them: numbers by value,
+/// Whether A comes before B, as Emacs's `value<` orders them.
+fn value_less(a: &TulispObject, b: &TulispObject) -> Result<bool, Error> {
+    Ok(value_cmp(a, b)? == Ordering::Less)
+}
+
+/// How A and B compare, as Emacs's `value<` orders them: numbers by value,
 /// strings and symbols by name, and lists element by element. Values of
 /// different kinds are an error.
-pub(crate) fn value_less(a: &TulispObject, b: &TulispObject) -> Result<bool, Error> {
+fn value_cmp(a: &TulispObject, b: &TulispObject) -> Result<Ordering, Error> {
+    // The same object is equal to itself, and reading its name twice at once
+    // would lock it twice.
+    if a.eq(b) {
+        return Ok(Ordering::Equal);
+    }
     if a.numberp() && b.numberp() {
-        return Ok(Number::try_from(a)? < Number::try_from(b)?);
+        let (a, b) = (Number::try_from(a)?, Number::try_from(b)?);
+        return Ok(a.partial_cmp(&b).unwrap_or(Ordering::Equal));
     }
     if a.stringp() && b.stringp() {
-        return Ok(a.as_string()? < b.as_string()?);
+        return name_cmp(a, b);
     }
     // nil is the empty list next to a list, and a symbol next to a symbol.
     if (a.consp() || b.consp()) && a.listp() && b.listp() {
-        return list_less(a, b);
+        return list_cmp(a, b);
     }
     if a.symbolp() && b.symbolp() {
-        return Ok(a.symbol_name()? < b.symbol_name()?);
+        return name_cmp(a, b);
     }
-    Err(Error::type_mismatch(format!("Cannot compare {a} and {b}")))
+    Err(cannot_compare(a, b))
 }
 
-/// `value_less` for two lists: by their first elements that differ, a list
+/// How the names of A and B compare: a string's text or a symbol's name.
+fn name_cmp(a: &TulispObject, b: &TulispObject) -> Result<Ordering, Error> {
+    with_name(a, true, |a_name| {
+        with_name(b, true, |b_name| a_name.cmp(b_name))
+    })
+    .flatten()
+    .ok_or_else(|| cannot_compare(a, b))
+}
+
+/// `value_cmp` for two lists: by their first elements that differ, a list
 /// before a longer one that starts with it, and then by their tails.
-fn list_less(a: &TulispObject, b: &TulispObject) -> Result<bool, Error> {
+fn list_cmp(a: &TulispObject, b: &TulispObject) -> Result<Ordering, Error> {
     let (mut a, mut b) = (a.clone(), b.clone());
     let (mut a_cycle, mut b_cycle) = (CycleCheck::new(), CycleCheck::new());
     while a.consp() && b.consp() {
-        let (x, y) = (a.car()?, b.car()?);
-        if value_less(&x, &y)? {
-            return Ok(true);
-        }
-        if value_less(&y, &x)? {
-            return Ok(false);
+        match value_cmp(&a.car()?, &b.car()?)? {
+            Ordering::Equal => {}
+            other => return Ok(other),
         }
         a = a.cdr()?;
         b = b.cdr()?;
@@ -166,11 +187,17 @@ fn list_less(a: &TulispObject, b: &TulispObject) -> Result<bool, Error> {
         b_cycle.step(&b)?;
     }
     match (a.null(), b.null()) {
-        (true, _) => Ok(b.consp()),
-        (false, true) => Ok(false),
+        (true, true) => Ok(Ordering::Equal),
+        (true, false) if b.consp() => Ok(Ordering::Less),
+        (false, true) if a.consp() => Ok(Ordering::Greater),
+        (true, false) | (false, true) => Ok(Ordering::Equal),
         // Both lists end in a tail that is not nil.
-        (false, false) => value_less(&a, &b),
+        (false, false) => value_cmp(&a, &b),
     }
+}
+
+fn cannot_compare(a: &TulispObject, b: &TulispObject) -> Error {
+    Error::type_mismatch(format!("Cannot compare {a} and {b}"))
 }
 
 #[cfg(test)]
@@ -201,6 +228,13 @@ mod tests {
                 "'(t t t nil t)",
             ),
             ("(list (value< 0.0e+NaN 1) (value< t nil))", "'(nil nil)"),
+            (r#"(let ((s "a")) (value< s s))"#, "nil"),
+            (
+                "(list (value< '((1 2) 0) '((1) 5)) (value< '((1) 5) '((1 2) 0)))",
+                "'(nil t)",
+            ),
+            ("(let ((l (list 1))) (setcdr l l) (value< l l))", "nil"),
+            ("(let ((h (make-hash-table))) (value< h h))", "nil"),
         ];
         for (program, expected) in cases {
             eval_assert_equal(ctx, program, expected);
@@ -219,7 +253,7 @@ mod tests {
                 "ERR TypeMismatch: Cannot compare a and 2",
             ),
             (
-                "(let ((l (list 1))) (setcdr l l) (value< l l))",
+                "(let ((a (list 1)) (b (list 1))) (setcdr a a) (setcdr b b) (value< a b))",
                 "ERR OutOfRange: Circular list",
             ),
         ] {
