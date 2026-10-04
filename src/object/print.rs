@@ -75,11 +75,12 @@ struct OpenList {
     /// Whether the list printed as `#'X` or `'X`, so it closes without a
     /// parenthesis.
     prefixed: bool,
+    /// Whether the list is on `PRINTING`.
+    counted: bool,
 }
 
-/// The lists being printed by one `print`, innermost last. Each is on
-/// `PRINTING` too, but for an outermost one that is not counted, and leaves it
-/// when this does, on every path.
+/// The lists being printed by one `print`, innermost last. Each one that is
+/// counted is on `PRINTING` too, and leaves it when this does, on every path.
 struct OpenLists {
     lists: Vec<OpenList>,
     /// Whether the outermost list counts among the lists being printed.
@@ -88,20 +89,9 @@ struct OpenLists {
     princ: bool,
 }
 
-impl OpenLists {
-    /// Whether a list opened now, or the one just closed, is on `PRINTING`:
-    /// all but an outermost one that is not counted are.
-    fn top_counted(&self) -> bool {
-        self.outer_counted || !self.lists.is_empty()
-    }
-}
-
 impl Drop for OpenLists {
     fn drop(&mut self) {
-        let counted = self
-            .lists
-            .len()
-            .saturating_sub(usize::from(!self.outer_counted));
+        let counted = self.lists.iter().filter(|list| list.counted).count();
         PRINTING.with(|printing| {
             let mut printing = printing.borrow_mut();
             for _ in 0..counted {
@@ -158,8 +148,7 @@ fn print_lists(
             if !list.prefixed {
                 f.write_char(')')?;
             }
-            open.lists.pop();
-            if open.top_counted() {
+            if open.lists.pop().is_some_and(|list| list.counted) {
                 PRINTING.with(|printing| printing.borrow_mut().pop());
             }
             continue;
@@ -244,14 +233,30 @@ fn print_one(
         {
             list = call;
         }
-        if open.top_counted() {
-            PRINTING.with(|printing| printing.borrow_mut().push(addr));
-        }
-        // `(function X)` prints as `#'X` and `(quote X)` as `'X`, as in Emacs,
-        // but stays among the lists being printed until X is printed, in case X
-        // leads back to it.
+        // `(function X)` prints as `#'X` and `(quote X)` as `'X`. As in Emacs,
+        // such a list takes no depth, so X gets the depth it would have had.
         let (prefix, arg) = prefix_form(obj).unzip();
         let prefixed = prefix.is_some();
+        // A loop of prefixed lists alone, like `(quote X)` with X the list
+        // itself, ends in the depth X would take.
+        let looped = prefixed
+            && open
+                .lists
+                .iter()
+                .rev()
+                .take_while(|list| list.prefixed)
+                .any(|list| list.rest.addr_as_usize() == addr);
+        if looped {
+            let depth = PRINTING.with(|printing| printing.borrow().lists.len());
+            write!(f, "#{depth}")?;
+            return Ok(None);
+        }
+        // All lists in parentheses go on `PRINTING`, but for an outermost one
+        // that is not counted.
+        let counted = !prefixed && (open.outer_counted || !open.lists.is_empty());
+        if counted {
+            PRINTING.with(|printing| printing.borrow_mut().push(addr));
+        }
         f.write_str(prefix.unwrap_or("("))?;
         open.lists.push(OpenList {
             rest: list,
@@ -260,6 +265,7 @@ fn print_one(
             circular: false,
             closing: prefixed,
             prefixed,
+            counted,
         });
         return Ok(arg);
     }
@@ -345,6 +351,33 @@ mod tests {
         );
         ctx.eval_string("(setq a (list 'quote nil)) (setcar (cdr a) a)")?;
         eval_assert_equal(ctx, "(prin1-to-string a)", r##""'#0""##);
+        Ok(())
+    }
+
+    // A prefixed list takes no depth among the lists being printed, as in
+    // Emacs, so a repeat inside it counts only the lists in parentheses.
+    #[test]
+    fn a_prefixed_list_takes_no_depth() -> Result<(), Error> {
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string(
+            "(setq x (list 2 nil)) (setcar (cdr x) x)
+             (setq b (list 'quote nil)) (setcar (cdr b) (list 1 b))
+             (setq c (list 'function nil)) (setcar (cdr c) (list 1 c))
+             (setq p (list 'quote nil)) (setcar (cdr p) (list 1 (list 'quote p)))
+             (setq q (list 'quote nil)) (setcar (cdr q) (list 2 q))",
+        )?;
+        let cases = [
+            ("(list 1 (list 'quote x))", "(1 '(2 #1))"),
+            ("(list 1 (list 'function x))", "(1 #'(2 #1))"),
+            ("b", "'(1 '#0)"),
+            ("c", "#'(1 #'#0)"),
+            ("p", "'(1 ''#0)"),
+            ("(list 1 q)", "(1 '(2 '#1))"),
+        ];
+        for (form, printed) in cases {
+            let program = format!("(prin1-to-string {form})");
+            assert_eq!(ctx.eval_string(&program)?.as_string()?, printed, "{form}");
+        }
         Ok(())
     }
 
