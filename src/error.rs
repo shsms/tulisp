@@ -11,7 +11,7 @@ pub(crate) use table::ErrorTable;
 /// through `ErrorKind::fmt_value`.
 macro_rules! ErrorKind {
     (
-        $(($kind:ident, $ctor:ident)),* $(,)?
+        $($(#[$kind_meta:meta])* ($kind:ident, $ctor:ident)),* $(,)?
         ;
         $($(#[$meta:meta])* $valued:ident $fields:tt),* $(,)?
     ) => {
@@ -20,6 +20,7 @@ macro_rules! ErrorKind {
         #[non_exhaustive]
         pub enum ErrorKind {
             $(
+                $(#[$kind_meta])*
                 $kind,
             )*
             $(
@@ -57,23 +58,58 @@ macro_rules! ErrorKind {
     };
 }
 
+// Each kind's doc names the Emacs error symbol a `condition-case` handler
+// matches it by; `Error::symbol_name` maps them.
 ErrorKind!(
+    /// An integer overflow, an integer division by zero, or a float that
+    /// does not fit an integer. `arith-error` in Lisp.
     (ArithError,      arith_error),
+    /// An argument of the right type that the function cannot use, such
+    /// as a macro called as a function. `wrong-type-argument` in Lisp.
     (InvalidArgument, invalid_argument),
+    /// An error raised by Lisp's `error`, and other errors with no kind
+    /// of their own. `error` in Lisp.
     (LispError,       lisp_error),
+    /// A feature Tulisp does not have. `not-implemented` in Lisp.
     (NotImplemented,  not_implemented),
+    /// An index or a value out of range, or a list that loops back.
+    /// `args-out-of-range` in Lisp.
     (OutOfRange,      out_of_range),
+    /// A failure from the operating system, such as a file that cannot
+    /// be read. `file-error` in Lisp.
     (OSError,         os_error),
+    /// Output to a pipe whose reader has gone. `file-error` in Lisp.
     (BrokenPipe,      broken_pipe),
+    /// An argument of the wrong type, or setting a constant such as
+    /// `nil`. `wrong-type-argument` in Lisp.
     (TypeMismatch,    type_mismatch),
+    /// A malformed property list. `wrong-type-argument` in Lisp.
     (PlistError,      plist_error),
+    /// A malformed association list. `wrong-type-argument` in Lisp.
     (AlistError,      alist_error),
+    /// A function such as `apply` or `<` called with fewer arguments than
+    /// it needs. `wrong-number-of-arguments` in Lisp.
     (MissingArgument, missing_argument),
+    /// A call with too few or too many arguments for the function's
+    /// parameters. `wrong-number-of-arguments` in Lisp.
     (ArityMismatch,   arity_mismatch),
+    /// A call to something that is not a function, such as a name that
+    /// holds none. Some malformed forms raise it too, such as a `let`
+    /// binding with two values or a parameter list with `&rest` right
+    /// after `&rest`.
+    /// `void-function` in Lisp.
     (Undefined,       undefined),
+    /// A variable read while it has no value. `void-variable` in Lisp.
     (Uninitialized,   uninitialized),
+    /// Source text that cannot be read, such as an unclosed list or a bad
+    /// token. `invalid-read-syntax` in Lisp.
     (ParsingError,    parsing_error),
+    /// A form of the wrong shape, such as an unquote outside a backquote,
+    /// a malformed `let` binding, or a parameter list that is not a list.
+    /// `invalid-read-syntax` in Lisp.
     (SyntaxError,     syntax_error),
+    /// A run stopped by [`Interrupt::Stop`](crate::Interrupt::Stop). No
+    /// `condition-case` handler catches it.
     (Interrupted,     interrupted);
     /// A `throw`, holding `(TAG . VALUE)`; see [`Error::throw`].
     Throw(TulispObject),
