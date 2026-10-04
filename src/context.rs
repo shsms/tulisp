@@ -890,7 +890,9 @@ impl TulispContext {
         func: &TulispObject,
         args: impl ApplyArgs,
     ) -> Result<TulispObject, Error> {
-        let args = args.into_args(self)?;
+        let args = args
+            .into_args(self)
+            .map_err(|err| err.with_file_names(self))?;
         let function = resolve_function(self, func)?;
         self.call_with(&function, args)
     }
@@ -902,6 +904,12 @@ impl TulispContext {
         args: Vec<TulispObject>,
     ) -> Result<TulispObject, Error> {
         crate::bytecode::call_function(self, function, args)
+            .map_err(|err| err.with_file_names(self))
+    }
+
+    /// The elements of the list `seq`, or an error naming its files.
+    fn collect_named(&self, seq: &TulispObject) -> Result<Vec<TulispObject>, Error> {
+        crate::cons::collect_list(seq, Ok).map_err(|err| err.with_file_names(self))
     }
 
     /// Maps the given function over the given sequence, and returns the result.
@@ -911,7 +919,7 @@ impl TulispContext {
     pub fn map(&mut self, func: &TulispObject, seq: &TulispObject) -> Result<TulispObject, Error> {
         let function = resolve_function(self, func)?;
         let mut builder = crate::cons::ListBuilder::new();
-        for item in crate::cons::collect_list(seq, Ok)? {
+        for item in self.collect_named(seq)? {
             builder.push(self.call_with(&function, vec![item])?);
         }
         Ok(builder.build())
@@ -929,7 +937,7 @@ impl TulispContext {
     ) -> Result<TulispObject, Error> {
         let function = resolve_function(self, func)?;
         let mut builder = crate::cons::ListBuilder::new();
-        for item in crate::cons::collect_list(seq, Ok)? {
+        for item in self.collect_named(seq)? {
             if self.call_with(&function, vec![item.clone()])?.is_truthy() {
                 builder.push(item);
             }
@@ -950,7 +958,7 @@ impl TulispContext {
     ) -> Result<TulispObject, Error> {
         let function = resolve_function(self, func)?;
         let mut ret = initial_value.clone();
-        for item in crate::cons::collect_list(seq, Ok)? {
+        for item in self.collect_named(seq)? {
             ret = self.call_with(&function, vec![ret, item])?;
         }
         Ok(ret)
@@ -972,8 +980,9 @@ impl TulispContext {
     /// one, or nil for none. The forms are compiled and run in the VM,
     /// as for [`eval`](Self::eval).
     pub fn eval_progn(&mut self, seq: &TulispObject) -> Result<TulispObject, Error> {
-        let bytecode = compile(self, seq, true)?;
-        bytecode::run(self, bytecode)
+        compile(self, seq, true)
+            .and_then(|bytecode| bytecode::run(self, bytecode))
+            .map_err(|err| err.with_file_names(self))
     }
 
     /// Evaluates each form in SEQ, as [`eval`](Self::eval) does, and
@@ -1389,6 +1398,63 @@ mod tests {
         assert!(ctx.filter(&counted, &dotted).is_err());
         assert!(ctx.reduce(&counted, &dotted, &0.into()).is_err());
         eval_assert_equal(ctx, "calls", "0");
+    }
+
+    // An error a public call returns prints the names of the files its trace
+    // points into.
+    #[test]
+    fn an_error_prints_its_file_names() {
+        let ctx = &mut TulispContext::new();
+        let err = ctx.eval_string("(car 5)").unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("\n<eval_string>:1.1-1.7:  at (car 5)"),
+            "{err}"
+        );
+
+        let path =
+            std::env::temp_dir().join(format!("tulisp_file_names_{}.lisp", std::process::id()));
+        std::fs::write(&path, "(defun bad () (car 5))\n(bad)\n").unwrap();
+        let path = path.to_str().unwrap();
+        let err = ctx.eval_file(path).unwrap_err();
+        std::fs::remove_file(path).ok();
+        assert!(
+            err.to_string()
+                .contains(&format!("\n{path}:1.15-1.21:  at (car 5)")),
+            "{err}"
+        );
+
+        let bad = ctx.intern("bad");
+        let err = ctx.funcall(&bad, ()).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains(&format!("\n{path}:1.15-1.21:  at (car 5)")),
+            "{err}"
+        );
+    }
+
+    // `map`, `filter`, `reduce` and `apply` name the file of a list they
+    // cannot read, as well as of an error the function raises.
+    #[test]
+    fn a_malformed_list_error_prints_its_file_name() {
+        let ctx = &mut TulispContext::new();
+        let list = ctx.intern("list");
+        let plus = ctx.intern("+");
+        let dotted = ctx.eval_string("'(1 2 . 3)").unwrap();
+        let results = [
+            ctx.map(&list, &dotted),
+            ctx.filter(&list, &dotted),
+            ctx.reduce(&plus, &dotted, &0.into()),
+            ctx.apply(&plus, (1, &dotted)),
+        ];
+        for result in results {
+            let err = result.unwrap_err();
+            assert!(
+                err.to_string()
+                    .contains("\n<eval_string>:1.2-1.10:  at (1 2 . 3)"),
+                "{err}"
+            );
+        }
     }
 
     // A program run while a protected body compiles fails to compile

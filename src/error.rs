@@ -287,8 +287,13 @@ impl Error {
     /// another context parsed, CTX may have no name for the id, or the
     /// name of a different file: call this with the parsing context first.
     ///
-    /// An error from code that runs no context, such as a `TryFrom`
-    /// conversion or `from_tulisp`, needs this call to print file names.
+    /// `eval`, `eval_each`, `eval_string`, `eval_file`, `eval_prelude`,
+    /// `eval_progn`, `parse_file`, `funcall`, `apply`, `map`, `filter` and
+    /// `reduce` call this before they return an error, and so does
+    /// `eval_and_then` for an error from evaluating its form. An error from
+    /// other code, such as a `TryFrom` conversion, `from_tulisp`, or the
+    /// function given to `eval_and_then`, needs this call to print file
+    /// names.
     pub fn with_file_names(mut self, ctx: &TulispContext) -> Self {
         for entry in &mut self.backtrace {
             if entry.file.is_none()
@@ -456,6 +461,31 @@ mod tests {
         let err = err.with_file_names(parsing);
         assert!(
             err.to_string().contains(&format!("\n{path}:1.1-1.7:")),
+            "{err}"
+        );
+    }
+
+    // Names one context recorded stay when another context fills in its
+    // own, whether the other knows the file id or not.
+    #[test]
+    fn names_already_recorded_stay() {
+        let named = &mut crate::TulispContext::new();
+        named
+            .eval_prelude("named.lisp", "(defun bad () (car 5))")
+            .unwrap();
+        let err = named.eval_string("(bad)").unwrap_err();
+        let err = err.with_file_names(&crate::TulispContext::new());
+        assert!(
+            err.to_string()
+                .contains("\nnamed.lisp:1.15-1.21:  at (car 5)"),
+            "{err}"
+        );
+        let colliding = &mut crate::TulispContext::new();
+        colliding.eval_prelude("other.lisp", "nil").unwrap();
+        let err = err.with_file_names(colliding);
+        assert!(
+            err.to_string()
+                .contains("\nnamed.lisp:1.15-1.21:  at (car 5)"),
             "{err}"
         );
     }

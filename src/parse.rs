@@ -875,14 +875,15 @@ pub fn parse(
     program: &str,
     #[cfg(feature = "etags")] follow_load_files: bool,
 ) -> Result<TulispObject, Error> {
-    Parser::new(
+    let parsed = Parser::new(
         ctx,
         file_id,
         program,
         #[cfg(feature = "etags")]
         follow_load_files,
     )
-    .parse()
+    .parse();
+    parsed.map_err(|err| err.with_file_names(ctx))
 }
 
 #[cfg(test)]
