@@ -147,6 +147,9 @@ pub(crate) enum Instruction {
     /// Like `Set`, without pushing the value back.
     SetPop,
     StorePop(TulispObject),
+    /// Pops a value and makes it SYM's top-level value, beneath any binding of
+    /// SYM that is running.
+    StorePopGlobal(TulispObject),
     Store(TulispObject),
     Load(TulispObject),
     /// Pop a value into the running frame's slot `n`: a lexical
@@ -318,8 +321,8 @@ pub(crate) enum Instruction {
         body: Block,
         handlers: Shared<Vec<Handler>>,
     },
-    /// `(defvar SYM ...)`: pushes whether SYM is bound, so the value is
-    /// evaluated and stored only when it is not.
+    /// `(defvar SYM ...)`: pushes whether SYM has a top-level value, so the
+    /// value is evaluated and stored only when it has none.
     DefVar(TulispObject),
     /// Raises an error the compiler found, once it is reached: a
     /// `condition-case` handler whose VAR is a constant.
@@ -423,6 +426,7 @@ impl Instruction {
             | Instruction::Set
             | Instruction::SetPop
             | Instruction::StorePop(..)
+            | Instruction::StorePopGlobal(..)
             | Instruction::Store(..)
             | Instruction::Load(..)
             | Instruction::BindLocal(..)
@@ -578,6 +582,7 @@ impl std::fmt::Display for Instruction {
             Instruction::Set => write!(f, "    set"),
             Instruction::SetPop => write!(f, "    set_pop"),
             Instruction::StorePop(obj) => write!(f, "    store_pop {}", obj),
+            Instruction::StorePopGlobal(obj) => write!(f, "    store_pop_global {}", obj),
             Instruction::Store(obj) => write!(f, "    store {}", obj),
             Instruction::Load(obj) => write!(f, "    load {}", obj),
             Instruction::BindLocal(n) => write!(f, "    bind_local {}", n),

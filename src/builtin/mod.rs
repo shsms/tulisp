@@ -53,8 +53,8 @@ Tulisp has no vector type — sequence functions are list-only.
 - **Bindings**: `let`, `let*`, `setq`, `set`, `symbol-value`.
 - **Symbols**: `intern` (always uses the default obarray), `make-symbol`,
   `gensym`.
-- **Declaration**: `defvar` (sets only when unbound — preserves value
-  across reloads).
+- **Declaration**: `defvar` (sets only when the name has no top-level
+  value — preserves value across reloads).
 - **Constants**: `nil`, `t`.
 
 # Functions and macros

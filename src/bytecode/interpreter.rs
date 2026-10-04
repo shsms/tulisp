@@ -730,6 +730,10 @@ fn run_impl_inner(
                 let a = ctx.vm.stack.pop().unwrap();
                 obj.set(a)?;
             }
+            Instruction::StorePopGlobal(obj) => {
+                let a = ctx.vm.stack.pop().unwrap();
+                obj.set_global(a)?;
+            }
             Instruction::Store(obj) => {
                 let a = ctx.vm.stack.last().unwrap();
                 obj.set(a.clone())?;
@@ -970,8 +974,8 @@ fn run_impl_inner(
             }
             Instruction::Raise(err) => return Err((**err).clone()),
             Instruction::DefVar(sym) => {
-                let bound = sym.boundp();
-                ctx.vm.stack.push(bound.into());
+                let has_value = sym.global().is_some();
+                ctx.vm.stack.push(has_value.into());
             }
             Instruction::ConditionCase {
                 binds,

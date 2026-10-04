@@ -524,7 +524,7 @@ pub(super) fn compile_fn_defvar(
             Instruction::JumpIfNotNil(Pos::Label(bound.clone())),
         ];
         result.append(&mut compile_expr_keep_result(ctx, &value)?);
-        result.push(Instruction::StorePop(sym.clone()));
+        result.push(Instruction::StorePopGlobal(sym.clone()));
         result.push(Instruction::Label(bound));
         if keep_result {
             result.push(Instruction::Push(sym.clone()));
@@ -651,6 +651,16 @@ mod tests {
                        (let ((dv-qq 9)) (dv-read-qq))";
         let vm = TulispContext::new().eval_string(program).unwrap();
         assert_eq!(vm.to_string(), "9");
+    }
+
+    // Under a binding of a name with no top-level value, `defvar` sets the
+    // top-level value, which shows once the binding ends, as in Emacs.
+    #[test]
+    fn a_defvar_under_a_binding_sets_the_top_level_value() {
+        let program = "(defun dv-setup () (defvar dv-under 7))
+                       (list (let ((dv-under 1)) (dv-setup) dv-under) dv-under)";
+        let vm = TulispContext::new().eval_string(program).unwrap();
+        assert_eq!(vm.to_string(), "(1 7)");
     }
 
     // The symbol holds the definition the compile made from the same
