@@ -76,11 +76,13 @@ impl Spec {
                 Some('+') => spec.plus = true,
                 Some(' ') => spec.space = true,
                 Some('#') => spec.alt = true,
-                Some('0') if spec.width == 0 => spec.zero = true,
-                Some(c) if c.is_ascii_digit() => spec.width = add_digit(spec.width, *c),
+                Some('0') => spec.zero = true,
                 _ => break,
             }
             chars.next();
+        }
+        while let Some(c) = chars.next_if(char::is_ascii_digit) {
+            spec.width = add_digit(spec.width, c);
         }
         if chars.next_if_eq(&'.').is_some() {
             let mut digits = 0;
@@ -726,6 +728,28 @@ mod tests {
             ctx,
             r#"(format "%c" 4294967393)"#,
             "ERR TypeMismatch: Not a character: 4294967393",
+        );
+    }
+
+    // Flags come before the width: one after a width digit is the conversion,
+    // as in Emacs.
+    #[test]
+    fn format_flags_come_before_the_width() {
+        let ctx = &mut TulispContext::new();
+        for (program, flag) in [
+            (r#"(format "%5-d" 3)"#, "-"),
+            (r#"(format "%3+d" 3)"#, "+"),
+            (r#"(format "%2 d" 3)"#, " "),
+            (r#"(format "%6#x" 255)"#, "#"),
+            (r#"(format "%1-0d" 3)"#, "-"),
+        ] {
+            let line = format!("ERR LispError: Invalid format operation %{flag}");
+            eval_assert_error_line(ctx, program, &line);
+        }
+        eval_assert_equal(
+            ctx,
+            r#"(format "[%0005d][%10d][%-0 5d][%--5d][%##x]" 3 3 3 3 255)"#,
+            r#""[00003][         3][ 3   ][3    ][0xff]""#,
         );
     }
 }
