@@ -1288,7 +1288,31 @@ impl TulispObject {
 
 #[cfg(test)]
 mod tests {
-    use crate::{Error, TulispContext, TulispConvertible, TulispObject};
+    use crate::{Error, Iter, TulispContext, TulispConvertible, TulispObject};
+
+    #[test]
+    fn test_typed_iter() -> Result<(), Error> {
+        let mut ctx = TulispContext::new();
+
+        ctx.defspecial("add_ints", |ints: TulispObject| -> Result<i64, Error> {
+            let ints: Iter<i64> = ints.iter()?;
+            let mut sums = 0;
+            for next in ints {
+                sums += next?;
+            }
+            Ok(sums)
+        });
+
+        crate::test_utils::eval_assert_equal(&mut ctx, "(add_ints '(10 20 30))", "60");
+        crate::test_utils::eval_assert_error(
+            &mut ctx,
+            "(add_ints 20)",
+            r#"ERR TypeMismatch: Expected list, got: 20
+<eval_string>:1.1-1.13:  at (add_ints 20)
+"#,
+        );
+        Ok(())
+    }
 
     crate::AsList! {
         #[derive(Debug, PartialEq)]

@@ -1,5 +1,5 @@
 use std::fmt::Display;
-use tulisp::{Error, Iter, TulispContext, TulispObject};
+use tulisp::{Error, TulispContext, TulispObject};
 
 macro_rules! tulisp_assert {
     (@impl $ctx: expr, program:$input:expr, result:$result:expr $(,)?) => {
@@ -652,34 +652,6 @@ fn test_owned_method() -> Result<(), Error> {
 fn test_from_iter() -> Result<(), Error> {
     let obj: TulispObject = (1..10).map(|x| (x * 2).into()).collect();
     assert_eq!(obj.to_string(), "(2 4 6 8 10 12 14 16 18)");
-    Ok(())
-}
-
-#[test]
-fn test_typed_iter() -> Result<(), Error> {
-    let mut ctx = TulispContext::new();
-
-    ctx.defspecial("add_ints", |ints: TulispObject| -> Result<i64, Error> {
-        let ints: Iter<i64> = ints.iter()?;
-        let mut sums = 0;
-        for next in ints {
-            sums += next?;
-        }
-        Ok(sums)
-    });
-
-    tulisp_assert! {
-        ctx: ctx,
-        program: "(add_ints '(10 20 30))",
-        result: "60",
-    }
-    tulisp_assert! {
-        ctx: ctx,
-        program: "(add_ints 20)",
-        error: r#"ERR TypeMismatch: Expected list, got: 20
-<eval_string>:1.1-1.13:  at (add_ints 20)
-"#
-    }
     Ok(())
 }
 
