@@ -152,17 +152,35 @@ pub(crate) fn format_string(
 /// ARG formatted by SPEC's conversion.
 fn convert(spec: &Spec, arg: &TulispObject) -> Result<Field, Error> {
     if matches!(spec.conversion, 'd' | 'x' | 'X' | 'o' | 'f' | 'e' | 'g') && !arg.numberp() {
-        return Err(Error::lisp_error(
-            "Format specifier doesn\u{2019}t match argument type",
-        ));
+        return Err(wrong_type());
     }
     match spec.conversion {
         's' => Ok(Field::text(cut(arg.fmt_string(), spec.precision))),
         'S' => Ok(Field::text(cut(arg.to_string(), spec.precision))),
+        'c' => Ok(Field::text(cut(
+            character(arg)?.to_string(),
+            spec.precision,
+        ))),
         'd' | 'x' | 'X' | 'o' => integer(spec, arg.try_int()?),
         'f' | 'e' | 'g' => float(spec, arg.try_float()?),
         other => Err(invalid_operation(other)),
     }
+}
+
+/// The character `%c` prints for ARG, a character code.
+fn character(arg: &TulispObject) -> Result<char, Error> {
+    if !arg.integerp() {
+        return Err(wrong_type());
+    }
+    u32::try_from(arg.try_int()?)
+        .ok()
+        .and_then(char::from_u32)
+        .ok_or_else(|| Error::type_mismatch(format!("Not a character: {arg}")))
+}
+
+/// Emacs's error for an argument of the wrong type for its conversion.
+fn wrong_type() -> Error {
+    Error::lisp_error("Format specifier doesn\u{2019}t match argument type")
 }
 
 /// Emacs's error for a conversion `format` does not know.
@@ -672,6 +690,36 @@ mod tests {
             ctx,
             r#"(format "%G" 1.5)"#,
             "ERR LispError: Invalid format operation %G",
+        );
+    }
+
+    // `%c` prints a character from its code, padded like text, as in Emacs.
+    #[test]
+    fn format_character() {
+        let ctx = &mut TulispContext::new();
+        let cases = [
+            (r#"(format "%c%c" ?a 233)"#, r#""aé""#),
+            (r#"(format "%5c|%-3c|" ?a ?b)"#, r#""    a|b  |""#),
+            (
+                r#"(format "%05c|%+c|%#c|%.0c|" ?a ?b ?c ?d)"#,
+                r#""    a|b|c||""#,
+            ),
+        ];
+        for (program, expected) in cases {
+            eval_assert_equal(ctx, program, expected);
+        }
+        let mismatch = "ERR LispError: Format specifier doesn\u{2019}t match argument type";
+        eval_assert_error_line(ctx, r#"(format "%c" "a")"#, mismatch);
+        eval_assert_error_line(ctx, r#"(format "%c" 1.0)"#, mismatch);
+        eval_assert_error_line(
+            ctx,
+            r#"(format "%c" -1)"#,
+            "ERR TypeMismatch: Not a character: -1",
+        );
+        eval_assert_error_line(
+            ctx,
+            r#"(format "%c" 4294967393)"#,
+            "ERR TypeMismatch: Not a character: 4294967393",
         );
     }
 }
