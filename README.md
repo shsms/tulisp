@@ -214,6 +214,11 @@ uses that macro itself is refused at its first expansion.
 | `sync`          | Makes the interpreter thread-safe (`Arc`/`RwLock` instead of `Rc`/`RefCell`) |
 | `etags`         | Enables TAGS file generation for Lisp source files                           |
 
+`sync` is not additive: besides the pointer types, it makes `TulispAny` values
+and registered closures need `Send + Sync`, and an interrupt check `Send`. Every
+crate in a build shares one choice of it, so a library built on Tulisp should
+leave the feature to the application that uses it.
+
 ## Next steps
 
 - [`TulispContext`](https://docs.rs/tulisp/latest/tulisp/struct.TulispContext.html) — interpreter state, evaluation methods, and function registration
