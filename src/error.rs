@@ -164,8 +164,9 @@ impl Error {
 
 /// Represents an error that occurred during Tulisp evaluation.
 ///
-/// Use [format](crate::Error::format) to produce a formatted representation of the error
-/// including backtraces and source code spans.
+/// Its `Display` shows the kind, the description and a trace of the forms the
+/// error passed through, each with its position and, once a context has filled
+/// it in, its file name.
 #[derive(Clone)]
 pub struct Error {
     kind: ErrorKind,
@@ -173,10 +174,12 @@ pub struct Error {
     backtrace: Vec<TraceEntry>,
 }
 
-/// A form an error passed through.
+/// A form an error passed through, with the name of its file once a context
+/// filled it in.
 #[derive(Clone)]
 struct TraceEntry {
     form: TulispObject,
+    file: Option<Box<str>>,
 }
 
 impl TraceEntry {
@@ -202,7 +205,10 @@ impl std::fmt::Display for Error {
             let Some(span) = entry.printed_span() else {
                 continue;
             };
-            write!(f, "\n<file {}>:", span.file_id)?;
+            match &entry.file {
+                Some(name) => write!(f, "\n{name}:")?,
+                None => write!(f, "\n<file {}>:", span.file_id)?,
+            }
             write!(
                 f,
                 "{}.{}-{}.{}:  at ",
@@ -265,42 +271,36 @@ impl Error {
         Self::new(ErrorKind::Signal { symbol, data }, desc)
     }
 
-    fn format_span(&self, ctx: &TulispContext, object: &TulispObject) -> String {
-        if let Some(span) = object.span() {
-            let filename = ctx.get_filename(span.file_id);
-            format!(
-                "{}:{}.{}-{}.{}:",
-                filename, span.start.0, span.start.1, span.end.0, span.end.1
-            )
-        } else {
-            String::new()
-        }
+    /// Formats the error into a human-readable string, including backtrace
+    /// information, followed by a newline.
+    pub fn format(&self, ctx: &TulispContext) -> String {
+        let mut text = self.clone().with_file_names(ctx).to_string();
+        text.push('\n');
+        text
     }
 
-    /// Formats the error into a human-readable string, including backtrace information.
-    pub fn format(&self, ctx: &TulispContext) -> String {
-        let desc = self.desc();
-        let mut span_str = if desc.is_empty() {
-            format!("ERR {}", self.kind)
-        } else {
-            format!("ERR {}: {}", self.kind, desc)
-        };
-        for TraceEntry { form: span } in &self.backtrace {
-            let prefix = self.format_span(ctx, span);
-            if prefix.is_empty() {
-                continue;
-            }
-            if span.numberp() || span.is_symbol_variant() || span.stringp() {
-                continue;
-            }
-            let string = span.to_string().replace("\n", "\\n");
-            if string.len() > 80 {
-                span_str.push_str(&format!("\n{}  at {:.80}...", prefix, string));
-            } else {
-                span_str.push_str(&format!("\n{}  at {}", prefix, string));
+    /// Records, for each trace entry with no file name yet, the name CTX
+    /// has for the entry's file id, so the error prints it. A recorded
+    /// name stays, and an id CTX has no name for is left unnamed.
+    ///
+    /// File ids belong to the context that parsed the form. For a form
+    /// another context parsed, CTX may have no name for the id, or the
+    /// name of a different file: call this with the parsing context first.
+    ///
+    /// An error from code that runs no context, such as a `TryFrom`
+    /// conversion or `from_tulisp`, needs this call to print file names.
+    pub fn with_file_names(mut self, ctx: &TulispContext) -> Self {
+        for entry in &mut self.backtrace {
+            if entry.file.is_none()
+                && let Some(span) = entry.printed_span()
+            {
+                entry.file = ctx
+                    .filenames
+                    .get(span.file_id)
+                    .map(|name| name.as_str().into());
             }
         }
-        span_str + "\n"
+        self
     }
 }
 
@@ -332,7 +332,10 @@ impl Error {
         {
             return self;
         }
-        self.backtrace.push(TraceEntry { form: span });
+        self.backtrace.push(TraceEntry {
+            form: span,
+            file: None,
+        });
         self
     }
 
@@ -420,6 +423,41 @@ mod tests {
         let err: Error = io.into();
         assert!(matches!(err.kind(), ErrorKind::BrokenPipe));
         assert_eq!(err.to_string(), "ERR BrokenPipe: closed");
+    }
+
+    // An error prints the names a context has for the files its trace
+    // points into, once they are filled in.
+    #[test]
+    fn with_file_names_puts_the_names_in_display() {
+        let ctx = &mut crate::TulispContext::new();
+        let err = ctx.eval_string("(car 5)").unwrap_err().with_file_names(ctx);
+        assert!(
+            err.to_string()
+                .ends_with("\n<eval_string>:1.1-1.7:  at (car 5)"),
+            "{err}"
+        );
+    }
+
+    // A context that does not know a file leaves it for another to name.
+    #[test]
+    fn a_file_one_context_does_not_know_is_left_for_another() {
+        let path =
+            std::env::temp_dir().join(format!("tulisp_unknown_file_{}.lisp", std::process::id()));
+        std::fs::write(&path, "(car 5)").unwrap();
+        let path = path.to_str().unwrap();
+        let parsing = &mut crate::TulispContext::new();
+        let forms = parsing.parse_file(path).unwrap();
+        std::fs::remove_file(path).ok();
+
+        let running = &mut crate::TulispContext::new();
+        let err = running.eval_progn(&forms).unwrap_err();
+        assert!(err.to_string().ends_with(":1.1-1.7:  at (car 5)"), "{err}");
+        assert!(err.to_string().contains("\n<file "), "{err}");
+        let err = err.with_file_names(parsing);
+        assert!(
+            err.to_string().contains(&format!("\n{path}:1.1-1.7:")),
+            "{err}"
+        );
     }
 
     // `kind` and `desc` lend what the error holds.

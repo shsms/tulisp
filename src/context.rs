@@ -1036,16 +1036,6 @@ impl TulispContext {
         }
     }
 
-    pub(crate) fn get_filename(&self, file_id: usize) -> String {
-        // Spans can cross context boundaries (e.g. a lambda parsed in the
-        // parent, funcalled from a child async context that has its own
-        // `filenames`). An unknown file id is not a bug; fall back gracefully.
-        self.filenames
-            .get(file_id)
-            .cloned()
-            .unwrap_or_else(|| "<unknown>".to_string())
-    }
-
     /// Parse `filename` and return its top-level forms as a
     /// `TulispObject` list, without evaluating them. Useful for
     /// tooling (linters, analyzers, source-rewriters) that wants the
