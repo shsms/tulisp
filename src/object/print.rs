@@ -72,6 +72,8 @@ struct OpenList {
     circular: bool,
     /// Whether all but the closing parenthesis has been printed.
     closing: bool,
+    /// Whether the list printed as `#'X`, so it closes without a parenthesis.
+    function_form: bool,
 }
 
 /// The lists being printed by one `print`, innermost last. Each is on
@@ -137,7 +139,9 @@ fn print_lists(obj: &TulispObject, f: &mut fmt::Formatter<'_>, outer_counted: bo
             return Ok(());
         };
         if list.closing {
-            f.write_char(')')?;
+            if !list.function_form {
+                f.write_char(')')?;
+            }
             open.lists.pop();
             if open.top_counted() {
                 PRINTING.with(|printing| printing.borrow_mut().pop());
@@ -175,9 +179,23 @@ fn print_lists(obj: &TulispObject, f: &mut fmt::Formatter<'_>, outer_counted: bo
     }
 }
 
+/// X when OBJ is the two-element list `(function X)`.
+pub(crate) fn function_form_arg(obj: &TulispObject) -> Option<TulispObject> {
+    let head = obj.car().ok()?;
+    if head.inner_ref().0.symbol_name() != Some("function") {
+        return None;
+    }
+    let rest = obj.cdr().ok()?;
+    if !rest.consp() || !rest.cdr().ok()?.null() {
+        return None;
+    }
+    rest.car().ok()
+}
+
 /// Prints the start of OBJ: all of an atom, the prefix of a quote form, whose
 /// quoted form it returns to print next, and the opening of a list, which it
-/// adds to OPEN.
+/// adds to OPEN; for a `(function X)` list the opening is `#'`, and it returns
+/// X to print next.
 fn print_one(
     obj: &TulispObject,
     f: &mut fmt::Formatter<'_>,
@@ -198,18 +216,23 @@ fn print_one(
         {
             list = call;
         }
-        f.write_char('(')?;
         if open.top_counted() {
             PRINTING.with(|printing| printing.borrow_mut().push(addr));
         }
+        // `(function X)` prints as `#'X`, as in Emacs, but stays among the
+        // lists being printed until X is printed, in case X leads back to it.
+        let arg = function_form_arg(obj);
+        let function_form = arg.is_some();
+        f.write_str(if function_form { "#'" } else { "(" })?;
         open.lists.push(OpenList {
             rest: list,
             cycle: CycleCheck::new(),
             started: false,
             circular: false,
-            closing: false,
+            closing: function_form,
+            function_form,
         });
-        return Ok(None);
+        return Ok(arg);
     }
     // A quote form prints its value after letting go of the lock, as a list
     // does, in case the value leads back here.
@@ -279,6 +302,32 @@ mod tests {
         eval_assert_equal(ctx, r#"(format "%S" a)"#, r#""(1 (2 #0))""#);
         eval_assert_equal(ctx, r#"(format "%S" b)"#, r#""(1 (3 #0))""#);
         eval_assert_equal(ctx, r#"(format "%S" (list b))"#, r#""((1 (3 #1)))""#);
+        Ok(())
+    }
+
+    // A `#'` form that leads back to itself prints the repeat, as a list does.
+    #[test]
+    fn a_function_form_inside_itself_prints_as_its_depth() -> Result<(), Error> {
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string(
+            "(setq a (list 'function nil)) (setcar (cdr a) a)
+             (setq b (list 'function nil)) (setcar (cdr b) (list 'function b))
+             (setq c (list 1 nil)) (setcar (cdr c) (list 'function (list 2 c)))",
+        )?;
+        eval_assert_equal(ctx, r#"(format "%S" a)"#, r##""#'#0""##);
+        eval_assert_equal(ctx, r#"(format "%S" b)"#, r##""#'#'#0""##);
+        eval_assert_equal(ctx, r#"(format "%S" c)"#, r#""(1 #'(2 #0))""#);
+        eval_assert_equal(
+            ctx,
+            r#"(format "%S" '(1 (function (function f)) (function (a b))))"#,
+            r#""(1 #'#'f #'(a b))""#,
+        );
+        // Only a list of `function` and one argument prints as `#'`.
+        eval_assert_equal(
+            ctx,
+            r#"(format "%S" '((function a b) (function)))"#,
+            r#""((function a b) (function))""#,
+        );
         Ok(())
     }
 

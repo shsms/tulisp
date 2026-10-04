@@ -1,5 +1,5 @@
 pub(crate) mod conversions;
-mod print;
+pub(crate) mod print;
 pub(crate) use print::print_copy;
 mod release;
 pub(crate) use release::release;
