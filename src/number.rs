@@ -2,9 +2,25 @@ use std::fmt::Display;
 
 use crate::{Error, TulispObject};
 
+/// A Lisp number: an integer or a float. A `defun` parameter or return value of
+/// this type takes or gives either kind.
+///
+/// `==` and `<` compare as Lisp's `=` and `<` do, across the two kinds, so
+/// `Number::Int(1) == Number::Float(1.0)`; they also compare with an `i64` or
+/// an `f64`. The `checked_*` methods do arithmetic as the Lisp operators do,
+/// with an error on integer overflow.
+///
+/// ```rust
+/// use tulisp::Number;
+///
+/// assert_eq!(Number::Int(1), Number::Float(1.0));
+/// assert_eq!(Number::Int(7).checked_div(Number::Int(2)).unwrap(), 3);
+/// ```
 #[derive(Debug, Clone, Copy)]
 pub enum Number {
+    /// An integer.
     Int(i64),
+    /// A float.
     Float(f64),
 }
 
