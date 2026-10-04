@@ -2,7 +2,11 @@ use crate::{Error, TulispContext, TulispObject};
 
 /// The text OBJ compares by: a string's text or a symbol's name.
 fn text(obj: &TulispObject) -> Result<String, Error> {
-    obj.symbol_name().or_else(|_| obj.as_string())
+    if obj.symbolp() {
+        obj.symbol_name()
+    } else {
+        obj.as_string()
+    }
 }
 
 pub(crate) fn add(ctx: &mut TulispContext) {

@@ -408,8 +408,8 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 /// Adds the text of OBJ to OUT, as `concat` takes it: a string, nil, or a
 /// list of characters.
 pub(crate) fn push_text(out: &mut String, obj: &TulispObject) -> Result<(), Error> {
-    if let Ok(text) = obj.as_string() {
-        out.push_str(&text);
+    if let TulispValue::String { value, .. } = &obj.inner_ref().0 {
+        out.push_str(value);
         return Ok(());
     }
     if !obj.listp() {
@@ -417,15 +417,18 @@ pub(crate) fn push_text(out: &mut String, obj: &TulispObject) -> Result<(), Erro
     }
     let mut iter = obj.base_iter();
     for item in iter.by_ref() {
-        let ch = item
-            .as_int()
-            .ok()
-            .and_then(|code| u32::try_from(code).ok())
-            .and_then(char::from_u32)
-            .ok_or_else(|| Error::type_mismatch(format!("Not a character: {item}")))?;
-        out.push(ch);
+        out.push(to_char(&item)?);
     }
     iter.take_error()
+}
+
+/// The character whose code is OBJ.
+pub(crate) fn to_char(obj: &TulispObject) -> Result<char, Error> {
+    obj.as_int()
+        .ok()
+        .and_then(|code| u32::try_from(code).ok())
+        .and_then(char::from_u32)
+        .ok_or_else(|| Error::type_mismatch(format!("Not a character: {obj}")))
 }
 
 #[cfg(test)]
