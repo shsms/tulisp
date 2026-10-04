@@ -63,7 +63,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 mod tests {
     use crate::{
         TulispContext,
-        test_utils::{eval_assert_equal, eval_assert_error},
+        test_utils::{eval_assert_equal, eval_assert_error, eval_assert_prints_as},
     };
 
     #[test]
@@ -88,5 +88,65 @@ mod tests {
             "(macroexpand '(->> 1 (+ 2) nil (* 3)))",
             "'(* 3 (nil (+ 2 1)))",
         );
+    }
+
+    #[test]
+    fn threading_macros_expand_and_run() {
+        let fresh = TulispContext::new;
+        eval_assert_equal(
+            &mut fresh(),
+            r#"(macroexpand
+                '(-> 9
+                     (expt 0.5)
+                     (equal 3)
+                     (if "true" "false")))"#,
+            r#"'(if (equal (expt 9 0.5) 3)
+                   "true"
+                 "false")"#,
+        );
+        eval_assert_equal(
+            &mut fresh(),
+            "(macroexpand
+              '(->> 0.5
+                    (expt 9)
+                    (equal 3)
+                    (if nil ())))",
+            "'(if nil
+                 ()
+               (equal 3 (expt 9 0.5)))",
+        );
+        eval_assert_equal(&mut fresh(), "(thread-last (- 5) (- 10) -)", "-15");
+        eval_assert_equal(&mut fresh(), "(thread-first (- 5) (- 10) -)", "15");
+        eval_assert_prints_as(
+            &mut fresh(),
+            "(macroexpand '(thread-last
+                            (if-let (b) (print b))
+                            (if-let (a) (print a))
+                            (if-let ((a) (b))
+                                (print a))))",
+            "'(let* ((s (and t a))
+                     (s (and s b)))
+                (if s
+                    (print a)
+                  (let* ((s (and t a)))
+                    (if s
+                        (print a)
+                      (let* ((s (and t b)))
+                          (if s
+                              (print b)
+                            nil))))))",
+        );
+        eval_assert_equal(
+            &mut fresh(),
+            "(let ((vv 2) (jj 3))
+               (thread-last
+                 (setq vv 4)
+                 (if-let ((a (> 20 10)))
+                     (setq jj 5)))
+               (list vv jj))",
+            "'(2 5)",
+        );
+        eval_assert_equal(&mut fresh(), "(-> 10)", "10");
+        eval_assert_equal(&mut fresh(), "(->> 10)", "10");
     }
 }
