@@ -371,8 +371,15 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     ctx.defun(
         "plist-get",
-        |plist: TulispObject, property: TulispObject| -> Result<TulispObject, Error> {
-            crate::plist::plist_get(&plist, &property)
+        |ctx: &mut TulispContext,
+         plist: TulispObject,
+         property: TulispObject,
+         predicate: Option<TulispObject>|
+         -> Result<TulispObject, Error> {
+            match predicate {
+                Some(predicate) => crate::plist::plist_get_by(ctx, &plist, &property, &predicate),
+                None => crate::plist::plist_get(&plist, &property),
+            }
         },
     );
 

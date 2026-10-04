@@ -47,7 +47,7 @@ differences from Emacs are called out inline.
 
 A list function that must walk a whole list signals a `Circular list`
 error when the list's cdrs loop back to an earlier cell. Unlike Emacs,
-`last` and `plist-get` also do so.
+`last` and `plist-get` without a PREDICATE also do so.
 
 Tulisp has no vector type — sequence functions are list-only.
 

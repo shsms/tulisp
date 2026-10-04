@@ -41,6 +41,38 @@ pub fn plist_get(plist: &TulispObject, property: &TulispObject) -> Result<Tulisp
     Ok(TulispObject::nil())
 }
 
+/// The value of the property in PLIST whose key PREDICATE accepts, called with
+/// the key and PROPERTY, as Emacs Lisp's `plist-get` with a PREDICATE does. Nil
+/// when no key matches before PLIST ends, reaches a key with no value, or loops
+/// back.
+pub(crate) fn plist_get_by(
+    ctx: &mut TulispContext,
+    plist: &TulispObject,
+    property: &TulispObject,
+    predicate: &TulispObject,
+) -> Result<TulispObject, Error> {
+    let mut cur = plist.clone();
+    let mut cycle = crate::cons::CycleCheck::new();
+    while cur.consp() {
+        let rest = cur.cdr()?;
+        // A key with no value ends the plist.
+        if !rest.consp() {
+            break;
+        }
+        if ctx
+            .funcall(predicate, (cur.car()?, property.clone()))?
+            .is_truthy()
+        {
+            return rest.car();
+        }
+        cur = rest.cdr()?;
+        if cycle.looped(&cur).is_some() {
+            break;
+        }
+    }
+    Ok(TulispObject::nil())
+}
+
 /// A typed wrapper around a Lisp plist, for use as a [`defun`](crate::TulispContext::defun) argument.
 ///
 /// When `Plist<T>` appears as a parameter type, the function receives the
