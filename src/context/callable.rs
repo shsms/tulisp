@@ -3,7 +3,24 @@ use crate::value::DefunArity;
 use crate::{Error, Plist, Plistable, Rest, TulispContext, TulispConvertible, TulispObject};
 
 /// How a closure parameter takes its value from a call's arguments.
+///
+/// A hand-written [`Param`] uses `Positional`, `Rest` or `Plist`; the `Form`
+/// kinds belong to [`defspecial`](TulispContext::defspecial)'s own parameters.
+/// More kinds may come in later versions, so a `match` over it needs a `_` arm:
+///
+/// ```compile_fail
+/// fn name(kind: tulisp::ParamKind) -> &'static str {
+///     match kind {
+///         tulisp::ParamKind::Positional { .. } => "positional",
+///         tulisp::ParamKind::Rest => "rest",
+///         tulisp::ParamKind::Plist => "plist",
+///         tulisp::ParamKind::Form { .. } => "form",
+///         tulisp::ParamKind::RestForm => "rest-form",
+///     }
+/// }
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ParamKind {
     /// One argument at this position; `required` is false for a
     /// parameter that may be absent.

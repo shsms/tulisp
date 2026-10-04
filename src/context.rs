@@ -434,7 +434,8 @@ impl TulispContext {
     /// the argument list: use `Rest<Form>` for all the arguments,
     /// unevaluated. `defspecial` returns `&mut Self`, as `defun` does.
     /// [`ParamKind`](crate::ParamKind) has two new kinds, `Form` and
-    /// `RestForm`; an exhaustive `match` over it must handle them.
+    /// `RestForm`, and is `#[non_exhaustive]`: a `match` over it needs a `_`
+    /// arm.
     ///
     /// # Example
     ///
