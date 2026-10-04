@@ -66,7 +66,8 @@ pub(crate) fn spread_apply_args(mut args: Vec<TulispObject>) -> Result<Vec<Tulis
     Ok(args)
 }
 
-pub fn macroexpand(ctx: &mut TulispContext, inp: TulispObject) -> Result<TulispObject, Error> {
+/// Expands every macro in INP, as Emacs Lisp's `macroexpand-all` does.
+pub fn macroexpand_all(ctx: &mut TulispContext, inp: TulispObject) -> Result<TulispObject, Error> {
     macroexpand_depth(ctx, inp, 0, 0)
 }
 
@@ -77,7 +78,7 @@ fn nesting_exceeded(limit: u32) -> Error {
 
 /// Expands FORM once when its head names a macro. `None` when it does
 /// not.
-fn macroexpand_1(
+fn expand_macro_call(
     ctx: &mut TulispContext,
     form: &TulispObject,
 ) -> Result<Option<TulispObject>, Error> {
@@ -124,7 +125,7 @@ fn macroexpand_depth(
         return macroexpand_operand(ctx, inp, depth, quote_depth, false);
     }
     if quote_depth == 0
-        && let Some(expansion) = macroexpand_1(ctx, &inp)?
+        && let Some(expansion) = expand_macro_call(ctx, &inp)?
     {
         return Ok(with_call_span(
             macroexpand_depth(ctx, expansion, depth + 1, 0)?,
@@ -327,7 +328,7 @@ fn walk_top_level_forms(
         };
         let mut expanded = form.clone();
         let mut depth = depth;
-        while let Some(expansion) = macroexpand_1(ctx, &expanded).map_err(at_site)? {
+        while let Some(expansion) = expand_macro_call(ctx, &expanded).map_err(at_site)? {
             depth += 1;
             if depth > limit {
                 return Err(nesting_exceeded(limit).with_trace(site));
@@ -345,7 +346,7 @@ fn walk_top_level_forms(
             on_progn(ctx, &body);
             walk_top_level_forms(ctx, &body, is_last, depth, Some(&site), f, on_progn)?;
         } else {
-            let mut expanded = macroexpand(ctx, expanded).map_err(at_site)?;
+            let mut expanded = macroexpand_all(ctx, expanded).map_err(at_site)?;
             // An atom from a `progn` runs in a `progn` that has the site's
             // location.
             if !expanded.consp() && !site.eq_ptr(&form) && site.span().is_some() {

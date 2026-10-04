@@ -233,7 +233,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defun(
         "macroexpand",
         |ctx: &mut TulispContext, name: TulispObject| -> Result<TulispObject, Error> {
-            crate::eval::macroexpand(ctx, name)
+            crate::eval::macroexpand_all(ctx, name)
         },
     );
 

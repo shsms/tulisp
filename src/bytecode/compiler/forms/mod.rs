@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    Error, TulispContext, TulispObject, TulispValue, bytecode::Instruction, eval::macroexpand,
+    Error, TulispContext, TulispObject, TulispValue, bytecode::Instruction, eval::macroexpand_all,
 };
 
 use super::compiler::compile_expr;
@@ -188,7 +188,7 @@ pub(super) fn compile_form(
             (TulispValue::Defmacro { .. }, _) | (TulispValue::Macro(..), _) => {
                 // A macro call the top-level expansion did not see, such
                 // as one to a macro defined earlier in the same form.
-                let form = macroexpand(ctx, form.clone())?;
+                let form = macroexpand_all(ctx, form.clone())?;
                 return compile_expr(ctx, &form);
             }
             // A special form under a name the compiler does not know.
