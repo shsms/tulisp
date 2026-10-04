@@ -11,7 +11,7 @@ pub(crate) use table::ErrorTable;
 /// through `ErrorKind::fmt_value`.
 macro_rules! ErrorKind {
     (
-        $(($kind:ident $(, $vis:vis $ctor:ident)?)),* $(,)?
+        $(($kind:ident, $ctor:ident)),* $(,)?
         ;
         $($(#[$meta:meta])* $valued:ident $fields:tt),* $(,)?
     ) => {
@@ -44,43 +44,37 @@ macro_rules! ErrorKind {
         /// Constructors for [`Error`].
         impl Error {
             $(
-                $(
                 #[doc = concat!(
                     "Creates a new [`Error`] with the `",
                     stringify!($kind),
                     "` kind and the given description."
                 )]
-                $vis fn $ctor(desc: impl Into<String>) -> crate::error::Error {
-                    Self {
-                        kind: ErrorKind::$kind,
-                        desc: desc.into(),
-                        backtrace: vec![],
-                    }
+                pub fn $ctor(desc: impl Into<String>) -> crate::error::Error {
+                    Self::new(ErrorKind::$kind, desc)
                 }
-                )?
             )*
         }
     };
 }
 
 ErrorKind!(
-    (ArithError,      pub arith_error),
-    (InvalidArgument, pub invalid_argument),
-    (LispError,       pub lisp_error),
-    (NotImplemented,  pub not_implemented),
-    (OutOfRange,      pub out_of_range),
-    (OSError,         pub os_error),
-    (BrokenPipe,      pub(crate) broken_pipe),
-    (TypeMismatch,    pub type_mismatch),
-    (PlistError,      pub plist_error),
-    (AlistError,      pub alist_error),
-    (MissingArgument, pub missing_argument),
-    (ArityMismatch,   pub(crate) arity_mismatch),
-    (Undefined,       pub(crate) undefined),
-    (Uninitialized,   pub(crate) uninitialized),
-    (ParsingError,    pub(crate) parsing_error),
-    (SyntaxError,     pub(crate) syntax_error),
-    (Interrupted,     pub interrupted);
+    (ArithError,      arith_error),
+    (InvalidArgument, invalid_argument),
+    (LispError,       lisp_error),
+    (NotImplemented,  not_implemented),
+    (OutOfRange,      out_of_range),
+    (OSError,         os_error),
+    (BrokenPipe,      broken_pipe),
+    (TypeMismatch,    type_mismatch),
+    (PlistError,      plist_error),
+    (AlistError,      alist_error),
+    (MissingArgument, missing_argument),
+    (ArityMismatch,   arity_mismatch),
+    (Undefined,       undefined),
+    (Uninitialized,   uninitialized),
+    (ParsingError,    parsing_error),
+    (SyntaxError,     syntax_error),
+    (Interrupted,     interrupted);
     /// A `throw`, holding `(TAG . VALUE)`; see [`Error::throw`].
     Throw(TulispObject),
     /// An error symbol raised with its data, by `signal` or
@@ -115,19 +109,19 @@ impl Error {
 
     /// The error for a list whose cdrs loop back to an earlier cell.
     /// Emacs signals `circular-list` here.
-    pub(crate) fn circular_list() -> Error {
+    pub fn circular_list() -> Error {
         Error::out_of_range("Circular list".to_string())
     }
 
     /// The error for binding or setting a constant, such as `nil`,
     /// `t` or a keyword. Emacs signals `setting-constant` here.
-    pub(crate) fn setting_constant(name: impl std::fmt::Display) -> Error {
+    pub fn setting_constant(name: impl std::fmt::Display) -> Error {
         Error::type_mismatch(format!("Can't set constant symbol: {name}"))
     }
 
     /// The error for calling NAME when it holds no function. Emacs
     /// signals `void-function` here.
-    pub(crate) fn void_function(name: impl std::fmt::Display) -> Error {
+    pub fn void_function(name: impl std::fmt::Display) -> Error {
         Error::undefined(format!("function is void: {name}"))
     }
 }
@@ -209,20 +203,15 @@ impl Error {
     /// `throw`, it does not check for a running `catch` for the tag: with
     /// none, it reaches the host as a `Throw`, not a `no-catch` error.
     pub fn throw(tag: TulispObject, value: TulispObject) -> Self {
-        Self {
-            kind: ErrorKind::Throw(TulispObject::cons(tag, value)),
-            desc: String::new(),
-            backtrace: vec![],
-        }
+        Self::new(
+            ErrorKind::Throw(TulispObject::cons(tag, value)),
+            String::new(),
+        )
     }
 
     /// Creates a `Signal` error for SYMBOL with DATA, described by DESC.
     pub(crate) fn new_signal(symbol: TulispObject, data: TulispObject, desc: String) -> Self {
-        Self {
-            kind: ErrorKind::Signal { symbol, data },
-            desc,
-            backtrace: vec![],
-        }
+        Self::new(ErrorKind::Signal { symbol, data }, desc)
     }
 
     fn format_span(&self, ctx: &TulispContext, object: &TulispObject) -> String {
