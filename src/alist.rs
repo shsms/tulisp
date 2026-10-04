@@ -7,10 +7,17 @@
 
 use crate::{Error, TulispContext, TulispObject, eval::resolve_function};
 
-/// Makes an alist from the given arguments.
-pub fn alist_from<const N: usize>(input: [(TulispObject, TulispObject); N]) -> TulispObject {
+/// Makes an alist from the given key and value pairs.
+///
+/// ```rust
+/// use tulisp::{TulispObject, alist_from};
+///
+/// let pairs = vec![(TulispObject::from("a"), TulispObject::from(1))];
+/// assert_eq!(alist_from(pairs).to_string(), r#"(("a" . 1))"#);
+/// ```
+pub fn alist_from(input: impl IntoIterator<Item = (TulispObject, TulispObject)>) -> TulispObject {
     let mut builder = crate::cons::ListBuilder::new();
-    for (key, value) in input.into_iter() {
+    for (key, value) in input {
         builder.push(TulispObject::cons(key, value));
     }
     builder.build()

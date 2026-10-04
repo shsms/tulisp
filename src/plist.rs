@@ -9,10 +9,17 @@ use std::ops::Deref;
 
 use crate::{Error, TulispContext, TulispObject};
 
-/// Makes a plist from the given arguments.
-pub fn plist_from<const N: usize>(input: [(TulispObject, TulispObject); N]) -> TulispObject {
+/// Makes a plist from the given property and value pairs.
+///
+/// ```rust
+/// use tulisp::{TulispObject, plist_from};
+///
+/// let pairs = vec![(TulispObject::from("a"), TulispObject::from(1))];
+/// assert_eq!(plist_from(pairs).to_string(), r#"("a" 1)"#);
+/// ```
+pub fn plist_from(input: impl IntoIterator<Item = (TulispObject, TulispObject)>) -> TulispObject {
     let mut builder = crate::cons::ListBuilder::new();
-    for (key, value) in input.into_iter() {
+    for (key, value) in input {
         builder.push(key);
         builder.push(value);
     }
