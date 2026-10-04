@@ -299,7 +299,8 @@ fn integer(
     let digits = digits(value.unsigned_abs());
     let mut body = String::new();
     match spec.precision {
-        Some(0) if value == 0 => {}
+        // `%.0d` of the integer 0 is empty, but of a float it is "0".
+        Some(0) if value == 0 && (arg.integerp() || spec.conversion != 'd') => {}
         Some(precision) => {
             push_repeated(&mut body, '0', precision.saturating_sub(digits.len()))?;
             body.push_str(&digits);
@@ -750,6 +751,18 @@ mod tests {
             ctx,
             r#"(format "[%0005d][%10d][%-0 5d][%--5d][%##x]" 3 3 3 3 255)"#,
             r#""[00003][         3][ 3   ][3    ][0xff]""#,
+        );
+    }
+
+    // `%.0d` of the integer 0 is empty, but of a float that truncates to 0 it
+    // is "0", as in Emacs; `%.0x` and `%.0o` are empty for both.
+    #[test]
+    fn format_zero_precision_of_a_float() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            r#"(format "[%.0d][%+.0d][%05.0d][%.0x][%.0o][%.0d]" 0.5 -0.5 -0.5 0.5 0.5 0)"#,
+            r#""[0][+0][    0][][][]""#,
         );
     }
 }
