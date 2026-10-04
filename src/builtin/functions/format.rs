@@ -32,6 +32,7 @@ fn push_repeated(out: &mut String, ch: char, count: usize) -> Result<(), Error> 
 }
 
 /// One `%` spec of a format string.
+#[derive(Default)]
 struct Spec {
     /// The `-` flag: pad on the right.
     left: bool,
@@ -41,6 +42,8 @@ struct Spec {
     plus: bool,
     /// The space flag: sign a number that is not negative with a space.
     space: bool,
+    /// The `#` flag: the alternate form, such as `0x` before a hex number.
+    alt: bool,
     width: usize,
     precision: Option<usize>,
     conversion: char,
@@ -63,44 +66,38 @@ impl Spec {
 
     /// Reads the spec after a `%`, up to and including its conversion.
     fn read(chars: &mut Peekable<Chars<'_>>) -> Result<Spec, Error> {
-        let (mut left, mut zero, mut plus, mut space, mut width) = (false, false, false, false, 0);
+        let mut spec = Spec::default();
         loop {
             match chars.peek() {
-                Some('-') => left = true,
-                Some('+') => plus = true,
-                Some(' ') => space = true,
-                Some('0') if width == 0 => zero = true,
-                Some(c) if c.is_ascii_digit() => width = add_digit(width, *c),
+                Some('-') => spec.left = true,
+                Some('+') => spec.plus = true,
+                Some(' ') => spec.space = true,
+                Some('#') => spec.alt = true,
+                Some('0') if spec.width == 0 => spec.zero = true,
+                Some(c) if c.is_ascii_digit() => spec.width = add_digit(spec.width, *c),
                 _ => break,
             }
             chars.next();
         }
-        let mut precision = None;
         if chars.next_if_eq(&'.').is_some() {
             let mut digits = 0;
             while let Some(c) = chars.next_if(char::is_ascii_digit) {
                 digits = add_digit(digits, c);
             }
-            precision = Some(digits);
+            spec.precision = Some(digits);
         }
-        let conversion = chars
+        spec.conversion = chars
             .next()
             .ok_or_else(|| Error::lisp_error("Format string ends in middle of format specifier"))?;
-        Ok(Spec {
-            left,
-            zero,
-            plus,
-            space,
-            width,
-            precision,
-            conversion,
-        })
+        Ok(spec)
     }
 }
 
 /// An argument formatted by its spec, before padding.
 struct Field {
     sign: &'static str,
+    /// What goes between the sign and the body, such as `0x`.
+    prefix: &'static str,
     body: String,
     /// Whether the `0` flag pads it with zeros.
     zero_pad: bool,
@@ -110,6 +107,7 @@ impl Field {
     fn text(body: String) -> Field {
         Field {
             sign: "",
+            prefix: "",
             body,
             zero_pad: false,
         }
@@ -169,6 +167,7 @@ fn convert(spec: &Spec, arg: &TulispObject) -> Result<Field, Error> {
                 let body = if value.is_nan() { "nan" } else { "inf" };
                 return Ok(Field {
                     sign,
+                    prefix: "",
                     body: body.to_string(),
                     zero_pad: false,
                 });
@@ -179,6 +178,7 @@ fn convert(spec: &Spec, arg: &TulispObject) -> Result<Field, Error> {
             push_repeated(&mut body, '0', precision - shown)?;
             Ok(Field {
                 sign,
+                prefix: "",
                 body,
                 zero_pad: true,
             })
@@ -200,11 +200,11 @@ fn integer(spec: &Spec, value: i64) -> Result<Field, Error> {
         return Err(string_too_long());
     }
     let magnitude = value.unsigned_abs();
-    let digits = match spec.conversion {
-        'd' => magnitude.to_string(),
-        'x' => format!("{magnitude:x}"),
-        'X' => format!("{magnitude:X}"),
-        'o' => format!("{magnitude:o}"),
+    let (digits, alt_prefix) = match spec.conversion {
+        'd' => (magnitude.to_string(), ""),
+        'x' => (format!("{magnitude:x}"), "0x"),
+        'X' => (format!("{magnitude:X}"), "0X"),
+        'o' => (format!("{magnitude:o}"), "0"),
         other => return Err(invalid_operation(other)),
     };
     let mut body = String::new();
@@ -216,8 +216,20 @@ fn integer(spec: &Spec, value: i64) -> Result<Field, Error> {
         }
         None => body = digits,
     }
+    // `#` puts `0x` before a hex number that is not zero, and `0` before octal
+    // digits that do not start with 0.
+    let wants_prefix = if alt_prefix == "0" {
+        !body.starts_with('0')
+    } else {
+        value != 0
+    };
     Ok(Field {
         sign: spec.sign(value < 0),
+        prefix: if spec.alt && wants_prefix {
+            alt_prefix
+        } else {
+            ""
+        },
         body,
         // A precision gives the digits; the width pads with spaces.
         zero_pad: spec.precision.is_none(),
@@ -235,20 +247,23 @@ fn cut(text: String, precision: Option<usize>) -> String {
 /// Writes FIELD to OUT, padded to SPEC's width: with zeros after the sign when
 /// SPEC asks for them and FIELD takes them, or else with spaces.
 fn pad(out: &mut String, spec: &Spec, field: &Field) -> Result<(), Error> {
-    let len = field.sign.len() + field.body.chars().count();
+    let len = field.sign.len() + field.prefix.len() + field.body.chars().count();
     let fill = spec.width.saturating_sub(len);
     if spec.left {
         out.push_str(field.sign);
+        out.push_str(field.prefix);
         out.push_str(&field.body);
         push_repeated(out, ' ', fill)
     } else if spec.zero && field.zero_pad {
         out.push_str(field.sign);
+        out.push_str(field.prefix);
         push_repeated(out, '0', fill)?;
         out.push_str(&field.body);
         Ok(())
     } else {
         push_repeated(out, ' ', fill)?;
         out.push_str(field.sign);
+        out.push_str(field.prefix);
         out.push_str(&field.body);
         Ok(())
     }
@@ -474,7 +489,8 @@ mod tests {
         }
     }
 
-    // `%x`, `%X` and `%o` print an integer in hex or octal, as in Emacs.
+    // `%x`, `%X` and `%o` print an integer in hex or octal, with `0x`, `0X` or
+    // a leading `0` under the `#` flag, as in Emacs.
     #[test]
     fn format_hex_and_octal() {
         let ctx = &mut TulispContext::new();
@@ -483,8 +499,16 @@ mod tests {
             (r#"(format "%x|%o|%x" -255 -8 255.9)"#, r#""-ff|-10|ff""#),
             (r#"(format "%X" 3735928559)"#, r#""DEADBEEF""#),
             (
+                r#"(format "%#x %#X %#o|%#x|%#o" 255 255 8 0 0)"#,
+                r#""0xff 0XFF 010|0|0""#,
+            ),
+            (
                 r#"(format "%08x|%-8x|%.4x|%+x" 255 255 255 255)"#,
                 r#""000000ff|ff      |00ff|+ff""#,
+            ),
+            (
+                r#"(format "%#08x|%#.3o|%#5o|%-#6x|%#.0x|" 255 8 8 255 0)"#,
+                r#""0x0000ff|010|  010|0xff  ||""#,
             ),
         ];
         for (program, expected) in cases {
