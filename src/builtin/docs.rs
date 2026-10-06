@@ -1402,12 +1402,14 @@ mod tests {
     #[test]
     fn every_usage_line_fits_its_built_in() {
         let ctx = TulispContext::new();
+        let mut skipped = Vec::new();
         for &(name, doc) in DOCS {
             assert!(ctx.describe(name).is_some(), "{name} is not a built-in");
             let Some((_, usage)) = split_usage(doc) else {
                 panic!("{name}: no usage line in {doc:?}");
             };
             let Some(actual) = ctx.arity_signature(name) else {
+                skipped.push(name);
                 continue;
             };
             assert_eq!(
@@ -1418,5 +1420,44 @@ mod tests {
                 actual.render(name)
             );
         }
+        // The built-ins with no arity to check against: the special forms and
+        // the Rust macros. A new one must be added here on purpose.
+        skipped.sort_unstable();
+        assert_eq!(skipped, SKIPPED);
     }
+
+    const SKIPPED: &[&str] = &[
+        "->",
+        "->>",
+        "and",
+        "catch",
+        "cond",
+        "condition-case",
+        "declare",
+        "defmacro",
+        "defun",
+        "defvar",
+        "dolist",
+        "dotimes",
+        "function",
+        "if",
+        "if-let",
+        "if-let*",
+        "interactive",
+        "lambda",
+        "let",
+        "let*",
+        "or",
+        "progn",
+        "quote",
+        "setq",
+        "thread-first",
+        "thread-last",
+        "unless",
+        "unwind-protect",
+        "when",
+        "when-let",
+        "while",
+        "while-let",
+    ];
 }
