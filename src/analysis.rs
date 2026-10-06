@@ -218,13 +218,6 @@ pub fn signature_help(
         return None;
     }
     let name = tree.text(head);
-    let head_start = tree.node(head).range().start;
-    if scope::locals_at(tree, head_start)
-        .iter()
-        .any(|local| local.name == name)
-    {
-        return None;
-    }
     let info = scope::lookup(ctx, tree, name)?;
     if info.kind == SymbolKind::Variable {
         return None;
@@ -273,7 +266,13 @@ pub fn hover(ctx: &TulispContext, tree: &SyntaxTree, offset: usize) -> Option<Ho
             binding: Some(range),
         });
     }
-    if !scope::quoted(tree, id)
+    let is_call_head = tree
+        .node(id)
+        .parent()
+        .is_some_and(|list| tree.forms(list).first() == Some(&id));
+    // A local never hides a function: a call head runs the global one.
+    if !is_call_head
+        && !scope::quoted(tree, id)
         && let Some(local) = scope::locals_at(tree, offset)
             .into_iter()
             .rev()
@@ -676,10 +675,19 @@ mod tests {
     }
 
     #[test]
-    fn a_local_shadows_a_function_of_the_same_name() {
+    fn a_local_does_not_hide_a_function_in_call_position() {
         let ctx = hint_context();
         let found = hover_at(&ctx, "(let ((fixed 1)) (fix|ed))").expect("hover");
+        assert_eq!(found.info.kind, SymbolKind::Function);
+        assert_eq!(found.binding, None);
+    }
+
+    #[test]
+    fn a_local_used_as_an_argument_still_hovers_as_the_local() {
+        let ctx = hint_context();
+        let found = hover_at(&ctx, "(let ((fixed 1)) (+ fix|ed 1))").expect("hover");
         assert_eq!(found.info.kind, SymbolKind::Variable);
+        assert!(found.binding.is_some());
     }
 
     #[test]
@@ -736,8 +744,9 @@ mod tests {
     }
 
     #[test]
-    fn a_local_hides_the_function_in_call_position() {
+    fn signature_help_ignores_a_local_of_the_same_name() {
         let ctx = hint_context();
-        assert!(help(&ctx, "(let ((fixed 1)) (fixed |))").is_none());
+        let found = help(&ctx, "(let ((fixed 1)) (fixed |))").expect("help");
+        assert_eq!(found.name, "fixed");
     }
 }

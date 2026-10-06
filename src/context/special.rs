@@ -172,7 +172,7 @@ pub trait SpecialParam: Sized + 'static {
 
     /// The Lisp type an editor shows for this parameter. `None` unless
     /// overridden.
-    fn type_name() -> Option<Cow<'static, str>> {
+    fn special_type_name() -> Option<Cow<'static, str>> {
         None
     }
 }
@@ -191,8 +191,8 @@ impl<T: Param> SpecialParam for T {
         T::take(ctx, &mut args.values)
     }
 
-    fn type_name() -> Option<Cow<'static, str>> {
-        T::type_name()
+    fn special_type_name() -> Option<Cow<'static, str>> {
+        <T as Param>::type_name()
     }
 }
 
@@ -261,7 +261,7 @@ macro_rules! impl_special_callable {
             #[allow(unused_mut, unused_variables)]
             fn add_to_context(self, ctx: &mut TulispContext, name: &str, _: Token) {
                 let kinds = vec![$(<$p as SpecialParam>::KIND,)* $(<$last as SpecialParam>::KIND,)?];
-                let types = [$(<$p as SpecialParam>::type_name(),)* $(<$last as SpecialParam>::type_name(),)?];
+                let types = [$(<$p as SpecialParam>::special_type_name(),)* $(<$last as SpecialParam>::special_type_name(),)?];
                 ctx.define_special(name, kinds, &types, move |$cx, values, forms| {
                     let mut args = SpecialArgs { values, forms: forms.into_iter() };
                     $(let $p = <$p as SpecialParam>::take($cx, &mut args)?;)*
@@ -294,11 +294,22 @@ impl_special_callable!((A, B, C, D, E, F, G, H, I, J, K), (L));
 #[cfg(test)]
 mod tests {
     use super::takes_form;
-    use crate::ParamKind;
     use crate::test_utils::{eval_assert_equal, eval_assert_error_line, eval_assert_not};
     use crate::{Error, Form, Rest, TulispContext, TulispObject};
+    use crate::{Param, ParamKind, SpecialParam};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
+
+    // With both traits in scope, `i64::type_name()` compiles only while the two
+    // traits name their methods differently.
+    #[test]
+    fn param_type_name_is_not_ambiguous_with_both_traits_in_scope() {
+        assert_eq!(i64::type_name().as_deref(), Some("integer"));
+        assert_eq!(
+            <i64 as SpecialParam>::special_type_name().as_deref(),
+            Some("integer")
+        );
+    }
 
     fn eval_to_string(ctx: &mut TulispContext, program: &str) -> String {
         match ctx.eval_string(program) {

@@ -274,7 +274,13 @@ impl TulispContext {
         let signature = entry
             .and_then(|entry| entry.signature.clone())
             .or(signature);
-        let doc = entry
+        // A `defvar` docstring outlives a later `setq` of any kind of value.
+        let doc_entry = entry.or_else(|| {
+            self.docs
+                .get(name)
+                .filter(|entry| sym.is_special() && entry.kind == SymbolKind::Variable)
+        });
+        let doc = doc_entry
             .and_then(|entry| entry.doc.as_deref().map(str::to_string))
             .or_else(|| {
                 value
@@ -359,6 +365,16 @@ mod tests {
         let info = ctx.describe("f").unwrap();
         assert_eq!(info.kind, SymbolKind::Variable);
         assert_eq!(info.signature, None);
+    }
+
+    #[test]
+    fn a_defvar_doc_survives_a_function_value() {
+        let mut ctx = TulispContext::new();
+        ctx.eval_string("(defvar hv 1 \"Holds a function.\") (setq hv (lambda (x) x))")
+            .unwrap();
+        let info = ctx.describe("hv").unwrap();
+        assert_eq!(info.kind, SymbolKind::Function);
+        assert_eq!(info.doc.as_deref(), Some("Holds a function."));
     }
 
     #[test]
