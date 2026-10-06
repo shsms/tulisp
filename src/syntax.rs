@@ -340,19 +340,15 @@ impl<'a> Builder<'a> {
             if matches!(self.nodes[top.0].kind, NodeKind::Prefix { .. }) {
                 self.error(range, "Unexpected EOF");
             } else {
+                self.nodes[top.0].range.end = end;
                 // As the parser does, a list that ends on its dot is blamed for
                 // that.
-                let children = &self.nodes[top.0].children;
-                let message = if dotted && forms_after_dot(&self.nodes, children).next().is_none() {
+                let message = if dotted && !self.check_dot(top, None) {
                     "Unexpected EOF after dot"
                 } else {
                     "Unclosed list"
                 };
                 self.error(range.start..range.start + 1, message);
-                self.nodes[top.0].range.end = end;
-                if dotted {
-                    self.check_dot(top, None);
-                }
             }
             self.attach_value(top);
         }
@@ -515,8 +511,8 @@ impl<'a> Builder<'a> {
     /// The parser's rule for a dotted list: one form after the dot, then the
     /// `)`. CLOSE is that `)`, or `None` when the input ended first; then the
     /// form after the dot is blamed, unless it fails to read on its own and so
-    /// has its own error.
-    fn check_dot(&mut self, list: NodeId, close: Option<Range<usize>>) {
+    /// has its own error. Returns whether a form follows the dot.
+    fn check_dot(&mut self, list: NodeId, close: Option<Range<usize>>) -> bool {
         let (first, more) = {
             let mut after = forms_after_dot(&self.nodes, &self.nodes[list.0].children);
             (after.next(), after.next().is_some())
@@ -525,7 +521,7 @@ impl<'a> Builder<'a> {
             if let Some(close) = close {
                 self.error(close, "Unexpected closing parenthesis");
             }
-            return;
+            return false;
         };
         let blame = match close {
             Some(_) => more,
@@ -535,6 +531,7 @@ impl<'a> Builder<'a> {
             let range = self.nodes[first.0].range.clone();
             self.error(range, "Expected only one item in list after dot.");
         }
+        true
     }
 
     /// Whether the form ID fails to read on its own: it is an unclosed list, an

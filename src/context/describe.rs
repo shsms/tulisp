@@ -202,8 +202,15 @@ impl TulispContext {
         held_kind_and_identity(Some(new)) == (kind, Some(identity))
             && self
                 .interned_name(sym)
-                .and_then(|name| self.function_docs.get(&name))
-                .is_some_and(|entry| entry.describes(kind, identity))
+                .and_then(|name| self.function_doc(&name, kind, identity))
+                .is_some()
+    }
+
+    /// NAME's function doc, when it describes a value of KIND with IDENTITY.
+    fn function_doc(&self, name: &str, kind: SymbolKind, identity: usize) -> Option<&FunctionDoc> {
+        self.function_docs
+            .get(name)
+            .filter(|entry| entry.describes(kind, identity))
     }
 
     /// Attaches DOC to what NAME holds, a function or a variable, for
@@ -254,19 +261,17 @@ impl TulispContext {
             self.variable_docs.insert(name.to_string(), doc);
             return;
         };
-        match self.function_docs.get_mut(name) {
-            Some(entry) if entry.describes(kind, identity) => {
-                entry.doc = Some(doc);
-            }
-            Some(_) | None => {
-                let entry = FunctionDoc {
-                    kind,
-                    identity,
-                    signature: None,
-                    doc: Some(doc),
-                };
-                self.function_docs.insert(name.to_string(), entry);
-            }
+        if self.function_doc(name, kind, identity).is_none() {
+            let entry = FunctionDoc {
+                kind,
+                identity,
+                signature: None,
+                doc: None,
+            };
+            self.function_docs.insert(name.to_string(), entry);
+        }
+        if let Some(entry) = self.function_docs.get_mut(name) {
+            entry.doc = Some(doc);
         }
     }
 
@@ -315,11 +320,7 @@ impl TulispContext {
         let sym = self.obarray.get(name)?;
         let value = described_value(name, sym)?;
         let (kind, identity) = held_kind_and_identity(value.as_ref());
-        let entry = identity.and_then(|identity| {
-            self.function_docs
-                .get(name)
-                .filter(|entry| entry.describes(kind, identity))
-        });
+        let entry = identity.and_then(|identity| self.function_doc(name, kind, identity));
         let doc = entry
             .and_then(|entry| entry.doc.as_deref())
             .map(Cow::Borrowed)
