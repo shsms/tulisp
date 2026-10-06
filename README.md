@@ -207,6 +207,59 @@ body uses stay as they were: redefining one later does not change the
 macro that uses it, as with Emacs's byte-compiler. A macro whose body
 uses that macro itself is refused at its first expansion.
 
+## Editor support
+
+Tulisp can tell an editor what a context defines and what is at a place in a
+file, for completion, argument hints and hover. A language server builds on
+these; nothing here evaluates code or interns a name.
+
+[`TulispContext::describe`](https://docs.rs/tulisp/latest/tulisp/struct.TulispContext.html#method.describe)
+says what a name holds, its signature and its docstring, and
+[`symbols`](https://docs.rs/tulisp/latest/tulisp/struct.TulispContext.html#method.symbols)
+lists every defined name. A Rust function shows its parameters' Lisp types;
+[`set_doc`](https://docs.rs/tulisp/latest/tulisp/struct.TulispContext.html#method.set_doc)
+attaches a docstring, whose last line can name the parameters as Emacs's do:
+
+```rust
+use tulisp::TulispContext;
+
+let mut ctx = TulispContext::new();
+ctx.defun("connect", |host: String, port: Option<i64>| {
+    format!("{host}:{}", port.unwrap_or(80))
+});
+let info = ctx.describe("connect").unwrap();
+assert_eq!(info.signature.unwrap().render("connect"), "(connect STRING &optional INTEGER)");
+
+ctx.set_doc("connect", "Connect to HOST.\n\n(fn HOST &optional PORT)").unwrap();
+let info = ctx.describe("connect").unwrap();
+assert_eq!(info.doc.as_deref(), Some("Connect to HOST."));
+assert_eq!(info.signature.unwrap().render("connect"), "(connect HOST &optional PORT)");
+```
+
+[`syntax::read`](https://docs.rs/tulisp/latest/tulisp/syntax/fn.read.html) reads
+source, finished or not, into a tree that keeps comments and the exact text of
+each literal, and records what it cannot read instead of stopping. The
+[`analysis`](https://docs.rs/tulisp/latest/tulisp/analysis/) functions take a
+context, a tree and a byte offset:
+
+```rust
+use tulisp::{TulispContext, analysis, syntax};
+
+let ctx = TulispContext::new();
+let source = "(let ((total 1)) (car tot";
+let tree = syntax::read(source);
+let names: Vec<String> = analysis::completions(&ctx, &tree, source.len())
+    .items
+    .into_iter()
+    .map(|item| item.name)
+    .collect();
+assert_eq!(names, ["total"]);
+
+let hint = analysis::signature_help(&ctx, &tree, source.len()).unwrap();
+assert_eq!(hint.name, "car");
+assert_eq!(hint.active, Some(0));
+```
+
 ## Cargo features
 
 | Feature         | Description                                                                  |
