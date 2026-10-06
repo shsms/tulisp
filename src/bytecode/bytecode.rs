@@ -39,6 +39,13 @@ impl CompiledDefun {
         }
     }
 
+    /// The function's parameters, as its lambda list names them: the required
+    /// ones, the `&optional` ones, and the `&rest` one.
+    pub(crate) fn params(&self) -> (&[TulispObject], &[TulispObject], Option<&TulispObject>) {
+        let params = &self.code.params;
+        (&params.required, &params.optional, params.rest.as_ref())
+    }
+
     /// A function with this one's code and CAPTURES.
     pub(crate) fn with_captures(&self, captures: Captures) -> Self {
         CompiledDefun {

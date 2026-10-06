@@ -1,4 +1,5 @@
 pub(crate) mod callable;
+pub(crate) mod describe;
 pub(crate) mod destructure;
 pub(crate) mod special;
 
