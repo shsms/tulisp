@@ -53,6 +53,30 @@ pub(crate) fn value_key(value: &TulispValue) -> Option<usize> {
     }
 }
 
+/// The kind and the `value_key` of a value.
+fn kind_and_key(value: &TulispValue) -> (SymbolKind, Option<usize>) {
+    (kind_of(value), value_key(value))
+}
+
+/// The kind and the `value_key` of what a name holds: VALUE, or nothing for a
+/// variable declared with `defvar` and never set.
+fn held_kind_and_key(value: Option<&TulispObject>) -> (SymbolKind, Option<usize>) {
+    value.map_or((SymbolKind::Variable, None), |value| {
+        kind_and_key(&value.inner_ref().0)
+    })
+}
+
+/// What `describe` reads of SYM, interned as NAME: its global value, if it has
+/// one. `None` where `describe` gives `None`: for a keyword, and for a name
+/// with no value that was not declared with `defvar`.
+fn described_value(name: &str, sym: &TulispObject) -> Option<Option<TulispObject>> {
+    if name.starts_with(':') {
+        return None;
+    }
+    let value = sym.global();
+    (value.is_some() || sym.is_special()).then_some(value)
+}
+
 /// The signature a value itself shows: an arity, or a Lisp parameter list's
 /// names.
 pub(crate) fn derived_signature(value: &TulispValue) -> Option<Signature> {
@@ -123,20 +147,20 @@ pub(crate) struct DocEntry {
     pub(crate) doc: Option<Cow<'static, str>>,
 }
 
+impl DocEntry {
+    /// Whether the entry describes a value of KIND with identity KEY.
+    fn describes(&self, kind: SymbolKind, key: Option<usize>) -> bool {
+        self.kind == kind && (self.key.is_none() || self.key == key)
+    }
+}
+
 impl TulispContext {
     /// Sets, or with `None` removes, the entry for SYM. Only a symbol interned
     /// under its name has one: describe looks names up in the obarray.
     pub(crate) fn set_doc_entry(&mut self, sym: &TulispObject, entry: Option<DocEntry>) {
-        let Ok(name) = sym.as_symbol() else {
+        let Some(name) = self.interned_name(sym) else {
             return;
         };
-        if !self
-            .obarray
-            .get(&name)
-            .is_some_and(|interned| interned.eq_ptr(sym))
-        {
-            return;
-        }
         match entry {
             Some(entry) => {
                 self.docs.insert(name, entry);
@@ -171,18 +195,16 @@ impl TulispContext {
     /// assert_eq!(info.signature.unwrap().render("connect"), "(connect HOST &optional PORT)");
     /// ```
     pub fn set_doc(&mut self, name: &str, doc: &str) -> Result<(), Error> {
-        if self.describe(name).is_none() {
+        let Some(value) = self
+            .obarray
+            .get(name)
+            .and_then(|sym| described_value(name, sym))
+        else {
             return Err(Error::invalid_argument(format!(
                 "set_doc: {name} has no value"
             )));
-        }
-        let (kind, key) = match self.obarray.get(name).and_then(|sym| sym.global()) {
-            Some(value) => {
-                let value = &value.inner_ref().0;
-                (kind_of(value), value_key(value))
-            }
-            None => (SymbolKind::Variable, None),
         };
+        let (kind, key) = held_kind_and_key(value.as_ref());
         self.set_doc_text(name, kind, key, Cow::Owned(doc.to_string()));
         Ok(())
     }
@@ -198,7 +220,7 @@ impl TulispContext {
         doc: Cow<'static, str>,
     ) {
         match self.docs.get_mut(name) {
-            Some(entry) if entry.kind == kind && (entry.key.is_none() || entry.key == key) => {
+            Some(entry) if entry.describes(kind, key) => {
                 entry.doc = Some(doc);
             }
             _ => {
@@ -219,10 +241,7 @@ impl TulispContext {
         let Some(value) = self.obarray.get(name).and_then(|sym| sym.global()) else {
             return;
         };
-        let (kind, key) = {
-            let value = &value.inner_ref().0;
-            (kind_of(value), value_key(value))
-        };
+        let (kind, key) = kind_and_key(&value.inner_ref().0);
         self.set_doc_text(name, kind, key, Cow::Borrowed(doc));
     }
 
@@ -236,73 +255,59 @@ impl TulispContext {
 
     /// Records a `defvar` docstring for SYM, when SYM is interned.
     pub(crate) fn set_variable_doc(&mut self, sym: &TulispObject, doc: String) {
-        let Ok(name) = sym.as_symbol() else {
-            return;
-        };
-        if self
-            .obarray
-            .get(&name)
-            .is_some_and(|interned| interned.eq_ptr(sym))
-        {
+        if let Some(name) = self.interned_name(sym) {
             self.set_doc_text(&name, SymbolKind::Variable, None, Cow::Owned(doc));
         }
+    }
+
+    /// The name of SYM, when SYM is the symbol interned under that name.
+    fn interned_name(&self, sym: &TulispObject) -> Option<String> {
+        let name = sym.as_symbol().ok()?;
+        self.obarray
+            .get(&name)
+            .is_some_and(|interned| interned.eq_ptr(sym))
+            .then_some(name)
     }
 
     /// What NAME holds, its signature and its docstring, for editor tools.
     /// `None` when NAME has no value and was not declared with `defvar`, or is
     /// a keyword. It does not intern NAME.
     pub fn describe(&self, name: &str) -> Option<SymbolInfo> {
-        if name.starts_with(':') {
-            return None;
-        }
         let sym = self.obarray.get(name)?;
-        let value = sym.global();
-        if value.is_none() && !sym.is_special() {
-            return None;
-        }
-        let (kind, key, signature) = match &value {
-            Some(value) => {
-                let value = &value.inner_ref().0;
-                (kind_of(value), value_key(value), derived_signature(value))
-            }
-            None => (SymbolKind::Variable, None, None),
-        };
+        let value = described_value(name, sym)?;
+        let (kind, key) = held_kind_and_key(value.as_ref());
         let entry = self
             .docs
             .get(name)
-            .filter(|entry| entry.kind == kind && (entry.key.is_none() || entry.key == key));
-        let signature = entry
-            .and_then(|entry| entry.signature.clone())
-            .or(signature);
+            .filter(|entry| entry.describes(kind, key));
         // A `defvar` docstring outlives a later `setq` of any kind of value.
         let doc_entry = entry.or_else(|| {
             self.docs
                 .get(name)
                 .filter(|entry| sym.is_special() && entry.kind == SymbolKind::Variable)
         });
-        let doc = doc_entry
-            .and_then(|entry| entry.doc.as_deref().map(str::to_string))
-            .or_else(|| {
+        let doc = match doc_entry.and_then(|entry| entry.doc.as_deref()) {
+            Some(doc) => Some(Cow::Borrowed(doc)),
+            None => value
+                .as_ref()
+                .and_then(|value| derived_doc(&value.inner_ref().0))
+                .map(Cow::Owned),
+        };
+        Some(SymbolInfo::from_doc(kind, doc, || {
+            entry.and_then(|entry| entry.signature.clone()).or_else(|| {
                 value
                     .as_ref()
-                    .and_then(|value| derived_doc(&value.inner_ref().0))
-            });
-        Some(SymbolInfo::new(kind, signature, doc))
+                    .and_then(|value| derived_signature(&value.inner_ref().0))
+            })
+        }))
     }
 
     /// Every name [`symbols`](Self::symbols) lists, with the kind
     /// [`describe`](Self::describe) gives it, without describing it.
     pub(crate) fn symbol_kinds(&self) -> impl Iterator<Item = (&str, SymbolKind)> + '_ {
         self.obarray.iter().filter_map(|(name, sym)| {
-            if name.starts_with(':') {
-                return None;
-            }
-            let kind = match sym.global() {
-                Some(value) => kind_of(&value.inner_ref().0),
-                None if sym.is_special() => SymbolKind::Variable,
-                None => return None,
-            };
-            Some((name.as_str(), kind))
+            let value = described_value(name, sym)?;
+            Some((name.as_str(), held_kind_and_key(value.as_ref()).0))
         })
     }
 

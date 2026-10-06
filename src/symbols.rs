@@ -2,6 +2,8 @@
 //! docstring, as [`TulispContext::describe`](crate::TulispContext::describe)
 //! gives them.
 
+use std::borrow::Cow;
+
 use crate::value::DefunArity;
 
 /// What a name holds. A function and a variable of the same name share one
@@ -133,9 +135,19 @@ impl SymbolInfo {
     /// The info of a name of KIND. A usage line at the end of DOC gives the
     /// signature in place of SIGNATURE, and is cut from the text.
     pub(crate) fn new(kind: SymbolKind, signature: Option<Signature>, doc: Option<String>) -> Self {
+        Self::from_doc(kind, doc.map(Cow::Owned), || signature)
+    }
+
+    /// [`new`](Self::new), with DOC owned or borrowed, and SIGNATURE called
+    /// only when DOC has no usage line.
+    pub(crate) fn from_doc(
+        kind: SymbolKind,
+        doc: Option<Cow<'_, str>>,
+        signature: impl FnOnce() -> Option<Signature>,
+    ) -> Self {
         let (signature, doc) = match doc.as_deref().and_then(split_usage) {
             Some((text, usage)) => (Some(usage), (!text.is_empty()).then(|| text.to_string())),
-            None => (signature, doc),
+            None => (signature(), doc.map(Cow::into_owned)),
         };
         SymbolInfo {
             kind,
