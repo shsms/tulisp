@@ -29,16 +29,6 @@ pub(super) fn compile_fn_lambda(
     Ok(result)
 }
 
-/// BODY without its docstring: a leading string with more forms after it. A
-/// string that is the only form is the body's value.
-pub(super) fn strip_docstring(body: TulispObject) -> Result<TulispObject, Error> {
-    if crate::builtin::has_docstring(&body)? {
-        body.cdr()
-    } else {
-        Ok(body)
-    }
-}
-
 /// `(function ARG)`, also written `#'ARG`: a `(lambda ...)` ARG makes a
 /// closure, as `lambda` does, and any other ARG is its value unevaluated, as
 /// with `quote`.
@@ -65,10 +55,8 @@ pub(super) fn compile_lambda(
 ) -> Result<LambdaTemplate, Error> {
     // `(lambda)` has no parameters and no body.
     let params = args.car()?;
-    let body = args.cdr()?;
     crate::builtin::check_param_list(ctx, &params)?;
-    let doc = crate::builtin::docstring(&body)?;
-    let body = strip_docstring(body)?;
+    let (doc, body) = crate::builtin::split_docstring(args.cdr()?)?;
 
     // Parse params: required, &optional group, &rest group.
     let mut param_names: Vec<TulispObject> = Vec::new();

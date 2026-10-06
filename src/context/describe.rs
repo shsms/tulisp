@@ -53,16 +53,12 @@ pub(crate) fn value_identity(value: &TulispValue) -> Option<usize> {
     }
 }
 
-/// The kind and the `value_identity` of a value.
-fn kind_and_identity(value: &TulispValue) -> (SymbolKind, Option<usize>) {
-    (kind_of(value), value_identity(value))
-}
-
 /// The kind and the `value_identity` of what a name holds: VALUE, or nothing
 /// for a variable declared with `defvar` and never set.
 fn held_kind_and_identity(value: Option<&TulispObject>) -> (SymbolKind, Option<usize>) {
     value.map_or((SymbolKind::Variable, None), |value| {
-        kind_and_identity(&value.inner_ref().0)
+        let value = &value.inner_ref().0;
+        (kind_of(value), value_identity(value))
     })
 }
 

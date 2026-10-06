@@ -405,8 +405,8 @@ fn compile_defun(
         let prev_defun = compiler.current_defun.replace(defun_name.clone());
 
         let body = crate::builtin::drop_declare_after_docstring(ctx, body.clone())?;
-        doc = crate::builtin::docstring(&body)?;
-        let body = super::lambda::strip_docstring(body)?;
+        let (body_doc, body) = crate::builtin::split_docstring(body)?;
+        doc = body_doc;
         let body = mark_tail_calls(ctx, defun_name, body);
         // A variable of a scope around the function is captured when
         // the defun form runs, as a lambda captures it.
@@ -449,15 +449,14 @@ fn compile_defun(
         result.push(Instruction::DefineFunction(fn_name.clone()));
         function.captures = Captures::new(unbound);
     }
-    fn_name.set_global(
+    // The function carries its own docstring.
+    ctx.set_global_function(
+        &fn_name,
         crate::TulispValue::CompiledDefun {
             value: function.clone(),
         }
         .into_ref(None),
     )?;
-    // The function carries its own docstring; the old value's function entry,
-    // such as a Rust registration's, does not describe it.
-    ctx.set_doc_entry(&fn_name, None);
     install_function(ctx, &fn_name, function);
     // The value of `defun` is the function's name.
     let compiler = ctx.compiler.as_mut().unwrap();

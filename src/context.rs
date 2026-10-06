@@ -885,15 +885,26 @@ impl TulispContext {
         function: TulispObject,
     ) -> Result<(), Error> {
         let addr = sym.addr_as_usize();
-        sym.set_global(function.clone())?;
-        // The old value's function entry does not describe the new one.
-        self.set_doc_entry(sym, None);
+        self.set_global_function(sym, function.clone())?;
         self.evict_compiled_dispatch(addr);
         // Put a compiled function in the machine's table, as `defun` does,
         // so compiled calls run it directly.
         if let TulispValue::CompiledDefun { value } = &function.inner_ref().0 {
             self.vm.set_function(addr, value.clone());
         }
+        Ok(())
+    }
+
+    /// Makes FUNCTION the global value of SYM, and drops SYM's docs entry: the
+    /// entry of the old value, such as a Rust registration's, does not
+    /// describe the new one.
+    pub(crate) fn set_global_function(
+        &mut self,
+        sym: &TulispObject,
+        function: TulispObject,
+    ) -> Result<(), Error> {
+        sym.set_global(function)?;
+        self.set_doc_entry(sym, None);
         Ok(())
     }
 

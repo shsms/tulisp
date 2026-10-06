@@ -170,6 +170,15 @@ pub(crate) fn docstring(body: &TulispObject) -> Result<Option<String>, Error> {
     }
 }
 
+/// BODY's docstring, by the rule of [`has_docstring`], and BODY without it.
+pub(crate) fn split_docstring(body: TulispObject) -> Result<(Option<String>, TulispObject), Error> {
+    if has_docstring(&body)? {
+        Ok((Some(body.car()?.as_string()?), body.cdr()?))
+    } else {
+        Ok((None, body))
+    }
+}
+
 /// Checks the parameter list of a `defun`, `defmacro` or `lambda`: a
 /// list of symbols, with at most one symbol after `&rest`. `&optional`
 /// and `&rest` are the interned symbols, as the compilers read them.
