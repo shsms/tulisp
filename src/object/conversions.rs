@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use crate::{Error, Number, Shared, TulispAny, TulispContext, TulispObject, TulispValue};
 
 /// Bidirectional conversion between Rust types and [`TulispObject`], with
@@ -93,6 +95,15 @@ pub trait TulispConvertible {
 
     /// Converts this Rust value into a Lisp value.
     fn into_tulisp(self, ctx: &mut TulispContext) -> TulispObject;
+
+    /// The Lisp type this type converts from, as an editor shows it in a
+    /// function's signature: `integer`, `string`. `None` unless overridden.
+    fn lisp_type() -> Option<Cow<'static, str>>
+    where
+        Self: Sized,
+    {
+        None
+    }
 }
 
 impl TulispConvertible for String {
@@ -103,6 +114,10 @@ impl TulispConvertible for String {
     fn into_tulisp(self, _ctx: &mut TulispContext) -> TulispObject {
         TulispValue::from(self).into_ref(None)
     }
+
+    fn lisp_type() -> Option<Cow<'static, str>> {
+        Some(Cow::Borrowed("string"))
+    }
 }
 
 impl TulispConvertible for f64 {
@@ -112,6 +127,10 @@ impl TulispConvertible for f64 {
     fn into_tulisp(self, _ctx: &mut TulispContext) -> TulispObject {
         TulispValue::from(self).into_ref(None)
     }
+
+    fn lisp_type() -> Option<Cow<'static, str>> {
+        Some(Cow::Borrowed("number"))
+    }
 }
 
 impl TulispConvertible for i64 {
@@ -120,6 +139,10 @@ impl TulispConvertible for i64 {
     }
     fn into_tulisp(self, _ctx: &mut TulispContext) -> TulispObject {
         TulispValue::from(self).into_ref(None)
+    }
+
+    fn lisp_type() -> Option<Cow<'static, str>> {
+        Some(Cow::Borrowed("integer"))
     }
 }
 
@@ -162,6 +185,10 @@ impl TulispConvertible for bool {
     fn into_tulisp(self, _ctx: &mut TulispContext) -> TulispObject {
         self.into()
     }
+
+    fn lisp_type() -> Option<Cow<'static, str>> {
+        Some(Cow::Borrowed("boolean"))
+    }
 }
 
 impl<T> TulispConvertible for Vec<T>
@@ -173,6 +200,10 @@ where
     }
     fn into_tulisp(self, ctx: &mut TulispContext) -> TulispObject {
         self.into_iter().map(|item| item.into_tulisp(ctx)).collect()
+    }
+
+    fn lisp_type() -> Option<Cow<'static, str>> {
+        Some(Cow::Borrowed("list"))
     }
 }
 
@@ -191,6 +222,10 @@ impl TulispConvertible for Number {
     }
     fn into_tulisp(self, _ctx: &mut TulispContext) -> TulispObject {
         TulispValue::from(self).into_ref(None)
+    }
+
+    fn lisp_type() -> Option<Cow<'static, str>> {
+        Some(Cow::Borrowed("number"))
     }
 }
 
@@ -214,6 +249,10 @@ impl<T: TulispConvertible> TulispConvertible for Option<T> {
             None => TulispObject::nil(),
         }
     }
+
+    fn lisp_type() -> Option<Cow<'static, str>> {
+        T::lisp_type()
+    }
 }
 
 impl<T: TulispAny + Clone> TulispConvertible for T {
@@ -225,6 +264,10 @@ impl<T: TulispAny + Clone> TulispConvertible for T {
     }
     fn into_tulisp(self, _ctx: &mut TulispContext) -> TulispObject {
         Shared::new(self).into()
+    }
+
+    fn lisp_type() -> Option<Cow<'static, str>> {
+        Some(T::lisp_type_name())
     }
 }
 
@@ -244,6 +287,9 @@ macro_rules! impl_tuple {
             fn into_tulisp(self, ctx: &mut TulispContext) -> TulispObject {
                 let ($($v,)+) = self;
                 [$($v.into_tulisp(ctx)),+].into_iter().collect()
+            }
+            fn lisp_type() -> Option<Cow<'static, str>> {
+                Some(Cow::Borrowed("list"))
             }
         }
     };
@@ -283,6 +329,10 @@ impl<T: TulispAny> TulispConvertible for Shared<T> {
     }
     fn into_tulisp(self, _ctx: &mut TulispContext) -> TulispObject {
         self.into()
+    }
+
+    fn lisp_type() -> Option<Cow<'static, str>> {
+        Some(T::lisp_type_name())
     }
 }
 

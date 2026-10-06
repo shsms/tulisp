@@ -497,6 +497,10 @@ macro_rules! AsList {
             }
 
             impl $crate::TulispConvertible for $name {
+                fn lisp_type() -> Option<::std::borrow::Cow<'static, str>> {
+                    Some(::std::borrow::Cow::Borrowed(stringify!($name)))
+                }
+
                 fn from_tulisp(
                     __ctx: &mut $crate::TulispContext,
                     __value: &$crate::TulispObject,

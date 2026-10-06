@@ -1,4 +1,7 @@
+use std::borrow::Cow;
+
 use crate::object::wrappers::generic::SendSyncIfSync;
+use crate::symbols::{ParamPosition, Signature, SignatureParam};
 use crate::value::DefunArity;
 use crate::{Error, Plist, Plistable, Rest, TulispContext, TulispConvertible, TulispObject};
 
@@ -46,6 +49,12 @@ pub trait Param: Sized + 'static {
     /// the arguments it did not consume. Arity has been checked by
     /// the caller, so a required position is always present.
     fn take(ctx: &mut TulispContext, args: &mut &[TulispObject]) -> Result<Self, Error>;
+
+    /// The Lisp type an editor shows for this parameter. `None` unless
+    /// overridden.
+    fn type_name() -> Option<Cow<'static, str>> {
+        None
+    }
 }
 
 impl<T: TulispConvertible + 'static> Param for T {
@@ -63,6 +72,10 @@ impl<T: TulispConvertible + 'static> Param for T {
             None => T::from_absent(ctx),
         }
     }
+
+    fn type_name() -> Option<Cow<'static, str>> {
+        T::lisp_type()
+    }
 }
 
 impl<T: TulispConvertible + 'static> Param for Rest<T> {
@@ -73,6 +86,10 @@ impl<T: TulispConvertible + 'static> Param for Rest<T> {
             .iter()
             .map(|arg| T::from_tulisp(ctx, arg))
             .collect::<Result<Rest<T>, Error>>()
+    }
+
+    fn type_name() -> Option<Cow<'static, str>> {
+        T::lisp_type()
     }
 }
 
@@ -139,6 +156,30 @@ pub(crate) fn arity(kinds: &[ParamKind]) -> DefunArity {
         optional: positional - required,
         has_rest,
     }
+}
+
+/// The signature a parameter list declares, its positions counted as
+/// [`arity`] counts them, with each parameter's Lisp type name.
+pub(crate) fn signature(kinds: &[ParamKind], types: &[Option<Cow<'static, str>>]) -> Signature {
+    let required = arity(kinds).required;
+    let params = kinds
+        .iter()
+        .zip(types)
+        .enumerate()
+        .map(|(index, (kind, type_name))| SignatureParam {
+            name: None,
+            position: match kind {
+                ParamKind::Rest | ParamKind::RestForm => ParamPosition::Rest,
+                ParamKind::Plist => ParamPosition::Keywords,
+                ParamKind::Positional { .. } | ParamKind::Form { .. } if index < required => {
+                    ParamPosition::Required
+                }
+                ParamKind::Positional { .. } | ParamKind::Form { .. } => ParamPosition::Optional,
+            },
+            type_name: type_name.as_ref().map(|name| name.to_string()),
+        })
+        .collect();
+    Signature { params }
 }
 
 /// A closure that [`defun`](TulispContext::defun) can register:
@@ -210,8 +251,11 @@ macro_rules! impl_tulisp_callable {
             #[track_caller]
             #[allow(unused_mut, unused_variables)]
             fn add_to_context(self, ctx: &mut TulispContext, name: &str, _: Token) {
-                let arity = arity(&[$(<$p as Param>::KIND,)* $(<$last as Param>::KIND,)?]);
-                ctx.define_typed_defun(name, arity, move |$cx, args| {
+                let kinds = [$(<$p as Param>::KIND,)* $(<$last as Param>::KIND,)?];
+                let types = [$(<$p as Param>::type_name(),)* $(<$last as Param>::type_name(),)?];
+                let arity = arity(&kinds);
+                let signature = signature(&kinds, &types);
+                ctx.define_typed_defun(name, arity, signature, move |$cx, args| {
                     let mut args = args;
                     $(let $p = <$p as Param>::take($cx, &mut args)?;)*
                     $(let $last = <$last as Param>::take($cx, &mut args)?;)?

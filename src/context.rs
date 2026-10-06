@@ -26,6 +26,7 @@ use crate::{
     eval::resolve_function,
     object::wrappers::{DefunFn, InterruptCheckFn, TulispFn, generic::Shared},
     parse::parse,
+    symbols::Signature,
 };
 
 macro_rules! intern_from_obarray {
@@ -137,6 +138,8 @@ const CLEANUP_RESERVE: u32 = 8;
 pub struct TulispContext {
     obarray: HashMap<String, TulispObject>,
     pub(crate) filenames: Vec<String>,
+    /// Recorded signatures and docstrings, by name; see describe.rs.
+    pub(crate) docs: HashMap<String, describe::DocEntry>,
     pub(crate) compiler: Option<Compiler>,
     pub(crate) keywords: Keywords,
     pub(crate) vm: bytecode::Machine,
@@ -183,6 +186,7 @@ impl TulispContext {
         let mut ctx = Self {
             obarray,
             filenames: vec!["<eval_string>".to_string()],
+            docs: HashMap::new(),
             compiler: None,
             keywords,
             vm: bytecode::Machine::new(),
@@ -521,7 +525,7 @@ impl TulispContext {
     /// builds: its symbol holds the `SpecialForm` marker.
     #[track_caller]
     pub(crate) fn define_special_form(&mut self, name: &str) {
-        self.define_function(name, TulispValue::SpecialForm);
+        self.define_function(name, TulispValue::SpecialForm, None);
     }
 
     /// Makes VALUE the function of NAME, as `fset` does.
@@ -530,7 +534,7 @@ impl TulispContext {
     ///
     /// If NAME is `nil`, `t` or a keyword.
     #[track_caller]
-    fn define_function(&mut self, name: &str, value: TulispValue) {
+    fn define_function(&mut self, name: &str, value: TulispValue, signature: Option<Signature>) {
         #[cfg(feature = "etags")]
         {
             let caller = std::panic::Location::caller();
@@ -541,9 +545,18 @@ impl TulispContext {
                 .insert(name.to_owned(), caller.line() as usize);
         }
 
+        let kind = describe::kind_of(&value);
         let sym = self.intern(name);
         if let Err(err) = self.set_function_value(&sym, value.into_ref(None)) {
             panic!("can't define a function named {name}: {}", err.desc());
+        }
+        if let Some(signature) = signature {
+            let entry = describe::DocEntry {
+                kind,
+                signature: Some(signature),
+                doc: None,
+            };
+            self.set_doc_entry(&sym, Some(entry));
         }
     }
 
@@ -587,6 +600,7 @@ impl TulispContext {
         &mut self,
         name: &str,
         arity: crate::value::DefunArity,
+        signature: Signature,
         func: impl DefunFn + std::any::Any,
     ) {
         self.define_function(
@@ -595,6 +609,7 @@ impl TulispContext {
                 call: Shared::new_defun_fn(func),
                 arity,
             },
+            Some(signature),
         );
     }
 
@@ -604,9 +619,11 @@ impl TulispContext {
         &mut self,
         name: &str,
         kinds: Vec<crate::ParamKind>,
+        types: &[Option<std::borrow::Cow<'static, str>>],
         func: impl crate::object::wrappers::SpecialFn,
     ) {
         let arity = callable::arity(&kinds);
+        let signature = callable::signature(&kinds, types);
         self.define_function(
             name,
             TulispValue::Special {
@@ -614,6 +631,7 @@ impl TulispContext {
                 kinds,
                 arity,
             },
+            Some(signature),
         );
     }
 
@@ -736,7 +754,7 @@ impl TulispContext {
     #[inline(always)]
     #[track_caller]
     pub fn defmacro(&mut self, name: &str, func: impl TulispFn) {
-        self.define_function(name, TulispValue::Macro(Shared::new_tulisp_fn(func)));
+        self.define_function(name, TulispValue::Macro(Shared::new_tulisp_fn(func)), None);
     }
 
     /// Returns true if NAME holds a function, a macro or a special form,
@@ -851,6 +869,8 @@ impl TulispContext {
     ) -> Result<(), Error> {
         let addr = sym.addr_as_usize();
         sym.set_global(function.clone())?;
+        // A new value has none of the old one's docs.
+        self.set_doc_entry(sym, None);
         self.evict_compiled_dispatch(addr);
         // Put a compiled function in the machine's table, as `defun` does,
         // so compiled calls run it directly.
@@ -880,6 +900,7 @@ impl TulispContext {
         {
             sym.unset_global()?;
             self.evict_compiled_dispatch(sym.addr_as_usize());
+            self.set_doc_entry(&sym, None);
         }
         Ok(())
     }

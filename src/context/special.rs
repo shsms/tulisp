@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::bytecode::{FormBlock, FrameState};
@@ -168,6 +169,12 @@ pub trait SpecialParam: Sized + 'static {
     /// Takes this parameter's value from the front of ARGS. Arity has
     /// been checked, so a required position is present.
     fn take(ctx: &mut TulispContext, args: &mut SpecialArgs<'_>) -> Result<Self, Error>;
+
+    /// The Lisp type an editor shows for this parameter. `None` unless
+    /// overridden.
+    fn type_name() -> Option<Cow<'static, str>> {
+        None
+    }
 }
 
 impl<T: Param> SpecialParam for T {
@@ -182,6 +189,10 @@ impl<T: Param> SpecialParam for T {
 
     fn take(ctx: &mut TulispContext, args: &mut SpecialArgs<'_>) -> Result<Self, Error> {
         T::take(ctx, &mut args.values)
+    }
+
+    fn type_name() -> Option<Cow<'static, str>> {
+        T::type_name()
     }
 }
 
@@ -250,7 +261,8 @@ macro_rules! impl_special_callable {
             #[allow(unused_mut, unused_variables)]
             fn add_to_context(self, ctx: &mut TulispContext, name: &str, _: Token) {
                 let kinds = vec![$(<$p as SpecialParam>::KIND,)* $(<$last as SpecialParam>::KIND,)?];
-                ctx.define_special(name, kinds, move |$cx, values, forms| {
+                let types = [$(<$p as SpecialParam>::type_name(),)* $(<$last as SpecialParam>::type_name(),)?];
+                ctx.define_special(name, kinds, &types, move |$cx, values, forms| {
                     let mut args = SpecialArgs { values, forms: forms.into_iter() };
                     $(let $p = <$p as SpecialParam>::take($cx, &mut args)?;)*
                     $(let $last = <$last as SpecialParam>::take($cx, &mut args)?;)?
