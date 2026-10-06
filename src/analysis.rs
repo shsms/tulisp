@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::ops::Range;
 
 use crate::TulispContext;
-use crate::symbols::{Signature, SymbolInfo, SymbolKind};
+use crate::symbols::{ParamPosition, Signature, SymbolInfo, SymbolKind};
 use crate::syntax::{AtomKind, NodeKind, Prefix, SyntaxTree};
 
 /// A name that can complete what is being typed.
@@ -168,6 +168,135 @@ pub fn completions(ctx: &TulispContext, tree: &SyntaxTree, offset: usize) -> Com
         range,
         items: items.into_values().collect(),
     }
+}
+
+/// The call around an offset: what is called, its parameters, and which of them
+/// the argument at the offset fills.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct SignatureHelp {
+    pub name: String,
+    pub signature: Signature,
+    pub doc: Option<String>,
+    /// The index in `signature.params` of the parameter the argument at the
+    /// offset fills. `None` on the function's name, or past the last parameter.
+    pub active: Option<usize>,
+}
+
+/// The parameter that argument ARG, counted from 0, fills: a `&rest` or keyword
+/// parameter takes every argument from its own on.
+fn active_param(signature: &Signature, arg: usize) -> Option<usize> {
+    let mut position = 0;
+    for (index, param) in signature.params.iter().enumerate() {
+        match param.position {
+            ParamPosition::Rest | ParamPosition::Keywords => return Some(index),
+            ParamPosition::Required | ParamPosition::Optional if position == arg => {
+                return Some(index);
+            }
+            ParamPosition::Required | ParamPosition::Optional => position += 1,
+        }
+    }
+    None
+}
+
+/// The signature of the innermost call around OFFSET, the file's own definition
+/// first, and which parameter the offset is at. `None` when the call's head is
+/// not a name with a known signature, in quoted data, or in a string or a
+/// comment.
+pub fn signature_help(
+    ctx: &TulispContext,
+    tree: &SyntaxTree,
+    offset: usize,
+) -> Option<SignatureHelp> {
+    let offset = tree.clamp(offset);
+    let call = tree.call_at(offset)?;
+    if scope::quoted(tree, call.list) {
+        return None;
+    }
+    let head = *tree.forms(call.list).first()?;
+    if !matches!(tree.node(head).kind(), NodeKind::Atom(AtomKind::Symbol)) {
+        return None;
+    }
+    let name = tree.text(head);
+    let info = scope::lookup(ctx, tree, name)?;
+    if info.kind == SymbolKind::Variable {
+        return None;
+    }
+    let signature = info.signature?;
+    let active = call
+        .position
+        .checked_sub(1)
+        .and_then(|arg| active_param(&signature, arg));
+    Some(SignatureHelp {
+        name: name.to_string(),
+        signature,
+        doc: info.doc,
+        active,
+    })
+}
+
+/// What a name under the cursor is.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Hover {
+    /// The name's text.
+    pub range: Range<usize>,
+    pub name: String,
+    pub info: SymbolInfo,
+    /// For a local variable, the name where it is bound.
+    pub binding: Option<Range<usize>>,
+}
+
+/// What the symbol at OFFSET is: a local variable in scope there, else the
+/// file's definition, else the context's. `None` off a symbol, or for a name
+/// nothing defines.
+pub fn hover(ctx: &TulispContext, tree: &SyntaxTree, offset: usize) -> Option<Hover> {
+    let offset = tree.clamp(offset);
+    let id = *tree.path_at(offset).last()?;
+    if !matches!(tree.node(id).kind(), NodeKind::Atom(AtomKind::Symbol)) {
+        return None;
+    }
+    let name = tree.text(id);
+    let range = tree.node(id).range();
+    if !scope::quoted(tree, id)
+        && let Some(local) = scope::locals_at(tree, offset)
+            .into_iter()
+            .rev()
+            .find(|local| local.name == name)
+    {
+        return Some(Hover {
+            range,
+            name: name.to_string(),
+            info: SymbolInfo::new(SymbolKind::Variable, None, None),
+            binding: Some(local.range),
+        });
+    }
+    let info = scope::lookup(ctx, tree, name)?;
+    Some(Hover {
+        range,
+        name: name.to_string(),
+        info,
+        binding: None,
+    })
+}
+
+/// A problem in the source.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Diagnostic {
+    pub range: Range<usize>,
+    pub message: String,
+}
+
+/// The problems in the source: for now, where it cannot be read.
+pub fn diagnostics(tree: &SyntaxTree) -> Vec<Diagnostic> {
+    tree.errors()
+        .iter()
+        .map(|error| Diagnostic {
+            range: error.range.clone(),
+            message: error.message.clone(),
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -436,5 +565,136 @@ mod tests {
             &complete(&context(), "(dolist (item (f ite|)) nil)"),
             "item"
         ));
+    }
+
+    crate::AsList! {
+        struct Opts {
+            a: Option<i64>,
+        }
+    }
+
+    fn help(ctx: &TulispContext, source: &str) -> Option<SignatureHelp> {
+        let (text, offset) = at_cursor(source);
+        let tree = read(&text);
+        signature_help(ctx, &tree, offset)
+    }
+
+    fn hover_at(ctx: &TulispContext, source: &str) -> Option<Hover> {
+        let (text, offset) = at_cursor(source);
+        let tree = read(&text);
+        hover(ctx, &tree, offset)
+    }
+
+    fn hint_context() -> TulispContext {
+        let mut ctx = TulispContext::new();
+        ctx.eval_string("(defun three (a &optional b &rest c) a)")
+            .unwrap();
+        ctx.defun("fixed", |a: i64| a);
+        ctx.defun("kw", |a: i64, o: crate::Plist<Opts>| a + o.a.unwrap_or(0));
+        ctx
+    }
+
+    #[test]
+    fn the_active_parameter_follows_the_cursor() {
+        let ctx = hint_context();
+        let active = |source| help(&ctx, source).and_then(|h| h.active);
+        assert_eq!(active("(three |"), Some(0));
+        assert_eq!(active("(three 1 |"), Some(1));
+        assert_eq!(active("(three 1 2 3 |"), Some(2));
+        assert_eq!(active("(fixed 1 2 |"), None);
+        assert_eq!(active("(kw 1 :a |"), Some(1));
+        let on_name = help(&ctx, "(thr|ee 1)").expect("help on the name");
+        assert_eq!(on_name.name, "three");
+        assert_eq!(on_name.active, None);
+    }
+
+    #[test]
+    fn the_innermost_call_wins() {
+        let ctx = hint_context();
+        assert_eq!(
+            help(&ctx, "(three (fixed |").map(|h| h.name).as_deref(),
+            Some("fixed")
+        );
+    }
+
+    #[test]
+    fn no_signature_in_strings_comments_or_quoted_lists() {
+        let ctx = hint_context();
+        assert!(help(&ctx, "(three \"|\")").is_none());
+        assert!(help(&ctx, "(three ; |\n)").is_none());
+        assert!(help(&ctx, "'(three |)").is_none());
+    }
+
+    #[test]
+    fn signature_help_at_the_end_of_an_unclosed_file() {
+        let ctx = hint_context();
+        let found = help(&ctx, "(three 1 (fixed 2) |").expect("help");
+        assert_eq!(found.name, "three");
+        assert_eq!(found.active, Some(2));
+    }
+
+    #[test]
+    fn signature_help_uses_the_file_definition() {
+        let ctx = hint_context();
+        let found = help(&ctx, "(defun three (x) x) (three |").expect("help");
+        assert_eq!(found.signature.render("three"), "(three X)");
+    }
+
+    #[test]
+    fn hover_shows_a_context_function() {
+        let mut ctx = hint_context();
+        ctx.set_doc("fixed", "Doc of fixed.").unwrap();
+        let found = hover_at(&ctx, "(fix|ed 1)").expect("hover");
+        assert_eq!(found.name, "fixed");
+        assert_eq!(found.range, 1..6);
+        assert_eq!(found.info.doc.as_deref(), Some("Doc of fixed."));
+        assert_eq!(found.binding, None);
+    }
+
+    #[test]
+    fn hover_shows_where_a_local_was_bound() {
+        let ctx = hint_context();
+        let source = "(let ((xyz 1)) (+ x|yz 1))";
+        let found = hover_at(&ctx, source).expect("hover");
+        assert_eq!(found.info.kind, SymbolKind::Variable);
+        assert_eq!(found.binding, Some(7..10));
+    }
+
+    #[test]
+    fn a_local_shadows_a_function_of_the_same_name() {
+        let ctx = hint_context();
+        let found = hover_at(&ctx, "(let ((fixed 1)) (fix|ed))").expect("hover");
+        assert_eq!(found.info.kind, SymbolKind::Variable);
+    }
+
+    #[test]
+    fn hover_shows_a_file_definition() {
+        let ctx = hint_context();
+        let found = hover_at(&ctx, "(defun ff (a) \"Doc of ff.\" a) (f|f 1)").expect("hover");
+        assert_eq!(found.info.doc.as_deref(), Some("Doc of ff."));
+    }
+
+    #[test]
+    fn no_hover_off_a_symbol() {
+        let ctx = hint_context();
+        assert!(hover_at(&ctx, "(f \"a|b\")").is_none());
+        assert!(hover_at(&ctx, "(f 1|2)").is_none());
+        assert!(hover_at(&ctx, "(f (|))").is_none());
+    }
+
+    #[test]
+    fn hover_past_the_end_is_none() {
+        let ctx = hint_context();
+        let tree = read("(fixed 1)");
+        assert!(hover(&ctx, &tree, 100).is_none());
+    }
+
+    #[test]
+    fn diagnostics_are_the_tree_errors() {
+        let found = diagnostics(&read("(a"));
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].message, "Unclosed list");
+        assert_eq!(found[0].range, 0..1);
+        assert!(diagnostics(&read("(a)")).is_empty());
     }
 }

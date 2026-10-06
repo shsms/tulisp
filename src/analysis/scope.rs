@@ -113,10 +113,6 @@ pub(super) fn definitions(tree: &SyntaxTree) -> Vec<Definition> {
 }
 
 /// What NAME is: the file's own (last) definition, else the context's.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "hover and argument hints use it in later changes")
-)]
 pub(super) fn lookup(ctx: &TulispContext, tree: &SyntaxTree, name: &str) -> Option<SymbolInfo> {
     // The last definition wins, as it does when the file compiles.
     definitions(tree)
@@ -137,7 +133,6 @@ fn passed(tree: &SyntaxTree, id: NodeId, offset: usize) -> bool {
 /// A local variable, and where its name is bound.
 pub(super) struct Local {
     pub(super) name: String,
-    #[expect(dead_code, reason = "diagnostics and hover use it in later changes")]
     pub(super) range: Range<usize>,
 }
 
