@@ -169,7 +169,7 @@ impl<'a> SyntaxTree<'a> {
         match &self.nodes[id.0].kind {
             NodeKind::List { children, .. } => children,
             NodeKind::Prefix { children, .. } => children,
-            _ => &[],
+            NodeKind::Atom(_) | NodeKind::Dot | NodeKind::Comment | NodeKind::Error => &[],
         }
     }
 
@@ -185,7 +185,7 @@ impl<'a> SyntaxTree<'a> {
     /// The nodes that hold OFFSET, from a top-level node down to the innermost.
     /// A list holds the offsets between its parentheses, and an unclosed list
     /// those up to the end of the input. A string holds the offsets between its
-    /// quotes, and a comment those after its `;`.  Any other node holds the
+    /// quotes, and a comment those after its `;`. Any other node holds the
     /// offsets from its start to its end, both included, so the end of a symbol
     /// is in the symbol.
     pub fn path_at(&self, offset: usize) -> Vec<NodeId> {
@@ -208,7 +208,9 @@ impl<'a> SyntaxTree<'a> {
             NodeKind::List { closed: false, .. } | NodeKind::Prefix { .. } | NodeKind::Comment => {
                 range.start < offset && offset <= range.end
             }
-            _ => range.start <= offset && offset <= range.end,
+            NodeKind::Atom(_) | NodeKind::Dot | NodeKind::Error => {
+                range.start <= offset && offset <= range.end
+            }
         }
     }
 
@@ -224,7 +226,10 @@ impl<'a> SyntaxTree<'a> {
                 NodeKind::Error => {
                     self.text(last).starts_with('"') && self.nodes[last.0].range.start < offset
                 }
-                _ => false,
+                NodeKind::List { .. }
+                | NodeKind::Prefix { .. }
+                | NodeKind::Atom(_)
+                | NodeKind::Dot => false,
             };
             if in_text {
                 return None;
