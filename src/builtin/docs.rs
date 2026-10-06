@@ -478,7 +478,7 @@ const DOCS: &[(&str, &str)] = &[
         concat!(
             "Define NAME as a macro.",
             "\n\n",
-            "(fn NAME ARGLIST [DOCSTRING] [DECL] &rest BODY)"
+            "(fn NAME ARGLIST &optional DOCSTRING DECL &rest BODY)"
         ),
     ),
     (
@@ -486,7 +486,7 @@ const DOCS: &[(&str, &str)] = &[
         concat!(
             "Define NAME as a function.",
             "\n\n",
-            "(fn NAME ARGLIST [DOCSTRING] [DECL] [INTERACTIVE] &rest BODY)"
+            "(fn NAME ARGLIST &optional DOCSTRING DECL INTERACTIVE &rest BODY)"
         ),
     ),
     (
@@ -500,7 +500,7 @@ const DOCS: &[(&str, &str)] = &[
     (
         "dolist",
         concat!(
-            "Evaluate BODY with VAR bound to each element of LIST in turn, then return RESULT, where SPEC is (VAR LIST [RESULT]).",
+            "Evaluate BODY with VAR bound to each element of LIST in turn, then return RESULT, where SPEC is (VAR LIST) or (VAR LIST RESULT).",
             "\n\n",
             "(fn SPEC &rest BODY)"
         ),
@@ -508,7 +508,7 @@ const DOCS: &[(&str, &str)] = &[
     (
         "dotimes",
         concat!(
-            "Evaluate BODY with VAR bound to each integer from 0 up to but not including COUNT, then return RESULT, where SPEC is (VAR COUNT [RESULT]).",
+            "Evaluate BODY with VAR bound to each integer from 0 up to but not including COUNT, then return RESULT, where SPEC is (VAR COUNT) or (VAR COUNT RESULT).",
             "\n\n",
             "(fn SPEC &rest BODY)"
         ),
@@ -726,7 +726,7 @@ const DOCS: &[(&str, &str)] = &[
         concat!(
             "Return an anonymous function.",
             "\n\n",
-            "(fn ARGS [DOCSTRING] [INTERACTIVE] &rest BODY)"
+            "(fn ARGS &optional DOCSTRING INTERACTIVE &rest BODY)"
         ),
     ),
     (
@@ -836,17 +836,17 @@ const DOCS: &[(&str, &str)] = &[
     (
         "mapcar",
         concat!(
-            "Apply FUNCTION to each element of SEQUENCE, and make a list of the results.",
+            "Apply FUNCTION to each element of LIST, and make a list of the results.",
             "\n\n",
-            "(fn FUNCTION SEQUENCE)"
+            "(fn FUNCTION LIST)"
         ),
     ),
     (
         "mapconcat",
         concat!(
-            "Apply FUNCTION to each element of SEQUENCE, and concat the results as strings.",
+            "Apply FUNCTION to each element of LIST, and concat the results as strings.",
             "\n\n",
-            "(fn FUNCTION SEQUENCE &optional SEPARATOR)"
+            "(fn FUNCTION LIST &optional SEPARATOR)"
         ),
     ),
     (
@@ -1016,7 +1016,7 @@ const DOCS: &[(&str, &str)] = &[
     ),
     (
         "reverse",
-        concat!("Return the reversed copy of list SEQ.", "\n\n", "(fn SEQ)"),
+        concat!("Return a reversed copy of LIST.", "\n\n", "(fn LIST)"),
     ),
     (
         "round",
@@ -1029,49 +1029,49 @@ const DOCS: &[(&str, &str)] = &[
     (
         "seq-drop",
         concat!(
-            "Remove the first N elements of SEQUENCE and return the resulting sequence.",
+            "Return LIST without its first N elements, sharing structure with LIST.",
             "\n\n",
-            "(fn SEQUENCE N)"
+            "(fn LIST N)"
         ),
     ),
     (
         "seq-filter",
         concat!(
-            "Return a list of all the elements in SEQUENCE for which PRED returns non-nil.",
+            "Return a list of all the elements in LIST for which PRED returns non-nil.",
             "\n\n",
-            "(fn PRED SEQUENCE)"
+            "(fn PRED LIST)"
         ),
     ),
     (
         "seq-find",
         concat!(
-            "Return the first element in SEQUENCE for which PRED returns non-nil.",
+            "Return the first element in LIST for which PRED returns non-nil.",
             "\n\n",
-            "(fn PRED SEQUENCE &optional DEFAULT)"
+            "(fn PRED LIST &optional DEFAULT)"
         ),
     ),
     (
         "seq-map",
         concat!(
-            "Return the result of applying FUNCTION to each element of SEQUENCE.",
+            "Return a list of the results of applying FUNCTION to each element of LIST.",
             "\n\n",
-            "(fn FUNCTION SEQUENCE)"
+            "(fn FUNCTION LIST)"
         ),
     ),
     (
         "seq-reduce",
         concat!(
-            "Reduce the function FUNCTION across SEQUENCE, starting with INITIAL-VALUE.",
+            "Reduce the function FUNCTION across LIST, starting with INITIAL-VALUE.",
             "\n\n",
-            "(fn FUNCTION SEQUENCE INITIAL-VALUE)"
+            "(fn FUNCTION LIST INITIAL-VALUE)"
         ),
     ),
     (
         "seq-take",
         concat!(
-            "Return the sequence made of the first N elements of SEQUENCE.",
+            "Return a new list of the first N elements of LIST.",
             "\n\n",
-            "(fn SEQUENCE N)"
+            "(fn LIST N)"
         ),
     ),
     (
@@ -1117,9 +1117,9 @@ const DOCS: &[(&str, &str)] = &[
     (
         "sort",
         concat!(
-            "Sort SEQ, stably, and return the sorted sequence.",
+            "Sort LIST, stably, and return the sorted list.",
             "\n\n",
-            "(fn SEQ &key KEY LESSP REVERSE IN-PLACE)"
+            "(fn LIST &key KEY LESSP REVERSE IN-PLACE)"
         ),
     ),
     (
@@ -1348,6 +1348,14 @@ mod tests {
     use super::DOCS;
     use crate::TulispContext;
     use crate::symbols::{ParamPosition, Signature, SymbolKind, split_usage};
+
+    #[test]
+    fn docs_are_sorted_and_unique() {
+        for pair in DOCS.windows(2) {
+            let (a, b) = (pair[0].0, pair[1].0);
+            assert!(a < b, "{a} is not before {b}");
+        }
+    }
 
     #[test]
     fn every_built_in_has_a_docstring() {
