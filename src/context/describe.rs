@@ -26,8 +26,35 @@ pub(crate) fn kind_of(value: &TulispValue) -> SymbolKind {
     }
 }
 
-/// The signature a value itself shows: an arity, or a Lisp parameter
-/// list's names.
+/// The identity of a function value, by the address of its shared parts, or
+/// `None` for a value that is not a function. An address can be reused once the
+/// old value is freed, so a stale match is possible, but it needs that exact
+/// reuse.
+pub(crate) fn value_key(value: &TulispValue) -> Option<usize> {
+    match value {
+        TulispValue::Defun { call, .. } => Some(call.addr_as_usize()),
+        TulispValue::Special { call, .. } => Some(call.addr_as_usize()),
+        TulispValue::Macro(func) => Some(func.addr_as_usize()),
+        TulispValue::CompiledDefun { value } => Some(value.code_addr()),
+        TulispValue::Defmacro { compiled, .. } => Some(compiled.addr_as_usize()),
+        TulispValue::SpecialForm => Some(0),
+        TulispValue::Nil
+        | TulispValue::T
+        | TulispValue::Symbol { .. }
+        | TulispValue::Number { .. }
+        | TulispValue::String { .. }
+        | TulispValue::List { .. }
+        | TulispValue::Quote { .. }
+        | TulispValue::Backquote { .. }
+        | TulispValue::Unquote { .. }
+        | TulispValue::Splice { .. }
+        | TulispValue::Any(_)
+        | TulispValue::Bounce => None,
+    }
+}
+
+/// The signature a value itself shows: an arity, or a Lisp parameter list's
+/// names.
 pub(crate) fn derived_signature(value: &TulispValue) -> Option<Signature> {
     match value {
         TulispValue::Defun { arity, .. } | TulispValue::Special { arity, .. } => {
@@ -77,9 +104,13 @@ pub(crate) fn derived_signature(value: &TulispValue) -> Option<Signature> {
 
 /// What the context records of a name beyond its value: the signature a
 /// Rust registration declared, and a docstring. `describe` uses it only
-/// while the name still holds a value of `kind`.
+/// while the name still holds the value it was recorded for.
 pub(crate) struct DocEntry {
     pub(crate) kind: SymbolKind,
+    /// The `value_key` of the value the entry describes; `None` for a
+    /// variable's entry, which describes the variable whatever value it
+    /// holds.
+    pub(crate) key: Option<usize>,
     pub(crate) signature: Option<Signature>,
     pub(crate) doc: Option<Cow<'static, str>>,
 }
@@ -121,14 +152,17 @@ impl TulispContext {
         if value.is_none() && !sym.is_special() {
             return None;
         }
-        let (kind, signature) = match &value {
+        let (kind, key, signature) = match &value {
             Some(value) => {
                 let value = &value.inner_ref().0;
-                (kind_of(value), derived_signature(value))
+                (kind_of(value), value_key(value), derived_signature(value))
             }
-            None => (SymbolKind::Variable, None),
+            None => (SymbolKind::Variable, None, None),
         };
-        let entry = self.docs.get(name).filter(|entry| entry.kind == kind);
+        let entry = self
+            .docs
+            .get(name)
+            .filter(|entry| entry.kind == kind && (entry.key.is_none() || entry.key == key));
         let signature = entry
             .and_then(|entry| entry.signature.clone())
             .or(signature);
@@ -307,5 +341,34 @@ mod tests {
         assert!(ctx.docs.contains_key("gone"));
         ctx.fmakunbound("gone").unwrap();
         assert!(!ctx.docs.contains_key("gone"));
+    }
+
+    #[test]
+    fn a_lambda_set_over_a_rust_function_has_its_own_signature() {
+        let mut ctx = TulispContext::new();
+        ctx.defun("f", |a: i64| a);
+        ctx.eval_string("(setq f (lambda (x) x))").unwrap();
+        assert_eq!(rendered(&ctx, "f"), "(f X)");
+    }
+
+    #[test]
+    fn fset_and_defmacro_replace_a_rust_entry() {
+        let mut ctx = TulispContext::new();
+        ctx.defun("g", |a: i64| a);
+        let lambda = ctx.eval_string("(lambda (y) y)").unwrap();
+        ctx.fset("g", lambda).unwrap();
+        assert_eq!(rendered(&ctx, "g"), "(g Y)");
+        ctx.defun("h", |a: i64| a);
+        ctx.eval_string("(defmacro h (z) z)").unwrap();
+        assert_eq!(rendered(&ctx, "h"), "(h Z)");
+    }
+
+    #[test]
+    fn a_zero_parameter_function_has_an_empty_signature() {
+        let mut ctx = TulispContext::new();
+        ctx.defun("z", || 1);
+        ctx.defspecial("zs", || 1);
+        assert_eq!(rendered(&ctx, "z"), "(z)");
+        assert_eq!(rendered(&ctx, "zs"), "(zs)");
     }
 }

@@ -528,7 +528,8 @@ impl TulispContext {
         self.define_function(name, TulispValue::SpecialForm, None);
     }
 
-    /// Makes VALUE the function of NAME, as `fset` does.
+    /// Makes VALUE the function of NAME, as `fset` does, and records SIGNATURE
+    /// for [`describe`](Self::describe).
     ///
     /// # Panics
     ///
@@ -546,6 +547,7 @@ impl TulispContext {
         }
 
         let kind = describe::kind_of(&value);
+        let key = describe::value_key(&value);
         let sym = self.intern(name);
         if let Err(err) = self.set_function_value(&sym, value.into_ref(None)) {
             panic!("can't define a function named {name}: {}", err.desc());
@@ -553,6 +555,7 @@ impl TulispContext {
         if let Some(signature) = signature {
             let entry = describe::DocEntry {
                 kind,
+                key,
                 signature: Some(signature),
                 doc: None,
             };

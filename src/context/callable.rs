@@ -158,9 +158,10 @@ pub(crate) fn arity(kinds: &[ParamKind]) -> DefunArity {
     }
 }
 
-/// The signature a parameter list declares, its positions counted as
-/// [`arity`] counts them, with each parameter's Lisp type name.
+/// The signature a parameter list declares, its positions counted as [`arity`]
+/// counts them, with each parameter's Lisp type name.
 pub(crate) fn signature(kinds: &[ParamKind], types: &[Option<Cow<'static, str>>]) -> Signature {
+    debug_assert_eq!(kinds.len(), types.len());
     let required = arity(kinds).required;
     let params = kinds
         .iter()

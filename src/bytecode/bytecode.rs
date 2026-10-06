@@ -54,6 +54,12 @@ impl CompiledDefun {
         }
     }
 
+    /// The address of the shared code, the same for every function made from
+    /// one compile of a form.
+    pub(crate) fn code_addr(&self) -> usize {
+        self.code.addr_as_usize()
+    }
+
     /// Whether OTHER runs this function's code: whether both come from
     /// one compile of a form.
     pub(crate) fn same_code(&self, other: &Self) -> bool {
