@@ -154,7 +154,7 @@ fn derived_doc(value: &TulispValue) -> Option<String> {
 /// signature a Rust registration declared, and a docstring. `describe` uses it
 /// only while the name still holds the value it was recorded for. A variable's
 /// docstring is kept apart from it.
-pub(crate) struct DocEntry {
+pub(crate) struct FunctionDoc {
     pub(crate) kind: SymbolKind,
     /// The `value_identity` of the value the entry describes.
     pub(crate) identity: usize,
@@ -162,7 +162,7 @@ pub(crate) struct DocEntry {
     pub(crate) doc: Option<Cow<'static, str>>,
 }
 
-impl DocEntry {
+impl FunctionDoc {
     /// Whether the entry describes a value of KIND with IDENTITY.
     fn describes(&self, kind: SymbolKind, identity: usize) -> bool {
         self.kind == kind && self.identity == identity
@@ -173,18 +173,37 @@ impl TulispContext {
     /// Sets, or with `None` removes, the function entry for SYM. A variable's
     /// docstring stays. Only a symbol interned under its name has an entry:
     /// describe looks names up in the obarray.
-    pub(crate) fn set_doc_entry(&mut self, sym: &TulispObject, entry: Option<DocEntry>) {
+    pub(crate) fn set_function_doc(&mut self, sym: &TulispObject, entry: Option<FunctionDoc>) {
         let Some(name) = self.interned_name(sym) else {
             return;
         };
         match entry {
             Some(entry) => {
-                self.docs.insert(name, entry);
+                self.function_docs.insert(name, entry);
             }
             None => {
-                self.docs.remove(&name);
+                self.function_docs.remove(&name);
             }
         }
+    }
+
+    /// Whether SYM's function doc stays when SYM's global value goes from OLD
+    /// to NEW: when it describes OLD, and NEW has OLD's kind and identity.
+    pub(crate) fn function_doc_stays(
+        &self,
+        sym: &TulispObject,
+        old: &TulispObject,
+        new: &TulispObject,
+    ) -> bool {
+        let (kind, identity) = held_kind_and_identity(Some(old));
+        let Some(identity) = identity else {
+            return false;
+        };
+        held_kind_and_identity(Some(new)) == (kind, Some(identity))
+            && self
+                .interned_name(sym)
+                .and_then(|name| self.function_docs.get(&name))
+                .is_some_and(|entry| entry.describes(kind, identity))
     }
 
     /// Attaches DOC to what NAME holds, a function or a variable, for
@@ -235,18 +254,18 @@ impl TulispContext {
             self.variable_docs.insert(name.to_string(), doc);
             return;
         };
-        match self.docs.get_mut(name) {
+        match self.function_docs.get_mut(name) {
             Some(entry) if entry.describes(kind, identity) => {
                 entry.doc = Some(doc);
             }
             Some(_) | None => {
-                let entry = DocEntry {
+                let entry = FunctionDoc {
                     kind,
                     identity,
                     signature: None,
                     doc: Some(doc),
                 };
-                self.docs.insert(name.to_string(), entry);
+                self.function_docs.insert(name.to_string(), entry);
             }
         }
     }
@@ -297,7 +316,7 @@ impl TulispContext {
         let value = described_value(name, sym)?;
         let (kind, identity) = held_kind_and_identity(value.as_ref());
         let entry = identity.and_then(|identity| {
-            self.docs
+            self.function_docs
                 .get(name)
                 .filter(|entry| entry.describes(kind, identity))
         });
@@ -512,9 +531,9 @@ mod tests {
     fn fmakunbound_drops_the_entry() {
         let mut ctx = TulispContext::new();
         ctx.defun("gone", |a: i64| a);
-        assert!(ctx.docs.contains_key("gone"));
+        assert!(ctx.function_docs.contains_key("gone"));
         ctx.fmakunbound("gone").unwrap();
-        assert!(!ctx.docs.contains_key("gone"));
+        assert!(!ctx.function_docs.contains_key("gone"));
     }
 
     #[test]
@@ -724,16 +743,41 @@ mod tests {
         assert_eq!(doc(&ctx, "ali").as_deref(), Some("Orig doc."));
     }
 
-    // fset of the value a name already holds still drops its entry.
+    // fset of the value a name already holds keeps its docstring and signature.
     #[test]
-    fn fset_drops_the_entry_of_the_same_value() {
+    fn fset_of_the_same_value_keeps_its_entry() {
+        let mut ctx = TulispContext::new();
+        ctx.defun("q", |a: i64| a);
+        ctx.set_doc("q", "NewQ.\n\n(fn NUM)").unwrap();
+        let own = ctx.intern("q").global().expect("q's function");
+        ctx.fset("q", own).unwrap();
+        assert_eq!(doc(&ctx, "q").as_deref(), Some("NewQ."));
+        assert_eq!(rendered(&ctx, "q"), "(q NUM)");
+    }
+
+    // fset of another value removes the name's entry from the table.
+    #[test]
+    fn fset_of_another_value_removes_the_entry() {
         let mut ctx = TulispContext::new();
         ctx.defun("q", |a: i64| a);
         ctx.set_doc("q", "NewQ.").unwrap();
-        let own = ctx.intern("q").global().expect("q's function");
-        ctx.fset("q", own).unwrap();
-        assert_eq!(doc(&ctx, "q"), None);
-        assert!(!ctx.docs.contains_key("q"));
+        let lambda = ctx.eval_string("(lambda (x) x)").unwrap();
+        ctx.fset("q", lambda).unwrap();
+        assert!(!ctx.function_docs.contains_key("q"));
+    }
+
+    // A capturing `defun` that a program makes as it runs drops the entry of
+    // the function it replaces.
+    #[test]
+    fn a_capturing_defun_made_at_run_time_drops_the_entry() {
+        let mut ctx = TulispContext::new();
+        ctx.eval_string("(defun make-cf () (let ((x 1)) (defun cf () \"Lisp doc.\" x)))")
+            .unwrap();
+        ctx.defun("cf", |a: i64| a);
+        ctx.set_doc("cf", "Rust doc.").unwrap();
+        ctx.eval_string("(make-cf)").unwrap();
+        assert!(!ctx.function_docs.contains_key("cf"));
+        assert_eq!(doc(&ctx, "cf").as_deref(), Some("Lisp doc."));
     }
 
     // A Lisp `defun` drops the function entry of the name it defines.
@@ -743,13 +787,13 @@ mod tests {
         ctx.eval_string("(defun b () \"Old.\" 1) (defun b () 2)")
             .unwrap();
         assert_eq!(doc(&ctx, "b"), None);
-        assert!(!ctx.docs.contains_key("b"));
+        assert!(!ctx.function_docs.contains_key("b"));
         ctx.defun("rb", |a: i64| a);
         ctx.set_doc("rb", "Rust doc.").unwrap();
-        assert!(ctx.docs.contains_key("rb"));
+        assert!(ctx.function_docs.contains_key("rb"));
         ctx.eval_string("(defun rb () 2)").unwrap();
         assert_eq!(doc(&ctx, "rb"), None);
-        assert!(!ctx.docs.contains_key("rb"));
+        assert!(!ctx.function_docs.contains_key("rb"));
     }
 
     // A Rust parameter's type name is kept as the registration gave it.

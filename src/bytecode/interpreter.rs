@@ -914,7 +914,7 @@ fn run_impl_inner(
                     current.name.eq_ptr(name) && !current.same_code(&function)
                 });
                 if !holds_another_defun {
-                    name.set_global(closure)?;
+                    ctx.replace_global_function(name, closure)?;
                     ctx.vm.set_function(addr, function);
                 }
             }

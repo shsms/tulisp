@@ -450,7 +450,7 @@ fn compile_defun(
         function.captures = Captures::new(unbound);
     }
     // The function carries its own docstring.
-    ctx.set_global_function(
+    ctx.replace_global_function(
         &fn_name,
         crate::TulispValue::CompiledDefun {
             value: function.clone(),

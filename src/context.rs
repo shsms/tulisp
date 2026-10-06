@@ -140,7 +140,7 @@ pub struct TulispContext {
     pub(crate) filenames: Vec<String>,
     /// Recorded signatures and docstrings of functions, by name; see
     /// describe.rs.
-    pub(crate) docs: HashMap<String, describe::DocEntry>,
+    pub(crate) function_docs: HashMap<String, describe::FunctionDoc>,
     /// Variables' docstrings, by name. Defining a function of the same name
     /// leaves them.
     pub(crate) variable_docs: HashMap<String, std::borrow::Cow<'static, str>>,
@@ -190,7 +190,7 @@ impl TulispContext {
         let mut ctx = Self {
             obarray,
             filenames: vec!["<eval_string>".to_string()],
-            docs: HashMap::new(),
+            function_docs: HashMap::new(),
             variable_docs: HashMap::new(),
             compiler: None,
             keywords,
@@ -567,13 +567,13 @@ impl TulispContext {
         if let Some(signature) = signature
             && let Some(identity) = identity
         {
-            let entry = describe::DocEntry {
+            let entry = describe::FunctionDoc {
                 kind,
                 identity,
                 signature: Some(signature),
                 doc: None,
             };
-            self.set_doc_entry(&sym, Some(entry));
+            self.set_function_doc(&sym, Some(entry));
         }
     }
 
@@ -877,15 +877,18 @@ impl TulispContext {
         self.set_function_value(&sym, function)
     }
 
-    /// Makes FUNCTION the global value of SYM, and drops what the compiler
-    /// and the machine kept for the old one.
+    /// Makes FUNCTION the global value of SYM, as
+    /// [`replace_global_function`](Self::replace_global_function) does, and
+    /// also drops what the compiler and the machine kept for the old one, so
+    /// code compiled later calls FUNCTION. Use it to set a function from
+    /// outside the compiler, as `fset` and a Rust registration do.
     pub(crate) fn set_function_value(
         &mut self,
         sym: &TulispObject,
         function: TulispObject,
     ) -> Result<(), Error> {
         let addr = sym.addr_as_usize();
-        self.set_global_function(sym, function.clone())?;
+        self.replace_global_function(sym, function.clone())?;
         self.evict_compiled_dispatch(addr);
         // Put a compiled function in the machine's table, as `defun` does,
         // so compiled calls run it directly.
@@ -895,16 +898,26 @@ impl TulispContext {
         Ok(())
     }
 
-    /// Makes FUNCTION the global value of SYM, and drops SYM's docs entry: the
-    /// entry of the old value, such as a Rust registration's, does not
-    /// describe the new one.
-    pub(crate) fn set_global_function(
+    /// Makes FUNCTION the global value of SYM, and drops SYM's function doc
+    /// unless it describes the old value and FUNCTION is that same value. Use
+    /// it where the compiler and the machine keep what they hold, as a Lisp
+    /// `defun` that installs itself does; else use
+    /// [`set_function_value`](Self::set_function_value).
+    pub(crate) fn replace_global_function(
         &mut self,
         sym: &TulispObject,
         function: TulispObject,
     ) -> Result<(), Error> {
+        // The old value is held until the check is done, so its address cannot
+        // be reused by FUNCTION.
+        let old = sym.global();
+        let keep = old
+            .as_ref()
+            .is_some_and(|old| self.function_doc_stays(sym, old, &function));
         sym.set_global(function)?;
-        self.set_doc_entry(sym, None);
+        if !keep {
+            self.set_function_doc(sym, None);
+        }
         Ok(())
     }
 
@@ -928,7 +941,7 @@ impl TulispContext {
         {
             sym.unset_global()?;
             self.evict_compiled_dispatch(sym.addr_as_usize());
-            self.set_doc_entry(&sym, None);
+            self.set_function_doc(&sym, None);
         }
         Ok(())
     }
