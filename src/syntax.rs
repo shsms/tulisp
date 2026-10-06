@@ -523,6 +523,166 @@ impl SyntaxTree<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{TulispContext, TulispObject, TulispValue};
+
+    /// The position a parser span gives byte OFFSET: a 1-based line, and a
+    /// 1-based column counted in characters.
+    fn line_col(source: &str, offset: usize) -> (usize, usize) {
+        let before = &source[..offset];
+        let line = before.matches('\n').count() + 1;
+        let line_start = before.rfind('\n').map_or(0, |at| at + 1);
+        (line, before[line_start..].chars().count() + 1)
+    }
+
+    /// Asserts that tree node ID and the parser's OBJ are the same form.
+    /// Positions are compared for the objects the parser makes fresh: lists,
+    /// prefixed forms, strings and floats. A symbol or an integer is shared
+    /// between its uses, so its span is the last use's.
+    fn assert_same_shape(tree: &SyntaxTree, id: NodeId, obj: &TulispObject) {
+        let node = tree.node(id);
+        let fresh = matches!(
+            node.kind(),
+            NodeKind::Prefix { .. } | NodeKind::Atom(AtomKind::String | AtomKind::Float)
+        ) || (matches!(node.kind(), NodeKind::List { .. }) && !obj.null());
+        if fresh && let Some(span) = obj.span() {
+            let at = line_col(tree.source(), node.range().start);
+            assert_eq!(at, span.start, "{} starts elsewhere", tree.text(id));
+        }
+        match node.kind() {
+            NodeKind::List { children, .. } => {
+                let mut forms = children
+                    .iter()
+                    .copied()
+                    .filter(|c| !matches!(tree.node(*c).kind(), NodeKind::Comment));
+                let mut rest = obj.clone();
+                while let Some(form) = forms.next() {
+                    if matches!(tree.node(form).kind(), NodeKind::Dot) {
+                        let tail = forms.next().expect("a form after the dot");
+                        assert_same_shape(tree, tail, &rest);
+                        return;
+                    }
+                    assert!(rest.consp(), "{obj} is shorter than {}", tree.text(id));
+                    assert_same_shape(tree, form, &rest.car().unwrap());
+                    rest = rest.cdr().unwrap();
+                }
+                assert!(rest.null(), "{obj} is longer than {}", tree.text(id));
+            }
+            NodeKind::Prefix { prefix, child, .. } => {
+                let child = child.expect("a prefixed form");
+                let inner = match (prefix, &obj.inner_ref().0) {
+                    (Prefix::Quote, TulispValue::Quote { value })
+                    | (Prefix::Backquote, TulispValue::Backquote { value })
+                    | (Prefix::Comma, TulispValue::Unquote { value })
+                    | (Prefix::Splice, TulispValue::Splice { value }) => value.clone(),
+                    (Prefix::Function, _) => obj.cadr().unwrap(),
+                    _ => panic!("{obj} is not {}", tree.text(id)),
+                };
+                assert_same_shape(tree, child, &inner);
+            }
+            NodeKind::Atom(_) => assert!(!obj.consp(), "{obj} is not {}", tree.text(id)),
+            other => panic!("{other:?} in valid input"),
+        }
+    }
+
+    #[test]
+    fn the_tree_has_the_shape_the_parser_reads() {
+        let cases = [
+            "(defun f (a &optional b) \"doc\" (+ a b))",
+            "'(a . b) `(x ,y ,@z) #'car",
+            "(a ; comment\n \"é\" 1.5 ?\\n #x1F)",
+            "((()))",
+            "",
+        ];
+        for source in cases {
+            let mut ctx = TulispContext::new();
+            let forms = ctx.parse_file_text("<parity>", source).expect(source);
+            let tree = read(source);
+            assert!(tree.errors().is_empty(), "{source}: {:?}", tree.errors());
+            let roots: Vec<NodeId> = tree
+                .roots()
+                .iter()
+                .copied()
+                .filter(|id| !matches!(tree.node(*id).kind(), NodeKind::Comment))
+                .collect();
+            let forms: Vec<TulispObject> = forms.base_iter().collect();
+            assert_eq!(roots.len(), forms.len(), "{source}");
+            for (&id, form) in roots.iter().zip(&forms) {
+                assert_same_shape(&tree, id, form);
+            }
+        }
+    }
+
+    // Where the parser stops with an error, the tree has an error at the same
+    // place. The parser stops at its first error; the tree may find more.
+    #[test]
+    fn the_tree_has_an_error_where_the_parser_fails() {
+        let cases = [
+            "(a",
+            "a)",
+            "(a . )",
+            "(a . b c)",
+            ". a",
+            "(a ')",
+            "'",
+            "(a [b])",
+            r#"("a\M-b" c)"#,
+            "(#z)",
+            "\"abc",
+        ];
+        for source in cases {
+            let mut ctx = TulispContext::new();
+            let err = ctx
+                .parse_file_text("<parity>", source)
+                .expect_err(source)
+                .to_string();
+            let tree = read(source);
+            let Some(at) = err
+                .split("<parity>:")
+                .nth(1)
+                .and_then(|rest| rest.split('-').next())
+            else {
+                // The parser blames a shared symbol, which has no span of its
+                // own, so it reports no position: compare the message.
+                let message = err.rsplit("ParsingError: ").next().unwrap_or(&err);
+                assert!(
+                    tree.errors().iter().any(|e| e.message == message),
+                    "{source}: the parser says {err}, the tree {:?}",
+                    tree.errors()
+                );
+                continue;
+            };
+            let found: Vec<String> = tree
+                .errors()
+                .iter()
+                .map(|e| {
+                    let (line, column) = line_col(source, e.range.start);
+                    format!("{line}.{column}")
+                })
+                .collect();
+            assert!(
+                found.iter().any(|position| position == at),
+                "{source}: the parser fails at {at}, the tree at {found:?}"
+            );
+        }
+    }
+
+    // The parser's nesting error has no position; the tree has the same error.
+    #[test]
+    fn the_tree_refuses_the_nesting_the_parser_refuses() {
+        let source = format!("{}a{}", "(".repeat(100), ")".repeat(100));
+        let mut ctx = TulispContext::new();
+        let err = ctx
+            .parse_file_text("<parity>", &source)
+            .expect_err("too deep")
+            .to_string();
+        assert!(err.contains("Lisp nesting exceeds"), "{err}");
+        assert!(
+            read(&source)
+                .errors()
+                .iter()
+                .any(|e| e.message.starts_with("Lisp nesting exceeds"))
+        );
+    }
 
     fn sexp(source: &str) -> String {
         read(source).sexp()
