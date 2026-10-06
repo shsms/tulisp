@@ -112,6 +112,7 @@ pairs. `format-seconds` formats a duration.
 `throw`, `catch`, `condition-case`, `unwind-protect`.
 */
 
+pub(crate) mod docs;
 pub(crate) mod functions;
 pub(crate) mod macros;
 

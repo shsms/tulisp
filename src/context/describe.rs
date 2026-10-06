@@ -213,6 +213,27 @@ impl TulispContext {
         }
     }
 
+    /// Attaches a built-in's docstring, without copying it. A name with no
+    /// value is skipped.
+    pub(crate) fn set_builtin_doc(&mut self, name: &str, doc: &'static str) {
+        let Some(value) = self.obarray.get(name).and_then(|sym| sym.global()) else {
+            return;
+        };
+        let (kind, key) = {
+            let value = &value.inner_ref().0;
+            (kind_of(value), value_key(value))
+        };
+        self.set_doc_text(name, kind, key, Cow::Borrowed(doc));
+    }
+
+    /// Test-only: the signature NAME's value itself shows, with no docstring's
+    /// usage line in the way.
+    #[cfg(test)]
+    pub(crate) fn arity_signature(&self, name: &str) -> Option<Signature> {
+        let value = self.obarray.get(name)?.global()?;
+        derived_signature(&value.inner_ref().0)
+    }
+
     /// Records a `defvar` docstring for SYM, when SYM is interned.
     pub(crate) fn set_variable_doc(&mut self, sym: &TulispObject, doc: String) {
         let Ok(name) = sym.as_symbol() else {

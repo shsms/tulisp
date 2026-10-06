@@ -226,6 +226,7 @@ impl TulispContext {
         // a reset can't collide with the prelude's already-embedded
         // labels.
         ctx.compiler.as_mut().unwrap().reset_label_counter();
+        builtin::docs::apply(&mut ctx);
         ctx
     }
 
