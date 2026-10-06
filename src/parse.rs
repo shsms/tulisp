@@ -109,27 +109,13 @@ impl Tokenizer<'_> {
 
     /// The tokenizer, returning comments as `Token::Comment` instead of
     /// skipping them.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the syntax tree reader uses it from the next commit"
-        )
-    )]
     pub(crate) fn with_comments(mut self) -> Self {
         self.keep_comments = true;
         self
     }
 
-    /// The bytes of the source that the token `next` last returned was
-    /// read from.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the syntax tree reader uses it from the next commit"
-        )
-    )]
+    /// The bytes of the source that the token `next` last returned was read
+    /// from.
     pub(crate) fn token_range(&self) -> Range<usize> {
         self.token_start..self.offset()
     }
@@ -143,8 +129,8 @@ impl Tokenizer<'_> {
         self.len - self.chars.as_str().len() - peeked
     }
 
-    /// Reads past the rest of a string literal, to its closing quote, so
-    /// that the text after a bad escape is not read as code.
+    /// Reads past the rest of a string literal, to its closing quote, so that
+    /// the text after a bad escape is not read as code.
     fn skip_rest_of_string(&mut self) {
         while let Some(ch) = self.next_char() {
             match ch {

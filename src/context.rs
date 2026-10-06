@@ -113,6 +113,12 @@ const DEFAULT_MAX_EVAL_DEPTH: u32 = 16;
 #[cfg(not(test))]
 const DEFAULT_MAX_EVAL_DEPTH: u32 = PROFILE_MAX_EVAL_DEPTH;
 
+/// The structural nesting cap of a new context, as
+/// [`TulispContext::max_nesting_depth`] derives it from the eval cap.
+pub(crate) const fn default_max_nesting_depth() -> u32 {
+    DEFAULT_MAX_EVAL_DEPTH.saturating_mul(4)
+}
+
 /// Frames past the depth limit that a running cleanup or handler,
 /// and the calls it makes, may use, so it still runs when its body
 /// stopped at the limit. This is similar to the extra depth Emacs gives

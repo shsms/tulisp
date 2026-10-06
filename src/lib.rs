@@ -5,6 +5,7 @@ pub(crate) mod bytecode;
 mod eval;
 mod macros;
 mod parse;
+pub mod syntax;
 
 pub mod builtin;
 
