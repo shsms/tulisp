@@ -311,10 +311,37 @@ impl Tokenizer<'_> {
     /// control characters `\C-a` and `\^a`. Modifier keys such as `\M-a`,
     /// `\N{NAME}` and a malformed escape are errors. Any other character stands
     /// for itself.
+    ///
+    /// A control marker can mark an escape that has markers of its own, as in
+    /// `\C-\^a`. The markers are counted in a loop, and their mapping is done
+    /// once for each, innermost first, so a long chain needs no deep stack.
     fn read_escape(&mut self, in_string: bool) -> Result<u32, String> {
-        let ch = self
-            .next_char()
-            .ok_or_else(|| "Unexpected EOF after \\".to_string())?;
+        let mut markers = 0;
+        let base = loop {
+            let ch = self
+                .next_char()
+                .ok_or_else(|| "Unexpected EOF after \\".to_string())?;
+            // Only the outermost escape is read as in a string, so a `\s-`
+            // after a marker is a modifier key, even in a string.
+            let code = self.read_plain_escape(ch, in_string && markers == 0)?;
+            if let Some(code) = code {
+                break code;
+            }
+            markers += 1;
+            match self.next_char() {
+                Some('\\') => {}
+                Some(c) => break c as u32,
+                None => return Err("Unexpected EOF after \\C-".to_string()),
+            }
+        };
+        (0..markers).rev().try_fold(base, |code, level| {
+            control_char(code, in_string && level == 0)
+        })
+    }
+
+    /// Read the escape whose first character, `ch`, comes after a backslash.
+    /// Returns `None` for a control marker, `\C-` or `\^`, after reading it.
+    fn read_plain_escape(&mut self, ch: char, in_string: bool) -> Result<Option<u32>, String> {
         let dash = self.peek_char() == Some('-');
         let code = match ch {
             'a' => 0x07,
@@ -352,9 +379,9 @@ impl Tokenizer<'_> {
             }
             'C' if dash => {
                 self.next_char();
-                self.read_control_char(in_string)?
+                return Ok(None);
             }
-            '^' => self.read_control_char(in_string)?,
+            '^' => return Ok(None),
             'C' | 'M' | 'S' | 'H' | 'A' => {
                 return Err(format!(
                     "Invalid escape char syntax: \\{ch} not followed by -"
@@ -363,7 +390,7 @@ impl Tokenizer<'_> {
             '\n' => return Err("Invalid escape char syntax: \\<newline>".to_string()),
             c => c as u32,
         };
-        Ok(code)
+        Ok(Some(code))
     }
 
     /// Read up to `max` digits in `radix`, adding them to `value`. Returns the
@@ -398,27 +425,6 @@ impl Tokenizer<'_> {
         Ok(code)
     }
 
-    /// Read the character after `\C-` or `\^`, which may be an escape itself,
-    /// and return its control character: `\C-a` is 1 and `\C-?` is 127. In a
-    /// string, a control space is 0.
-    fn read_control_char(&mut self, in_string: bool) -> Result<u32, String> {
-        let base = match self.next_char() {
-            // A `\s-` here is a modifier key, even in a string.
-            Some('\\') => self.read_escape(false)?,
-            Some(c) => c as u32,
-            None => return Err("Unexpected EOF after \\C-".to_string()),
-        };
-        match base {
-            0x20 if in_string => Ok(0),
-            0x3f => Ok(0x7f),
-            0x40..=0x5f | 0x61..=0x7a => Ok(base & 0x1f),
-            _ => Err(match char::from_u32(base) {
-                Some(c) => format!("No control character for {c:?}"),
-                None => format!("No control character for {base}"),
-            }),
-        }
-    }
-
     /// Read the rest of a number or symbol token after `output`.
     fn read_num_ident_impl(
         &mut self,
@@ -434,6 +440,20 @@ impl Tokenizer<'_> {
         }
         let span = Span::new(self.file_id, start_pos, (self.line, self.pos));
         Some(number_or_symbol(output, span, self.token_start))
+    }
+}
+
+/// The control character for `base`, the character after `\C-` or `\^`: `\C-a`
+/// is 1 and `\C-?` is 127. In a string, a control space is 0.
+fn control_char(base: u32, in_string: bool) -> Result<u32, String> {
+    match base {
+        0x20 if in_string => Ok(0),
+        0x3f => Ok(0x7f),
+        0x40..=0x5f | 0x61..=0x7a => Ok(base & 0x1f),
+        _ => Err(match char::from_u32(base) {
+            Some(c) => format!("No control character for {c:?}"),
+            None => format!("No control character for {base}"),
+        }),
     }
 }
 
@@ -1408,6 +1428,18 @@ mod tests {
         for (program, desc) in cases {
             let line = format!("ERR ParsingError: SyntaxError {desc}");
             eval_assert_error_line(ctx, program, &line);
+        }
+    }
+
+    // A long chain of `\C-` reads without overflowing the stack, in a string
+    // and in a character literal.
+    #[test]
+    fn a_long_control_chain_reads_without_overflowing() {
+        let ctx = &mut TulispContext::new();
+        let chain = r"\C-".repeat(20_000);
+        for program in [format!("\"{chain}a\""), format!("?{chain}a")] {
+            let line = "ERR ParsingError: SyntaxError No control character for '\\u{1}'";
+            eval_assert_error_line(ctx, &program, line);
         }
     }
 
