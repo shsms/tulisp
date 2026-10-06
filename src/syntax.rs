@@ -340,7 +340,15 @@ impl<'a> Builder<'a> {
             if matches!(self.nodes[top.0].kind, NodeKind::Prefix { .. }) {
                 self.error(range, "Unexpected EOF");
             } else {
-                self.error(range.start..range.start + 1, "Unclosed list");
+                // As the parser does, a list that ends on its dot is blamed for
+                // that.
+                let children = &self.nodes[top.0].children;
+                let message = if dotted && forms_after_dot(&self.nodes, children).next().is_none() {
+                    "Unexpected EOF after dot"
+                } else {
+                    "Unclosed list"
+                };
+                self.error(range.start..range.start + 1, message);
                 self.nodes[top.0].range.end = end;
                 if dotted {
                     self.check_dot(top, None);
@@ -716,6 +724,8 @@ mod tests {
             "(a . (b)",
             "(a . b",
             "(a . b [",
+            "(a .",
+            "(a . ;c",
             ". a",
             "(a ')",
             "'",
@@ -956,7 +966,9 @@ mod tests {
     }
 
     // At the end of the input, an unclosed dotted list blames its form after
-    // the dot, as the parser does, unless that form fails on its own.
+    // the dot, as the parser does, unless that form fails on its own. With no
+    // form after the dot, the list's `(` has the parser's error in place of
+    // "Unclosed list".
     #[test]
     fn an_unclosed_dotted_list_blames_its_form_after_the_dot() {
         let only_one = "Expected only one item in list after dot.";
@@ -976,7 +988,13 @@ mod tests {
                 ("[", "Vector syntax is not supported"),
             ])
         );
-        assert_eq!(errors("(a ."), pairs(&[("(", "Unclosed list")]));
+        for source in ["(a .", "(a . ;c", "(."] {
+            assert_eq!(
+                errors(source),
+                pairs(&[("(", "Unexpected EOF after dot")]),
+                "{source}"
+            );
+        }
         assert_eq!(
             errors("(a . (b"),
             pairs(&[("(", "Unclosed list"), ("(", "Unclosed list")])
@@ -1126,12 +1144,20 @@ mod tests {
     }
 
     // Each dot after the first is an error; finding the first must not scan the
-    // list again for every dot.
+    // list again for every dot. In linear time the read takes well under a
+    // second, even in a debug build; scanning again for every dot takes most of
+    // a minute.
     #[test]
     fn many_dots_in_a_long_list_read_in_linear_time() {
         let n = 50_000;
         let source = "(".to_string() + &"a ".repeat(n) + &". ".repeat(n) + ")";
+        let started = std::time::Instant::now();
         let tree = read(&source);
+        let took = started.elapsed();
+        assert!(
+            took < std::time::Duration::from_secs(10),
+            "reading took {took:?}"
+        );
         let dots = tree
             .errors()
             .iter()
