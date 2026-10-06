@@ -115,6 +115,15 @@ pub struct SyntaxError {
     pub message: String,
 }
 
+/// A call around an offset: the list, and which of its forms the offset is in
+/// or before, counting from 0 for the function's name. Comments are not forms.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct CallSite {
+    pub list: NodeId,
+    pub position: usize,
+}
+
 /// Lisp source, read by [`read`].
 #[derive(Clone, Debug)]
 pub struct SyntaxTree<'a> {
@@ -152,6 +161,73 @@ impl<'a> SyntaxTree<'a> {
             NodeKind::Prefix { children, .. } => children,
             _ => &[],
         }
+    }
+
+    /// A list's forms: its children without the comments.
+    pub fn forms(&self, id: NodeId) -> Vec<NodeId> {
+        self.children(id)
+            .iter()
+            .copied()
+            .filter(|child| !matches!(self.nodes[child.0].kind, NodeKind::Comment))
+            .collect()
+    }
+
+    /// The nodes that hold OFFSET, from a top-level node down to the innermost.
+    /// A list holds the offsets between its parentheses, and an unclosed list
+    /// those up to the end of the input. A string holds the offsets between its
+    /// quotes, and a comment those after its `;`.  Any other node holds the
+    /// offsets from its start to its end, both included, so the end of a symbol
+    /// is in the symbol.
+    pub fn path_at(&self, offset: usize) -> Vec<NodeId> {
+        let mut path = Vec::new();
+        let mut candidates: &[NodeId] = &self.roots;
+        while let Some(&id) = candidates.iter().find(|&&id| self.holds(id, offset)) {
+            path.push(id);
+            candidates = self.children(id);
+        }
+        path
+    }
+
+    fn holds(&self, id: NodeId, offset: usize) -> bool {
+        let node = &self.nodes[id.0];
+        let range = &node.range;
+        match &node.kind {
+            NodeKind::List { closed: true, .. } | NodeKind::Atom(AtomKind::String) => {
+                range.start < offset && offset < range.end
+            }
+            NodeKind::List { closed: false, .. } | NodeKind::Prefix { .. } | NodeKind::Comment => {
+                range.start < offset && offset <= range.end
+            }
+            _ => range.start <= offset && offset <= range.end,
+        }
+    }
+
+    /// The innermost list around OFFSET, as a call, and which of its forms the
+    /// offset is at. `None` at the top level, or in a string or a comment.
+    pub fn call_at(&self, offset: usize) -> Option<CallSite> {
+        let path = self.path_at(offset);
+        if let Some(&last) = path.last() {
+            let in_text = match self.nodes[last.0].kind {
+                NodeKind::Atom(AtomKind::String) | NodeKind::Comment => true,
+                // A string with no closing quote is an error node.
+                NodeKind::Error => self.text(last).starts_with('"'),
+                _ => false,
+            };
+            if in_text {
+                return None;
+            }
+        }
+        let list = path
+            .iter()
+            .rev()
+            .copied()
+            .find(|id| matches!(self.nodes[id.0].kind, NodeKind::List { .. }))?;
+        let position = self
+            .forms(list)
+            .iter()
+            .take_while(|form| self.nodes[form.0].range.end < offset)
+            .count();
+        Some(CallSite { list, position })
     }
 
     /// Where the source cannot be read, in order.
@@ -955,5 +1031,100 @@ mod tests {
                 .any(|e| e.message.starts_with("Lisp nesting exceeds"))
         );
         drop(tree);
+    }
+
+    fn texts<'a>(tree: &SyntaxTree<'a>, ids: &[NodeId]) -> Vec<&'a str> {
+        ids.iter().map(|&id| tree.text(id)).collect()
+    }
+
+    #[test]
+    fn the_path_goes_down_to_the_innermost_node() {
+        // Offsets: ( 0, a 1, ( 3, b 4, c 5, d 7, ) 8, ' 10, e 11, ) 12.
+        let tree = read("(a (bc d) 'e)");
+        assert_eq!(
+            texts(&tree, &tree.path_at(5)),
+            ["(a (bc d) 'e)", "(bc d)", "bc"]
+        );
+        // The end of a symbol is in it.
+        assert_eq!(
+            texts(&tree, &tree.path_at(6)),
+            ["(a (bc d) 'e)", "(bc d)", "bc"]
+        );
+        // Before a `(` is outside the list.
+        assert_eq!(texts(&tree, &tree.path_at(3)), ["(a (bc d) 'e)"]);
+        assert_eq!(
+            texts(&tree, &tree.path_at(12)),
+            ["(a (bc d) 'e)", "'e", "e"]
+        );
+        // After the last `)` is outside every list.
+        assert!(tree.path_at(13).is_empty());
+    }
+
+    #[test]
+    fn a_string_holds_only_the_offsets_between_its_quotes() {
+        // Offsets: ( 0, f 1, " 3, a 4, b 5, " 6, ) 7.
+        let tree = read("(f \"ab\")");
+        assert_eq!(texts(&tree, &tree.path_at(3)), ["(f \"ab\")"]);
+        assert_eq!(texts(&tree, &tree.path_at(5)), ["(f \"ab\")", "\"ab\""]);
+        assert_eq!(texts(&tree, &tree.path_at(7)), ["(f \"ab\")"]);
+    }
+
+    #[test]
+    fn an_unclosed_list_holds_the_end_of_the_input() {
+        let tree = read("(f (g ");
+        assert_eq!(texts(&tree, &tree.path_at(6)), ["(f (g ", "(g "]);
+    }
+
+    #[test]
+    fn call_at_counts_the_forms_before_the_offset() {
+        // Offsets: ( 0, f 1, a 3, ; 5, c 7, \n 8, ( 10, g 11, ) 12, ) 14.
+        let tree = read("(f a ; c\n (g) )");
+        let root = tree.roots()[0];
+        let at = |offset| tree.call_at(offset);
+        assert_eq!(
+            at(2),
+            Some(CallSite {
+                list: root,
+                position: 0
+            })
+        );
+        assert_eq!(
+            at(3),
+            Some(CallSite {
+                list: root,
+                position: 1
+            })
+        );
+        assert_eq!(
+            at(13),
+            Some(CallSite {
+                list: root,
+                position: 2
+            })
+        );
+        assert_eq!(
+            at(14),
+            Some(CallSite {
+                list: root,
+                position: 3
+            })
+        );
+        let inner = tree.forms(root)[2];
+        assert_eq!(
+            at(11),
+            Some(CallSite {
+                list: inner,
+                position: 0
+            })
+        );
+        // In a comment.
+        assert_eq!(at(6), None);
+    }
+
+    #[test]
+    fn call_at_is_none_in_a_string_and_at_the_top_level() {
+        assert_eq!(read("(f \"ab\")").call_at(5), None);
+        assert_eq!(read("(f \"ab").call_at(5), None);
+        assert_eq!(read("a b").call_at(1), None);
     }
 }
