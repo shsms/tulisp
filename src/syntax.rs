@@ -291,16 +291,15 @@ fn without_comments<'n>(
         .filter(|child| !matches!(nodes[child.0].kind, NodeKind::Comment))
 }
 
-/// The forms after the dot in CHILDREN, a list's children, or `None` when there
-/// is no dot.
+/// The forms after the dot in CHILDREN, a list's children. Empty when there is
+/// no dot.
 fn forms_after_dot<'n>(
     nodes: &'n [Node],
     children: &'n [NodeId],
-) -> Option<impl Iterator<Item = NodeId> + 'n> {
-    let mut forms = without_comments(nodes, children);
-    forms
-        .any(|form| matches!(nodes[form.0].kind, NodeKind::Dot))
-        .then_some(forms)
+) -> impl Iterator<Item = NodeId> + 'n {
+    without_comments(nodes, children)
+        .skip_while(|form| !matches!(nodes[form.0].kind, NodeKind::Dot))
+        .skip(1)
 }
 
 /// Builds a tree from the tokens, with the lists and prefixes still open on a
@@ -344,7 +343,7 @@ impl<'a> Builder<'a> {
                 self.error(range.start..range.start + 1, "Unclosed list");
                 self.nodes[top.0].range.end = end;
                 if dotted {
-                    self.check_unclosed_dot(top);
+                    self.check_dot(top, None);
                 }
             }
             self.attach_value(top);
@@ -487,7 +486,7 @@ impl<'a> Builder<'a> {
             self.open.pop();
             self.attach_value(top);
         }
-        let Some(Open { id: list, .. }) = self.open.pop() else {
+        let Some(Open { id: list, dotted }) = self.open.pop() else {
             if !reported {
                 self.error(range.clone(), "Unexpected closing parenthesis");
             }
@@ -499,38 +498,32 @@ impl<'a> Builder<'a> {
             *closed = true;
         }
         self.nodes[list.0].range.end = range.end;
-        self.check_dot(list, range);
+        if dotted {
+            self.check_dot(list, Some(range));
+        }
         self.attach_value(list);
     }
 
     /// The parser's rule for a dotted list: one form after the dot, then the
-    /// `)`.
-    fn check_dot(&mut self, list: NodeId, close: Range<usize>) {
+    /// `)`. CLOSE is that `)`, or `None` when the input ended first; then the
+    /// form after the dot is blamed, unless it fails to read on its own and so
+    /// has its own error.
+    fn check_dot(&mut self, list: NodeId, close: Option<Range<usize>>) {
         let (first, more) = {
-            let Some(mut after) = forms_after_dot(&self.nodes, &self.nodes[list.0].children) else {
-                return;
-            };
+            let mut after = forms_after_dot(&self.nodes, &self.nodes[list.0].children);
             (after.next(), after.next().is_some())
         };
         let Some(first) = first else {
-            self.error(close, "Unexpected closing parenthesis");
+            if let Some(close) = close {
+                self.error(close, "Unexpected closing parenthesis");
+            }
             return;
         };
-        if more {
-            let range = self.nodes[first.0].range.clone();
-            self.error(range, "Expected only one item in list after dot.");
-        }
-    }
-
-    /// The parser's rule for a dotted list the input ended in: no `)` follows
-    /// the form after the dot, so that form is blamed. A form that fails to
-    /// read on its own has its own error instead.
-    fn check_unclosed_dot(&mut self, list: NodeId) {
-        let first = forms_after_dot(&self.nodes, &self.nodes[list.0].children)
-            .and_then(|mut after| after.next());
-        if let Some(first) = first
-            && !self.fails_alone(first)
-        {
+        let blame = match close {
+            Some(_) => more,
+            None => !self.fails_alone(first),
+        };
+        if blame {
             let range = self.nodes[first.0].range.clone();
             self.error(range, "Expected only one item in list after dot.");
         }
