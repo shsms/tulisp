@@ -218,6 +218,13 @@ pub fn signature_help(
         return None;
     }
     let name = tree.text(head);
+    let head_start = tree.node(head).range().start;
+    if scope::locals_at(tree, head_start)
+        .iter()
+        .any(|local| local.name == name)
+    {
+        return None;
+    }
     let info = scope::lookup(ctx, tree, name)?;
     if info.kind == SymbolKind::Variable {
         return None;
@@ -258,6 +265,14 @@ pub fn hover(ctx: &TulispContext, tree: &SyntaxTree, offset: usize) -> Option<Ho
     }
     let name = tree.text(id);
     let range = tree.node(id).range();
+    if scope::is_binding_site(tree, id) {
+        return Some(Hover {
+            range: range.clone(),
+            name: name.to_string(),
+            info: SymbolInfo::new(SymbolKind::Variable, None, None),
+            binding: Some(range),
+        });
+    }
     if !scope::quoted(tree, id)
         && let Some(local) = scope::locals_at(tree, offset)
             .into_iter()
@@ -696,5 +711,33 @@ mod tests {
         assert_eq!(found[0].message, "Unclosed list");
         assert_eq!(found[0].range, 0..1);
         assert!(diagnostics(&read("(a)")).is_empty());
+    }
+
+    #[test]
+    fn hover_on_a_binding_shows_the_variable() {
+        let ctx = hint_context();
+        for source in [
+            "(let ((xy|z 1)) xyz)",
+            "(let* (ab|c) abc)",
+            "(lambda (a|) a)",
+            "(defun f (a|) a)",
+            "(dolist (it|em l) item)",
+            "(dotimes (i|dx 3) idx)",
+            "(condition-case er|r nil (error err))",
+            "(if-let (v|al 1) val)",
+            "(when-let ((v|al 1)) val)",
+        ] {
+            let found = hover_at(&ctx, source).unwrap_or_else(|| panic!("hover on {source}"));
+            assert_eq!(found.info.kind, SymbolKind::Variable, "{source}");
+            assert_eq!(found.binding, Some(found.range.clone()), "{source}");
+        }
+        let found = hover_at(&ctx, "(defun f (&opt|ional a) a)");
+        assert!(found.is_none_or(|h| h.binding.is_none()));
+    }
+
+    #[test]
+    fn a_local_hides_the_function_in_call_position() {
+        let ctx = hint_context();
+        assert!(help(&ctx, "(let ((fixed 1)) (fixed |))").is_none());
     }
 }

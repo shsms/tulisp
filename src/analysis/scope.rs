@@ -188,10 +188,49 @@ fn if_let_names(tree: &SyntaxTree, spec: NodeId, locals: &mut Vec<Local>) {
     }
 }
 
-/// The local variables in scope at OFFSET, outermost binding first. The
-/// forms that bind them are the built-in ones: `let`, `let*`, `lambda`,
-/// `defun`, `defmacro`, `dolist`, `dotimes`, the `if-let` family and
-/// `condition-case`.
+/// Whether ID is a name a binding form binds, as `locals_at` reads them: the
+/// same forms and positions, wherever the cursor is. `&optional` and `&rest`,
+/// `nil` and anything quoted are not.
+pub(super) fn is_binding_site(tree: &SyntaxTree, id: NodeId) -> bool {
+    if !is_symbol(tree, id) || quoted(tree, id) {
+        return false;
+    }
+    let range = tree.node(id).range();
+    let mut at = tree.node(id).parent();
+    while let Some(list) = at {
+        at = tree.node(list).parent();
+        if !is_list(tree, list) {
+            continue;
+        }
+        let forms = tree.forms(list);
+        let mut names = Vec::new();
+        match head(tree, list) {
+            Some("let" | "let*") if forms.len() > 1 => {
+                for binding in tree.forms(forms[1]) {
+                    push(tree, &mut names, binding_name(tree, binding));
+                }
+            }
+            Some("lambda") if forms.len() > 1 => params(tree, forms[1], &mut names),
+            Some("defun" | "defmacro") if forms.len() > 2 => params(tree, forms[2], &mut names),
+            Some("dolist" | "dotimes") if forms.len() > 1 => {
+                push(tree, &mut names, binding_name(tree, forms[1]))
+            }
+            Some("if-let" | "if-let*" | "when-let" | "while-let") if forms.len() > 1 => {
+                if_let_names(tree, forms[1], &mut names)
+            }
+            Some("condition-case") if forms.len() > 1 => push(tree, &mut names, Some(forms[1])),
+            _ => {}
+        }
+        if names.iter().any(|local| local.range == range) {
+            return true;
+        }
+    }
+    false
+}
+
+/// The local variables in scope at OFFSET, outermost binding first. The forms
+/// that bind them are the built-in ones: `let`, `let*`, `lambda`, `defun`,
+/// `defmacro`, `dolist`, `dotimes`, the `if-let` family and `condition-case`.
 pub(super) fn locals_at(tree: &SyntaxTree, offset: usize) -> Vec<Local> {
     let mut locals = Vec::new();
     for list in tree.path_at(offset) {
