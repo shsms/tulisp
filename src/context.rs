@@ -327,6 +327,12 @@ impl TulispContext {
         self.vm.locals.len()
     }
 
+    /// Test-only: how many symbols are interned.
+    #[cfg(test)]
+    pub(crate) fn obarray_len(&self) -> usize {
+        self.obarray.len()
+    }
+
     /// Test-only: sum of `SymbolBindings::items.len()` across every
     /// symbol in the obarray. Counterpart to `debug_locals_len`, but
     /// for ~defvar~-declared (special / dynamic) variables. Steady

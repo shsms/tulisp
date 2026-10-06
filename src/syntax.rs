@@ -139,6 +139,16 @@ impl<'a> SyntaxTree<'a> {
         self.source
     }
 
+    /// OFFSET moved into the source and back to the start of the character it
+    /// is in, so it can slice the source.
+    pub fn clamp(&self, offset: usize) -> usize {
+        let mut offset = offset.min(self.source.len());
+        while !self.source.is_char_boundary(offset) {
+            offset -= 1;
+        }
+        offset
+    }
+
     /// The top-level nodes, in order.
     pub fn roots(&self) -> &[NodeId] {
         &self.roots
@@ -265,8 +275,16 @@ pub(crate) fn read_with_limit(source: &str, limit: usize) -> SyntaxTree<'_> {
     .run()
 }
 
-/// The byte offset of a parser position: a 1-based line, and a 1-based
-/// column counted in characters.
+/// The value of TEXT, a string literal with its quotes, escapes read.
+pub(crate) fn string_value(text: &str) -> Option<String> {
+    match Tokenizer::new(0, text).next() {
+        Some(Token::String { value, .. }) => Some(value),
+        _ => None,
+    }
+}
+
+/// The byte offset of a parser position: a 1-based line, and a 1-based column
+/// counted in characters.
 fn offset_of(source: &str, (line, column): (usize, usize)) -> usize {
     let line_start = if line <= 1 {
         0
