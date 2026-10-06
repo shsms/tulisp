@@ -11,8 +11,8 @@ pub(crate) struct Tokenizer<'a> {
     chars: Chars<'a>,
     /// A character read ahead by `peek_char` and not yet taken.
     peeked: Option<Option<char>>,
-    /// The length of the source, in bytes.
-    len: usize,
+    /// The text being read.
+    source: &'a str,
     line: usize,
     pos: usize,
     /// Where the token `next` last returned starts, in bytes.
@@ -32,15 +32,19 @@ pub(crate) struct ParserError {
     kind: ParserErrorKind,
     pub(crate) desc: String,
     pub(crate) span: Span,
+    /// Where the error is in the source, in bytes: the character the start of
+    /// `span` names.
+    pub(crate) offset: usize,
 }
 
 impl ParserError {
-    fn new(kind: ParserErrorKind, desc: String, span: Span) -> Self {
-        ParserError { kind, desc, span }
-    }
-
-    fn syntax_error(desc: String, span: Span) -> Self {
-        Self::new(ParserErrorKind::SyntaxError, desc, span)
+    fn syntax_error(desc: String, span: Span, offset: usize) -> Self {
+        ParserError {
+            kind: ParserErrorKind::SyntaxError,
+            desc,
+            span,
+            offset,
+        }
     }
 }
 
@@ -99,7 +103,7 @@ impl Tokenizer<'_> {
             file_id,
             chars: program.chars(),
             peeked: None,
-            len: program.len(),
+            source: program,
             line: 1,
             pos: 0,
             token_start: 0,
@@ -126,7 +130,17 @@ impl Tokenizer<'_> {
             Some(Some(ch)) => ch.len_utf8(),
             _ => 0,
         };
-        self.len - self.chars.as_str().len() - peeked
+        self.source.len() - self.chars.as_str().len() - peeked
+    }
+
+    /// Where the character last read starts, in bytes; after a newline, where
+    /// the new line starts. This is the place `(self.line, self.pos)` names.
+    fn last_char_offset(&self) -> usize {
+        let end = self.offset();
+        match self.source[..end].chars().next_back() {
+            Some(ch) if self.pos > 0 => end - ch.len_utf8(),
+            _ => end,
+        }
     }
 
     /// Reads past the rest of a string literal, to its closing quote, so that
@@ -181,8 +195,11 @@ impl Tokenizer<'_> {
                         Err(desc) => {
                             let pos = (self.line, self.pos);
                             let span = Span::new(self.file_id, pos, pos);
+                            let offset = self.last_char_offset();
                             self.skip_rest_of_string();
-                            return Some(Token::ParserError(ParserError::syntax_error(desc, span)));
+                            return Some(Token::ParserError(ParserError::syntax_error(
+                                desc, span, offset,
+                            )));
                         }
                     }
                 }
@@ -207,6 +224,7 @@ impl Tokenizer<'_> {
                 start: start_pos,
                 end: (self.line, self.pos),
             },
+            self.token_start,
         )))
     }
 
@@ -243,6 +261,7 @@ impl Tokenizer<'_> {
             return Some(Token::ParserError(ParserError::syntax_error(
                 format!("{prefix}: expected digits after radix prefix"),
                 span,
+                self.token_start,
             )));
         }
         match i64::from_str_radix(&digits, radix) {
@@ -250,6 +269,7 @@ impl Tokenizer<'_> {
             Err(e) => Some(Token::ParserError(ParserError::syntax_error(
                 format!("{prefix}{digits}: {e}"),
                 span,
+                self.token_start,
             ))),
         }
     }
@@ -270,7 +290,9 @@ impl Tokenizer<'_> {
                 span,
                 value: value.into(),
             },
-            Err(desc) => Token::ParserError(ParserError::syntax_error(desc, span)),
+            Err(desc) => {
+                Token::ParserError(ParserError::syntax_error(desc, span, self.token_start))
+            }
         })
     }
 
@@ -401,13 +423,14 @@ impl Tokenizer<'_> {
             self.next_char()?;
         }
         let span = Span::new(self.file_id, start_pos, (self.line, self.pos));
-        Some(number_or_symbol(output, span))
+        Some(number_or_symbol(output, span, self.token_start))
     }
 }
 
 /// Read `text` as Emacs does: an integer like `+1` or `10.`, a float like `.5`,
-/// `1e3` or `-1.0e+INF`, or else a symbol.
-fn number_or_symbol(text: String, span: Span) -> Token {
+/// `1e3` or `-1.0e+INF`, or else a symbol. START is where `text` starts in the
+/// source, in bytes.
+fn number_or_symbol(text: String, span: Span, start: usize) -> Token {
     let unsigned = text.strip_prefix(['+', '-']).unwrap_or(&text);
     let lead = unsigned.bytes().take_while(u8::is_ascii_digit).count();
     let rest = &unsigned[lead..];
@@ -422,7 +445,11 @@ fn number_or_symbol(text: String, span: Span) -> Token {
         let digits = text.strip_suffix('.').unwrap_or(&text);
         return match digits.parse::<i64>() {
             Ok(value) => Token::Integer { span, value },
-            Err(e) => Token::ParserError(ParserError::syntax_error(format!("{e}: {text}"), span)),
+            Err(e) => Token::ParserError(ParserError::syntax_error(
+                format!("{e}: {text}"),
+                span,
+                start,
+            )),
         };
     }
     // `-f64::NAN` flips the sign bit.
@@ -472,6 +499,7 @@ impl Iterator for Tokenizer<'_> {
                     return Some(Token::ParserError(ParserError::syntax_error(
                         "Vector syntax is not supported".to_string(),
                         Span::new(self.file_id, (self.line, self.pos), (self.line, self.pos)),
+                        self.token_start,
                     )));
                 }
                 '\'' => {
@@ -525,12 +553,14 @@ impl Iterator for Tokenizer<'_> {
                             return Some(Token::ParserError(ParserError::syntax_error(
                                 "Unknown token #.  Did you mean #' ?".to_string(),
                                 Span::new(self.file_id, start_pos, (self.line, self.pos)),
+                                self.token_start,
                             )));
                         }
                         None => {
                             return Some(Token::ParserError(ParserError::syntax_error(
                                 "Unexpected EOF after #".to_string(),
                                 Span::new(self.file_id, start_pos, (self.line, self.pos)),
+                                self.token_start,
                             )));
                         }
                     }
@@ -555,6 +585,7 @@ impl Iterator for Tokenizer<'_> {
                             return Some(Token::ParserError(ParserError::syntax_error(
                                 "Unexpected EOF after ,".to_string(),
                                 Span::new(self.file_id, start_pos, (self.line, self.pos)),
+                                self.token_start,
                             )));
                         }
                     }
@@ -721,12 +752,8 @@ impl Parser<'_, '_> {
     }
 
     fn parse_value_inner(&mut self) -> Result<Option<TulispObject>, Error> {
-        let token = loop {
-            match self.tokenizer.next() {
-                Some(Token::Comment) => continue,
-                Some(token) => break token,
-                None => return Ok(None),
-            }
+        let Some(token) = self.tokenizer.next() else {
+            return Ok(None);
         };
         match token {
             Token::OpenParen { span } => self.parse_list(span).map(Some),
@@ -826,7 +853,8 @@ impl Parser<'_, '_> {
                 .into_ref(Some(span)),
             )),
             Token::Ident { span, value } => Ok(Some(self.ctx.intern(&value).with_span(Some(span)))),
-            // The loop above has already skipped comments.
+            // The parser's tokenizer skips comments; one that reaches here
+            // anyway is skipped too.
             Token::Comment => self.parse_value_inner(),
             Token::ParserError(err) => {
                 Err(Error::parsing_error(format!("{:?} {}", err.kind, err.desc))

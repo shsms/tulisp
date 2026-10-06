@@ -64,12 +64,11 @@ pub enum NodeKind {
     /// false when the input ended before its `)`.
     List { children: Vec<NodeId>, closed: bool },
     /// A prefixed form, such as `'x`. `children` is everything in the prefixed
-    /// form's place, in order: comments and the form. `child` is the form
-    /// itself, `None` when no form followed the prefix.
+    /// form's place, in order: comments and the form, if one followed the
+    /// prefix. [`SyntaxTree::forms`] gives the form alone.
     Prefix {
         prefix: Prefix,
         children: Vec<NodeId>,
-        child: Option<NodeId>,
     },
     /// A name or a literal.
     Atom(AtomKind),
@@ -173,13 +172,9 @@ impl<'a> SyntaxTree<'a> {
         }
     }
 
-    /// A list's forms: its children without the comments.
-    pub fn forms(&self, id: NodeId) -> Vec<NodeId> {
-        self.children(id)
-            .iter()
-            .copied()
-            .filter(|child| !matches!(self.nodes[child.0].kind, NodeKind::Comment))
-            .collect()
+    /// A list's forms, or a prefix's form: its children without the comments.
+    pub fn forms(&self, id: NodeId) -> impl Iterator<Item = NodeId> + '_ {
+        without_comments(&self.nodes, self.children(id))
     }
 
     /// The nodes that hold OFFSET, from a top-level node down to the innermost.
@@ -242,7 +237,6 @@ impl<'a> SyntaxTree<'a> {
             .find(|id| matches!(self.nodes[id.0].kind, NodeKind::List { .. }))?;
         let position = self
             .forms(list)
-            .iter()
             .take_while(|form| self.nodes[form.0].range.end < offset)
             .count();
         Some(CallSite { list, position })
@@ -288,21 +282,27 @@ pub(crate) fn string_value(text: &str) -> Option<String> {
     }
 }
 
-/// The byte offset of a parser position: a 1-based line, and a 1-based column
-/// counted in characters.
-fn offset_of(source: &str, (line, column): (usize, usize)) -> usize {
-    let line_start = if line <= 1 {
-        0
-    } else {
-        source
-            .match_indices('\n')
-            .nth(line - 2)
-            .map_or(source.len(), |(at, _)| at + 1)
-    };
-    source[line_start..]
-        .char_indices()
-        .nth(column.saturating_sub(1))
-        .map_or(source.len(), |(at, _)| line_start + at)
+/// The nodes in CHILDREN that are not comments.
+fn without_comments<'n>(
+    nodes: &'n [Node],
+    children: &'n [NodeId],
+) -> impl Iterator<Item = NodeId> + 'n {
+    children
+        .iter()
+        .copied()
+        .filter(|child| !matches!(nodes[child.0].kind, NodeKind::Comment))
+}
+
+/// The forms after the dot in CHILDREN, a list's children, or `None` when there
+/// is no dot.
+fn forms_after_dot<'n>(
+    nodes: &'n [Node],
+    children: &'n [NodeId],
+) -> Option<impl Iterator<Item = NodeId> + 'n> {
+    let mut forms = without_comments(nodes, children);
+    forms
+        .any(|form| matches!(nodes[form.0].kind, NodeKind::Dot))
+        .then_some(forms)
 }
 
 /// Builds a tree from the tokens, with the lists and prefixes still open on a
@@ -378,7 +378,7 @@ impl<'a> Builder<'a> {
             Token::ParserError(err) => {
                 // The error is where the tokenizer found it, such as a bad
                 // escape inside a string; the node covers the whole token.
-                let at = offset_of(self.source, err.span.start).clamp(range.start, range.end);
+                let at = err.offset.clamp(range.start, range.end);
                 self.error(at..range.end, err.desc);
                 let id = self.add(NodeKind::Error, range);
                 self.attach_value(id);
@@ -413,7 +413,6 @@ impl<'a> Builder<'a> {
             NodeKind::Prefix {
                 prefix,
                 children: Vec::new(),
-                child: None,
             },
             range,
         );
@@ -441,11 +440,7 @@ impl<'a> Builder<'a> {
                 self.push_child(Some(top), id);
                 return;
             }
-            if let NodeKind::Prefix {
-                children, child, ..
-            } = &mut self.nodes[top.0].kind
-            {
-                *child = Some(id);
+            if let NodeKind::Prefix { children, .. } = &mut self.nodes[top.0].kind {
                 children.push(id);
             }
             let end = self.nodes[id.0].range.end;
@@ -475,9 +470,7 @@ impl<'a> Builder<'a> {
 
     fn dot(&mut self, range: Range<usize>) {
         let after_dot = |tree: &Self, top: NodeId| match &tree.nodes[top.0].kind {
-            NodeKind::List { children, .. } => children
-                .iter()
-                .any(|c| matches!(tree.nodes[c.0].kind, NodeKind::Dot)),
+            NodeKind::List { children, .. } => forms_after_dot(&tree.nodes, children).is_some(),
             _ => false,
         };
         match self.open.last() {
@@ -526,27 +519,22 @@ impl<'a> Builder<'a> {
     /// The parser's rule for a dotted list: one form after the dot, then the
     /// `)`.
     fn check_dot(&mut self, list: NodeId, close: Range<usize>) {
-        let forms: Vec<NodeId> = match &self.nodes[list.0].kind {
-            NodeKind::List { children, .. } => children
-                .iter()
-                .copied()
-                .filter(|child| !matches!(self.nodes[child.0].kind, NodeKind::Comment))
-                .collect(),
-            _ => return,
+        let (first, more) = {
+            let NodeKind::List { children, .. } = &self.nodes[list.0].kind else {
+                return;
+            };
+            let Some(mut after) = forms_after_dot(&self.nodes, children) else {
+                return;
+            };
+            (after.next(), after.next().is_some())
         };
-        let Some(dot) = forms
-            .iter()
-            .position(|form| matches!(self.nodes[form.0].kind, NodeKind::Dot))
-        else {
+        let Some(first) = first else {
+            self.error(close, "Unexpected closing parenthesis");
             return;
         };
-        match &forms[dot + 1..] {
-            [] => self.error(close, "Unexpected closing parenthesis"),
-            [_] => {}
-            [first, ..] => {
-                let range = self.nodes[first.0].range.clone();
-                self.error(range, "Expected only one item in list after dot.");
-            }
+        if more {
+            let range = self.nodes[first.0].range.clone();
+            self.error(range, "Expected only one item in list after dot.");
         }
     }
 
@@ -602,12 +590,8 @@ impl SyntaxTree<'_> {
                     format!("({inner}")
                 }
             }
-            NodeKind::Prefix {
-                prefix,
-                children,
-                child,
-            } => {
-                let inner = if child.is_none() {
+            NodeKind::Prefix { prefix, children } => {
+                let inner = if self.forms(id).next().is_none() {
                     "∅".to_string()
                 } else {
                     let parts: Vec<String> = children.iter().map(|&c| self.sexp_of(c)).collect();
@@ -669,8 +653,8 @@ mod tests {
                 }
                 assert!(rest.null(), "{obj} is longer than {}", tree.text(id));
             }
-            NodeKind::Prefix { prefix, child, .. } => {
-                let child = child.expect("a prefixed form");
+            NodeKind::Prefix { prefix, .. } => {
+                let child = tree.forms(id).next().expect("a prefixed form");
                 let inner = match (prefix, &obj.inner_ref().0) {
                     (Prefix::Quote, TulispValue::Quote { value })
                     | (Prefix::Backquote, TulispValue::Backquote { value })
@@ -1023,10 +1007,8 @@ mod tests {
         assert_eq!(children.len(), 2);
         assert_eq!(*tree.node(children[0]).kind(), NodeKind::Comment);
         assert_eq!(tree.text(children[1]), "x");
-        match tree.node(prefix).kind() {
-            NodeKind::Prefix { child, .. } => assert_eq!(*child, Some(children[1])),
-            other => panic!("{other:?}"),
-        }
+        assert!(matches!(tree.node(prefix).kind(), NodeKind::Prefix { .. }));
+        assert_eq!(tree.forms(prefix).collect::<Vec<_>>(), [children[1]]);
         let tree = read("(' ;c\n x)");
         assert_eq!(tree.children(tree.roots()[0]).len(), 1);
     }
@@ -1135,7 +1117,7 @@ mod tests {
                 position: 3
             })
         );
-        let inner = tree.forms(root)[2];
+        let inner = tree.forms(root).nth(2).expect("a third form");
         assert_eq!(
             at(11),
             Some(CallSite {

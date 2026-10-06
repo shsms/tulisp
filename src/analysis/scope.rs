@@ -33,7 +33,7 @@ fn is_list(tree: &SyntaxTree, id: NodeId) -> bool {
 
 /// The name a list starts with.
 pub(super) fn head<'a>(tree: &SyntaxTree<'a>, list: NodeId) -> Option<&'a str> {
-    let first = *tree.forms(list).first()?;
+    let first = tree.forms(list).next()?;
     is_symbol(tree, first).then(|| tree.text(first))
 }
 
@@ -50,7 +50,6 @@ fn lambda_list(tree: &SyntaxTree, params: NodeId) -> Signature {
     }
     let names: Vec<&str> = tree
         .forms(params)
-        .into_iter()
         .filter(|&p| is_symbol(tree, p))
         .map(|p| tree.text(p))
         .collect();
@@ -90,7 +89,7 @@ pub(super) fn definitions(tree: &SyntaxTree) -> Vec<Definition> {
             Some("defvar") => SymbolKind::Variable,
             _ => continue,
         };
-        let forms = tree.forms(id);
+        let forms: Vec<NodeId> = tree.forms(id).collect();
         let Some(&name) = forms.get(1) else {
             continue;
         };
@@ -156,7 +155,7 @@ fn binding_name(tree: &SyntaxTree, binding: NodeId) -> Option<NodeId> {
     if !is_list(tree, binding) {
         return None;
     }
-    tree.forms(binding).first().copied()
+    tree.forms(binding).next()
 }
 
 fn params(tree: &SyntaxTree, list: NodeId, locals: &mut Vec<Local>) {
@@ -176,13 +175,13 @@ fn if_let_names(tree: &SyntaxTree, spec: NodeId, locals: &mut Vec<Local>) {
     if !is_list(tree, spec) {
         return;
     }
-    let forms = tree.forms(spec);
+    let forms: Vec<NodeId> = tree.forms(spec).collect();
     if forms.len() == 2 && is_symbol(tree, forms[0]) {
         push(tree, locals, Some(forms[0]));
         return;
     }
     for binding in forms {
-        if is_list(tree, binding) && tree.forms(binding).len() == 2 {
+        if is_list(tree, binding) && tree.forms(binding).count() == 2 {
             push(tree, locals, binding_name(tree, binding));
         }
     }
@@ -202,7 +201,7 @@ pub(super) fn is_binding_site(tree: &SyntaxTree, id: NodeId) -> bool {
         if !is_list(tree, list) {
             continue;
         }
-        let forms = tree.forms(list);
+        let forms: Vec<NodeId> = tree.forms(list).collect();
         let mut names = Vec::new();
         match head(tree, list) {
             Some("let" | "let*") if forms.len() > 1 => {
@@ -237,7 +236,7 @@ pub(super) fn locals_at(tree: &SyntaxTree, offset: usize) -> Vec<Local> {
         if !is_list(tree, list) || quoted(tree, list) {
             continue;
         }
-        let forms = tree.forms(list);
+        let forms: Vec<NodeId> = tree.forms(list).collect();
         let past = |i: usize| forms.get(i).is_some_and(|&form| passed(tree, form, offset));
         match head(tree, list) {
             Some("let" | "let*") if past(1) => {

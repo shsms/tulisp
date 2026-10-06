@@ -131,8 +131,7 @@ pub fn completions(ctx: &TulispContext, tree: &SyntaxTree, offset: usize) -> Com
             // At the head when no form ends before the offset.
             let before = tree
                 .forms(list)
-                .iter()
-                .take_while(|&&form| Some(form) != typed && tree.node(form).range().end < offset)
+                .take_while(|&form| Some(form) != typed && tree.node(form).range().end < offset)
                 .count();
             if before == 0 {
                 Place::Call
@@ -213,7 +212,7 @@ pub fn signature_help(
     if scope::quoted(tree, call.list) {
         return None;
     }
-    let head = *tree.forms(call.list).first()?;
+    let head = tree.forms(call.list).next()?;
     if !matches!(tree.node(head).kind(), NodeKind::Atom(AtomKind::Symbol)) {
         return None;
     }
@@ -269,7 +268,7 @@ pub fn hover(ctx: &TulispContext, tree: &SyntaxTree, offset: usize) -> Option<Ho
     let is_call_head = tree
         .node(id)
         .parent()
-        .is_some_and(|list| tree.forms(list).first() == Some(&id));
+        .is_some_and(|list| tree.forms(list).next() == Some(id));
     // A local never hides a function: a call head runs the global one.
     if !is_call_head
         && !scope::quoted(tree, id)
