@@ -1,4 +1,4 @@
-use std::{collections::HashMap, iter::Peekable, str::Chars};
+use std::{collections::HashMap, iter::Peekable, ops::Range, str::Chars};
 
 use crate::{Error, Number, Rest, TulispContext, TulispObject, TulispValue, object::Span};
 
@@ -6,11 +6,19 @@ use crate::{Error, Number, Rest, TulispContext, TulispObject, TulispValue, objec
 /// character below a space and at a no-break space.
 const TOKEN_ENDS: &str = "()[]'\";`,# \t\n\r";
 
-struct Tokenizer<'a> {
+pub(crate) struct Tokenizer<'a> {
     file_id: usize,
-    chars: Peekable<Chars<'a>>,
+    chars: Chars<'a>,
+    /// A character read ahead by `peek_char` and not yet taken.
+    peeked: Option<Option<char>>,
+    /// The length of the source, in bytes.
+    len: usize,
     line: usize,
     pos: usize,
+    /// Where the token `next` last returned starts, in bytes.
+    token_start: usize,
+    /// Whether comments come back as `Token::Comment` instead of being skipped.
+    keep_comments: bool,
 }
 
 #[derive(PartialEq, Debug)]
@@ -20,10 +28,10 @@ enum ParserErrorKind {
 
 #[allow(unused)]
 #[derive(Debug)]
-struct ParserError {
+pub(crate) struct ParserError {
     kind: ParserErrorKind,
-    desc: String,
-    span: Span,
+    pub(crate) desc: String,
+    pub(crate) span: Span,
 }
 
 impl ParserError {
@@ -37,40 +45,128 @@ impl ParserError {
 }
 
 #[derive(Debug)]
-enum Token {
-    OpenParen { span: Span },
-    CloseParen { span: Span },
-    Quote { span: Span },
-    Backtick { span: Span },
-    Dot { span: Span },
-    Comma { span: Span },
-    Splice { span: Span },     // ,@
-    SharpQuote { span: Span }, // #'
-    String { span: Span, value: String },
-    Integer { span: Span, value: i64 },
-    Float { span: Span, value: f64 },
-    Ident { span: Span, value: String },
+pub(crate) enum Token {
+    OpenParen {
+        span: Span,
+    },
+    CloseParen {
+        span: Span,
+    },
+    Quote {
+        span: Span,
+    },
+    Backtick {
+        span: Span,
+    },
+    Dot {
+        span: Span,
+    },
+    Comma {
+        span: Span,
+    },
+    Splice {
+        span: Span,
+    }, // ,@
+    SharpQuote {
+        span: Span,
+    }, // #'
+    String {
+        span: Span,
+        value: String,
+    },
+    Integer {
+        span: Span,
+        value: i64,
+    },
+    Float {
+        span: Span,
+        value: f64,
+    },
+    Ident {
+        span: Span,
+        value: String,
+    },
+    /// A `;` comment, up to its newline. Only a tokenizer made `with_comments`
+    /// returns one.
+    Comment,
 
     ParserError(ParserError),
 }
 
 impl Tokenizer<'_> {
-    fn new(file_id: usize, program: &str) -> Tokenizer<'_> {
-        let chars = program.chars().peekable();
+    pub(crate) fn new(file_id: usize, program: &str) -> Tokenizer<'_> {
         Tokenizer {
             file_id,
-            chars,
+            chars: program.chars(),
+            peeked: None,
+            len: program.len(),
             line: 1,
             pos: 0,
+            token_start: 0,
+            keep_comments: false,
+        }
+    }
+
+    /// The tokenizer, returning comments as `Token::Comment` instead of
+    /// skipping them.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the syntax tree reader uses it from the next commit"
+        )
+    )]
+    pub(crate) fn with_comments(mut self) -> Self {
+        self.keep_comments = true;
+        self
+    }
+
+    /// The bytes of the source that the token `next` last returned was
+    /// read from.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the syntax tree reader uses it from the next commit"
+        )
+    )]
+    pub(crate) fn token_range(&self) -> Range<usize> {
+        self.token_start..self.offset()
+    }
+
+    /// How many bytes have been read.
+    fn offset(&self) -> usize {
+        let peeked = match self.peeked {
+            Some(Some(ch)) => ch.len_utf8(),
+            _ => 0,
+        };
+        self.len - self.chars.as_str().len() - peeked
+    }
+
+    /// Reads past the rest of a string literal, to its closing quote, so
+    /// that the text after a bad escape is not read as code.
+    fn skip_rest_of_string(&mut self) {
+        while let Some(ch) = self.next_char() {
+            match ch {
+                '\\' => {
+                    self.next_char();
+                }
+                '"' => break,
+                _ => {}
+            }
         }
     }
 
     fn peek_char(&mut self) -> Option<char> {
-        self.chars.peek().map(|x| x.to_owned())
+        *self.peeked.get_or_insert_with(|| self.chars.next())
     }
 
     fn next_char(&mut self) -> Option<char> {
-        self.chars.next().inspect(|ch| {
+        let next = match self.peeked.take() {
+            Some(peeked) => peeked,
+            None => self.chars.next(),
+        };
+        next.inspect(|ch| {
             if *ch == '\n' {
                 self.line += 1;
                 self.pos = 0;
@@ -99,6 +195,7 @@ impl Tokenizer<'_> {
                         Err(desc) => {
                             let pos = (self.line, self.pos);
                             let span = Span::new(self.file_id, pos, pos);
+                            self.skip_rest_of_string();
                             return Some(Token::ParserError(ParserError::syntax_error(desc, span)));
                         }
                     }
@@ -361,17 +458,13 @@ impl Iterator for Tokenizer<'_> {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
+            while matches!(self.peek_char(), Some(' ' | '\t' | '\r' | '\n')) {
+                self.next_char();
+            }
+            self.token_start = self.offset();
             let ch = self.peek_char()?;
 
             match ch {
-                '\n' => {
-                    self.next_char()?;
-                    continue;
-                }
-                ' ' | '\r' | '\t' => {
-                    self.next_char()?;
-                    continue;
-                }
                 '(' => {
                     self.next_char()?;
                     return Some(Token::OpenParen {
@@ -483,6 +576,12 @@ impl Iterator for Tokenizer<'_> {
                 '"' => {
                     return self.read_string();
                 }
+                ';' if self.keep_comments => {
+                    while self.peek_char().is_some_and(|ch| ch != '\n') {
+                        self.next_char();
+                    }
+                    return Some(Token::Comment);
+                }
                 ';' => while self.next_char()? != '\n' {},
                 _ => return self.read_num_ident(),
             }
@@ -540,6 +639,11 @@ impl Parser<'_, '_> {
                 Token::Dot { .. } => {
                     got_dot = true;
                     break;
+                }
+                // The parser's tokenizer skips comments; one that reaches here
+                // anyway is skipped too.
+                Token::Comment => {
+                    let _ = self.tokenizer.next();
                 }
                 _ => {
                     let next = self.parse_value()?.unwrap();
@@ -631,8 +735,12 @@ impl Parser<'_, '_> {
     }
 
     fn parse_value_inner(&mut self) -> Result<Option<TulispObject>, Error> {
-        let Some(token) = self.tokenizer.next() else {
-            return Ok(None);
+        let token = loop {
+            match self.tokenizer.next() {
+                Some(Token::Comment) => continue,
+                Some(token) => break token,
+                None => return Ok(None),
+            }
         };
         match token {
             Token::OpenParen { span } => self.parse_list(span).map(Some),
@@ -732,6 +840,8 @@ impl Parser<'_, '_> {
                 .into_ref(Some(span)),
             )),
             Token::Ident { span, value } => Ok(Some(self.ctx.intern(&value).with_span(Some(span)))),
+            // The loop above has already skipped comments.
+            Token::Comment => self.parse_value_inner(),
             Token::ParserError(err) => {
                 Err(Error::parsing_error(format!("{:?} {}", err.kind, err.desc))
                     .with_trace(TulispValue::Nil.into_ref(Some(err.span))))
@@ -892,11 +1002,62 @@ pub fn parse(
 
 #[cfg(test)]
 mod tests {
+    use super::{Token, Tokenizer};
     use crate::test_utils::{
         eval_assert, eval_assert_equal, eval_assert_equal_fresh, eval_assert_error,
         eval_assert_error_line,
     };
     use crate::{Error, TulispContext};
+
+    // Each token's range covers its own text, in bytes, multi-byte characters
+    // included.
+    #[test]
+    fn a_token_range_covers_its_text() {
+        let source = "(é \"ü\" ?ä #'f 1.5) ; ñ\n,@x";
+        let mut tokenizer = Tokenizer::new(0, source).with_comments();
+        let mut texts = Vec::new();
+        while tokenizer.next().is_some() {
+            texts.push(&source[tokenizer.token_range()]);
+        }
+        assert_eq!(
+            texts,
+            [
+                "(", "é", "\"ü\"", "?ä", "#'", "f", "1.5", ")", "; ñ", ",@", "x"
+            ]
+        );
+    }
+
+    // A tokenizer not made `with_comments` skips comments, as before.
+    #[test]
+    fn comments_are_skipped_by_default() {
+        let mut tokenizer = Tokenizer::new(0, "; a\nx ; b");
+        assert!(matches!(tokenizer.next(), Some(Token::Ident { .. })));
+        assert!(tokenizer.next().is_none());
+    }
+
+    // A comment token ends before its newline, or at the end of the input.
+    #[test]
+    fn a_comment_ends_at_its_newline_or_the_input() {
+        let source = "a ;one\n;two";
+        let mut tokenizer = Tokenizer::new(0, source).with_comments();
+        let mut texts = Vec::new();
+        while tokenizer.next().is_some() {
+            texts.push(&source[tokenizer.token_range()]);
+        }
+        assert_eq!(texts, ["a", ";one", ";two"]);
+    }
+
+    // After a bad escape the tokenizer reads on to the string's closing quote,
+    // so the text after the string is read as code.
+    #[test]
+    fn a_bad_escape_ends_at_the_closing_quote() {
+        let source = r#""a\M-b c" d"#;
+        let mut tokenizer = Tokenizer::new(0, source);
+        assert!(matches!(tokenizer.next(), Some(Token::ParserError(_))));
+        assert_eq!(&source[tokenizer.token_range()], r#""a\M-b c""#);
+        assert!(matches!(tokenizer.next(), Some(Token::Ident { value, .. }) if value == "d"));
+        assert!(tokenizer.next().is_none());
+    }
 
     // A string's span starts at its opening quote and ends at its closing one,
     // as a list's covers its parentheses.
