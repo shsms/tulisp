@@ -209,8 +209,11 @@ impl<'a> SyntaxTree<'a> {
         if let Some(&last) = path.last() {
             let in_text = match self.nodes[last.0].kind {
                 NodeKind::Atom(AtomKind::String) | NodeKind::Comment => true,
-                // A string with no closing quote is an error node.
-                NodeKind::Error => self.text(last).starts_with('"'),
+                // A string with no closing quote is an error node; the offset
+                // must be after its opening quote.
+                NodeKind::Error => {
+                    self.text(last).starts_with('"') && self.nodes[last.0].range.start < offset
+                }
                 _ => false,
             };
             if in_text {
@@ -1126,5 +1129,75 @@ mod tests {
         assert_eq!(read("(f \"ab\")").call_at(5), None);
         assert_eq!(read("(f \"ab").call_at(5), None);
         assert_eq!(read("a b").call_at(1), None);
+    }
+
+    #[test]
+    fn neighbouring_nodes_share_no_offset_inside_a_list() {
+        // Offsets: ( 0, a 1, ) 2, ( 3, b 4, ) 5.
+        let tree = read("(a)(b)");
+        assert!(tree.path_at(3).is_empty());
+        assert_eq!(tree.call_at(3), None);
+    }
+
+    #[test]
+    fn the_end_of_a_symbol_is_in_it_before_a_list_or_a_string() {
+        // Offsets: a 0, ( 1, b 2, ) 3.
+        let tree = read("a(b)");
+        assert_eq!(texts(&tree, &tree.path_at(1)), ["a"]);
+        // Offsets: x 0, " 1, s 2, " 3.
+        let tree = read("x\"s\"");
+        assert_eq!(texts(&tree, &tree.path_at(1)), ["x"]);
+    }
+
+    #[test]
+    fn a_prefix_starts_after_its_first_character() {
+        // Offsets: ( 0, f 1, ' 3, a 4, ) 5.
+        let tree = read("(f 'a)");
+        assert_eq!(texts(&tree, &tree.path_at(3)), ["(f 'a)"]);
+        assert_eq!(texts(&tree, &tree.path_at(4)), ["(f 'a)", "'a", "a"]);
+    }
+
+    #[test]
+    fn a_comment_holds_its_end_but_not_the_next_line() {
+        // Offsets: ( 0, f 1, ; 3, c 5, \n 6, a 8, ) 9.
+        let tree = read("(f ; c\n a)");
+        let root = tree.roots()[0];
+        assert_eq!(tree.call_at(6), None);
+        assert_eq!(
+            tree.call_at(8),
+            Some(CallSite {
+                list: root,
+                position: 1
+            })
+        );
+    }
+
+    #[test]
+    fn a_comment_inside_a_prefix_can_be_entered() {
+        // Offsets: ( 0, f 1, ' 3, ; 4, c 6, \n 7, a 9, ) 10.
+        let tree = read("(f '; c\n a)");
+        let path = tree.path_at(5);
+        assert_eq!(texts(&tree, &path), ["(f '; c\n a)", "'; c\n a", "; c"]);
+        let comment = tree.node(path[2]);
+        assert_eq!(comment.kind(), &NodeKind::Comment);
+        assert_eq!(comment.parent(), Some(path[1]));
+        assert_eq!(tree.call_at(5), None);
+        let path = tree.path_at(9);
+        assert_eq!(texts(&tree, &path), ["(f '; c\n a)", "'; c\n a", "a"]);
+    }
+
+    #[test]
+    fn call_at_before_an_unclosed_string_is_at_its_form() {
+        // Offsets: ( 0, f 1, " 3, a 4, b 5.
+        let tree = read("(f \"ab");
+        let root = tree.roots()[0];
+        assert_eq!(
+            tree.call_at(3),
+            Some(CallSite {
+                list: root,
+                position: 1
+            })
+        );
+        assert_eq!(tree.call_at(4), None);
     }
 }
