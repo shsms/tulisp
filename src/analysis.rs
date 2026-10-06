@@ -124,13 +124,14 @@ pub fn completions(ctx: &TulispContext, tree: &SyntaxTree, offset: usize) -> Com
             Place::Function
         }
         Some(id) if scope::quoted(tree, id) => Place::Any,
-        // A list here is the innermost one around the offset, the one `call_at`
-        // finds; position 0 is its head. A list that names what a binding form
-        // binds is not a call.
+        // A list here is the innermost one around the offset. The offset is at
+        // its head when no form of it ends before the offset.
         Some(list) if scope::is_list(tree, list) => {
-            if !scope::is_binding_list(tree, list)
-                && tree.call_at(offset).is_some_and(|call| call.position == 0)
-            {
+            let at_head = tree
+                .forms(list)
+                .next()
+                .is_none_or(|first| tree.node(first).range().end >= offset);
+            if at_head && scope::calls(tree, list) {
                 Place::Call
             } else {
                 Place::Value
@@ -209,7 +210,7 @@ pub fn signature_help(
 ) -> Option<SignatureHelp> {
     let offset = tree.clamp(offset);
     let call = tree.call_at(offset)?;
-    if scope::quoted(tree, call.list) || scope::is_binding_list(tree, call.list) {
+    if !scope::calls(tree, call.list) {
         return None;
     }
     let name = scope::head(tree, call.list)?;
@@ -262,20 +263,8 @@ pub fn hover(ctx: &TulispContext, tree: &SyntaxTree, offset: usize) -> Option<Ho
             binding: Some(range),
         });
     }
-    // The first form of a list, or the name after `#'`.
-    let is_call_head =
-        tree.node(id)
-            .parent()
-            .is_some_and(|parent| match tree.node(parent).kind() {
-                NodeKind::List { .. } => tree.forms(parent).next() == Some(id),
-                NodeKind::Prefix { prefix } => match prefix {
-                    Prefix::Function => true,
-                    Prefix::Quote | Prefix::Backquote | Prefix::Comma | Prefix::Splice => false,
-                },
-                NodeKind::Atom(_) | NodeKind::Dot | NodeKind::Comment | NodeKind::Error => false,
-            });
     // A local never hides a function: a call head runs the global one.
-    if !is_call_head
+    if !scope::is_call_head(tree, id)
         && !scope::quoted(tree, id)
         && let Some(local) = scope::locals_at(tree, &path, offset)
             .into_iter()
