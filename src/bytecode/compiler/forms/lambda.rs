@@ -32,7 +32,7 @@ pub(super) fn compile_fn_lambda(
 /// BODY without its docstring: a leading string with more forms after it. A
 /// string that is the only form is the body's value.
 pub(super) fn strip_docstring(body: TulispObject) -> Result<TulispObject, Error> {
-    if body.car()?.stringp() && body.cdr()?.consp() {
+    if crate::builtin::has_docstring(&body)? {
         body.cdr()
     } else {
         Ok(body)

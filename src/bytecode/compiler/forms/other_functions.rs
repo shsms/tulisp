@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use super::common::compile_args_then;
 use crate::{
     Error, ErrorKind, TulispContext, TulispObject,
@@ -9,8 +11,10 @@ use crate::{
             compiler::{compile_expr, compile_expr_keep_result, compile_progn},
         },
     },
+    context::describe::DocEntry,
     object::wrappers::generic::{Shared, SharedMut},
     parse::mark_tail_calls,
+    symbols::SymbolKind,
 };
 
 pub(super) fn compile_fn_print(
@@ -343,6 +347,7 @@ fn compile_defun(
     // scopes around the function that its body uses.
     let mut param_names: Vec<TulispObject> = Vec::new();
     let mut capture_sources = Vec::new();
+    let mut doc = None;
     let mut slot_count = 0;
     let res = ctx.compile_2_arg_call(defun_kw, args, true, |ctx, defun_name, args, body| {
         fn_name = defun_name.clone();
@@ -404,6 +409,7 @@ fn compile_defun(
         let prev_defun = compiler.current_defun.replace(defun_name.clone());
 
         let body = crate::builtin::drop_declare_after_docstring(ctx, body.clone())?;
+        doc = crate::builtin::docstring(&body)?;
         let body = super::lambda::strip_docstring(body)?;
         let body = mark_tail_calls(ctx, defun_name, body);
         // A variable of a scope around the function is captured when
@@ -452,6 +458,14 @@ fn compile_defun(
         }
         .into_ref(None),
     )?;
+    // A redefinition with no docstring drops the old one.
+    let entry = doc.map(|doc| DocEntry {
+        kind: SymbolKind::Function,
+        key: Some(function.code_addr()),
+        signature: None,
+        doc: Some(Cow::Owned(doc)),
+    });
+    ctx.set_doc_entry(&fn_name, entry);
     install_function(ctx, &fn_name, function);
     // The value of `defun` is the function's name.
     let compiler = ctx.compiler.as_mut().unwrap();
@@ -493,10 +507,15 @@ pub(super) fn compile_fn_defvar(
     args: &TulispObject,
 ) -> Result<Vec<Instruction>, Error> {
     ctx.compile_1_arg_call(name, args, true, |ctx, sym, rest| {
-        let (value, _docstring): (Option<TulispObject>, Option<TulispObject>) =
+        let (value, docstring): (Option<TulispObject>, Option<TulispObject>) =
             rest.destructure(ctx)?;
         crate::builtin::check_defvar_name(sym)?;
         sym.set_special()?;
+        if let Some(docstring) = docstring
+            && let Ok(docstring) = docstring.as_string()
+        {
+            ctx.set_variable_doc(sym, docstring);
+        }
         let keep_result = ctx.compiler.as_ref().unwrap().keep_result;
         let mut result = vec![];
         // With no VALUE, SYM is only marked special and stays void. An explicit

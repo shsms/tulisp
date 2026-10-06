@@ -130,11 +130,60 @@ pub struct SymbolInfo {
 }
 
 impl SymbolInfo {
+    /// The info of a name of KIND. A usage line at the end of DOC gives the
+    /// signature in place of SIGNATURE, and is cut from the text.
     pub(crate) fn new(kind: SymbolKind, signature: Option<Signature>, doc: Option<String>) -> Self {
+        let (signature, doc) = match doc.as_deref().and_then(split_usage) {
+            Some((text, usage)) => (Some(usage), (!text.is_empty()).then(|| text.to_string())),
+            None => (signature, doc),
+        };
         SymbolInfo {
             kind,
             signature,
             doc,
         }
     }
+}
+
+/// Splits a docstring that ends with a usage line, `(fn A &optional B)` after a
+/// blank line as Emacs writes it, or that is only that line, into its text and
+/// the signature the line gives. In a usage line, `NAME...` takes the remaining
+/// arguments and `[NAME]` may be left out. A line that is not a flat list of
+/// names is plain text.
+pub(crate) fn split_usage(doc: &str) -> Option<(&str, Signature)> {
+    let trimmed = doc.trim_end();
+    let (text, line) = match trimmed.rfind("\n\n(fn") {
+        Some(at) => (&trimmed[..at], &trimmed[at + 2..]),
+        None if trimmed.starts_with("(fn") => ("", trimmed),
+        None => return None,
+    };
+    let inner = line.strip_prefix("(fn")?.strip_suffix(')')?;
+    if !(inner.is_empty() || inner.starts_with(' ')) || inner.contains(['(', ')', '\n']) {
+        return None;
+    }
+    let mut position = ParamPosition::Required;
+    let mut params = Vec::new();
+    for word in inner.split_whitespace() {
+        match word {
+            "&optional" => position = ParamPosition::Optional,
+            "&rest" => position = ParamPosition::Rest,
+            "&key" => position = ParamPosition::Keywords,
+            _ => {
+                let (name, at) = if let Some(name) = word.strip_suffix("...") {
+                    (name, ParamPosition::Rest)
+                } else if let Some(name) = word.strip_prefix('[').and_then(|w| w.strip_suffix(']'))
+                {
+                    (name, ParamPosition::Optional)
+                } else {
+                    (word, position)
+                };
+                params.push(SignatureParam {
+                    name: Some(name.to_string()),
+                    position: at,
+                    type_name: None,
+                });
+            }
+        }
+    }
+    Some((text.trim_end(), Signature { params }))
 }

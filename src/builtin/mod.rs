@@ -153,6 +153,22 @@ pub(crate) fn drop_declare_after_docstring(
     Ok(body)
 }
 
+/// Whether BODY, of a `defun`, `defmacro` or `lambda` with any `declare` after
+/// its docstring dropped, starts with a docstring: a string with more forms
+/// after it. A string that is the only form is the body's value.
+pub(crate) fn has_docstring(body: &TulispObject) -> Result<bool, Error> {
+    Ok(body.car()?.stringp() && body.cdr()?.consp())
+}
+
+/// BODY's docstring, by the rule of [`has_docstring`].
+pub(crate) fn docstring(body: &TulispObject) -> Result<Option<String>, Error> {
+    if has_docstring(body)? {
+        body.car()?.as_string().map(Some)
+    } else {
+        Ok(None)
+    }
+}
+
 /// Checks the parameter list of a `defun`, `defmacro` or `lambda`: a
 /// list of symbols, with at most one symbol after `&rest`. `&optional`
 /// and `&rest` are the interned symbols, as the compilers read them.

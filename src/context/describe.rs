@@ -3,7 +3,7 @@
 use std::borrow::Cow;
 
 use crate::symbols::{ParamPosition, Signature, SignatureParam, SymbolInfo, SymbolKind};
-use crate::{TulispContext, TulispObject, TulispValue};
+use crate::{Error, TulispContext, TulispObject, TulispValue};
 
 /// The kind of name a value makes.
 pub(crate) fn kind_of(value: &TulispValue) -> SymbolKind {
@@ -102,23 +102,30 @@ pub(crate) fn derived_signature(value: &TulispValue) -> Option<Signature> {
     }
 }
 
-/// What the context records of a name beyond its value: the signature a
-/// Rust registration declared, and a docstring. `describe` uses it only
-/// while the name still holds the value it was recorded for.
+/// The docstring a value itself holds: a Lisp macro's, in its body.
+fn derived_doc(value: &TulispValue) -> Option<String> {
+    let TulispValue::Defmacro { lambda, .. } = value else {
+        return None;
+    };
+    let body = lambda.cddr().ok()?;
+    crate::builtin::docstring(&body).ok().flatten()
+}
+
+/// What the context records of a name beyond its value: the signature a Rust
+/// registration declared, and a docstring. `describe` uses it only while the
+/// name still holds the value it was recorded for.
 pub(crate) struct DocEntry {
     pub(crate) kind: SymbolKind,
     /// The `value_key` of the value the entry describes; `None` for a
-    /// variable's entry, which describes the variable whatever value it
-    /// holds.
+    /// variable's entry, which describes the variable whatever value it holds.
     pub(crate) key: Option<usize>,
     pub(crate) signature: Option<Signature>,
     pub(crate) doc: Option<Cow<'static, str>>,
 }
 
 impl TulispContext {
-    /// Sets, or with `None` removes, the entry for SYM. Only a symbol
-    /// interned under its name has one: describe looks names up in the
-    /// obarray.
+    /// Sets, or with `None` removes, the entry for SYM. Only a symbol interned
+    /// under its name has one: describe looks names up in the obarray.
     pub(crate) fn set_doc_entry(&mut self, sym: &TulispObject, entry: Option<DocEntry>) {
         let Ok(name) = sym.as_symbol() else {
             return;
@@ -140,9 +147,89 @@ impl TulispContext {
         }
     }
 
-    /// What NAME holds, its signature and its docstring, for editor
-    /// tools. `None` when NAME has no value and was not declared with
-    /// `defvar`, or is a keyword. It does not intern NAME.
+    /// Attaches DOC to what NAME holds, a function or a variable, for
+    /// [`describe`](Self::describe) and the editor tools built on it. A last
+    /// line `(fn HOST &optional PORT)` after a blank line, as Emacs writes it,
+    /// gives the parameter names to show.
+    ///
+    /// Defining NAME again drops the docstring, so call this after the `defun`
+    /// it documents.
+    ///
+    /// Returns an Error if NAME has no value and was not declared with
+    /// `defvar`.
+    ///
+    /// ```rust
+    /// use tulisp::TulispContext;
+    ///
+    /// let mut ctx = TulispContext::new();
+    /// ctx.defun("connect", |host: String, port: Option<i64>| {
+    ///     format!("{host}:{}", port.unwrap_or(80))
+    /// });
+    /// ctx.set_doc("connect", "Connect to HOST.\n\n(fn HOST &optional PORT)").unwrap();
+    /// let info = ctx.describe("connect").unwrap();
+    /// assert_eq!(info.doc.as_deref(), Some("Connect to HOST."));
+    /// assert_eq!(info.signature.unwrap().render("connect"), "(connect HOST &optional PORT)");
+    /// ```
+    pub fn set_doc(&mut self, name: &str, doc: &str) -> Result<(), Error> {
+        if self.describe(name).is_none() {
+            return Err(Error::invalid_argument(format!(
+                "set_doc: {name} has no value"
+            )));
+        }
+        let (kind, key) = match self.obarray.get(name).and_then(|sym| sym.global()) {
+            Some(value) => {
+                let value = &value.inner_ref().0;
+                (kind_of(value), value_key(value))
+            }
+            None => (SymbolKind::Variable, None),
+        };
+        self.set_doc_text(name, kind, key, Cow::Owned(doc.to_string()));
+        Ok(())
+    }
+
+    /// Sets the docstring of NAME, which holds a value of KIND with identity
+    /// KEY, keeping the entry's signature when the entry is the one `describe`
+    /// would use for that value.
+    pub(crate) fn set_doc_text(
+        &mut self,
+        name: &str,
+        kind: SymbolKind,
+        key: Option<usize>,
+        doc: Cow<'static, str>,
+    ) {
+        match self.docs.get_mut(name) {
+            Some(entry) if entry.kind == kind && (entry.key.is_none() || entry.key == key) => {
+                entry.doc = Some(doc);
+            }
+            _ => {
+                let entry = DocEntry {
+                    kind,
+                    key,
+                    signature: None,
+                    doc: Some(doc),
+                };
+                self.docs.insert(name.to_string(), entry);
+            }
+        }
+    }
+
+    /// Records a `defvar` docstring for SYM, when SYM is interned.
+    pub(crate) fn set_variable_doc(&mut self, sym: &TulispObject, doc: String) {
+        let Ok(name) = sym.as_symbol() else {
+            return;
+        };
+        if self
+            .obarray
+            .get(&name)
+            .is_some_and(|interned| interned.eq_ptr(sym))
+        {
+            self.set_doc_text(&name, SymbolKind::Variable, None, Cow::Owned(doc));
+        }
+    }
+
+    /// What NAME holds, its signature and its docstring, for editor tools.
+    /// `None` when NAME has no value and was not declared with `defvar`, or is
+    /// a keyword. It does not intern NAME.
     pub fn describe(&self, name: &str) -> Option<SymbolInfo> {
         if name.starts_with(':') {
             return None;
@@ -166,7 +253,13 @@ impl TulispContext {
         let signature = entry
             .and_then(|entry| entry.signature.clone())
             .or(signature);
-        let doc = entry.and_then(|entry| entry.doc.as_deref().map(str::to_string));
+        let doc = entry
+            .and_then(|entry| entry.doc.as_deref().map(str::to_string))
+            .or_else(|| {
+                value
+                    .as_ref()
+                    .and_then(|value| derived_doc(&value.inner_ref().0))
+            });
         Some(SymbolInfo::new(kind, signature, doc))
     }
 
@@ -370,5 +463,118 @@ mod tests {
         ctx.defspecial("zs", || 1);
         assert_eq!(rendered(&ctx, "z"), "(z)");
         assert_eq!(rendered(&ctx, "zs"), "(zs)");
+    }
+
+    fn doc(ctx: &TulispContext, name: &str) -> Option<String> {
+        ctx.describe(name).and_then(|info| info.doc)
+    }
+
+    #[test]
+    fn set_doc_attaches_a_docstring() {
+        let mut ctx = TulispContext::new();
+        ctx.defun("f", |a: i64| a);
+        ctx.set_doc("f", "Return A.").unwrap();
+        assert_eq!(doc(&ctx, "f").as_deref(), Some("Return A."));
+        assert_eq!(rendered(&ctx, "f"), "(f INTEGER)");
+    }
+
+    #[test]
+    fn a_usage_line_names_the_parameters() {
+        let mut ctx = TulispContext::new();
+        ctx.defun("f", |a: String, b: Option<i64>| format!("{a}{b:?}"));
+        ctx.set_doc("f", "Connect.\n\n(fn HOST &optional PORT)")
+            .unwrap();
+        assert_eq!(doc(&ctx, "f").as_deref(), Some("Connect."));
+        assert_eq!(rendered(&ctx, "f"), "(f HOST &optional PORT)");
+    }
+
+    #[test]
+    fn a_docstring_can_be_only_a_usage_line() {
+        let mut ctx = TulispContext::new();
+        ctx.defun("f", |a: i64| a);
+        ctx.set_doc("f", "(fn A)").unwrap();
+        assert_eq!(doc(&ctx, "f"), None);
+        assert_eq!(rendered(&ctx, "f"), "(f A)");
+    }
+
+    #[test]
+    fn a_malformed_usage_line_is_text() {
+        let mut ctx = TulispContext::new();
+        ctx.defun("f", |a: i64| a);
+        ctx.set_doc("f", "Text.\n\n(fn (A))").unwrap();
+        assert_eq!(doc(&ctx, "f").as_deref(), Some("Text.\n\n(fn (A))"));
+        assert_eq!(rendered(&ctx, "f"), "(f INTEGER)");
+    }
+
+    #[test]
+    fn usage_lines_take_emacs_notations() {
+        let mut ctx = TulispContext::new();
+        ctx.defun("f", |a: i64| a);
+        ctx.set_doc("f", "X.\n\n(fn VARLIST BODY...)").unwrap();
+        assert_eq!(rendered(&ctx, "f"), "(f VARLIST &rest BODY)");
+        ctx.set_doc("f", "X.\n\n(fn A [B])").unwrap();
+        assert_eq!(rendered(&ctx, "f"), "(f A &optional B)");
+    }
+
+    #[test]
+    fn set_doc_on_an_unknown_name_is_an_error() {
+        let mut ctx = TulispContext::new();
+        assert!(ctx.set_doc("nothing-here", "Doc.").is_err());
+    }
+
+    #[test]
+    fn a_variable_keeps_its_defvar_docstring() {
+        let mut ctx = TulispContext::new();
+        ctx.eval_string("(defvar v 1 \"The v.\")").unwrap();
+        assert_eq!(doc(&ctx, "v").as_deref(), Some("The v."));
+        ctx.eval_string("(setq v 2)").unwrap();
+        assert_eq!(doc(&ctx, "v").as_deref(), Some("The v."));
+    }
+
+    #[test]
+    fn lisp_definitions_keep_their_docstrings() {
+        let mut ctx = TulispContext::new();
+        ctx.eval_string(
+            "(defun f (a) \"Doc of f.\" a)
+             (defun g () \"only the value\")
+             (defun h () \"Doc of h.\" (declare (indent 0)) 1)
+             (defun k () \"the value\" (declare (indent 0)))
+             (defmacro m (a) \"Doc of m.\" a)",
+        )
+        .unwrap();
+        assert_eq!(doc(&ctx, "f").as_deref(), Some("Doc of f."));
+        assert_eq!(doc(&ctx, "g"), None);
+        assert_eq!(doc(&ctx, "h").as_deref(), Some("Doc of h."));
+        assert_eq!(doc(&ctx, "k"), None);
+        assert_eq!(doc(&ctx, "m").as_deref(), Some("Doc of m."));
+    }
+
+    #[test]
+    fn redefining_drops_the_docstring() {
+        let mut ctx = TulispContext::new();
+        // Rust over Rust.
+        ctx.defun("a", || 1);
+        ctx.set_doc("a", "Old.").unwrap();
+        ctx.defun("a", || 2);
+        assert_eq!(doc(&ctx, "a"), None);
+        // Lisp over Lisp, in one program.
+        ctx.eval_string("(defun b () \"Old.\" 1) (defun b () 2)")
+            .unwrap();
+        assert_eq!(doc(&ctx, "b"), None);
+        // Lisp over Rust.
+        ctx.defun("c", || 1);
+        ctx.set_doc("c", "Old.").unwrap();
+        ctx.eval_string("(defun c () 2)").unwrap();
+        assert_eq!(doc(&ctx, "c"), None);
+        // Rust over Lisp.
+        ctx.eval_string("(defun d () \"Old.\" 1)").unwrap();
+        ctx.defun("d", || 2);
+        assert_eq!(doc(&ctx, "d"), None);
+        // fset.
+        ctx.defun("e", || 1);
+        ctx.set_doc("e", "Old.").unwrap();
+        let function = ctx.eval_string("(lambda () 2)").unwrap();
+        ctx.fset("e", function).unwrap();
+        assert_eq!(doc(&ctx, "e"), None);
     }
 }
