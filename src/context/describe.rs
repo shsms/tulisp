@@ -290,6 +290,22 @@ impl TulispContext {
         Some(SymbolInfo::new(kind, signature, doc))
     }
 
+    /// Every name [`symbols`](Self::symbols) lists, with the kind
+    /// [`describe`](Self::describe) gives it, without describing it.
+    pub(crate) fn symbol_kinds(&self) -> impl Iterator<Item = (&str, SymbolKind)> + '_ {
+        self.obarray.iter().filter_map(|(name, sym)| {
+            if name.starts_with(':') {
+                return None;
+            }
+            let kind = match sym.global() {
+                Some(value) => kind_of(&value.inner_ref().0),
+                None if sym.is_special() => SymbolKind::Variable,
+                None => return None,
+            };
+            Some((name.as_str(), kind))
+        })
+    }
+
     /// Every name that has a value or was declared with `defvar`, with what
     /// [`describe`](Self::describe) says of it, in no particular order. Symbols
     /// that were only interned, and keywords, are left out.

@@ -105,14 +105,10 @@ pub fn completions(ctx: &TulispContext, tree: &SyntaxTree, offset: usize) -> Com
         }
         None => (offset..offset, ""),
     };
-    let container = match typed {
-        Some(id) => tree.node(id).parent(),
-        None => match path.last() {
-            Some(&id) if matches!(tree.node(id).kind(), NodeKind::Atom(AtomKind::Symbol)) => {
-                tree.node(id).parent()
-            }
-            last => last.copied(),
-        },
+    // The list or prefix the cursor is in.
+    let container = match path.last() {
+        Some(&id) if scope::is_symbol(tree, id) => tree.node(id).parent(),
+        last => last.copied(),
     };
     let place = match container {
         Some(id)
@@ -127,13 +123,10 @@ pub fn completions(ctx: &TulispContext, tree: &SyntaxTree, offset: usize) -> Com
             Place::Function
         }
         Some(id) if scope::quoted(tree, id) => Place::Any,
-        Some(list) if matches!(tree.node(list).kind(), NodeKind::List { .. }) => {
-            // At the head when no form ends before the offset.
-            let before = tree
-                .forms(list)
-                .take_while(|&form| Some(form) != typed && tree.node(form).range().end < offset)
-                .count();
-            if before == 0 {
+        // A list here is the innermost one around the offset, the one
+        // `call_at` finds; position 0 is its head.
+        Some(list) if scope::is_list(tree, list) => {
+            if tree.call_at(offset).is_some_and(|call| call.position == 0) {
                 Place::Call
             } else {
                 Place::Value
@@ -143,8 +136,11 @@ pub fn completions(ctx: &TulispContext, tree: &SyntaxTree, offset: usize) -> Com
     };
 
     let mut items = BTreeMap::new();
-    for (name, info) in ctx.symbols() {
-        if name.starts_with(prefix) && place.fits(info.kind) {
+    for (name, kind) in ctx.symbol_kinds() {
+        if name.starts_with(prefix)
+            && place.fits(kind)
+            && let Some(info) = ctx.describe(name)
+        {
             items.insert(name.to_string(), completion(name, info));
         }
     }
@@ -155,7 +151,7 @@ pub fn completions(ctx: &TulispContext, tree: &SyntaxTree, offset: usize) -> Com
         }
     }
     if matches!(place, Place::Value | Place::Any) {
-        for local in scope::locals_at(tree, offset) {
+        for local in scope::locals_at(tree, &path, offset) {
             if local.name.starts_with(prefix) {
                 let info = SymbolInfo::new(SymbolKind::Variable, None, None);
                 let item = completion(&local.name, info);
@@ -212,11 +208,7 @@ pub fn signature_help(
     if scope::quoted(tree, call.list) {
         return None;
     }
-    let head = tree.forms(call.list).next()?;
-    if !matches!(tree.node(head).kind(), NodeKind::Atom(AtomKind::Symbol)) {
-        return None;
-    }
-    let name = tree.text(head);
+    let name = scope::head(tree, call.list)?;
     let info = scope::lookup(ctx, tree, name)?;
     if info.kind == SymbolKind::Variable {
         return None;
@@ -251,8 +243,9 @@ pub struct Hover {
 /// nothing defines.
 pub fn hover(ctx: &TulispContext, tree: &SyntaxTree, offset: usize) -> Option<Hover> {
     let offset = tree.clamp(offset);
-    let id = *tree.path_at(offset).last()?;
-    if !matches!(tree.node(id).kind(), NodeKind::Atom(AtomKind::Symbol)) {
+    let path = tree.path_at(offset);
+    let id = *path.last()?;
+    if !scope::is_symbol(tree, id) {
         return None;
     }
     let name = tree.text(id);
@@ -272,7 +265,7 @@ pub fn hover(ctx: &TulispContext, tree: &SyntaxTree, offset: usize) -> Option<Ho
     // A local never hides a function: a call head runs the global one.
     if !is_call_head
         && !scope::quoted(tree, id)
-        && let Some(local) = scope::locals_at(tree, offset)
+        && let Some(local) = scope::locals_at(tree, &path, offset)
             .into_iter()
             .rev()
             .find(|local| local.name == name)

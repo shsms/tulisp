@@ -23,11 +23,11 @@ pub(super) fn quoted(tree: &SyntaxTree, id: NodeId) -> bool {
     false
 }
 
-fn is_symbol(tree: &SyntaxTree, id: NodeId) -> bool {
+pub(super) fn is_symbol(tree: &SyntaxTree, id: NodeId) -> bool {
     matches!(tree.node(id).kind(), NodeKind::Atom(AtomKind::Symbol))
 }
 
-fn is_list(tree: &SyntaxTree, id: NodeId) -> bool {
+pub(super) fn is_list(tree: &SyntaxTree, id: NodeId) -> bool {
     matches!(tree.node(id).kind(), NodeKind::List { .. })
 }
 
@@ -80,7 +80,7 @@ pub(super) struct Definition {
 pub(super) fn definitions(tree: &SyntaxTree) -> Vec<Definition> {
     let mut found = Vec::new();
     for id in tree.ids() {
-        if !is_list(tree, id) || quoted(tree, id) {
+        if !is_list(tree, id) {
             continue;
         }
         let kind = match head(tree, id) {
@@ -89,6 +89,9 @@ pub(super) fn definitions(tree: &SyntaxTree) -> Vec<Definition> {
             Some("defvar") => SymbolKind::Variable,
             _ => continue,
         };
+        if quoted(tree, id) {
+            continue;
+        }
         let forms: Vec<NodeId> = tree.forms(id).collect();
         let Some(&name) = forms.get(1) else {
             continue;
@@ -135,15 +138,12 @@ pub(super) struct Local {
     pub(super) range: Range<usize>,
 }
 
-fn push(tree: &SyntaxTree, locals: &mut Vec<Local>, id: Option<NodeId>) {
-    if let Some(id) = id
-        && is_symbol(tree, id)
-        && tree.text(id) != "nil"
-    {
-        locals.push(Local {
+impl Local {
+    fn new(tree: &SyntaxTree, id: NodeId) -> Self {
+        Local {
             name: tree.text(id).to_string(),
             range: tree.node(id).range(),
-        });
+        }
     }
 }
 
@@ -158,33 +158,90 @@ fn binding_name(tree: &SyntaxTree, binding: NodeId) -> Option<NodeId> {
     tree.forms(binding).next()
 }
 
-fn params(tree: &SyntaxTree, list: NodeId, locals: &mut Vec<Local>) {
-    if !is_list(tree, list) {
-        return;
-    }
-    for param in tree.forms(list) {
-        if !tree.text(param).starts_with('&') {
-            push(tree, locals, Some(param));
-        }
+/// The parameters in LIST, a parameter list, without `&optional` and `&rest`.
+fn params(tree: &SyntaxTree, list: Option<NodeId>, names: &mut Vec<NodeId>) {
+    if let Some(list) = list
+        && is_list(tree, list)
+    {
+        names.extend(
+            tree.forms(list)
+                .filter(|&param| !tree.text(param).starts_with('&')),
+        );
     }
 }
 
 /// The names an `if-let` family SPEC binds: `(x VALUE)`, or a list of such
 /// bindings.
-fn if_let_names(tree: &SyntaxTree, spec: NodeId, locals: &mut Vec<Local>) {
+fn if_let_names(tree: &SyntaxTree, spec: NodeId, names: &mut Vec<NodeId>) {
     if !is_list(tree, spec) {
         return;
     }
     let forms: Vec<NodeId> = tree.forms(spec).collect();
     if forms.len() == 2 && is_symbol(tree, forms[0]) {
-        push(tree, locals, Some(forms[0]));
+        names.push(forms[0]);
         return;
     }
     for binding in forms {
         if is_list(tree, binding) && tree.forms(binding).count() == 2 {
-            push(tree, locals, binding_name(tree, binding));
+            names.extend(binding_name(tree, binding));
         }
     }
+}
+
+/// What a binding form binds.
+struct Binders {
+    /// The names it binds, in order: symbols, and none of them `nil`.
+    names: Vec<NodeId>,
+    /// Which of the list's forms the names are in scope after, counting from 0
+    /// for the head.
+    scope_after: usize,
+}
+
+/// What LIST binds, when it is one of the built-in binding forms: `let`,
+/// `let*`, `lambda`, `defun`, `defmacro`, `dolist`, `dotimes`, the `if-let`
+/// family and `condition-case`. `None` for any other node.
+fn binders(tree: &SyntaxTree, list: NodeId) -> Option<Binders> {
+    if !is_list(tree, list) {
+        return None;
+    }
+    let forms: Vec<NodeId> = tree.forms(list).collect();
+    let head = forms.first().filter(|&&head| is_symbol(tree, head))?;
+    let form = |index: usize| forms.get(index).copied();
+    let mut names = Vec::new();
+    let scope_after = match tree.text(*head) {
+        "let" | "let*" => {
+            if let Some(bindings) = form(1) {
+                names.extend(tree.forms(bindings).filter_map(|b| binding_name(tree, b)));
+            }
+            1
+        }
+        "lambda" => {
+            params(tree, form(1), &mut names);
+            1
+        }
+        "defun" | "defmacro" => {
+            params(tree, form(2), &mut names);
+            2
+        }
+        "dolist" | "dotimes" => {
+            names.extend(form(1).and_then(|spec| binding_name(tree, spec)));
+            1
+        }
+        "if-let" | "if-let*" | "when-let" | "while-let" => {
+            if let Some(spec) = form(1) {
+                if_let_names(tree, spec, &mut names);
+            }
+            1
+        }
+        // The variable is bound in the handlers, after the body form.
+        "condition-case" => {
+            names.extend(form(1));
+            2
+        }
+        _ => return None,
+    };
+    names.retain(|&name| is_symbol(tree, name) && tree.text(name) != "nil");
+    Some(Binders { names, scope_after })
 }
 
 /// Whether ID is a name a binding form binds, as `locals_at` reads them: the
@@ -194,75 +251,47 @@ pub(super) fn is_binding_site(tree: &SyntaxTree, id: NodeId) -> bool {
     if !is_symbol(tree, id) || quoted(tree, id) {
         return false;
     }
-    let range = tree.node(id).range();
     let mut at = tree.node(id).parent();
     while let Some(list) = at {
-        at = tree.node(list).parent();
-        if !is_list(tree, list) {
-            continue;
-        }
-        let forms: Vec<NodeId> = tree.forms(list).collect();
-        let mut names = Vec::new();
-        match head(tree, list) {
-            Some("let" | "let*") if forms.len() > 1 => {
-                for binding in tree.forms(forms[1]) {
-                    push(tree, &mut names, binding_name(tree, binding));
-                }
-            }
-            Some("lambda") if forms.len() > 1 => params(tree, forms[1], &mut names),
-            Some("defun" | "defmacro") if forms.len() > 2 => params(tree, forms[2], &mut names),
-            Some("dolist" | "dotimes") if forms.len() > 1 => {
-                push(tree, &mut names, binding_name(tree, forms[1]))
-            }
-            Some("if-let" | "if-let*" | "when-let" | "while-let") if forms.len() > 1 => {
-                if_let_names(tree, forms[1], &mut names)
-            }
-            Some("condition-case") if forms.len() > 1 => push(tree, &mut names, Some(forms[1])),
-            _ => {}
-        }
-        if names.iter().any(|local| local.range == range) {
+        if binders(tree, list).is_some_and(|binders| binders.names.contains(&id)) {
             return true;
         }
+        at = tree.node(list).parent();
     }
     false
 }
 
-/// The local variables in scope at OFFSET, outermost binding first. The forms
-/// that bind them are the built-in ones: `let`, `let*`, `lambda`, `defun`,
-/// `defmacro`, `dolist`, `dotimes`, the `if-let` family and `condition-case`.
-pub(super) fn locals_at(tree: &SyntaxTree, offset: usize) -> Vec<Local> {
+/// The local variables in scope at OFFSET, outermost binding first, given PATH,
+/// the nodes that hold OFFSET as [`SyntaxTree::path_at`] finds them. The forms
+/// that bind them are those [`binders`] knows.
+pub(super) fn locals_at(tree: &SyntaxTree, path: &[NodeId], offset: usize) -> Vec<Local> {
     let mut locals = Vec::new();
-    for list in tree.path_at(offset) {
-        if !is_list(tree, list) || quoted(tree, list) {
+    for &list in path {
+        if quoted(tree, list) {
             continue;
         }
-        let forms: Vec<NodeId> = tree.forms(list).collect();
-        let past = |i: usize| forms.get(i).is_some_and(|&form| passed(tree, form, offset));
-        match head(tree, list) {
-            Some("let" | "let*") if past(1) => {
-                for binding in tree.forms(forms[1]) {
-                    push(tree, &mut locals, binding_name(tree, binding));
-                }
-            }
-            // In `let*`, each binding's value sees the bindings before it.
-            Some("let*") if forms.len() > 1 && tree.node(forms[1]).range().start < offset => {
-                for binding in tree.forms(forms[1]) {
-                    if passed(tree, binding, offset) {
-                        push(tree, &mut locals, binding_name(tree, binding));
-                    }
-                }
-            }
-            Some("lambda") if past(1) => params(tree, forms[1], &mut locals),
-            Some("defun" | "defmacro") if past(2) => params(tree, forms[2], &mut locals),
-            Some("dolist" | "dotimes") if past(1) => {
-                push(tree, &mut locals, binding_name(tree, forms[1]))
-            }
-            Some("if-let" | "if-let*" | "when-let" | "while-let") if past(1) => {
-                if_let_names(tree, forms[1], &mut locals)
-            }
-            // The variable is bound in the handlers, after the body form.
-            Some("condition-case") if past(2) => push(tree, &mut locals, Some(forms[1])),
-            _ => {}
+        let Some(binders) = binders(tree, list) else {
+            continue;
+        };
+        let in_scope = tree
+            .forms(list)
+            .nth(binders.scope_after)
+            .is_some_and(|form| passed(tree, form, offset));
+        if in_scope {
+            locals.extend(binders.names.iter().map(|&name| Local::new(tree, name)));
+            continue;
+        }
+        // In `let*`, each binding's value sees the bindings before it.
+        if head(tree, list) == Some("let*")
+            && let Some(bindings) = tree.forms(list).nth(1)
+            && tree.node(bindings).range().start < offset
+        {
+            let seen = tree
+                .forms(bindings)
+                .filter(|&binding| passed(tree, binding, offset))
+                .filter_map(|binding| binding_name(tree, binding))
+                .filter(|name| binders.names.contains(name));
+            locals.extend(seen.map(|name| Local::new(tree, name)));
         }
     }
     locals
