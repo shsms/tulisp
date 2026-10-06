@@ -159,10 +159,17 @@ fn binding_name(tree: &SyntaxTree, binding: NodeId) -> Option<NodeId> {
 }
 
 /// The parameters in LIST, a parameter list, without `&optional` and `&rest`.
-fn params(tree: &SyntaxTree, list: Option<NodeId>, names: &mut Vec<NodeId>) {
+/// LISTS takes LIST.
+fn params(
+    tree: &SyntaxTree,
+    list: Option<NodeId>,
+    names: &mut Vec<NodeId>,
+    lists: &mut Vec<NodeId>,
+) {
     if let Some(list) = list
         && is_list(tree, list)
     {
+        lists.push(list);
         names.extend(
             tree.forms(list)
                 .filter(|&param| !tree.text(param).starts_with('&')),
@@ -170,20 +177,32 @@ fn params(tree: &SyntaxTree, list: Option<NodeId>, names: &mut Vec<NodeId>) {
     }
 }
 
+/// Whether SPEC, an `if-let` family spec, is a single `(x VALUE)` binding
+/// instead of a list of bindings.
+fn is_single_binding(tree: &SyntaxTree, spec: NodeId) -> bool {
+    let mut forms = tree.forms(spec);
+    forms.next().is_some_and(|name| is_symbol(tree, name))
+        && forms.next().is_some()
+        && forms.next().is_none()
+}
+
 /// The names an `if-let` family SPEC binds: `(x VALUE)`, or a list of such
-/// bindings.
-fn if_let_names(tree: &SyntaxTree, spec: NodeId, names: &mut Vec<NodeId>) {
+/// bindings. LISTS takes SPEC and, in a list of bindings, each binding.
+fn if_let_names(tree: &SyntaxTree, spec: NodeId, names: &mut Vec<NodeId>, lists: &mut Vec<NodeId>) {
     if !is_list(tree, spec) {
         return;
     }
-    let forms: Vec<NodeId> = tree.forms(spec).collect();
-    if forms.len() == 2 && is_symbol(tree, forms[0]) {
-        names.push(forms[0]);
+    lists.push(spec);
+    if is_single_binding(tree, spec) {
+        names.extend(tree.forms(spec).next());
         return;
     }
-    for binding in forms {
-        if is_list(tree, binding) && tree.forms(binding).count() == 2 {
-            names.extend(binding_name(tree, binding));
+    for binding in tree.forms(spec) {
+        if is_list(tree, binding) {
+            lists.push(binding);
+            if tree.forms(binding).count() == 2 {
+                names.extend(binding_name(tree, binding));
+            }
         }
     }
 }
@@ -195,6 +214,9 @@ struct Binders {
     /// Which of the list's forms the names are in scope after, counting from 0
     /// for the head.
     scope_after: usize,
+    /// The lists that hold the names: a list of bindings and each binding in
+    /// it, a parameter list, or a `dolist` or `dotimes` spec.
+    lists: Vec<NodeId>,
 }
 
 /// What LIST binds, when it is one of the built-in binding forms: `let`,
@@ -208,28 +230,42 @@ fn binders(tree: &SyntaxTree, list: NodeId) -> Option<Binders> {
     let head = forms.first().filter(|&&head| is_symbol(tree, head))?;
     let form = |index: usize| forms.get(index).copied();
     let mut names = Vec::new();
+    let mut lists = Vec::new();
     let scope_after = match tree.text(*head) {
         "let" | "let*" => {
-            if let Some(bindings) = form(1) {
-                names.extend(tree.forms(bindings).filter_map(|b| binding_name(tree, b)));
+            if let Some(bindings) = form(1)
+                && is_list(tree, bindings)
+            {
+                lists.push(bindings);
+                for binding in tree.forms(bindings) {
+                    if is_list(tree, binding) {
+                        lists.push(binding);
+                    }
+                    names.extend(binding_name(tree, binding));
+                }
             }
             1
         }
         "lambda" => {
-            params(tree, form(1), &mut names);
+            params(tree, form(1), &mut names, &mut lists);
             1
         }
         "defun" | "defmacro" => {
-            params(tree, form(2), &mut names);
+            params(tree, form(2), &mut names, &mut lists);
             2
         }
         "dolist" | "dotimes" => {
-            names.extend(form(1).and_then(|spec| binding_name(tree, spec)));
+            if let Some(spec) = form(1) {
+                if is_list(tree, spec) {
+                    lists.push(spec);
+                }
+                names.extend(binding_name(tree, spec));
+            }
             1
         }
         "if-let" | "if-let*" | "when-let" | "while-let" => {
             if let Some(spec) = form(1) {
-                if_let_names(tree, spec, &mut names);
+                if_let_names(tree, spec, &mut names, &mut lists);
             }
             1
         }
@@ -241,7 +277,39 @@ fn binders(tree: &SyntaxTree, list: NodeId) -> Option<Binders> {
         _ => return None,
     };
     names.retain(|&name| is_symbol(tree, name) && tree.text(name) != "nil");
-    Some(Binders { names, scope_after })
+    Some(Binders {
+        names,
+        scope_after,
+        lists,
+    })
+}
+
+/// Whether LIST is where a binding form names what it binds: one of the lists
+/// [`binders`] gives for its parent or the parent of that. Such a list is not a
+/// call.
+pub(super) fn is_binding_list(tree: &SyntaxTree, list: NodeId) -> bool {
+    let parent = tree.node(list).parent();
+    let grandparent = parent.and_then(|parent| tree.node(parent).parent());
+    [parent, grandparent]
+        .into_iter()
+        .flatten()
+        .any(|form| binders(tree, form).is_some_and(|binders| binders.lists.contains(&list)))
+}
+
+/// The list of bindings in LIST in which each binding's value sees the bindings
+/// before it: that of a `let*`, or of an `if-let` family form whose spec is a
+/// list of bindings.
+fn sequential_bindings(tree: &SyntaxTree, list: NodeId) -> Option<NodeId> {
+    let bindings = tree.forms(list).nth(1)?;
+    match head(tree, list)? {
+        "let*" => Some(bindings),
+        "if-let" | "if-let*" | "when-let" | "while-let"
+            if is_list(tree, bindings) && !is_single_binding(tree, bindings) =>
+        {
+            Some(bindings)
+        }
+        _ => None,
+    }
 }
 
 /// Whether ID is a name a binding form binds, as `locals_at` reads them: the
@@ -281,9 +349,7 @@ pub(super) fn locals_at(tree: &SyntaxTree, path: &[NodeId], offset: usize) -> Ve
             locals.extend(binders.names.iter().map(|&name| Local::new(tree, name)));
             continue;
         }
-        // In `let*`, each binding's value sees the bindings before it.
-        if head(tree, list) == Some("let*")
-            && let Some(bindings) = tree.forms(list).nth(1)
+        if let Some(bindings) = sequential_bindings(tree, list)
             && tree.node(bindings).range().start < offset
         {
             let seen = tree

@@ -70,10 +70,11 @@ fn completion(name: &str, info: SymbolInfo) -> Completion {
 }
 
 /// What can complete the symbol being typed at OFFSET, or start one there.
-/// Right after `(` they are functions, macros and special forms; after `#'`,
-/// functions; in quoted data, any name; elsewhere, variables, the local ones
-/// around OFFSET included. The file's own definitions are offered too, and win
-/// over the context's. Inside a string, a comment or a number there are none.
+/// Right after `(` they are functions, macros and special forms, except in a
+/// list where a binding form names what it binds; after `#'`, functions; in
+/// quoted data, any name; elsewhere, variables, the local ones around OFFSET
+/// included. The file's own definitions are offered too, and win over the
+/// context's. Inside a string, a comment or a number there are none.
 pub fn completions(ctx: &TulispContext, tree: &SyntaxTree, offset: usize) -> Completions {
     let offset = tree.clamp(offset);
     let path = tree.path_at(offset);
@@ -123,10 +124,13 @@ pub fn completions(ctx: &TulispContext, tree: &SyntaxTree, offset: usize) -> Com
             Place::Function
         }
         Some(id) if scope::quoted(tree, id) => Place::Any,
-        // A list here is the innermost one around the offset, the one
-        // `call_at` finds; position 0 is its head.
+        // A list here is the innermost one around the offset, the one `call_at`
+        // finds; position 0 is its head. A list that names what a binding form
+        // binds is not a call.
         Some(list) if scope::is_list(tree, list) => {
-            if tree.call_at(offset).is_some_and(|call| call.position == 0) {
+            if !scope::is_binding_list(tree, list)
+                && tree.call_at(offset).is_some_and(|call| call.position == 0)
+            {
                 Place::Call
             } else {
                 Place::Value
@@ -196,8 +200,8 @@ fn active_param(signature: &Signature, arg: usize) -> Option<usize> {
 
 /// The signature of the innermost call around OFFSET, the file's own definition
 /// first, and which parameter the offset is at. `None` when the call's head is
-/// not a name with a known signature, in quoted data, or in a string or a
-/// comment.
+/// not a name with a known signature, in quoted data, in a list where a binding
+/// form names what it binds, or in a string or a comment.
 pub fn signature_help(
     ctx: &TulispContext,
     tree: &SyntaxTree,
@@ -205,7 +209,7 @@ pub fn signature_help(
 ) -> Option<SignatureHelp> {
     let offset = tree.clamp(offset);
     let call = tree.call_at(offset)?;
-    if scope::quoted(tree, call.list) {
+    if scope::quoted(tree, call.list) || scope::is_binding_list(tree, call.list) {
         return None;
     }
     let name = scope::head(tree, call.list)?;
@@ -258,10 +262,18 @@ pub fn hover(ctx: &TulispContext, tree: &SyntaxTree, offset: usize) -> Option<Ho
             binding: Some(range),
         });
     }
-    let is_call_head = tree
-        .node(id)
-        .parent()
-        .is_some_and(|list| tree.forms(list).next() == Some(id));
+    // The first form of a list, or the name after `#'`.
+    let is_call_head =
+        tree.node(id)
+            .parent()
+            .is_some_and(|parent| match tree.node(parent).kind() {
+                NodeKind::List { .. } => tree.forms(parent).next() == Some(id),
+                NodeKind::Prefix { prefix } => match prefix {
+                    Prefix::Function => true,
+                    Prefix::Quote | Prefix::Backquote | Prefix::Comma | Prefix::Splice => false,
+                },
+                NodeKind::Atom(_) | NodeKind::Dot | NodeKind::Comment | NodeKind::Error => false,
+            });
     // A local never hides a function: a call head runs the global one.
     if !is_call_head
         && !scope::quoted(tree, id)
@@ -732,6 +744,74 @@ mod tests {
             assert_eq!(found.binding, Some(found.range.clone()), "{source}");
         }
         let found = hover_at(&ctx, "(defun f (&opt|ional a) a)");
+        assert!(found.is_none_or(|h| h.binding.is_none()));
+    }
+
+    // Under `,` or `,@` a symbol is an argument of the backquoted list, not a
+    // call head; under `#'` it names a function.
+    #[test]
+    fn a_symbol_under_a_comma_is_not_a_call_head() {
+        let ctx = hint_context();
+        for source in [
+            "(let ((fixed 1)) `(a ,fix|ed))",
+            "(let ((fixed 1)) `(a ,@fix|ed))",
+        ] {
+            let found = hover_at(&ctx, source).unwrap_or_else(|| panic!("hover on {source}"));
+            assert_eq!(found.info.kind, SymbolKind::Variable, "{source}");
+            assert_eq!(found.binding, Some(7..12), "{source}");
+        }
+        let found = hover_at(&ctx, "(let ((xyz 1)) `(a ,x|yz))").expect("hover");
+        assert_eq!(found.info.kind, SymbolKind::Variable);
+        assert_eq!(found.binding, Some(7..10));
+        let found = hover_at(&ctx, "(let ((fixed 1)) (mapcar #'fix|ed nil))").expect("hover");
+        assert_eq!(found.info.kind, SymbolKind::Function);
+        assert_eq!(found.binding, None);
+    }
+
+    // As in `let*`, each binding in an `if-let` family form's list of bindings
+    // sees the ones before it. A single `(x VALUE)` spec does not see its own
+    // name.
+    #[test]
+    fn if_let_bindings_see_the_ones_before_them() {
+        let ctx = context();
+        assert!(has(
+            &complete(&ctx, "(when-let ((abc 1) (abd (+ ab|))) nil)"),
+            "abc"
+        ));
+        assert!(has(
+            &complete(&ctx, "(if-let* ((abc 1) (abd (+ ab|))) nil)"),
+            "abc"
+        ));
+        assert!(!has(&complete(&ctx, "(when-let (abc (+ ab|)) nil)"), "abc"));
+        let found = hover_at(&ctx, "(when-let ((abc 1) (abd (+ ab|c 1))) abd)").expect("hover");
+        assert_eq!(found.info.kind, SymbolKind::Variable);
+        assert_eq!(found.binding, Some(12..15));
+    }
+
+    // Where a binding form names what it binds, the names are variables, and
+    // the list there is not a call.
+    #[test]
+    fn binding_lists_are_not_calls() {
+        let ctx = context();
+        for source in ["(let ((ca|", "(let (ca|", "(defun f (ca|", "(dolist (ca|"] {
+            let names = complete(&ctx, source);
+            assert!(has(&names, "cat-count"), "{source}: {names:?}");
+            assert!(!has(&names, "car"), "{source}: {names:?}");
+        }
+        assert_eq!(help(&ctx, "(let ((car |"), None);
+        assert_eq!(
+            help(&ctx, "(let ((x (car |").map(|h| h.name).as_deref(),
+            Some("car")
+        );
+    }
+
+    #[test]
+    fn more_binding_forms_bind_their_names() {
+        let ctx = context();
+        assert!(has(&complete(&ctx, "(defmacro m (aaa) aa|)"), "aaa"));
+        assert!(has(&complete(&ctx, "(if-let* ((val 1)) va|)"), "val"));
+        assert!(has(&complete(&ctx, "(while-let ((val 1)) va|)"), "val"));
+        let found = hover_at(&ctx, "(condition-case ni|l (f) (error 1))");
         assert!(found.is_none_or(|h| h.binding.is_none()));
     }
 
