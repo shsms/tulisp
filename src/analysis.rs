@@ -294,7 +294,7 @@ pub struct Diagnostic {
     pub message: String,
 }
 
-/// The problems in the source: for now, where it cannot be read.
+/// The places where the source cannot be read, and why, in order.
 pub fn diagnostics(tree: &SyntaxTree) -> Vec<Diagnostic> {
     tree.errors()
         .iter()

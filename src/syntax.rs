@@ -56,20 +56,18 @@ pub enum AtomKind {
     Character,
 }
 
-/// What a node is.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// What a node is. [`SyntaxTree::children`] gives the nodes in a list or a
+/// prefix.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum NodeKind {
     /// `(...)`, holding its forms, dots and comments in order. `closed` is
     /// false when the input ended before its `)`.
-    List { children: Vec<NodeId>, closed: bool },
-    /// A prefixed form, such as `'x`. `children` is everything in the prefixed
+    List { closed: bool },
+    /// A prefixed form, such as `'x`. It holds everything in the prefixed
     /// form's place, in order: comments and the form, if one followed the
     /// prefix. [`SyntaxTree::forms`] gives the form alone.
-    Prefix {
-        prefix: Prefix,
-        children: Vec<NodeId>,
-    },
+    Prefix { prefix: Prefix },
     /// A name or a literal.
     Atom(AtomKind),
     /// The `.` of a dotted list.
@@ -86,12 +84,14 @@ pub struct Node {
     kind: NodeKind,
     range: Range<usize>,
     parent: Option<NodeId>,
+    /// The nodes in a list or a prefix, in order; empty for any other node.
+    children: Vec<NodeId>,
 }
 
 impl Node {
     /// What the node is.
-    pub fn kind(&self) -> &NodeKind {
-        &self.kind
+    pub fn kind(&self) -> NodeKind {
+        self.kind
     }
 
     /// Where the node's text is in the source, in bytes. An unclosed list runs
@@ -106,10 +106,10 @@ impl Node {
     }
 }
 
-/// A place where the source cannot be read, and why.
+/// A place where [`read`] could not read the source, and why.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct SyntaxError {
+pub struct ReadError {
     pub range: Range<usize>,
     pub message: String,
 }
@@ -129,7 +129,7 @@ pub struct SyntaxTree<'a> {
     source: &'a str,
     nodes: Vec<Node>,
     roots: Vec<NodeId>,
-    errors: Vec<SyntaxError>,
+    errors: Vec<ReadError>,
 }
 
 impl<'a> SyntaxTree<'a> {
@@ -163,13 +163,10 @@ impl<'a> SyntaxTree<'a> {
         &self.source[self.nodes[id.0].range.clone()]
     }
 
-    /// The nodes in ID: a list's children, or a prefix's form.
+    /// The nodes in ID, in order: a list's children, or a prefix's comments and
+    /// form. Any other node has none.
     pub fn children(&self, id: NodeId) -> &[NodeId] {
-        match &self.nodes[id.0].kind {
-            NodeKind::List { children, .. } => children,
-            NodeKind::Prefix { children, .. } => children,
-            NodeKind::Atom(_) | NodeKind::Dot | NodeKind::Comment | NodeKind::Error => &[],
-        }
+        &self.nodes[id.0].children
     }
 
     /// A list's forms, or a prefix's form: its children without the comments.
@@ -178,11 +175,12 @@ impl<'a> SyntaxTree<'a> {
     }
 
     /// The nodes that hold OFFSET, from a top-level node down to the innermost.
-    /// A list holds the offsets between its parentheses, and an unclosed list
-    /// those up to the end of the input. A string holds the offsets between its
-    /// quotes, and a comment those after its `;`. Any other node holds the
-    /// offsets from its start to its end, both included, so the end of a symbol
-    /// is in the symbol.
+    /// A list holds the offsets between its parentheses. An unclosed list, a
+    /// prefix and a comment hold the offsets after their start up to their end,
+    /// so an unclosed list holds the end of the input. A string holds the
+    /// offsets between its quotes. Any other node holds the offsets from its
+    /// start to its end, both included, so the end of a symbol is in the
+    /// symbol.
     pub fn path_at(&self, offset: usize) -> Vec<NodeId> {
         let mut path = Vec::new();
         let mut candidates: &[NodeId] = &self.roots;
@@ -243,7 +241,7 @@ impl<'a> SyntaxTree<'a> {
     }
 
     /// Where the source cannot be read, in order.
-    pub fn errors(&self) -> &[SyntaxError] {
+    pub fn errors(&self) -> &[ReadError] {
         &self.errors
     }
 
@@ -312,7 +310,7 @@ struct Builder<'a> {
     tokens: Tokenizer<'a>,
     nodes: Vec<Node>,
     roots: Vec<NodeId>,
-    errors: Vec<SyntaxError>,
+    errors: Vec<ReadError>,
     /// The lists and prefixes still open, innermost last.
     open: Vec<Open>,
     limit: usize,
@@ -372,11 +370,7 @@ impl<'a> Builder<'a> {
             // atoms, against its limit.
             token if self.open.len() >= self.limit => self.too_deep(&token, range),
             Token::OpenParen { .. } => {
-                let list = NodeKind::List {
-                    children: Vec::new(),
-                    closed: false,
-                };
-                let id = self.add(list, range);
+                let id = self.add(NodeKind::List { closed: false }, range);
                 self.open.push(Open::new(id));
             }
             Token::Quote { .. } => self.open_prefix(Prefix::Quote, range),
@@ -408,12 +402,13 @@ impl<'a> Builder<'a> {
             kind,
             range,
             parent: None,
+            children: Vec::new(),
         });
         id
     }
 
     fn error(&mut self, range: Range<usize>, message: impl Into<String>) {
-        self.errors.push(SyntaxError {
+        self.errors.push(ReadError {
             range,
             message: message.into(),
         });
@@ -425,25 +420,16 @@ impl<'a> Builder<'a> {
     }
 
     fn open_prefix(&mut self, prefix: Prefix, range: Range<usize>) {
-        let id = self.add(
-            NodeKind::Prefix {
-                prefix,
-                children: Vec::new(),
-            },
-            range,
-        );
+        let id = self.add(NodeKind::Prefix { prefix }, range);
         self.open.push(Open::new(id));
     }
 
-    /// Makes ID a child of PARENT, a list, or a top-level node.
+    /// Makes ID the last child of PARENT, a list or a prefix, or the last
+    /// top-level node.
     fn push_child(&mut self, parent: Option<NodeId>, id: NodeId) {
         self.nodes[id.0].parent = parent;
         match parent {
-            Some(parent) => {
-                if let NodeKind::List { children, .. } = &mut self.nodes[parent.0].kind {
-                    children.push(id);
-                }
-            }
+            Some(parent) => self.nodes[parent.0].children.push(id),
             None => self.roots.push(id),
         }
     }
@@ -456,11 +442,8 @@ impl<'a> Builder<'a> {
                 self.push_child(Some(top), id);
                 return;
             }
-            if let NodeKind::Prefix { children, .. } = &mut self.nodes[top.0].kind {
-                children.push(id);
-            }
+            self.push_child(Some(top), id);
             let end = self.nodes[id.0].range.end;
-            self.nodes[id.0].parent = Some(top);
             self.nodes[top.0].range.end = end;
             self.open.pop();
             id = top;
@@ -471,17 +454,8 @@ impl<'a> Builder<'a> {
     /// Adds a comment to the innermost open list or prefix, or the top level: a
     /// comment is not the form a prefix waits for.
     fn attach_comment(&mut self, id: NodeId) {
-        let Some(top) = self.open.last().map(|open| open.id) else {
-            self.push_child(None, id);
-            return;
-        };
-        self.nodes[id.0].parent = Some(top);
-        match &mut self.nodes[top.0].kind {
-            NodeKind::List { children, .. } | NodeKind::Prefix { children, .. } => {
-                children.push(id)
-            }
-            _ => {}
-        }
+        let top = self.open.last().map(|open| open.id);
+        self.push_child(top, id);
     }
 
     fn dot(&mut self, range: Range<usize>) {
@@ -533,10 +507,7 @@ impl<'a> Builder<'a> {
     /// `)`.
     fn check_dot(&mut self, list: NodeId, close: Range<usize>) {
         let (first, more) = {
-            let NodeKind::List { children, .. } = &self.nodes[list.0].kind else {
-                return;
-            };
-            let Some(mut after) = forms_after_dot(&self.nodes, children) else {
+            let Some(mut after) = forms_after_dot(&self.nodes, &self.nodes[list.0].children) else {
                 return;
             };
             (after.next(), after.next().is_some())
@@ -555,16 +526,8 @@ impl<'a> Builder<'a> {
     /// the form after the dot, so that form is blamed. A form that fails to
     /// read on its own has its own error instead.
     fn check_unclosed_dot(&mut self, list: NodeId) {
-        let first = match &self.nodes[list.0].kind {
-            NodeKind::List { children, .. } => {
-                forms_after_dot(&self.nodes, children).and_then(|mut after| after.next())
-            }
-            NodeKind::Prefix { .. }
-            | NodeKind::Atom(_)
-            | NodeKind::Dot
-            | NodeKind::Comment
-            | NodeKind::Error => None,
-        };
+        let first = forms_after_dot(&self.nodes, &self.nodes[list.0].children)
+            .and_then(|mut after| after.next());
         if let Some(first) = first
             && !self.fails_alone(first)
         {
@@ -577,11 +540,11 @@ impl<'a> Builder<'a> {
     /// error, or a prefix with no form or with a form that fails.
     fn fails_alone(&self, mut id: NodeId) -> bool {
         loop {
-            match &self.nodes[id.0].kind {
-                NodeKind::List { closed, .. } => return !closed,
+            match self.nodes[id.0].kind {
+                NodeKind::List { closed } => return !closed,
                 NodeKind::Error => return true,
-                NodeKind::Prefix { children, .. } => {
-                    match without_comments(&self.nodes, children).next() {
+                NodeKind::Prefix { .. } => {
+                    match without_comments(&self.nodes, &self.nodes[id.0].children).next() {
                         Some(form) => id = form,
                         None => return true,
                     }
@@ -633,28 +596,28 @@ impl SyntaxTree<'_> {
     }
 
     fn sexp_of(&self, id: NodeId) -> String {
+        let children =
+            || -> Vec<String> { self.children(id).iter().map(|&c| self.sexp_of(c)).collect() };
         match self.node(id).kind() {
-            NodeKind::List { children, closed } => {
-                let inner: Vec<String> = children.iter().map(|&c| self.sexp_of(c)).collect();
-                let inner = inner.join(" ");
-                if *closed {
+            NodeKind::List { closed } => {
+                let inner = children().join(" ");
+                if closed {
                     format!("({inner})")
                 } else {
                     format!("({inner}")
                 }
             }
-            NodeKind::Prefix { prefix, children } => {
+            NodeKind::Prefix { prefix } => {
                 let inner = if self.forms(id).next().is_none() {
                     "∅".to_string()
                 } else {
-                    let parts: Vec<String> = children.iter().map(|&c| self.sexp_of(c)).collect();
-                    parts.join(" ")
+                    children().join(" ")
                 };
                 format!("{}{inner}", prefix.text())
             }
             NodeKind::Comment => "#c".to_string(),
             NodeKind::Error => "#err".to_string(),
-            _ => self.text(id).to_string(),
+            NodeKind::Atom(_) | NodeKind::Dot => self.text(id).to_string(),
         }
     }
 }
@@ -688,11 +651,8 @@ mod tests {
             assert_eq!(at, span.start, "{} starts elsewhere", tree.text(id));
         }
         match node.kind() {
-            NodeKind::List { children, .. } => {
-                let mut forms = children
-                    .iter()
-                    .copied()
-                    .filter(|c| !matches!(tree.node(*c).kind(), NodeKind::Comment));
+            NodeKind::List { .. } => {
+                let mut forms = tree.forms(id);
                 let mut rest = obj.clone();
                 while let Some(form) = forms.next() {
                     if matches!(tree.node(form).kind(), NodeKind::Dot) {
@@ -858,7 +818,7 @@ mod tests {
         let kinds: Vec<NodeKind> = tree
             .roots()
             .iter()
-            .map(|&id| tree.node(id).kind().clone())
+            .map(|&id| tree.node(id).kind())
             .collect();
         assert_eq!(
             kinds,
@@ -871,6 +831,30 @@ mod tests {
                 NodeKind::Atom(AtomKind::Integer),
             ]
         );
+    }
+
+    // A kind is a plain value; the children are read through the tree.
+    #[test]
+    fn kinds_are_values_and_children_come_from_the_tree() {
+        let tree = read("('a ;c\n b");
+        let list = tree.roots()[0];
+        assert_eq!(tree.node(list).kind(), NodeKind::List { closed: false });
+        let children = tree.children(list);
+        let kinds: Vec<NodeKind> = children.iter().map(|&id| tree.node(id).kind()).collect();
+        assert_eq!(
+            kinds,
+            [
+                NodeKind::Prefix {
+                    prefix: Prefix::Quote
+                },
+                NodeKind::Comment,
+                NodeKind::Atom(AtomKind::Symbol),
+            ]
+        );
+        let quoted = tree.forms(children[0]).collect::<Vec<_>>();
+        assert_eq!(texts(&tree, &quoted), ["a"]);
+        let errors: &[ReadError] = tree.errors();
+        assert_eq!(errors.len(), 1);
     }
 
     #[test]
@@ -917,16 +901,18 @@ mod tests {
             let node = tree.node(id);
             let range = node.range();
             match node.kind() {
-                NodeKind::List { closed, .. } => {
+                NodeKind::List { closed } => {
                     cover(range.start..range.start + 1);
-                    if *closed {
+                    if closed {
                         cover(range.end - 1..range.end);
                     }
                 }
-                NodeKind::Prefix { prefix, .. } => {
+                NodeKind::Prefix { prefix } => {
                     cover(range.start..range.start + prefix.text().len())
                 }
-                _ => cover(range),
+                NodeKind::Atom(_) | NodeKind::Dot | NodeKind::Comment | NodeKind::Error => {
+                    cover(range)
+                }
             }
         }
         for (at, ch) in source.char_indices() {
@@ -1061,7 +1047,7 @@ mod tests {
             assert_eq!(tree.errors().len(), 1, "{source}: {:?}", tree.errors());
             let symbol = tree.roots()[1];
             assert_eq!(
-                *tree.node(symbol).kind(),
+                tree.node(symbol).kind(),
                 NodeKind::Atom(AtomKind::Symbol),
                 "{source}"
             );
@@ -1122,7 +1108,7 @@ mod tests {
         let prefix = tree.roots()[0];
         let children = tree.children(prefix).to_vec();
         assert_eq!(children.len(), 2);
-        assert_eq!(*tree.node(children[0]).kind(), NodeKind::Comment);
+        assert_eq!(tree.node(children[0]).kind(), NodeKind::Comment);
         assert_eq!(tree.text(children[1]), "x");
         assert!(matches!(tree.node(prefix).kind(), NodeKind::Prefix { .. }));
         assert_eq!(tree.forms(prefix).collect::<Vec<_>>(), [children[1]]);
@@ -1316,7 +1302,7 @@ mod tests {
         let path = tree.path_at(5);
         assert_eq!(texts(&tree, &path), ["(f '; c\n a)", "'; c\n a", "; c"]);
         let comment = tree.node(path[2]);
-        assert_eq!(comment.kind(), &NodeKind::Comment);
+        assert_eq!(comment.kind(), NodeKind::Comment);
         assert_eq!(comment.parent(), Some(path[1]));
         assert_eq!(tree.call_at(5), None);
         let path = tree.path_at(9);
