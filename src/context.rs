@@ -138,8 +138,12 @@ const CLEANUP_RESERVE: u32 = 8;
 pub struct TulispContext {
     obarray: HashMap<String, TulispObject>,
     pub(crate) filenames: Vec<String>,
-    /// Recorded signatures and docstrings, by name; see describe.rs.
+    /// Recorded signatures and docstrings of functions, by name; see
+    /// describe.rs.
     pub(crate) docs: HashMap<String, describe::DocEntry>,
+    /// Variables' docstrings, by name. Defining a function of the same name
+    /// leaves them.
+    pub(crate) variable_docs: HashMap<String, std::borrow::Cow<'static, str>>,
     pub(crate) compiler: Option<Compiler>,
     pub(crate) keywords: Keywords,
     pub(crate) vm: bytecode::Machine,
@@ -187,6 +191,7 @@ impl TulispContext {
             obarray,
             filenames: vec!["<eval_string>".to_string()],
             docs: HashMap::new(),
+            variable_docs: HashMap::new(),
             compiler: None,
             keywords,
             vm: bytecode::Machine::new(),
@@ -554,15 +559,17 @@ impl TulispContext {
         }
 
         let kind = describe::kind_of(&value);
-        let key = describe::value_key(&value);
+        let identity = describe::value_identity(&value);
         let sym = self.intern(name);
         if let Err(err) = self.set_function_value(&sym, value.into_ref(None)) {
             panic!("can't define a function named {name}: {}", err.desc());
         }
-        if let Some(signature) = signature {
+        if let Some(signature) = signature
+            && let Some(identity) = identity
+        {
             let entry = describe::DocEntry {
                 kind,
-                key,
+                identity,
                 signature: Some(signature),
                 doc: None,
             };
@@ -879,7 +886,7 @@ impl TulispContext {
     ) -> Result<(), Error> {
         let addr = sym.addr_as_usize();
         sym.set_global(function.clone())?;
-        // A new value has none of the old one's docs.
+        // The old value's function entry does not describe the new one.
         self.set_doc_entry(sym, None);
         self.evict_compiled_dispatch(addr);
         // Put a compiled function in the machine's table, as `defun` does,

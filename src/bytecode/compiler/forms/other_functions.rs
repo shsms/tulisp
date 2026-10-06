@@ -1,5 +1,3 @@
-use std::borrow::Cow;
-
 use super::common::compile_args_then;
 use crate::{
     Error, ErrorKind, TulispContext, TulispObject,
@@ -11,10 +9,8 @@ use crate::{
             compiler::{compile_expr, compile_expr_keep_result, compile_progn},
         },
     },
-    context::describe::DocEntry,
     object::wrappers::generic::{Shared, SharedMut},
     parse::mark_tail_calls,
-    symbols::SymbolKind,
 };
 
 pub(super) fn compile_fn_print(
@@ -432,6 +428,7 @@ fn compile_defun(
         trace_ranges,
         params: defun_params,
         slot_count,
+        doc,
     });
     // A function that closes over variables is made again each time the
     // defun form runs, from the same code; until then its variables
@@ -458,14 +455,9 @@ fn compile_defun(
         }
         .into_ref(None),
     )?;
-    // A redefinition with no docstring drops the old one.
-    let entry = doc.map(|doc| DocEntry {
-        kind: SymbolKind::Function,
-        key: Some(function.code_addr()),
-        signature: None,
-        doc: Some(Cow::Owned(doc)),
-    });
-    ctx.set_doc_entry(&fn_name, entry);
+    // The function carries its own docstring; the old value's function entry,
+    // such as a Rust registration's, does not describe it.
+    ctx.set_doc_entry(&fn_name, None);
     install_function(ctx, &fn_name, function);
     // The value of `defun` is the function's name.
     let compiler = ctx.compiler.as_mut().unwrap();

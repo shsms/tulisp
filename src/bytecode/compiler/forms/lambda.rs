@@ -67,6 +67,7 @@ pub(super) fn compile_lambda(
     let params = args.car()?;
     let body = args.cdr()?;
     crate::builtin::check_param_list(ctx, &params)?;
+    let doc = crate::builtin::docstring(&body)?;
     let body = strip_docstring(body)?;
 
     // Parse params: required, &optional group, &rest group.
@@ -154,6 +155,7 @@ pub(super) fn compile_lambda(
             trace_ranges,
             params: vm_params,
             slot_count: scope.slot_count,
+            doc,
         }),
         capture_sources: scope.capture_sources,
     })

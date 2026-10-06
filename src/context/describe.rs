@@ -30,7 +30,7 @@ pub(crate) fn kind_of(value: &TulispValue) -> SymbolKind {
 /// `None` for a value that is not a function. An address can be reused once the
 /// old value is freed, so a stale match is possible, but it needs that exact
 /// reuse.
-pub(crate) fn value_key(value: &TulispValue) -> Option<usize> {
+pub(crate) fn value_identity(value: &TulispValue) -> Option<usize> {
     match value {
         TulispValue::Defun { call, .. } => Some(call.addr_as_usize()),
         TulispValue::Special { call, .. } => Some(call.addr_as_usize()),
@@ -53,16 +53,16 @@ pub(crate) fn value_key(value: &TulispValue) -> Option<usize> {
     }
 }
 
-/// The kind and the `value_key` of a value.
-fn kind_and_key(value: &TulispValue) -> (SymbolKind, Option<usize>) {
-    (kind_of(value), value_key(value))
+/// The kind and the `value_identity` of a value.
+fn kind_and_identity(value: &TulispValue) -> (SymbolKind, Option<usize>) {
+    (kind_of(value), value_identity(value))
 }
 
-/// The kind and the `value_key` of what a name holds: VALUE, or nothing for a
-/// variable declared with `defvar` and never set.
-fn held_kind_and_key(value: Option<&TulispObject>) -> (SymbolKind, Option<usize>) {
+/// The kind and the `value_identity` of what a name holds: VALUE, or nothing
+/// for a variable declared with `defvar` and never set.
+fn held_kind_and_identity(value: Option<&TulispObject>) -> (SymbolKind, Option<usize>) {
     value.map_or((SymbolKind::Variable, None), |value| {
-        kind_and_key(&value.inner_ref().0)
+        kind_and_identity(&value.inner_ref().0)
     })
 }
 
@@ -126,37 +126,57 @@ pub(crate) fn derived_signature(value: &TulispValue) -> Option<Signature> {
     }
 }
 
-/// The docstring a value itself holds: a Lisp macro's, in its body.
+/// The docstring a value itself holds: a Lisp function's, on its compiled code,
+/// or a Lisp macro's, in its body.
 fn derived_doc(value: &TulispValue) -> Option<String> {
-    let TulispValue::Defmacro { lambda, .. } = value else {
-        return None;
-    };
-    let body = lambda.cddr().ok()?;
-    crate::builtin::docstring(&body).ok().flatten()
+    match value {
+        TulispValue::CompiledDefun { value } => value.doc().map(str::to_string),
+        TulispValue::Defmacro { lambda, .. } => {
+            let body = lambda.cddr().ok()?;
+            crate::builtin::docstring(&body).ok().flatten()
+        }
+        TulispValue::Nil
+        | TulispValue::T
+        | TulispValue::Symbol { .. }
+        | TulispValue::Number { .. }
+        | TulispValue::String { .. }
+        | TulispValue::List { .. }
+        | TulispValue::Quote { .. }
+        | TulispValue::Backquote { .. }
+        | TulispValue::Unquote { .. }
+        | TulispValue::Splice { .. }
+        | TulispValue::Any(_)
+        | TulispValue::Bounce
+        | TulispValue::Defun { .. }
+        | TulispValue::Special { .. }
+        | TulispValue::Macro(_)
+        | TulispValue::SpecialForm => None,
+    }
 }
 
-/// What the context records of a name beyond its value: the signature a Rust
-/// registration declared, and a docstring. `describe` uses it only while the
-/// name still holds the value it was recorded for.
+/// What the context records of a name's function beyond the value: the
+/// signature a Rust registration declared, and a docstring. `describe` uses it
+/// only while the name still holds the value it was recorded for. A variable's
+/// docstring is kept apart from it.
 pub(crate) struct DocEntry {
     pub(crate) kind: SymbolKind,
-    /// The `value_key` of the value the entry describes; `None` for a
-    /// variable's entry, which describes the variable whatever value it holds.
-    pub(crate) key: Option<usize>,
+    /// The `value_identity` of the value the entry describes.
+    pub(crate) identity: usize,
     pub(crate) signature: Option<Signature>,
     pub(crate) doc: Option<Cow<'static, str>>,
 }
 
 impl DocEntry {
-    /// Whether the entry describes a value of KIND with identity KEY.
-    fn describes(&self, kind: SymbolKind, key: Option<usize>) -> bool {
-        self.kind == kind && (self.key.is_none() || self.key == key)
+    /// Whether the entry describes a value of KIND with IDENTITY.
+    fn describes(&self, kind: SymbolKind, identity: usize) -> bool {
+        self.kind == kind && self.identity == identity
     }
 }
 
 impl TulispContext {
-    /// Sets, or with `None` removes, the entry for SYM. Only a symbol interned
-    /// under its name has one: describe looks names up in the obarray.
+    /// Sets, or with `None` removes, the function entry for SYM. A variable's
+    /// docstring stays. Only a symbol interned under its name has an entry:
+    /// describe looks names up in the obarray.
     pub(crate) fn set_doc_entry(&mut self, sym: &TulispObject, entry: Option<DocEntry>) {
         let Some(name) = self.interned_name(sym) else {
             return;
@@ -176,8 +196,9 @@ impl TulispContext {
     /// line `(fn HOST &optional PORT)` after a blank line, as Emacs writes it,
     /// gives the parameter names to show.
     ///
-    /// Defining NAME again drops the docstring, so call this after the `defun`
-    /// it documents.
+    /// A function's docstring goes when NAME is defined again, so call this
+    /// after the `defun` it documents. A variable's docstring stays whatever
+    /// NAME is given.
     ///
     /// Returns an Error if NAME has no value and was not declared with
     /// `defvar`.
@@ -204,29 +225,28 @@ impl TulispContext {
                 "set_doc: {name} has no value"
             )));
         };
-        let (kind, key) = held_kind_and_key(value.as_ref());
-        self.set_doc_text(name, kind, key, Cow::Owned(doc.to_string()));
+        self.attach_doc(name, value.as_ref(), Cow::Owned(doc.to_string()));
         Ok(())
     }
 
-    /// Sets the docstring of NAME, which holds a value of KIND with identity
-    /// KEY, keeping the entry's signature when the entry is the one `describe`
-    /// would use for that value.
-    pub(crate) fn set_doc_text(
-        &mut self,
-        name: &str,
-        kind: SymbolKind,
-        key: Option<usize>,
-        doc: Cow<'static, str>,
-    ) {
+    /// Attaches DOC to NAME, which holds VALUE, or nothing for a variable
+    /// declared with `defvar` and never set. A function's docstring goes in its
+    /// entry, keeping the entry's signature when the entry describes VALUE; any
+    /// other value's is the variable's docstring.
+    fn attach_doc(&mut self, name: &str, value: Option<&TulispObject>, doc: Cow<'static, str>) {
+        let (kind, identity) = held_kind_and_identity(value);
+        let Some(identity) = identity else {
+            self.variable_docs.insert(name.to_string(), doc);
+            return;
+        };
         match self.docs.get_mut(name) {
-            Some(entry) if entry.describes(kind, key) => {
+            Some(entry) if entry.describes(kind, identity) => {
                 entry.doc = Some(doc);
             }
-            _ => {
+            Some(_) | None => {
                 let entry = DocEntry {
                     kind,
-                    key,
+                    identity,
                     signature: None,
                     doc: Some(doc),
                 };
@@ -241,8 +261,7 @@ impl TulispContext {
         let Some(value) = self.obarray.get(name).and_then(|sym| sym.global()) else {
             return;
         };
-        let (kind, key) = kind_and_key(&value.inner_ref().0);
-        self.set_doc_text(name, kind, key, Cow::Borrowed(doc));
+        self.attach_doc(name, Some(&value), Cow::Borrowed(doc));
     }
 
     /// Test-only: the signature NAME's value itself shows, with no docstring's
@@ -256,7 +275,7 @@ impl TulispContext {
     /// Records a `defvar` docstring for SYM, when SYM is interned.
     pub(crate) fn set_variable_doc(&mut self, sym: &TulispObject, doc: String) {
         if let Some(name) = self.interned_name(sym) {
-            self.set_doc_text(&name, SymbolKind::Variable, None, Cow::Owned(doc));
+            self.variable_docs.insert(name, Cow::Owned(doc));
         }
     }
 
@@ -272,27 +291,35 @@ impl TulispContext {
     /// What NAME holds, its signature and its docstring, for editor tools.
     /// `None` when NAME has no value and was not declared with `defvar`, or is
     /// a keyword. It does not intern NAME.
+    ///
+    /// The kind and the signature come from the value. The docstring is the
+    /// function entry's, when the entry describes the value; else the one the
+    /// value itself holds; else the variable's, while NAME holds a variable or
+    /// was declared with `defvar`.
     pub fn describe(&self, name: &str) -> Option<SymbolInfo> {
         let sym = self.obarray.get(name)?;
         let value = described_value(name, sym)?;
-        let (kind, key) = held_kind_and_key(value.as_ref());
-        let entry = self
-            .docs
-            .get(name)
-            .filter(|entry| entry.describes(kind, key));
-        // A `defvar` docstring outlives a later `setq` of any kind of value.
-        let doc_entry = entry.or_else(|| {
+        let (kind, identity) = held_kind_and_identity(value.as_ref());
+        let entry = identity.and_then(|identity| {
             self.docs
                 .get(name)
-                .filter(|entry| sym.is_special() && entry.kind == SymbolKind::Variable)
+                .filter(|entry| entry.describes(kind, identity))
         });
-        let doc = match doc_entry.and_then(|entry| entry.doc.as_deref()) {
-            Some(doc) => Some(Cow::Borrowed(doc)),
-            None => value
-                .as_ref()
-                .and_then(|value| derived_doc(&value.inner_ref().0))
-                .map(Cow::Owned),
-        };
+        let doc = entry
+            .and_then(|entry| entry.doc.as_deref())
+            .map(Cow::Borrowed)
+            .or_else(|| {
+                value
+                    .as_ref()
+                    .and_then(|value| derived_doc(&value.inner_ref().0))
+                    .map(Cow::Owned)
+            })
+            .or_else(|| {
+                (kind == SymbolKind::Variable || sym.is_special())
+                    .then(|| self.variable_docs.get(name))
+                    .flatten()
+                    .map(|doc| Cow::Borrowed(doc.as_ref()))
+            });
         Some(SymbolInfo::from_doc(kind, doc, || {
             entry.and_then(|entry| entry.signature.clone()).or_else(|| {
                 value
@@ -307,7 +334,7 @@ impl TulispContext {
     pub(crate) fn symbol_kinds(&self) -> impl Iterator<Item = (&str, SymbolKind)> + '_ {
         self.obarray.iter().filter_map(|(name, sym)| {
             let value = described_value(name, sym)?;
-            Some((name.as_str(), held_kind_and_key(value.as_ref()).0))
+            Some((name.as_str(), held_kind_and_identity(value.as_ref()).0))
         })
     }
 
@@ -634,5 +661,111 @@ mod tests {
         let function = ctx.eval_string("(lambda () 2)").unwrap();
         ctx.fset("e", function).unwrap();
         assert_eq!(doc(&ctx, "e"), None);
+    }
+
+    #[test]
+    fn a_defvar_doc_outlives_a_defun() {
+        let mut ctx = TulispContext::new();
+        ctx.eval_string("(defvar hv nil \"Var doc.\") (defun hv (x) x)")
+            .unwrap();
+        assert_eq!(doc(&ctx, "hv").as_deref(), Some("Var doc."));
+    }
+
+    #[test]
+    fn a_defvar_doc_outlives_fset() {
+        let mut ctx = TulispContext::new();
+        ctx.eval_string("(defvar hv nil \"Var doc.\")").unwrap();
+        let lambda = ctx.eval_string("(lambda (x) x)").unwrap();
+        ctx.fset("hv", lambda).unwrap();
+        assert_eq!(doc(&ctx, "hv").as_deref(), Some("Var doc."));
+    }
+
+    #[test]
+    fn a_defvar_doc_outlives_a_defmacro() {
+        let mut ctx = TulispContext::new();
+        ctx.eval_string("(defvar hv nil \"Var doc.\") (defmacro hv (x) x)")
+            .unwrap();
+        assert_eq!(doc(&ctx, "hv").as_deref(), Some("Var doc."));
+    }
+
+    #[test]
+    fn a_defvar_doc_comes_back_after_a_documented_defun() {
+        let mut ctx = TulispContext::new();
+        ctx.eval_string("(defvar hv nil \"Var doc.\") (defun hv (x) \"Fn doc.\" x)")
+            .unwrap();
+        assert_eq!(doc(&ctx, "hv").as_deref(), Some("Fn doc."));
+        ctx.eval_string("(setq hv 5)").unwrap();
+        assert_eq!(doc(&ctx, "hv").as_deref(), Some("Var doc."));
+    }
+
+    #[test]
+    fn a_defvar_doc_does_not_replace_a_rust_functions_doc() {
+        let mut ctx = TulispContext::new();
+        ctx.defun("rf", |a: i64| a);
+        ctx.set_doc("rf", "Rust doc.").unwrap();
+        ctx.eval_string("(defvar rf nil \"Var doc.\")").unwrap();
+        assert_eq!(doc(&ctx, "rf").as_deref(), Some("Rust doc."));
+        assert_eq!(rendered(&ctx, "rf"), "(rf INTEGER)");
+    }
+
+    #[test]
+    fn a_lambda_keeps_its_docstring() {
+        let mut ctx = TulispContext::new();
+        ctx.eval_string("(setq f1 (lambda (x) \"Lam doc.\" x))")
+            .unwrap();
+        assert_eq!(doc(&ctx, "f1").as_deref(), Some("Lam doc."));
+        let lambda = ctx.eval_string("(lambda (x) \"Lam doc.\" x)").unwrap();
+        ctx.fset("f2", lambda).unwrap();
+        assert_eq!(doc(&ctx, "f2").as_deref(), Some("Lam doc."));
+    }
+
+    #[test]
+    fn a_function_set_under_another_name_keeps_its_docstring() {
+        let mut ctx = TulispContext::new();
+        ctx.eval_string("(defun orig (a) \"Orig doc.\" a)").unwrap();
+        let function = ctx.intern("orig").global().expect("orig's function");
+        ctx.fset("ali", function).unwrap();
+        assert_eq!(doc(&ctx, "ali").as_deref(), Some("Orig doc."));
+    }
+
+    // fset of the value a name already holds still drops its entry.
+    #[test]
+    fn fset_drops_the_entry_of_the_same_value() {
+        let mut ctx = TulispContext::new();
+        ctx.defun("q", |a: i64| a);
+        ctx.set_doc("q", "NewQ.").unwrap();
+        let own = ctx.intern("q").global().expect("q's function");
+        ctx.fset("q", own).unwrap();
+        assert_eq!(doc(&ctx, "q"), None);
+        assert!(!ctx.docs.contains_key("q"));
+    }
+
+    // A Lisp `defun` drops the function entry of the name it defines.
+    #[test]
+    fn defun_drops_the_function_entry() {
+        let mut ctx = TulispContext::new();
+        ctx.eval_string("(defun b () \"Old.\" 1) (defun b () 2)")
+            .unwrap();
+        assert_eq!(doc(&ctx, "b"), None);
+        assert!(!ctx.docs.contains_key("b"));
+        ctx.defun("rb", |a: i64| a);
+        ctx.set_doc("rb", "Rust doc.").unwrap();
+        assert!(ctx.docs.contains_key("rb"));
+        ctx.eval_string("(defun rb () 2)").unwrap();
+        assert_eq!(doc(&ctx, "rb"), None);
+        assert!(!ctx.docs.contains_key("rb"));
+    }
+
+    // A Rust parameter's type name is kept as the registration gave it.
+    #[test]
+    fn a_type_name_is_kept_as_given() {
+        let mut ctx = TulispContext::new();
+        ctx.defun("tn", |a: i64| a);
+        let signature = ctx.describe("tn").and_then(|info| info.signature);
+        let params = signature.expect("a signature").params;
+        assert!(matches!(
+            params[0].type_name,
+            Some(std::borrow::Cow::Borrowed("integer"))
+        ));
     }
 }

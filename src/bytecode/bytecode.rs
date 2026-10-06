@@ -54,6 +54,11 @@ impl CompiledDefun {
         }
     }
 
+    /// The docstring of the `defun` or `lambda` the function was compiled from.
+    pub(crate) fn doc(&self) -> Option<&str> {
+        self.code.doc.as_deref()
+    }
+
     /// The address of the shared code, the same for every function made from
     /// one compile of a form.
     pub(crate) fn code_addr(&self) -> usize {
@@ -86,6 +91,8 @@ pub(crate) struct CompiledCode {
     pub(crate) params: DefunParams,
     /// How many slots a call reserves for its lexical variables.
     pub(crate) slot_count: u16,
+    /// The docstring the compiler took off the body.
+    pub(crate) doc: Option<String>,
 }
 
 #[derive(Clone)]

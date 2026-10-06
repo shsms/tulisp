@@ -40,7 +40,7 @@ pub struct SignatureParam {
     pub position: ParamPosition,
     /// The Lisp type a Rust function's parameter converts from, such as
     /// `integer`.
-    pub type_name: Option<String>,
+    pub type_name: Option<Cow<'static, str>>,
 }
 
 impl SignatureParam {

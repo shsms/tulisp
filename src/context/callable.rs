@@ -177,7 +177,7 @@ pub(crate) fn signature(kinds: &[ParamKind], types: &[Option<Cow<'static, str>>]
                 }
                 ParamKind::Positional { .. } | ParamKind::Form { .. } => ParamPosition::Optional,
             },
-            type_name: type_name.as_ref().map(|name| name.to_string()),
+            type_name: type_name.clone(),
         })
         .collect();
     Signature { params }
