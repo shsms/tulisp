@@ -63,10 +63,12 @@ pub enum NodeKind {
     /// `(...)`, holding its forms, dots and comments in order. `closed` is
     /// false when the input ended before its `)`.
     List { children: Vec<NodeId>, closed: bool },
-    /// A prefixed form, such as `'x`. `child` is `None` when no form
-    /// followed the prefix.
+    /// A prefixed form, such as `'x`. `children` is everything in the prefixed
+    /// form's place, in order: comments and the form. `child` is the form
+    /// itself, `None` when no form followed the prefix.
     Prefix {
         prefix: Prefix,
+        children: Vec<NodeId>,
         child: Option<NodeId>,
     },
     /// A name or a literal.
@@ -147,7 +149,7 @@ impl<'a> SyntaxTree<'a> {
     pub fn children(&self, id: NodeId) -> &[NodeId] {
         match &self.nodes[id.0].kind {
             NodeKind::List { children, .. } => children,
-            NodeKind::Prefix { child, .. } => child.as_slice(),
+            NodeKind::Prefix { children, .. } => children,
             _ => &[],
         }
     }
@@ -308,6 +310,7 @@ impl<'a> Builder<'a> {
         let id = self.add(
             NodeKind::Prefix {
                 prefix,
+                children: Vec::new(),
                 child: None,
             },
             range,
@@ -336,8 +339,12 @@ impl<'a> Builder<'a> {
                 self.push_child(Some(top), id);
                 return;
             }
-            if let NodeKind::Prefix { child, .. } = &mut self.nodes[top.0].kind {
+            if let NodeKind::Prefix {
+                children, child, ..
+            } = &mut self.nodes[top.0].kind
+            {
                 *child = Some(id);
+                children.push(id);
             }
             let end = self.nodes[id.0].range.end;
             self.nodes[id.0].parent = Some(top);
@@ -348,21 +355,34 @@ impl<'a> Builder<'a> {
         self.push_child(None, id);
     }
 
-    /// Adds a comment to the innermost open list, or the top level: a
+    /// Adds a comment to the innermost open list or prefix, or the top level: a
     /// comment is not the form a prefix waits for.
     fn attach_comment(&mut self, id: NodeId) {
-        let list = self
-            .open
-            .iter()
-            .rev()
-            .copied()
-            .find(|open| matches!(self.nodes[open.0].kind, NodeKind::List { .. }));
-        self.push_child(list, id);
+        let Some(&top) = self.open.last() else {
+            self.push_child(None, id);
+            return;
+        };
+        self.nodes[id.0].parent = Some(top);
+        match &mut self.nodes[top.0].kind {
+            NodeKind::List { children, .. } | NodeKind::Prefix { children, .. } => {
+                children.push(id)
+            }
+            _ => {}
+        }
     }
 
     fn dot(&mut self, range: Range<usize>) {
+        let after_dot = |tree: &Self, top: NodeId| match &tree.nodes[top.0].kind {
+            NodeKind::List { children, .. } => children
+                .iter()
+                .any(|c| matches!(tree.nodes[c.0].kind, NodeKind::Dot)),
+            _ => false,
+        };
         match self.open.last() {
-            Some(&top) if matches!(self.nodes[top.0].kind, NodeKind::List { .. }) => {
+            Some(&top)
+                if matches!(self.nodes[top.0].kind, NodeKind::List { .. })
+                    && !after_dot(self, top) =>
+            {
                 let id = self.add(NodeKind::Dot, range);
                 self.push_child(Some(top), id);
             }
@@ -376,15 +396,19 @@ impl<'a> Builder<'a> {
 
     fn close(&mut self, range: Range<usize>) {
         // A prefix that nothing followed before the `)`.
+        let mut reported = false;
         while let Some(&top) = self.open.last()
             && matches!(self.nodes[top.0].kind, NodeKind::Prefix { .. })
         {
             self.error(range.clone(), "Unexpected closing parenthesis");
+            reported = true;
             self.open.pop();
             self.attach_value(top);
         }
         let Some(list) = self.open.pop() else {
-            self.error(range.clone(), "Unexpected closing parenthesis");
+            if !reported {
+                self.error(range.clone(), "Unexpected closing parenthesis");
+            }
             let id = self.add(NodeKind::Error, range);
             self.push_child(None, id);
             return;
@@ -419,7 +443,7 @@ impl<'a> Builder<'a> {
             [_] => {}
             [first, ..] => {
                 let range = self.nodes[first.0].range.clone();
-                self.error(range, "Expected only one item in list after dot");
+                self.error(range, "Expected only one item in list after dot.");
             }
         }
     }
@@ -476,9 +500,18 @@ impl SyntaxTree<'_> {
                     format!("({inner}")
                 }
             }
-            NodeKind::Prefix { prefix, child } => {
-                let child = child.map_or("∅".to_string(), |c| self.sexp_of(c));
-                format!("{}{child}", prefix.text())
+            NodeKind::Prefix {
+                prefix,
+                children,
+                child,
+            } => {
+                let inner = if child.is_none() {
+                    "∅".to_string()
+                } else {
+                    let parts: Vec<String> = children.iter().map(|&c| self.sexp_of(c)).collect();
+                    parts.join(" ")
+                };
+                format!("{}{inner}", prefix.text())
             }
             NodeKind::Comment => "#c".to_string(),
             NodeKind::Error => "#err".to_string(),
@@ -637,7 +670,7 @@ mod tests {
         );
         assert_eq!(
             errors("(a . b c)"),
-            pairs(&[("b", "Expected only one item in list after dot")])
+            pairs(&[("b", "Expected only one item in list after dot.")])
         );
     }
 
@@ -703,6 +736,53 @@ mod tests {
             found,
             [("(a b) c", "Lisp nesting exceeds max-nesting-depth (2)")]
         );
+    }
+
+    #[test]
+    fn a_second_dot_is_an_error() {
+        let found = read("(a . .)").errors().to_vec();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].message, "Unexpected dot");
+        assert_eq!(found[0].range, 5..6);
+        let found = read("(. .)").errors().to_vec();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].message, "Unexpected dot");
+        assert_eq!(found[0].range.start, 3);
+        assert_eq!(errors("(a . .)"), pairs(&[(".", "Unexpected dot")]));
+    }
+
+    #[test]
+    fn a_comment_after_a_prefix_stays_inside_it() {
+        assert_eq!(sexp("(' ;c\n x)"), "('#c x)");
+        let tree = read("' ;c\n x");
+        assert_eq!(tree.roots().len(), 1);
+        let prefix = tree.roots()[0];
+        let children = tree.children(prefix).to_vec();
+        assert_eq!(children.len(), 2);
+        assert_eq!(*tree.node(children[0]).kind(), NodeKind::Comment);
+        assert_eq!(tree.text(children[1]), "x");
+        match tree.node(prefix).kind() {
+            NodeKind::Prefix { child, .. } => assert_eq!(*child, Some(children[1])),
+            other => panic!("{other:?}"),
+        }
+        let tree = read("(' ;c\n x)");
+        assert_eq!(tree.children(tree.roots()[0]).len(), 1);
+    }
+
+    #[test]
+    fn a_stray_close_after_a_top_level_prefix_is_one_error() {
+        assert_eq!(
+            errors("')"),
+            pairs(&[(")", "Unexpected closing parenthesis")])
+        );
+    }
+
+    #[test]
+    fn deep_balanced_input_builds_and_drops_without_a_limit() {
+        let source = "(".repeat(200_000) + &")".repeat(200_000);
+        let tree = read_with_limit(&source, usize::MAX);
+        assert!(tree.errors().is_empty());
+        drop(tree);
     }
 
     #[test]
