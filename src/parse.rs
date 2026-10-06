@@ -157,6 +157,14 @@ impl Tokenizer<'_> {
         }
     }
 
+    /// Whether the character last read is a `"` with no backslash before it.
+    /// An escape reads a bare `"` only as the base of `\C-` or `\^`, and fails
+    /// on it; that `"` closed the string, so nothing of the string is left.
+    fn ended_on_bare_quote(&self) -> bool {
+        let read = &self.source.as_bytes()[..self.offset()];
+        read.ends_with(b"\"") && !read.ends_with(b"\\\"")
+    }
+
     fn peek_char(&mut self) -> Option<char> {
         *self.peeked.get_or_insert_with(|| self.chars.next())
     }
@@ -196,7 +204,9 @@ impl Tokenizer<'_> {
                             let pos = (self.line, self.pos);
                             let span = Span::new(self.file_id, pos, pos);
                             let offset = self.last_char_offset();
-                            self.skip_rest_of_string();
+                            if !self.ended_on_bare_quote() {
+                                self.skip_rest_of_string();
+                            }
                             return Some(Token::ParserError(ParserError::syntax_error(
                                 desc, span, offset,
                             )));

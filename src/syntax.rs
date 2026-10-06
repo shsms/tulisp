@@ -314,8 +314,21 @@ struct Builder<'a> {
     roots: Vec<NodeId>,
     errors: Vec<SyntaxError>,
     /// The lists and prefixes still open, innermost last.
-    open: Vec<NodeId>,
+    open: Vec<Open>,
     limit: usize,
+}
+
+/// A list or prefix the [`Builder`] has not finished.
+struct Open {
+    id: NodeId,
+    /// Whether the list has its dot. Always false for a prefix.
+    dotted: bool,
+}
+
+impl Open {
+    fn new(id: NodeId) -> Self {
+        Open { id, dotted: false }
+    }
 }
 
 impl<'a> Builder<'a> {
@@ -325,13 +338,16 @@ impl<'a> Builder<'a> {
             self.token(token, range);
         }
         let end = self.source.len();
-        while let Some(top) = self.open.pop() {
+        while let Some(Open { id: top, dotted }) = self.open.pop() {
             let range = self.nodes[top.0].range.clone();
             if matches!(self.nodes[top.0].kind, NodeKind::Prefix { .. }) {
                 self.error(range, "Unexpected EOF");
             } else {
                 self.error(range.start..range.start + 1, "Unclosed list");
                 self.nodes[top.0].range.end = end;
+                if dotted {
+                    self.check_unclosed_dot(top);
+                }
             }
             self.attach_value(top);
         }
@@ -361,7 +377,7 @@ impl<'a> Builder<'a> {
                     closed: false,
                 };
                 let id = self.add(list, range);
-                self.open.push(id);
+                self.open.push(Open::new(id));
             }
             Token::Quote { .. } => self.open_prefix(Prefix::Quote, range),
             Token::Backtick { .. } => self.open_prefix(Prefix::Backquote, range),
@@ -416,7 +432,7 @@ impl<'a> Builder<'a> {
             },
             range,
         );
-        self.open.push(id);
+        self.open.push(Open::new(id));
     }
 
     /// Makes ID a child of PARENT, a list, or a top-level node.
@@ -435,7 +451,7 @@ impl<'a> Builder<'a> {
     /// Adds a finished form: it completes the prefixes waiting for one,
     /// innermost first, and the list under them, if any, takes the result.
     fn attach_value(&mut self, mut id: NodeId) {
-        while let Some(&top) = self.open.last() {
+        while let Some(top) = self.open.last().map(|open| open.id) {
             if !matches!(self.nodes[top.0].kind, NodeKind::Prefix { .. }) {
                 self.push_child(Some(top), id);
                 return;
@@ -455,7 +471,7 @@ impl<'a> Builder<'a> {
     /// Adds a comment to the innermost open list or prefix, or the top level: a
     /// comment is not the form a prefix waits for.
     fn attach_comment(&mut self, id: NodeId) {
-        let Some(&top) = self.open.last() else {
+        let Some(top) = self.open.last().map(|open| open.id) else {
             self.push_child(None, id);
             return;
         };
@@ -469,17 +485,14 @@ impl<'a> Builder<'a> {
     }
 
     fn dot(&mut self, range: Range<usize>) {
-        let after_dot = |tree: &Self, top: NodeId| match &tree.nodes[top.0].kind {
-            NodeKind::List { children, .. } => forms_after_dot(&tree.nodes, children).is_some(),
-            _ => false,
-        };
-        match self.open.last() {
-            Some(&top)
-                if matches!(self.nodes[top.0].kind, NodeKind::List { .. })
-                    && !after_dot(self, top) =>
+        match self.open.last_mut() {
+            Some(top)
+                if !top.dotted && matches!(self.nodes[top.id.0].kind, NodeKind::List { .. }) =>
             {
+                top.dotted = true;
+                let list = top.id;
                 let id = self.add(NodeKind::Dot, range);
-                self.push_child(Some(top), id);
+                self.push_child(Some(list), id);
             }
             _ => {
                 self.error(range.clone(), "Unexpected dot");
@@ -492,7 +505,7 @@ impl<'a> Builder<'a> {
     fn close(&mut self, range: Range<usize>) {
         // A prefix that nothing followed before the `)`.
         let mut reported = false;
-        while let Some(&top) = self.open.last()
+        while let Some(top) = self.open.last().map(|open| open.id)
             && matches!(self.nodes[top.0].kind, NodeKind::Prefix { .. })
         {
             self.error(range.clone(), "Unexpected closing parenthesis");
@@ -500,7 +513,7 @@ impl<'a> Builder<'a> {
             self.open.pop();
             self.attach_value(top);
         }
-        let Some(list) = self.open.pop() else {
+        let Some(Open { id: list, .. }) = self.open.pop() else {
             if !reported {
                 self.error(range.clone(), "Unexpected closing parenthesis");
             }
@@ -535,6 +548,46 @@ impl<'a> Builder<'a> {
         if more {
             let range = self.nodes[first.0].range.clone();
             self.error(range, "Expected only one item in list after dot.");
+        }
+    }
+
+    /// The parser's rule for a dotted list the input ended in: no `)` follows
+    /// the form after the dot, so that form is blamed. A form that fails to
+    /// read on its own has its own error instead.
+    fn check_unclosed_dot(&mut self, list: NodeId) {
+        let first = match &self.nodes[list.0].kind {
+            NodeKind::List { children, .. } => {
+                forms_after_dot(&self.nodes, children).and_then(|mut after| after.next())
+            }
+            NodeKind::Prefix { .. }
+            | NodeKind::Atom(_)
+            | NodeKind::Dot
+            | NodeKind::Comment
+            | NodeKind::Error => None,
+        };
+        if let Some(first) = first
+            && !self.fails_alone(first)
+        {
+            let range = self.nodes[first.0].range.clone();
+            self.error(range, "Expected only one item in list after dot.");
+        }
+    }
+
+    /// Whether the form ID fails to read on its own: it is an unclosed list, an
+    /// error, or a prefix with no form or with a form that fails.
+    fn fails_alone(&self, mut id: NodeId) -> bool {
+        loop {
+            match &self.nodes[id.0].kind {
+                NodeKind::List { closed, .. } => return !closed,
+                NodeKind::Error => return true,
+                NodeKind::Prefix { children, .. } => {
+                    match without_comments(&self.nodes, children).next() {
+                        Some(form) => id = form,
+                        None => return true,
+                    }
+                }
+                NodeKind::Atom(_) | NodeKind::Dot | NodeKind::Comment => return false,
+            }
         }
     }
 
@@ -707,6 +760,9 @@ mod tests {
             "a)",
             "(a . )",
             "(a . b c)",
+            "(a . (b)",
+            "(a . b",
+            "(a . b [",
             ". a",
             "(a ')",
             "'",
@@ -920,6 +976,46 @@ mod tests {
         );
     }
 
+    // At the end of the input, an unclosed dotted list blames its form after
+    // the dot, as the parser does, unless that form fails on its own.
+    #[test]
+    fn an_unclosed_dotted_list_blames_its_form_after_the_dot() {
+        let only_one = "Expected only one item in list after dot.";
+        assert_eq!(
+            errors("(a . b"),
+            pairs(&[("(", "Unclosed list"), ("b", only_one)])
+        );
+        assert_eq!(
+            errors("(a . (b)"),
+            pairs(&[("(", "Unclosed list"), ("(b)", only_one)])
+        );
+        assert_eq!(
+            errors("(a . b ["),
+            pairs(&[
+                ("(", "Unclosed list"),
+                ("b", only_one),
+                ("[", "Vector syntax is not supported"),
+            ])
+        );
+        assert_eq!(errors("(a ."), pairs(&[("(", "Unclosed list")]));
+        assert_eq!(
+            errors("(a . (b"),
+            pairs(&[("(", "Unclosed list"), ("(", "Unclosed list")])
+        );
+        assert_eq!(
+            errors("(a . \"b"),
+            pairs(&[("(", "Unclosed list"), ("\"b", "Incomplete string literal")])
+        );
+        assert_eq!(
+            errors("(a . '"),
+            pairs(&[("(", "Unclosed list"), ("'", "Unexpected EOF")])
+        );
+        assert_eq!(
+            errors("(a . '(b"),
+            pairs(&[("(", "Unclosed list"), ("(", "Unclosed list")])
+        );
+    }
+
     #[test]
     fn a_prefix_with_nothing_after_it() {
         assert_eq!(sexp("(a ')"), "(a '∅)");
@@ -953,6 +1049,27 @@ mod tests {
             errors(source),
             pairs(&[("M-b\"", r"Modifier keys are not supported: \M-")])
         );
+    }
+
+    // A control escape whose base is a bare `"` fails on the string's closing
+    // quote, so the string ends there and the text after it is code.
+    #[test]
+    fn a_control_escape_on_the_closing_quote_ends_the_string() {
+        for source in [r#""\C-" x"#, r#""\^" x"#, r#""\C-\C-" x"#] {
+            let tree = read(source);
+            assert_eq!(tree.sexp(), "#err x", "{source}");
+            assert_eq!(tree.errors().len(), 1, "{source}: {:?}", tree.errors());
+            let symbol = tree.roots()[1];
+            assert_eq!(
+                *tree.node(symbol).kind(),
+                NodeKind::Atom(AtomKind::Symbol),
+                "{source}"
+            );
+        }
+        // An escaped `"` is not the closing quote.
+        let source = r#""\C-\"" x"#;
+        assert_eq!(sexp(source), "#err x");
+        assert_eq!(read(source).errors().len(), 1);
     }
 
     #[test]
@@ -1027,6 +1144,21 @@ mod tests {
         let tree = read_with_limit(&source, usize::MAX);
         assert!(tree.errors().is_empty());
         drop(tree);
+    }
+
+    // Each dot after the first is an error; finding the first must not scan the
+    // list again for every dot.
+    #[test]
+    fn many_dots_in_a_long_list_read_in_linear_time() {
+        let n = 50_000;
+        let source = "(".to_string() + &"a ".repeat(n) + &". ".repeat(n) + ")";
+        let tree = read(&source);
+        let dots = tree
+            .errors()
+            .iter()
+            .filter(|e| e.message == "Unexpected dot")
+            .count();
+        assert_eq!(dots, n - 1);
     }
 
     #[test]
