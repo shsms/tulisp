@@ -131,7 +131,7 @@ pub fn completions(ctx: &TulispContext, tree: &SyntaxTree, offset: usize) -> Com
                 .forms(list)
                 .next()
                 .is_none_or(|first| tree.node(first).range().end >= offset);
-            if at_head && scope::calls(tree, list) {
+            if at_head && scope::is_call(tree, list) {
                 Place::Call
             } else {
                 Place::Value
@@ -210,7 +210,7 @@ pub fn signature_help(
 ) -> Option<SignatureHelp> {
     let offset = tree.clamp(offset);
     let call = tree.call_at(offset)?;
-    if !scope::calls(tree, call.list) {
+    if !scope::is_call(tree, call.list) {
         return None;
     }
     let name = scope::head(tree, call.list)?;
@@ -802,6 +802,76 @@ mod tests {
         assert!(has(&complete(&ctx, "(while-let ((val 1)) va|)"), "val"));
         let found = hover_at(&ctx, "(condition-case ni|l (f) (error 1))");
         assert!(found.is_none_or(|h| h.binding.is_none()));
+    }
+
+    // `if-let*` always reads its spec as a list of bindings; only `if-let`,
+    // `when-let` and `while-let` take a single `(x VALUE)` binding, and a first
+    // form that is `nil` makes the spec a list of bindings.
+    #[test]
+    fn only_if_let_when_let_and_while_let_take_a_single_binding() {
+        let ctx = context();
+        assert_eq!(help(&ctx, "(if-let* (abc (car| y)) abc)"), None);
+        let names = complete(&ctx, "(if-let* (abc (ca| y)) abc)");
+        assert!(has(&names, "cat-count") && !has(&names, "car"), "{names:?}");
+        let found = hover_at(&ctx, "(if-let* (abc (car y)) ca|r)").expect("hover");
+        assert_eq!(found.info.kind, SymbolKind::Variable);
+        assert_eq!(found.binding, Some(15..18));
+        assert_eq!(help(&ctx, "(if-let (nil (car |"), None);
+        assert!(!has(&complete(&ctx, "(if-let (abc) ab|)"), "abc"));
+    }
+
+    // In a list of bindings, a bare symbol binds itself.
+    #[test]
+    fn a_bare_symbol_in_a_list_of_bindings_is_bound() {
+        let ctx = context();
+        let names = complete(&ctx, "(if-let* ((abd 1) abc) ab|)");
+        assert!(has(&names, "abc") && has(&names, "abd"), "{names:?}");
+        let names = complete(&ctx, "(when-let (abc (abd 1) abe) ab|)");
+        assert!(has(&names, "abc") && has(&names, "abe"), "{names:?}");
+        let found = hover_at(&ctx, "(if-let* ((abd 1) abc) a|bc)").expect("hover");
+        assert_eq!(found.binding, Some(18..21));
+    }
+
+    // A `dotimes` variable is seen in the spec's result forms, after the count;
+    // a `dolist` variable is not seen in its spec at all.
+    #[test]
+    fn a_dotimes_variable_is_seen_in_its_result_forms() {
+        let ctx = context();
+        assert!(has(&complete(&ctx, "(dotimes (ixy 3 ix|) nil)"), "ixy"));
+        let found = hover_at(&ctx, "(dotimes (ixy 3 ix|y) nil)").expect("hover");
+        assert_eq!(found.binding, Some(10..13));
+        assert!(!has(
+            &complete(&ctx, "(dotimes (ixy (length ix|)) nil)"),
+            "ixy"
+        ));
+        assert!(!has(&complete(&ctx, "(dotimes (ixy (length ix| 1"), "ixy"));
+        assert!(!has(&complete(&ctx, "(dolist (ixy '(1) ix|) nil)"), "ixy"));
+    }
+
+    // A binding whose name is that of a binding form is not read as that form.
+    #[test]
+    fn a_binding_named_like_a_binding_form_is_not_one() {
+        let ctx = hint_context();
+        let source = "(let ((lambda (ca|r y))) lambda)";
+        let found = hover_at(&ctx, source).expect("hover");
+        assert_eq!(found.info.kind, SymbolKind::Function);
+        assert_eq!(found.binding, None);
+        assert_eq!(help(&ctx, source).map(|h| h.name).as_deref(), Some("car"));
+    }
+
+    // A `dolist` spec holds no bindings, so a list in it is a call; a list in
+    // an `if-let` family list of bindings is a binding, so its first form is
+    // not a call head.
+    #[test]
+    fn lists_in_specs_are_calls_only_where_they_bind_nothing() {
+        let ctx = context();
+        assert_eq!(
+            help(&ctx, "(dolist (x (car |").map(|h| h.name).as_deref(),
+            Some("car")
+        );
+        let found = hover_at(&ctx, "(let ((xq 1)) (when-let ((y 2) (x|q)) y))").expect("hover");
+        assert_eq!(found.info.kind, SymbolKind::Variable);
+        assert_eq!(found.binding, Some(7..9));
     }
 
     #[test]
