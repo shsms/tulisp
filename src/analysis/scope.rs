@@ -112,14 +112,26 @@ pub(super) fn definitions(tree: &SyntaxTree) -> Vec<Definition> {
     found
 }
 
-/// What NAME is: the file's own definition, else the context's.
-#[expect(dead_code, reason = "hover and argument hints use it in later changes")]
+/// What NAME is: the file's own (last) definition, else the context's.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "hover and argument hints use it in later changes")
+)]
 pub(super) fn lookup(ctx: &TulispContext, tree: &SyntaxTree, name: &str) -> Option<SymbolInfo> {
+    // The last definition wins, as it does when the file compiles.
     definitions(tree)
         .into_iter()
+        .rev()
         .find(|definition| definition.name == name)
         .map(|definition| definition.info)
         .or_else(|| ctx.describe(name))
+}
+
+/// Whether ID ends at or before OFFSET. An unclosed list runs to the end of the
+/// input, so it has not ended even when OFFSET is there.
+fn passed(tree: &SyntaxTree, id: NodeId, offset: usize) -> bool {
+    !matches!(tree.node(id).kind(), NodeKind::List { closed: false, .. })
+        && tree.node(id).range().end <= offset
 }
 
 /// A local variable, and where its name is bound.
@@ -192,11 +204,7 @@ pub(super) fn locals_at(tree: &SyntaxTree, offset: usize) -> Vec<Local> {
             continue;
         }
         let forms = tree.forms(list);
-        let past = |i: usize| {
-            forms
-                .get(i)
-                .is_some_and(|&form| tree.node(form).range().end <= offset)
-        };
+        let past = |i: usize| forms.get(i).is_some_and(|&form| passed(tree, form, offset));
         match head(tree, list) {
             Some("let" | "let*") if past(1) => {
                 for binding in tree.forms(forms[1]) {
@@ -206,7 +214,7 @@ pub(super) fn locals_at(tree: &SyntaxTree, offset: usize) -> Vec<Local> {
             // In `let*`, each binding's value sees the bindings before it.
             Some("let*") if forms.len() > 1 && tree.node(forms[1]).range().start < offset => {
                 for binding in tree.forms(forms[1]) {
-                    if tree.node(binding).range().end <= offset {
+                    if passed(tree, binding, offset) {
                         push(tree, &mut locals, binding_name(tree, binding));
                     }
                 }
@@ -225,4 +233,19 @@ pub(super) fn locals_at(tree: &SyntaxTree, offset: usize) -> Vec<Local> {
         }
     }
     locals
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::syntax::read;
+
+    #[test]
+    fn the_last_definition_of_a_name_wins() {
+        let ctx = TulispContext::new();
+        let tree = read("(defun twice (a) a) (defun twice (b c) b)");
+        let info = lookup(&ctx, &tree, "twice").expect("twice");
+        let signature = info.signature.expect("a signature");
+        assert_eq!(signature.render("twice"), "(twice B C)");
+    }
 }

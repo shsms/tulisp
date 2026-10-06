@@ -79,7 +79,9 @@ pub fn completions(ctx: &TulispContext, tree: &SyntaxTree, offset: usize) -> Com
     let path = tree.path_at(offset);
     let typed = match path.last() {
         Some(&id) => match tree.node(id).kind() {
-            NodeKind::Atom(AtomKind::Symbol) => Some(id),
+            // A cursor at a symbol's start is not typing it.
+            NodeKind::Atom(AtomKind::Symbol) if tree.node(id).range().start < offset => Some(id),
+            NodeKind::Atom(AtomKind::Symbol) => None,
             NodeKind::List { .. } | NodeKind::Prefix { .. } => None,
             NodeKind::Atom(
                 AtomKind::Integer | AtomKind::Float | AtomKind::String | AtomKind::Character,
@@ -105,7 +107,12 @@ pub fn completions(ctx: &TulispContext, tree: &SyntaxTree, offset: usize) -> Com
     };
     let container = match typed {
         Some(id) => tree.node(id).parent(),
-        None => path.last().copied(),
+        None => match path.last() {
+            Some(&id) if matches!(tree.node(id).kind(), NodeKind::Atom(AtomKind::Symbol)) => {
+                tree.node(id).parent()
+            }
+            last => last.copied(),
+        },
     };
     let place = match container {
         Some(id)
@@ -373,5 +380,61 @@ mod tests {
         // `é` is bytes 1..3; offset 2 is inside it.
         let tree = read("(é");
         completions(&ctx, &tree, 2);
+    }
+
+    #[test]
+    fn bindings_are_not_in_scope_in_an_unclosed_form() {
+        let ctx = context();
+        assert!(!has(&complete(&ctx, "(let ((abc 1) (abd ab|"), "abc"));
+        assert!(!has(&complete(&ctx, "(condition-case err (f er|"), "err"));
+        assert!(!has(&complete(&ctx, "(dolist (xx (f x|"), "xx"));
+        assert!(!has(&complete(&ctx, "(defun f (aa ab|"), "ab"));
+        assert!(!has(&complete(&ctx, "(let* ((abc 1) (abd (f ab|"), "abd"));
+    }
+
+    #[test]
+    fn a_cursor_at_a_symbols_start_types_nothing() {
+        let ctx = context();
+        let (text, offset) = at_cursor("(f |car)");
+        let tree = read(&text);
+        assert_eq!(completions(&ctx, &tree, offset).range, 3..3);
+    }
+
+    #[test]
+    fn a_file_defvar_is_a_variable() {
+        let names = complete(&context(), "(defvar my-var 1) (car my-|");
+        assert!(has(&names, "my-var"));
+    }
+
+    #[test]
+    fn the_last_of_two_definitions_is_offered() {
+        let ctx = context();
+        let (text, offset) = at_cursor("(defun twice (a) a) (defun twice (b c) b) (twi|");
+        let tree = read(&text);
+        let found = completions(&ctx, &tree, offset);
+        let item = found
+            .items
+            .iter()
+            .find(|i| i.name == "twice")
+            .expect("twice");
+        let signature = item.signature.as_ref().expect("a signature");
+        assert_eq!(signature.render("twice"), "(twice B C)");
+    }
+
+    #[test]
+    fn a_comma_ends_quoting() {
+        let ctx = context();
+        let names = complete(&ctx, "`(a ,(ca|");
+        assert!(has(&names, "car") && !has(&names, "cat-count"));
+        let names = complete(&ctx, "`(a ,ca|");
+        assert!(has(&names, "cat-count") && !has(&names, "car"));
+    }
+
+    #[test]
+    fn a_dolist_variable_is_not_seen_in_its_own_spec() {
+        assert!(!has(
+            &complete(&context(), "(dolist (item (f ite|)) nil)"),
+            "item"
+        ));
     }
 }
