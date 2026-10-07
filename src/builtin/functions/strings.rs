@@ -3,7 +3,7 @@
 //! The string a function works on is borrowed, not copied; a short argument
 //! such as a prefix or a needle is copied.
 
-use crate::{Error, TulispContext, TulispObject};
+use crate::{Error, Number, Rest, TulispContext, TulispObject};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defun(
@@ -87,6 +87,23 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             string.with_str(|text| leading_number(text, base))?
         },
     );
+
+    ctx.defun("number-to-string", |number: Number| number.to_string());
+
+    ctx.defun("char-to-string", |character: TulispObject| {
+        char_of(&character).map(String::from)
+    });
+
+    ctx.defun("string", |characters: Rest<TulispObject>| {
+        characters
+            .iter()
+            .map(char_of)
+            .collect::<Result<String, Error>>()
+    });
+
+    ctx.defun("string-to-char", |string: TulispObject| {
+        string.with_str(|text| text.chars().next().map_or(0, |c| c as i64))
+    });
 }
 
 /// `nil` for an absent index, as Emacs shows one in an error.
@@ -237,6 +254,22 @@ fn push_title(out: &mut String, first: char) {
         out.push(head);
     }
     out.extend(upper.flat_map(char::to_lowercase));
+}
+
+/// The character with code OBJ, or the error Emacs gives for one that is not a
+/// character.
+fn char_of(obj: &TulispObject) -> Result<char, Error> {
+    i64::try_from(obj)
+        .ok()
+        .and_then(|code| u32::try_from(code).ok())
+        .and_then(char::from_u32)
+        .ok_or_else(|| {
+            Error::wrong_type_argument(
+                "characterp",
+                obj.clone(),
+                format!("Expected character, got: {obj}"),
+            )
+        })
 }
 
 /// The number at the start of TEXT, after spaces and tabs, as Emacs's
@@ -581,5 +614,51 @@ mod tests {
             let program = format!("(condition-case e {call} (error (car e)))");
             eval_assert_equal(ctx, &program, "'arith-error");
         }
+    }
+
+    #[test]
+    fn number_to_string_prints_as_prin1() {
+        assert_results(&[
+            ("(number-to-string 7)", r#""7""#),
+            ("(number-to-string 1.0)", r#""1.0""#),
+            ("(number-to-string -0.5)", r#""-0.5""#),
+            ("(number-to-string 1e20)", r#""1e+20""#),
+            ("(number-to-string 0.1)", r#""0.1""#),
+            ("(number-to-string 100.0)", r#""100.0""#),
+            ("(number-to-string -0.0)", r#""-0.0""#),
+            (
+                "(number-to-string 9223372036854775807)",
+                r#""9223372036854775807""#,
+            ),
+            (
+                r#"(number-to-string "x")"#,
+                r#"(ERR (wrong-type-argument numberp "x"))"#,
+            ),
+        ]);
+    }
+
+    #[test]
+    fn characters_and_strings() {
+        assert_results(&[
+            ("(char-to-string 233)", r#""é""#),
+            ("(char-to-string 1114111)", "\"\u{10FFFF}\""),
+            (
+                "(char-to-string -1)",
+                "(ERR (wrong-type-argument characterp -1))",
+            ),
+            (
+                "(char-to-string 'a)",
+                "(ERR (wrong-type-argument characterp a))",
+            ),
+            ("(string 97 98)", r#""ab""#),
+            ("(string)", r#""""#),
+            ("(string 233)", r#""é""#),
+            ("(string -1)", "(ERR (wrong-type-argument characterp -1))"),
+            ("(string 'a)", "(ERR (wrong-type-argument characterp a))"),
+            (r#"(string-to-char "é")"#, "233"),
+            (r#"(string-to-char "")"#, "0"),
+            (r#"(string-to-char "ab")"#, "97"),
+            ("(string-to-char \"\\n\")", "10"),
+        ]);
     }
 }

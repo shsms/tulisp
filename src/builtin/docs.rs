@@ -422,6 +422,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         ),
     ),
     (
+        "char-to-string",
+        concat!(
+            "Convert CHAR to a string containing that character.",
+            "\n\n",
+            "(fn CHAR)"
+        ),
+    ),
+    (
         "concat",
         concat!(
             "Concatenate all the arguments and make the result a string.",
@@ -935,6 +943,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         ),
     ),
     (
+        "number-to-string",
+        concat!(
+            "Return the decimal representation of NUMBER as a string, as `prin1' prints it.",
+            "\n\n",
+            "(fn NUMBER)"
+        ),
+    ),
+    (
         "numberp",
         concat!(
             "Return t if OBJECT is a number (floating point or integer).",
@@ -1143,6 +1159,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         concat!("Return the square root of ARG.", "\n\n", "(fn ARG)"),
     ),
     (
+        "string",
+        concat!(
+            "Concatenate all the argument characters and make the result a string.",
+            "\n\n",
+            "(fn &rest CHARACTERS)"
+        ),
+    ),
+    (
         "string-empty-p",
         concat!(
             "Check whether STRING is empty. A symbol stands for its name.",
@@ -1212,6 +1236,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
             "Return non-nil if SUFFIX is a suffix of STRING. With IGNORE-CASE, a letter matches its other case.",
             "\n\n",
             "(fn SUFFIX STRING &optional IGNORE-CASE)"
+        ),
+    ),
+    (
+        "string-to-char",
+        concat!(
+            "Return the first character in STRING, or 0 for an empty string.",
+            "\n\n",
+            "(fn STRING)"
         ),
     ),
     (
