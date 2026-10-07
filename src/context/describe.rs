@@ -171,26 +171,31 @@ impl FunctionDoc {
 
 impl TulispContext {
     /// Sets, or with `None` removes, the function entry for SYM. A variable's
-    /// docstring stays. Only a symbol interned under its name has an entry:
-    /// describe looks names up in the obarray.
+    /// docstring stays. With `Some`, SYM must be interned: describe finds
+    /// entries through the obarray, which keeps its symbols, and so their
+    /// addresses, for good. `None` takes any symbol.
     pub(crate) fn set_function_doc(&mut self, sym: &TulispObject, entry: Option<FunctionDoc>) {
-        let Some(name) = self.interned_name(sym) else {
-            return;
-        };
+        let addr = sym.addr_as_usize();
         match entry {
             Some(entry) => {
-                self.function_docs.insert(name, entry);
+                debug_assert!(self.is_interned(sym));
+                self.function_docs.insert(addr, entry);
             }
             None => {
-                self.function_docs.remove(&name);
+                self.function_docs.remove(&addr);
             }
         }
     }
 
-    /// NAME's function doc, when it describes a value of KIND with IDENTITY.
-    fn function_doc(&self, name: &str, kind: SymbolKind, identity: usize) -> Option<&FunctionDoc> {
+    /// SYM's function doc, when it describes a value of KIND with IDENTITY.
+    fn function_doc(
+        &self,
+        sym: &TulispObject,
+        kind: SymbolKind,
+        identity: usize,
+    ) -> Option<&FunctionDoc> {
         self.function_docs
-            .get(name)
+            .get(&sym.addr_as_usize())
             .filter(|entry| entry.describes(kind, identity))
     }
 
@@ -224,50 +229,51 @@ impl TulispContext {
     /// assert_eq!(info.signature.unwrap().render("connect"), "(connect HOST &optional PORT)");
     /// ```
     pub fn set_doc(&mut self, name: &str, doc: &str) -> Result<(), Error> {
-        let Some(value) = self
+        if self.attach_doc(name, Cow::Owned(doc.to_string())) {
+            Ok(())
+        } else {
+            Err(Error::invalid_argument(format!(
+                "set_doc: {name} has no value"
+            )))
+        }
+    }
+
+    /// Attaches DOC to what NAME holds, or to nothing for a variable declared
+    /// with `defvar` and never set. A function's docstring goes in its entry,
+    /// keeping the entry's signature when the entry describes the value; any
+    /// other value's is the variable's docstring. Returns false where
+    /// [`describe`](Self::describe) gives `None`.
+    fn attach_doc(&mut self, name: &str, doc: Cow<'static, str>) -> bool {
+        let Some((addr, value)) = self
             .obarray
             .get(name)
-            .and_then(|sym| described_value(name, sym))
+            .and_then(|sym| Some((sym.addr_as_usize(), described_value(name, sym)?)))
         else {
-            return Err(Error::invalid_argument(format!(
-                "set_doc: {name} has no value"
-            )));
+            return false;
         };
-        self.attach_doc(name, value.as_ref(), Cow::Owned(doc.to_string()));
-        Ok(())
-    }
-
-    /// Attaches DOC to NAME, which holds VALUE, or nothing for a variable
-    /// declared with `defvar` and never set. A function's docstring goes in its
-    /// entry, keeping the entry's signature when the entry describes VALUE; any
-    /// other value's is the variable's docstring.
-    fn attach_doc(&mut self, name: &str, value: Option<&TulispObject>, doc: Cow<'static, str>) {
-        let (kind, identity) = held_kind_and_identity(value);
+        let (kind, identity) = held_kind_and_identity(value.as_ref());
         let Some(identity) = identity else {
-            self.variable_docs.insert(name.to_string(), doc);
-            return;
+            self.variable_docs.insert(addr, doc);
+            return true;
         };
-        if self.function_doc(name, kind, identity).is_none() {
-            let entry = FunctionDoc {
-                kind,
-                identity,
-                signature: None,
-                doc: None,
-            };
-            self.function_docs.insert(name.to_string(), entry);
+        let blank_entry = || FunctionDoc {
+            kind,
+            identity,
+            signature: None,
+            doc: None,
+        };
+        let entry = self.function_docs.entry(addr).or_insert_with(blank_entry);
+        if !entry.describes(kind, identity) {
+            *entry = blank_entry();
         }
-        if let Some(entry) = self.function_docs.get_mut(name) {
-            entry.doc = Some(doc);
-        }
+        entry.doc = Some(doc);
+        true
     }
 
-    /// Attaches a built-in's docstring, without copying it. A name with no
-    /// value is skipped.
+    /// Attaches a built-in's docstring, without copying it. Skips a name that
+    /// [`describe`](Self::describe) gives `None` for.
     pub(crate) fn set_builtin_doc(&mut self, name: &str, doc: &'static str) {
-        let Some(value) = self.obarray.get(name).and_then(|sym| sym.global()) else {
-            return;
-        };
-        self.attach_doc(name, Some(&value), Cow::Borrowed(doc));
+        self.attach_doc(name, Cow::Borrowed(doc));
     }
 
     /// Test-only: the signature NAME's value itself shows, with no docstring's
@@ -280,18 +286,19 @@ impl TulispContext {
 
     /// Records a `defvar` docstring for SYM, when SYM is interned.
     pub(crate) fn set_variable_doc(&mut self, sym: &TulispObject, doc: String) {
-        if let Some(name) = self.interned_name(sym) {
-            self.variable_docs.insert(name, Cow::Owned(doc));
+        if self.is_interned(sym) {
+            self.variable_docs
+                .insert(sym.addr_as_usize(), Cow::Owned(doc));
         }
     }
 
-    /// The name of SYM, when SYM is the symbol interned under that name.
-    fn interned_name(&self, sym: &TulispObject) -> Option<String> {
-        let name = sym.as_symbol().ok()?;
-        self.obarray
-            .get(&name)
-            .is_some_and(|interned| interned.eq_ptr(sym))
-            .then_some(name)
+    /// Whether SYM is the symbol interned under its name.
+    fn is_interned(&self, sym: &TulispObject) -> bool {
+        sym.inner_ref().0.symbol_name().is_some_and(|name| {
+            self.obarray
+                .get(name)
+                .is_some_and(|interned| interned.eq_ptr(sym))
+        })
     }
 
     /// What NAME holds, its signature and its docstring, for editor tools.
@@ -308,7 +315,7 @@ impl TulispContext {
         let sym = self.obarray.get(name)?;
         let value = described_value(name, sym)?;
         let (kind, identity) = held_kind_and_identity(value.as_ref());
-        let entry = identity.and_then(|identity| self.function_doc(name, kind, identity));
+        let entry = identity.and_then(|identity| self.function_doc(sym, kind, identity));
         let doc = entry
             .and_then(|entry| entry.doc.as_deref())
             .map(Cow::Borrowed)
@@ -320,7 +327,7 @@ impl TulispContext {
             })
             .or_else(|| {
                 (kind == SymbolKind::Variable || sym.is_special())
-                    .then(|| self.variable_docs.get(name))
+                    .then(|| self.variable_docs.get(&sym.addr_as_usize()))
                     .flatten()
                     .map(|doc| Cow::Borrowed(doc.as_ref()))
             });
@@ -356,6 +363,13 @@ impl TulispContext {
 mod tests {
     use crate::TulispContext;
     use crate::symbols::SymbolKind;
+
+    /// Whether NAME has a function entry.
+    fn has_function_doc(ctx: &TulispContext, name: &str) -> bool {
+        ctx.obarray
+            .get(name)
+            .is_some_and(|sym| ctx.function_docs.contains_key(&sym.addr_as_usize()))
+    }
 
     fn rendered(ctx: &TulispContext, name: &str) -> String {
         let info = ctx
@@ -520,9 +534,9 @@ mod tests {
     fn fmakunbound_drops_the_entry() {
         let mut ctx = TulispContext::new();
         ctx.defun("gone", |a: i64| a);
-        assert!(ctx.function_docs.contains_key("gone"));
+        assert!(has_function_doc(&ctx, "gone"));
         ctx.fmakunbound("gone").unwrap();
-        assert!(!ctx.function_docs.contains_key("gone"));
+        assert!(!has_function_doc(&ctx, "gone"));
     }
 
     // set_doc replaces the entry left from the Rust function.
@@ -767,7 +781,7 @@ mod tests {
         ctx.set_doc("q", "NewQ.").unwrap();
         let lambda = ctx.eval_string("(lambda (x) x)").unwrap();
         ctx.fset("q", lambda).unwrap();
-        assert!(!ctx.function_docs.contains_key("q"));
+        assert!(!has_function_doc(&ctx, "q"));
     }
 
     // fset of another function made from the same code drops the entry.
@@ -782,7 +796,7 @@ mod tests {
         let second = ctx.eval_string("(mk 2)").unwrap();
         ctx.fset("f", second).unwrap();
         assert_eq!(doc(&ctx, "f"), None);
-        assert!(!ctx.function_docs.contains_key("f"));
+        assert!(!has_function_doc(&ctx, "f"));
     }
 
     // A capturing `defun` made again as the program runs keeps a docstring that
@@ -808,7 +822,7 @@ mod tests {
         ctx.defun("cf", |a: i64| a);
         ctx.set_doc("cf", "Rust doc.").unwrap();
         ctx.eval_string("(make-cf)").unwrap();
-        assert!(!ctx.function_docs.contains_key("cf"));
+        assert!(!has_function_doc(&ctx, "cf"));
         assert_eq!(doc(&ctx, "cf").as_deref(), Some("Lisp doc."));
     }
 
@@ -822,7 +836,7 @@ mod tests {
         ctx.fset("cf", other).unwrap();
         ctx.set_doc("cf", "Lambda doc.").unwrap();
         ctx.eval_string("(make-cf)").unwrap();
-        assert!(!ctx.function_docs.contains_key("cf"));
+        assert!(!has_function_doc(&ctx, "cf"));
         assert_eq!(doc(&ctx, "cf").as_deref(), Some("Lisp doc."));
     }
 
@@ -833,13 +847,13 @@ mod tests {
         ctx.eval_string("(defun b () \"Old.\" 1) (defun b () 2)")
             .unwrap();
         assert_eq!(doc(&ctx, "b"), None);
-        assert!(!ctx.function_docs.contains_key("b"));
+        assert!(!has_function_doc(&ctx, "b"));
         ctx.defun("rb", |a: i64| a);
         ctx.set_doc("rb", "Rust doc.").unwrap();
-        assert!(ctx.function_docs.contains_key("rb"));
+        assert!(has_function_doc(&ctx, "rb"));
         ctx.eval_string("(defun rb () 2)").unwrap();
         assert_eq!(doc(&ctx, "rb"), None);
-        assert!(!ctx.function_docs.contains_key("rb"));
+        assert!(!has_function_doc(&ctx, "rb"));
     }
 
     // A Rust parameter's type name is kept as the registration gave it.

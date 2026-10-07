@@ -143,12 +143,12 @@ const CLEANUP_RESERVE: u32 = 8;
 pub struct TulispContext {
     obarray: HashMap<String, TulispObject>,
     pub(crate) filenames: Vec<String>,
-    /// Recorded signatures and docstrings of functions, by name; see
-    /// describe.rs.
-    pub(crate) function_docs: HashMap<String, describe::FunctionDoc>,
-    /// Variables' docstrings, by name. Defining a function of the same name
-    /// leaves them.
-    pub(crate) variable_docs: HashMap<String, std::borrow::Cow<'static, str>>,
+    /// Recorded signatures and docstrings of functions, by the address of the
+    /// interned symbol that names them; see describe.rs.
+    pub(crate) function_docs: HashMap<usize, describe::FunctionDoc>,
+    /// Variables' docstrings, by the address of the interned symbol. Defining a
+    /// function of the same name leaves them.
+    pub(crate) variable_docs: HashMap<usize, std::borrow::Cow<'static, str>>,
     pub(crate) compiler: Option<Compiler>,
     pub(crate) keywords: Keywords,
     pub(crate) vm: bytecode::Machine,
