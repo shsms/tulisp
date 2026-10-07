@@ -1,7 +1,8 @@
 use crate::{
     Error, TulispContext, TulispObject,
+    builtin::functions::sequences::member_with,
     cons::{CycleCheck, ListBuilder},
-    lists,
+    list, lists,
 };
 
 pub(crate) fn add(ctx: &mut TulispContext) {
@@ -111,6 +112,60 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                 rest = rest.cdr()?;
             }
             Ok(seq)
+        },
+    );
+
+    // ELEMENT is looked for as `member` does, or as `memq` or `memql` do when
+    // COMPARE-FN is `eq` or `eql`, as in Emacs; any other COMPARE-FN is called
+    // with ELEMENT and each element. The variable is read again after that, as
+    // COMPARE-FN may set it.
+    ctx.defun(
+        "add-to-list",
+        |ctx: &mut TulispContext,
+         list_var: TulispObject,
+         element: TulispObject,
+         append: Option<TulispObject>,
+         compare_fn: Option<TulispObject>| {
+            if !list_var.symbolp() {
+                return Err(Error::wrong_type_argument(
+                    "symbolp",
+                    list_var.clone(),
+                    format!("Expected symbol, got: {list_var}"),
+                ));
+            }
+            let old = list_var.get()?;
+            type Same = fn(&TulispObject, &TulispObject) -> Result<bool, Error>;
+            let member = |same: Same| -> Result<bool, Error> {
+                Ok(!member_with(old.clone(), &element, same)?.null())
+            };
+            let present = match compare_fn {
+                None => member(|a, b| a.try_equal(b))?,
+                Some(compare_fn) if compare_fn.eq(&ctx.intern("eq")) => member(|a, b| Ok(a.eq(b)))?,
+                Some(compare_fn) if compare_fn.eq(&ctx.intern("eql")) => {
+                    member(|a, b| Ok(a.eql(b)))?
+                }
+                Some(compare_fn) => {
+                    let mut found = false;
+                    each_element(&old, Blame::Tail, |item| {
+                        found = ctx
+                            .funcall(&compare_fn, (element.clone(), item))?
+                            .is_truthy();
+                        Ok(!found)
+                    })?;
+                    found
+                }
+            };
+            let current = list_var.get()?;
+            if present {
+                return Ok(current);
+            }
+            let new = if append.is_some() {
+                list!(,@&current ,element)?
+            } else {
+                TulispObject::cons(element, current)
+            };
+            list_var.set(new.clone())?;
+            Ok(new)
         },
     );
 
@@ -473,6 +528,99 @@ mod tests {
             (
                 "(mapc #'identity 5)",
                 "(ERR (wrong-type-argument sequencep 5))",
+            ),
+        ]);
+    }
+
+    #[test]
+    fn add_to_list_adds_a_missing_element() {
+        assert_results(&[
+            (
+                "(progn (defvar xs (list 'a)) (list (add-to-list 'xs 'b) xs))",
+                "((b a) (b a))",
+            ),
+            (
+                "(progn (setq xs (list 'a)) (list (add-to-list 'xs 'a) xs))",
+                "((a) (a))",
+            ),
+            (
+                "(progn (setq xs (list 'a)) (list (add-to-list 'xs 'b t) xs))",
+                "((a b) (a b))",
+            ),
+            (
+                r#"(progn (setq xs (list "a")) (list (add-to-list 'xs "a") xs))"#,
+                r#"(("a") ("a"))"#,
+            ),
+            (
+                r#"(progn (setq xs (list "a")) (list (add-to-list 'xs "a" nil #'eq) xs))"#,
+                r#"(("a" "a") ("a" "a"))"#,
+            ),
+            (
+                "(progn (setq xs (list 1)) (list (add-to-list 'xs 1.0 nil #'=) xs))",
+                "((1) (1))",
+            ),
+            (
+                "(progn (setq xs 5) (add-to-list 'xs 1))",
+                "(ERR (wrong-type-argument listp 5))",
+            ),
+            (
+                "(add-to-list 'no-such-list 1)",
+                "(ERR (void-variable no-such-list))",
+            ),
+            (
+                "(progn (setq xs '(1 . 2)) (add-to-list 'xs 3))",
+                "(ERR (wrong-type-argument listp (1 . 2)))",
+            ),
+            (
+                "(progn (setq xs '(1 . 2)) (add-to-list 'xs 3 nil #'eq))",
+                "(ERR (wrong-type-argument listp (1 . 2)))",
+            ),
+            (
+                r#"(progn (setq xs "ab") (add-to-list 'xs 1 nil #'eq))"#,
+                r#"(ERR (wrong-type-argument listp "ab"))"#,
+            ),
+            ("(add-to-list 5 1)", "(ERR (wrong-type-argument symbolp 5))"),
+        ]);
+    }
+
+    // A COMPARE-FN other than `eq` or `eql` is called with ELEMENT first, the
+    // walk stops at a match, and a tail that is not a list is named, as in
+    // Emacs.
+    #[test]
+    fn add_to_list_calls_compare_fn() {
+        assert_results(&[
+            (
+                "(progn (setq xs (list 3 2)) (add-to-list 'xs 5 nil #'<))",
+                "(5 3 2)",
+            ),
+            (
+                "(progn (setq xs '(3 . 2)) (add-to-list 'xs 3 nil (lambda (a b) (eq a b))))",
+                "(3 . 2)",
+            ),
+            (
+                "(progn (setq xs '(1 . 2)) (add-to-list 'xs 3 nil (lambda (a b) (eq a b))))",
+                "(ERR (wrong-type-argument listp 2))",
+            ),
+            (
+                "(progn (setq xs (list 1.0)) (add-to-list 'xs 1.0 nil 'eql))",
+                "(1.0)",
+            ),
+            (
+                "(progn (setq xs '(1 . 2)) (add-to-list 'xs 3 nil #'eql))",
+                "(ERR (wrong-type-argument listp (1 . 2)))",
+            ),
+            // The value is read again after COMPARE-FN, which may set it.
+            (
+                "(progn (setq xs (list 1 2)) (add-to-list 'xs 1 nil (lambda (a b) (setq xs (list 7)) (eq a b))))",
+                "(7)",
+            ),
+            (
+                "(progn (setq xs (list 1 2)) (add-to-list 'xs 3 t (lambda (a b) (setq xs (list 7)) nil)))",
+                "(7 3)",
+            ),
+            (
+                "(progn (setq xs (list 1 2)) (add-to-list 'xs 3 nil (lambda (a b) (setq xs (list 7)) nil)))",
+                "(3 7)",
             ),
         ]);
     }

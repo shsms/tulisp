@@ -120,32 +120,6 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(TulispObject::from(out))
     });
 
-    fn member_with(
-        list: TulispObject,
-        elt: &TulispObject,
-        eq: impl Fn(&TulispObject, &TulispObject) -> Result<bool, Error>,
-    ) -> Result<TulispObject, Error> {
-        let mut cur = list.clone();
-        let mut cycle = CycleCheck::new();
-        while cur.consp() {
-            if cur.car_and_then(|car| eq(car, elt))? {
-                return Ok(cur);
-            }
-            cur = cur.cdr()?;
-            cycle.step(&cur)?;
-        }
-        // `cur` is non-cons: either nil (clean end) or an
-        // improper-list tail. Reject the latter the way Emacs does.
-        if !cur.null() {
-            return Err(Error::wrong_type_argument(
-                "listp",
-                list,
-                format!("expected list, got: {cur}"),
-            ));
-        }
-        Ok(TulispObject::nil())
-    }
-
     ctx.defun("memq", |elt: TulispObject, list: TulispObject| {
         member_with(list, &elt, |a, b| Ok(a.eq(b)))
     });
@@ -157,6 +131,34 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defun("member", |elt: TulispObject, list: TulispObject| {
         member_with(list, &elt, |a, b| a.try_equal(b))
     });
+}
+
+/// The first cell of LIST whose car EQ matches ELT, or nil, as Emacs's
+/// `member`, `memq` and `memql` find it.
+pub(crate) fn member_with(
+    list: TulispObject,
+    elt: &TulispObject,
+    eq: impl Fn(&TulispObject, &TulispObject) -> Result<bool, Error>,
+) -> Result<TulispObject, Error> {
+    let mut cur = list.clone();
+    let mut cycle = CycleCheck::new();
+    while cur.consp() {
+        if cur.car_and_then(|car| eq(car, elt))? {
+            return Ok(cur);
+        }
+        cur = cur.cdr()?;
+        cycle.step(&cur)?;
+    }
+    // `cur` is non-cons: either nil (clean end) or an
+    // improper-list tail. Reject the latter the way Emacs does.
+    if !cur.null() {
+        return Err(Error::wrong_type_argument(
+            "listp",
+            list,
+            format!("expected list, got: {cur}"),
+        ));
+    }
+    Ok(TulispObject::nil())
 }
 
 #[cfg(test)]

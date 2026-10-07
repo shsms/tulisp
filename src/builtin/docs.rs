@@ -110,6 +110,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         concat!("Return the absolute value of ARG.", "\n\n", "(fn ARG)"),
     ),
     (
+        "add-to-list",
+        concat!(
+            "Add ELEMENT to the value of LIST-VAR if it isn't there yet, and return the new value. ELEMENT goes at the start, or at the end with APPEND. Elements are compared with `equal', or with COMPARE-FN when given.",
+            "\n\n",
+            "(fn LIST-VAR ELEMENT &optional APPEND COMPARE-FN)"
+        ),
+    ),
+    (
         "alist-get",
         concat!(
             "Find the first element of ALIST whose `car' equals KEY and return its `cdr'.",
