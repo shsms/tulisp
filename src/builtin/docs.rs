@@ -530,6 +530,22 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         ),
     ),
     (
+        "delete",
+        concat!(
+            "Delete members of SEQ which are `equal' to ELT, and return the result. A list is changed in place, so use the result: (setq foo (delete element foo)). A string is not changed; the result is a new string.",
+            "\n\n",
+            "(fn ELT SEQ)"
+        ),
+    ),
+    (
+        "delq",
+        concat!(
+            "Delete members of LIST which are `eq' to ELT, and return the result. LIST is changed in place, so use the result: (setq foo (delq element foo)).",
+            "\n\n",
+            "(fn ELT LIST)"
+        ),
+    ),
+    (
         "dolist",
         concat!(
             "Evaluate BODY with VAR bound to each element of LIST in turn, then return RESULT, where SPEC is (VAR LIST) or (VAR LIST RESULT).",

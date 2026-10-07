@@ -1,4 +1,4 @@
-use crate::{Error, TulispContext, TulispObject, lists};
+use crate::{Error, TulispContext, TulispObject, cons::CycleCheck, lists};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defun("car-safe", |obj: TulispObject| {
@@ -15,6 +15,18 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         } else {
             Ok(TulispObject::nil())
         }
+    });
+
+    ctx.defun("delq", |elt: TulispObject, list: TulispObject| {
+        delete_cells(list, |item| Ok(item.eq(&elt)))
+    });
+
+    ctx.defun("delete", |elt: TulispObject, seq: TulispObject| {
+        if seq.stringp() {
+            return without_char(&elt, &seq);
+        }
+        check_list(&seq, "sequencep")?;
+        delete_cells(seq, |item| item.try_equal(&elt))
     });
 
     ctx.defun(
@@ -68,6 +80,70 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         caaaar, caaadr, caadar, caaddr, cadaar, cadadr, caddar, cadddr, cdaaar, cdaadr, cdadar,
         cdaddr, cddaar, cddadr, cdddar, cddddr
     );
+}
+
+/// LIST with the elements MATCHES accepts taken out in place, as Emacs's `delq`
+/// and `delete` do: the cell before each one is relinked past it, and the
+/// result starts at the first cell kept.
+fn delete_cells(
+    list: TulispObject,
+    mut matches: impl FnMut(&TulispObject) -> Result<bool, Error>,
+) -> Result<TulispObject, Error> {
+    let mut head = list.clone();
+    let mut last_kept: Option<TulispObject> = None;
+    let mut rest = list;
+    let mut cycle = CycleCheck::new();
+    while rest.consp() {
+        let next = rest.cdr()?;
+        if matches(&rest.car()?)? {
+            match &last_kept {
+                Some(cell) => cell.set_cdr(next.clone())?,
+                None => head = next.clone(),
+            }
+        } else {
+            last_kept = Some(rest.clone());
+        }
+        cycle.step(&next)?;
+        rest = next;
+    }
+    if !rest.null() {
+        return Err(not_a_list(&head));
+    }
+    Ok(head)
+}
+
+/// STRING without the characters equal to ELT, as a new string; STRING itself
+/// when there are none, as in Emacs.
+fn without_char(elt: &TulispObject, string: &TulispObject) -> Result<TulispObject, Error> {
+    let code = i64::try_from(elt).ok();
+    let kept = string.with_str(|text| {
+        let kept: String = text
+            .chars()
+            .filter(|&c| Some(i64::from(u32::from(c))) != code)
+            .collect();
+        (kept.len() != text.len()).then_some(kept)
+    })?;
+    Ok(kept.map_or_else(|| string.clone(), TulispObject::from))
+}
+
+/// Checks that SEQ is a list; the error names PREDICATE, as Emacs does.
+fn check_list(seq: &TulispObject, predicate: &'static str) -> Result<(), Error> {
+    if seq.listp() {
+        return Ok(());
+    }
+    Err(Error::wrong_type_argument(
+        predicate,
+        seq.clone(),
+        format!("Expected sequence, got: {seq}"),
+    ))
+}
+
+fn not_a_list(value: &TulispObject) -> Error {
+    Error::wrong_type_argument(
+        "listp",
+        value.clone(),
+        format!("Expected list, got: {value}"),
+    )
 }
 
 #[cfg(test)]
@@ -158,6 +234,44 @@ mod tests {
             ),
             (r#"(car-safe "a")"#, "nil"),
             ("(cdr-safe 5)", "nil"),
+        ]);
+    }
+
+    // `delq` and `delete` relink the cells of the list they are given.
+    #[test]
+    fn delq_and_delete_change_the_list() {
+        assert_results(&[
+            (
+                "(let ((l (list 1 2 1))) (list (delete 1 l) l))",
+                "((2) (1 2))",
+            ),
+            (
+                "(let ((l (list 1 2 1))) (list (delete 2 l) l))",
+                "((1 1) (1 1))",
+            ),
+            (r#"(delete "a" (list "a" "b" "a"))"#, r#"("b")"#),
+            ("(let ((s (string 97 98))) (eq s (delete 122 s)))", "t"),
+            ("(let ((s (string 97 98))) (eq s (delete 97 s)))", "nil"),
+            // On a dotted tail the error names the list as it is after the
+            // deletions, as in Emacs.
+            (
+                "(delete 2 (cons 1 (cons 2 (cons 3 5))))",
+                "(ERR (wrong-type-argument listp (1 3 . 5)))",
+            ),
+            (
+                "(delq 3 (cons 1 2))",
+                "(ERR (wrong-type-argument listp (1 . 2)))",
+            ),
+            (
+                "(let ((l (list 'a 'b 'a))) (list (delq 'a l) l))",
+                "((b) (a b))",
+            ),
+            (r#"(delq "a" (list "a"))"#, r#"("a")"#),
+            ("(let ((l (list 1 2 3))) (delq 3 l) l)", "(1 2)"),
+            ("(delete 1 nil)", "nil"),
+            ("(delete 1 '(1 . 2))", "(ERR (wrong-type-argument listp 2))"),
+            ("(delq 1 '(1 . 2))", "(ERR (wrong-type-argument listp 2))"),
+            ("(delete 1 5)", "(ERR (wrong-type-argument sequencep 5))"),
         ]);
     }
 }
