@@ -190,6 +190,9 @@ fn is_single_binding(tree: &SyntaxTree, spec: NodeId) -> bool {
 
 /// The names in BINDINGS, a list of bindings as the `if-let` family reads it:
 /// `(x VALUE)` binds X, and a bare symbol binds itself.
+///
+/// A `#'f` entry is not tracked, though tulisp reads it as `(function f)`,
+/// which binds `function`.
 fn if_let_names(tree: &SyntaxTree, bindings: NodeId, names: &mut Vec<NodeId>) {
     for binding in tree.forms(bindings) {
         if is_symbol(tree, binding) {
@@ -348,6 +351,11 @@ fn names_bindings(
 /// What LIST binds, as [`binders_of_head`] reads it, unless LIST is where the
 /// binding form around it names what it binds, as in `(let ((lambda 1)))`.
 /// Then it binds nothing: its head is a name, not a binding form.
+///
+/// The check goes one level deep only, so a binding form in the value of such a
+/// binding is read only roughly. In `(let ((lambda (lambda (x) x))) ...)` the
+/// inner `lambda` is taken for the parameter list of the outer one, and binds
+/// nothing.
 fn binders(tree: &SyntaxTree, list: NodeId) -> Option<Binders> {
     if names_bindings(tree, list, spec_of_head) {
         return None;

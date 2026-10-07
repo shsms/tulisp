@@ -845,6 +845,7 @@ mod tests {
             "ixy"
         ));
         assert!(!has(&complete(&ctx, "(dotimes (ixy (length ix| 1"), "ixy"));
+        assert!(!has(&complete(&ctx, "(dotimes (ixy ix|) nil)"), "ixy"));
         assert!(!has(&complete(&ctx, "(dolist (ixy '(1) ix|) nil)"), "ixy"));
     }
 
