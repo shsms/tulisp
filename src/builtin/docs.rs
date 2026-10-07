@@ -983,6 +983,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         ),
     ),
     (
+        "nreverse",
+        concat!(
+            "Reverse the order of the elements of SEQ, and return the result. A list is changed in place, so use the result; a string is not changed, and the result is a new string.",
+            "\n\n",
+            "(fn SEQ)"
+        ),
+    ),
+    (
         "nth",
         concat!("Return the Nth element of LIST.", "\n\n", "(fn N LIST)"),
     ),

@@ -61,6 +61,33 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(kept.build())
     });
 
+    // A list is reversed in place, as in Emacs; a string gives a new one.
+    ctx.defun("nreverse", |seq: TulispObject| {
+        if seq.stringp() {
+            return seq.with_str(|text| TulispObject::from(text.chars().rev().collect::<String>()));
+        }
+        check_list(&seq, "arrayp")?;
+        let (mut reversed, mut rest) = (TulispObject::nil(), seq.clone());
+        let mut cycle = CycleCheck::new();
+        while rest.consp() {
+            let next = rest.cdr()?;
+            // A loop back to the first cell would be relinked before `cycle`
+            // sees it.
+            if next.eq_ptr(&seq) {
+                return Err(Error::circular_list());
+            }
+            rest.set_cdr(reversed)?;
+            reversed = rest;
+            cycle.step(&next)?;
+            rest = next;
+        }
+        if !rest.null() {
+            // Emacs names SEQ's first cell, which is now the last one.
+            return Err(not_a_list(&seq));
+        }
+        Ok(reversed)
+    });
+
     ctx.defun(
         "nth",
         |n: i64, list: TulispObject| -> Result<TulispObject, Error> { lists::nth(n, &list) },
@@ -375,6 +402,27 @@ mod tests {
             (r#"(delete 97 "abca")"#, r#""bc""#),
             (r#"(let ((s "abca")) (delete 97 s) s)"#, r#""abca""#),
             ("(remove 1 '(2 . 3))", "(ERR (wrong-type-argument listp 3))"),
+        ]);
+    }
+
+    #[test]
+    fn nreverse_reverses_a_list_in_place() {
+        assert_results(&[
+            (
+                "(let ((l (list 1 2 3))) (list (nreverse l) l))",
+                "((3 2 1) (1))",
+            ),
+            (
+                r#"(let ((s "abc")) (list (nreverse s) s))"#,
+                r#"("cba" "abc")"#,
+            ),
+            ("(nreverse nil)", "nil"),
+            ("(nreverse (list 1))", "(1)"),
+            (
+                "(let ((l (list 1 2 3))) (setcdr (cddr l) 4) (nreverse l))",
+                "(ERR (wrong-type-argument listp (1)))",
+            ),
+            ("(nreverse 5)", "(ERR (wrong-type-argument arrayp 5))"),
         ]);
     }
 }
