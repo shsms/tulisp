@@ -1159,6 +1159,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         ),
     ),
     (
+        "string-search",
+        concat!(
+            "Search for the string NEEDLE in the string HAYSTACK, and return where the first match starts, in characters, or nil. The search starts at START-POS, a character position.",
+            "\n\n",
+            "(fn NEEDLE HAYSTACK &optional START-POS)"
+        ),
+    ),
+    (
         "string<",
         concat!(
             "Return non-nil if STRING1 is less than STRING2 in lexicographic order.",

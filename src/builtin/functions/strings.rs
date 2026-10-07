@@ -16,6 +16,15 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             })
         },
     );
+
+    ctx.defun(
+        "string-search",
+        |needle: String, haystack: TulispObject, start: Option<i64>| {
+            let start = start.unwrap_or(0);
+            let found = haystack.with_str(|haystack| search(&needle, haystack, start))?;
+            found.ok_or_else(|| Error::out_of_range(start.to_string()))
+        },
+    );
 }
 
 /// `nil` for an absent index, as Emacs shows one in an error.
@@ -44,6 +53,17 @@ fn byte_at(text: &str, at: i64) -> Option<usize> {
         .map(|(byte, _)| byte)
         .chain([text.len()])
         .nth(at)
+}
+
+/// Where NEEDLE first is in HAYSTACK at or after character START, in
+/// characters; `Some(None)` when it is not there, and `None` when START is not
+/// inside HAYSTACK.
+fn search(needle: &str, haystack: &str, start: i64) -> Option<Option<i64>> {
+    let from = byte_at(haystack, start)?;
+    Some(haystack[from..].find(needle).map(|at| {
+        let skipped = haystack[from..from + at].chars().count();
+        start + i64::try_from(skipped).unwrap_or(i64::MAX)
+    }))
 }
 
 #[cfg(test)]
@@ -95,5 +115,34 @@ mod tests {
             r#"(substring "abc" 1.0)"#,
             "(ERR (wrong-type-argument integerp 1.0))",
         )]);
+    }
+
+    #[test]
+    fn string_search_finds_characters() {
+        assert_results(&[
+            (r#"(string-search "l" "héllo")"#, "2"),
+            (r#"(string-search "l" "héllo" 3)"#, "3"),
+            (r#"(string-search "z" "abc")"#, "nil"),
+            (r#"(string-search "" "abc")"#, "0"),
+            (r#"(string-search "" "abc" 3)"#, "3"),
+            (r#"(string-search "é" "aéé" 2)"#, "2"),
+            (r#"(string-search "" "")"#, "0"),
+            (
+                r#"(string-search "a" "abc" 4)"#,
+                "(ERR (args-out-of-range \"4\"))",
+            ),
+            (
+                r#"(string-search "a" "abc" -1)"#,
+                "(ERR (args-out-of-range \"-1\"))",
+            ),
+            (
+                r#"(string-search "" "" 1)"#,
+                "(ERR (args-out-of-range \"1\"))",
+            ),
+            (
+                r#"(string-search 'a "abc")"#,
+                "(ERR (wrong-type-argument stringp a))",
+            ),
+        ]);
     }
 }
