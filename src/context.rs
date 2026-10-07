@@ -121,6 +121,11 @@ pub(crate) const fn default_max_nesting_depth() -> u32 {
     DEFAULT_MAX_EVAL_DEPTH.saturating_mul(4)
 }
 
+/// The message for code nested deeper than LIMIT, `max-nesting-depth`.
+pub(crate) fn nesting_message(limit: impl std::fmt::Display) -> String {
+    format!("Lisp nesting exceeds max-nesting-depth ({limit})")
+}
+
 /// Frames past the depth limit that a running cleanup or handler,
 /// and the calls it makes, may use, so it still runs when its body
 /// stopped at the limit. This is similar to the extra depth Emacs gives

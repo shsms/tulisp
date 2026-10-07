@@ -9,6 +9,7 @@
 
 use std::ops::Range;
 
+use crate::context::nesting_message;
 use crate::parse::{Token, Tokenizer};
 
 /// A node of a [`SyntaxTree`].
@@ -573,8 +574,7 @@ impl<'a> Builder<'a> {
             }
             end = next.end;
         }
-        let message = format!("Lisp nesting exceeds max-nesting-depth ({})", self.limit);
-        self.error(start..end, message);
+        self.error(start..end, nesting_message(self.limit));
         let id = self.add(NodeKind::Error, start..end);
         self.attach_value(id);
         if let Some(closing) = closing {

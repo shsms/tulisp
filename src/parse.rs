@@ -770,10 +770,7 @@ impl Parser<'_, '_> {
         // …) see only structure this deep, so they're bounded too.
         let limit = self.ctx.max_nesting_depth();
         if self.depth >= limit {
-            return Err(Error::parsing_error(format!(
-                "Lisp nesting exceeds max-nesting-depth ({})",
-                limit
-            )));
+            return Err(Error::parsing_error(crate::context::nesting_message(limit)));
         }
         self.depth += 1;
         let r = self.parse_value_inner();

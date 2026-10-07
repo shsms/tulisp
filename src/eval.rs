@@ -105,7 +105,7 @@ pub(crate) fn macroexpand_1(
 
 /// The error for code nested deeper than LIMIT, `max-nesting-depth`.
 fn nesting_exceeded(limit: u32) -> Error {
-    Error::lisp_error(format!("Lisp nesting exceeds max-nesting-depth ({limit})"))
+    Error::lisp_error(crate::context::nesting_message(limit))
 }
 
 /// Expands FORM once when its head names a macro. `None` when it does
