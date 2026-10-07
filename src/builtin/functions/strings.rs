@@ -76,6 +76,17 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defun("capitalize", |obj: TulispObject| {
         change_case(&obj, titlecase_char, capitalize_words)
     });
+
+    ctx.defun(
+        "string-to-number",
+        |string: TulispObject, base: Option<i64>| {
+            let base = base.unwrap_or(10);
+            let Some(base) = u32::try_from(base).ok().filter(|b| (2..=16).contains(b)) else {
+                return Err(Error::out_of_range(base.to_string()));
+            };
+            string.with_str(|text| leading_number(text, base))?
+        },
+    );
 }
 
 /// `nil` for an absent index, as Emacs shows one in an error.
@@ -226,6 +237,77 @@ fn push_title(out: &mut String, first: char) {
         out.push(head);
     }
     out.extend(upper.flat_map(char::to_lowercase));
+}
+
+/// The number at the start of TEXT, after spaces and tabs, as Emacs's
+/// `string-to-number` reads it in BASE; 0 when there is none. Only base 10
+/// reads a fraction or an exponent.
+fn leading_number(text: &str, base: u32) -> Result<TulispObject, Error> {
+    let text = text.trim_start_matches([' ', '\t']);
+    let (negative, unsigned) = match text.as_bytes().first() {
+        Some(b'-') => (true, &text[1..]),
+        Some(b'+') => (false, &text[1..]),
+        _ => (false, text),
+    };
+    let sign = if negative { "-" } else { "" };
+    let digits = |s: &str, base: u32| s.find(|c: char| !c.is_digit(base)).unwrap_or(s.len());
+
+    let lead = digits(unsigned, base);
+    if base != 10 {
+        return integer(sign, &unsigned[..lead], base);
+    }
+    let mut end = lead;
+    let has_dot = unsigned[end..].starts_with('.');
+    if has_dot {
+        end += 1;
+    }
+    let trail = digits(&unsigned[end..], 10);
+    end += trail;
+    if lead + trail == 0 {
+        return Ok(TulispObject::from(0));
+    }
+    let exponent = &unsigned[end..];
+    if let Some(after) = exponent.strip_prefix(['e', 'E']) {
+        let special = if after.starts_with("+INF") {
+            Some(f64::INFINITY)
+        } else if after.starts_with("+NaN") {
+            Some(f64::NAN)
+        } else {
+            None
+        };
+        if let Some(value) = special {
+            return Ok(TulispObject::from(if negative { -value } else { value }));
+        }
+        let signed = after.strip_prefix(['+', '-']).unwrap_or(after);
+        let exponent_digits = digits(signed, 10);
+        if exponent_digits > 0 {
+            let length = end + 1 + (after.len() - signed.len()) + exponent_digits;
+            return float(sign, &unsigned[..length]);
+        }
+    }
+    if has_dot && trail > 0 {
+        return float(sign, &unsigned[..end]);
+    }
+    integer(sign, &unsigned[..lead], 10)
+}
+
+/// DIGITS, with SIGN, as an integer in BASE: 0 for no digits, and an error for
+/// one too large for tulisp's integers.
+fn integer(sign: &str, digits: &str, base: u32) -> Result<TulispObject, Error> {
+    if digits.is_empty() {
+        return Ok(TulispObject::from(0));
+    }
+    i64::from_str_radix(&format!("{sign}{digits}"), base)
+        .map(TulispObject::from)
+        .map_err(|_| Error::arith_error(format!("integer overflow: {sign}{digits}")))
+}
+
+/// MANTISSA, with SIGN, which `leading_number` checked, as a float.
+fn float(sign: &str, mantissa: &str) -> Result<TulispObject, Error> {
+    format!("{sign}{mantissa}")
+        .parse::<f64>()
+        .map(TulispObject::from)
+        .map_err(|e| Error::arith_error(format!("{e}: {sign}{mantissa}")))
 }
 
 #[cfg(test)]
@@ -413,5 +495,91 @@ mod tests {
             ("(capitalize ?a)", "65"),
             ("(capitalize ?ǆ)", "453"),
         ]);
+    }
+
+    #[test]
+    fn string_to_number_reads_the_leading_number() {
+        assert_results(&[
+            (r#"(string-to-number " 42abc")"#, "42"),
+            (r#"(string-to-number "1.5")"#, "1.5"),
+            (r#"(string-to-number "x")"#, "0"),
+            (r#"(string-to-number "-12")"#, "-12"),
+            (r#"(string-to-number "+7")"#, "7"),
+            (r#"(string-to-number ".5")"#, "0.5"),
+            (r#"(string-to-number "-.5")"#, "-0.5"),
+            (r#"(string-to-number "5.")"#, "5"),
+            (r#"(string-to-number "1e3")"#, "1000.0"),
+            (r#"(string-to-number "1E3")"#, "1000.0"),
+            (r#"(string-to-number "1e+3")"#, "1000.0"),
+            (r#"(string-to-number "1.5e3")"#, "1500.0"),
+            (r#"(string-to-number "1.e3")"#, "1000.0"),
+            (r#"(string-to-number ".e3")"#, "0"),
+            (r#"(string-to-number "1e")"#, "1"),
+            (r#"(string-to-number "-1.5e-2")"#, "-0.015"),
+            (r#"(string-to-number "1e400")"#, "1.0e+INF"),
+            (r#"(string-to-number "1e+INF")"#, "1.0e+INF"),
+            (r#"(string-to-number "-1.0e+INF")"#, "-1.0e+INF"),
+            (r#"(string-to-number "0.0e+NaN")"#, "0.0e+NaN"),
+            (r#"(string-to-number "1.0e+INFx")"#, "1.0e+INF"),
+            (r#"(string-to-number "1.0e-INF")"#, "1.0"),
+            (r#"(string-to-number "-")"#, "0"),
+            (r#"(string-to-number "  ")"#, "0"),
+            (r#"(string-to-number "  12  ")"#, "12"),
+            ("(string-to-number \" \\t8\")", "8"),
+            ("(string-to-number \"\\n8\")", "0"),
+            ("(string-to-number \"\\r8\")", "0"),
+            (r#"(string-to-number "0x10")"#, "0"),
+            (r#"(string-to-number "١٢")"#, "0"),
+            (
+                r#"(string-to-number "9223372036854775807")"#,
+                "9223372036854775807",
+            ),
+            (
+                r#"(string-to-number "-9223372036854775808")"#,
+                "-9223372036854775808",
+            ),
+        ]);
+    }
+
+    #[test]
+    fn string_to_number_in_another_base() {
+        assert_results(&[
+            (r#"(string-to-number "ff" 16)"#, "255"),
+            (r#"(string-to-number "FF" 16)"#, "255"),
+            (r#"(string-to-number "-ff" 16)"#, "-255"),
+            (r#"(string-to-number "11" 2)"#, "3"),
+            (r#"(string-to-number "10" 8)"#, "8"),
+            (r#"(string-to-number "1.5" 16)"#, "1"),
+            (
+                r#"(string-to-number "7fffffffffffffff" 16)"#,
+                "9223372036854775807",
+            ),
+            (
+                r#"(string-to-number "1" 17)"#,
+                "(ERR (args-out-of-range \"17\"))",
+            ),
+            (
+                r#"(string-to-number "1" 1)"#,
+                "(ERR (args-out-of-range \"1\"))",
+            ),
+            (
+                r#"(string-to-number "z" 36)"#,
+                "(ERR (args-out-of-range \"36\"))",
+            ),
+        ]);
+    }
+
+    // Emacs reads a larger integer as a bignum; tulisp has none.
+    #[test]
+    fn string_to_number_refuses_an_integer_too_large() {
+        let ctx = &mut TulispContext::new();
+        for call in [
+            r#"(string-to-number "9223372036854775808")"#,
+            r#"(string-to-number "-9223372036854775809")"#,
+            r#"(string-to-number "8000000000000000" 16)"#,
+        ] {
+            let program = format!("(condition-case e {call} (error (car e)))");
+            eval_assert_equal(ctx, &program, "'arith-error");
+        }
     }
 }

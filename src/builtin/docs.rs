@@ -1215,6 +1215,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         ),
     ),
     (
+        "string-to-number",
+        concat!(
+            "Read the number at the start of STRING, after spaces and tabs, and return it; 0 when there is none. With BASE, from 2 to 16, read an integer in that base.",
+            "\n\n",
+            "(fn STRING &optional BASE)"
+        ),
+    ),
+    (
         "string<",
         concat!(
             "Return non-nil if STRING1 is less than STRING2 in lexicographic order.",
