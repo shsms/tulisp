@@ -88,6 +88,32 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(reversed)
     });
 
+    // As Emacs does, the length is taken first, then FUNCTION is called on the
+    // elements as the walk reaches them.
+    ctx.defun(
+        "mapc",
+        |ctx: &mut TulispContext, function: TulispObject, seq: TulispObject| {
+            if seq.stringp() {
+                let codes: Vec<i64> =
+                    seq.with_str(|text| text.chars().map(|c| i64::from(u32::from(c))).collect())?;
+                for code in codes {
+                    ctx.funcall(&function, (code,))?;
+                }
+                return Ok(seq);
+            }
+            check_list(&seq, "sequencep")?;
+            let mut rest = seq.clone();
+            for _ in 0..lists::length(&seq)? {
+                if !rest.consp() {
+                    break;
+                }
+                ctx.funcall(&function, (rest.car()?,))?;
+                rest = rest.cdr()?;
+            }
+            Ok(seq)
+        },
+    );
+
     ctx.defun(
         "nth",
         |n: i64, list: TulispObject| -> Result<TulispObject, Error> { lists::nth(n, &list) },
@@ -424,5 +450,50 @@ mod tests {
             ),
             ("(nreverse 5)", "(ERR (wrong-type-argument arrayp 5))"),
         ]);
+    }
+
+    #[test]
+    fn mapc_calls_a_function_on_each_element() {
+        assert_results(&[
+            (
+                "(let ((n 0)) (list (mapc (lambda (x) (setq n (+ n x))) '(1 2 3)) n))",
+                "((1 2 3) 6)",
+            ),
+            (
+                r#"(let ((s nil)) (mapc (lambda (c) (push c s)) "ab") s)"#,
+                "(98 97)",
+            ),
+            (r#"(mapc #'identity "ab")"#, r#""ab""#),
+            ("(mapc #'identity nil)", "nil"),
+            ("(mapc 'car '((1) (2)))", "((1) (2))"),
+            (
+                "(mapc #'identity '(1 . 2))",
+                "(ERR (wrong-type-argument listp 2))",
+            ),
+            (
+                "(mapc #'identity 5)",
+                "(ERR (wrong-type-argument sequencep 5))",
+            ),
+        ]);
+    }
+
+    // A list that loops back is an error rather than an endless walk.
+    #[test]
+    fn walks_stop_at_a_list_that_loops_back() {
+        let ctx = &mut TulispContext::new();
+        for call in [
+            "(assq 'z l)",
+            "(delq 'z l)",
+            "(delete 'z l)",
+            "(remove 'z l)",
+            "(nreverse l)",
+            "(mapc #'ignore l)",
+        ] {
+            eval_assert_error_line(
+                ctx,
+                &format!("(let ((l (list 1 2))) (setcdr (cdr l) l) {call})"),
+                "ERR OutOfRange: Circular list",
+            );
+        }
     }
 }

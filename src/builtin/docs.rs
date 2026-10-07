@@ -918,6 +918,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         ),
     ),
     (
+        "mapc",
+        concat!(
+            "Apply FUNCTION to each element of SEQUENCE for side effects only, and return SEQUENCE. A string's elements are its characters.",
+            "\n\n",
+            "(fn FUNCTION SEQUENCE)"
+        ),
+    ),
+    (
         "mapcar",
         concat!(
             "Apply FUNCTION to each element of LIST, and make a list of the results.",
