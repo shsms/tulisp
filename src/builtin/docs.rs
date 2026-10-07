@@ -634,6 +634,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         ),
     ),
     (
+        "fboundp",
+        concat!(
+            "Return t if SYMBOL's function definition is not void. In Tulisp a function and a variable share one value, so a variable holding a function counts too.",
+            "\n\n",
+            "(fn SYMBOL)"
+        ),
+    ),
+    (
         "fceiling",
         concat!(
             "Return the smallest integer no less than ARG, as a float.",
@@ -734,6 +742,10 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         ),
     ),
     (
+        "identity",
+        concat!("Return the ARGUMENT unchanged.", "\n\n", "(fn ARGUMENT)"),
+    ),
+    (
         "if",
         concat!(
             "If COND yields non-nil, do THEN, else do the ELSE forms.",
@@ -755,6 +767,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
             "Bind variables according to VARLIST and evaluate THEN or ELSE.",
             "\n\n",
             "(fn VARLIST THEN &rest ELSE)"
+        ),
+    ),
+    (
+        "ignore",
+        concat!(
+            "Ignore ARGUMENTS, do nothing, and return nil.",
+            "\n\n",
+            "(fn &rest ARGUMENTS)"
         ),
     ),
     (
@@ -1339,6 +1359,10 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         ),
     ),
     (
+        "symbol-name",
+        concat!("Return SYMBOL's name, a string.", "\n\n", "(fn SYMBOL)"),
+    ),
+    (
         "symbol-value",
         concat!(
             "Return SYMBOL's value, or signal an error if it is void.",
@@ -1493,6 +1517,10 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
             "\n\n",
             "(fn COND1 COND2)"
         ),
+    ),
+    (
+        "zerop",
+        concat!("Return t if NUMBER is zero.", "\n\n", "(fn NUMBER)"),
     ),
 ];
 

@@ -107,6 +107,41 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         },
     );
 
+    ctx.defun("symbol-name", |symbol: TulispObject| symbol.symbol_name());
+
+    // Asks the symbol's own global value, so a symbol `make-symbol` made is
+    // asked about itself, not about the symbol interned under its name.
+    ctx.defun("fboundp", |symbol: TulispObject| {
+        if !symbol.symbolp() {
+            return Err(Error::wrong_type_argument(
+                "symbolp",
+                symbol.clone(),
+                format!("Expected symbol, got: {symbol}"),
+            ));
+        }
+        Ok(symbol
+            .global()
+            .is_some_and(|value| value.inner_ref().0.is_fbound()))
+    });
+
+    ctx.defun("identity", |arg: TulispObject| arg);
+
+    ctx.defun("ignore", |_arguments: crate::Rest<TulispObject>| ());
+
+    ctx.defun("zerop", |number: TulispObject| {
+        if number.integerp() {
+            return Ok(i64::try_from(&number)? == 0);
+        }
+        if number.floatp() {
+            return Ok(f64::try_from(&number)? == 0.0);
+        }
+        Err(Error::wrong_type_argument(
+            "number-or-marker-p",
+            number.clone(),
+            format!("Expected number, got: {number}"),
+        ))
+    });
+
     fn make_symbol(name: String) -> TulispObject {
         let constant = name.starts_with(":");
         TulispObject::symbol(name, constant)
@@ -443,10 +478,65 @@ pub(crate) fn to_char(obj: &TulispObject) -> Result<char, Error> {
 #[cfg(test)]
 mod tests {
     use crate::test_utils::{
-        eval_assert, eval_assert_equal, eval_assert_equal_fresh, eval_assert_error,
+        assert_results, eval_assert, eval_assert_equal, eval_assert_equal_fresh, eval_assert_error,
         eval_assert_error_line,
     };
     use crate::{Error, TulispContext, TulispObject};
+
+    #[test]
+    fn identity_ignore_and_zerop() {
+        assert_results(&[
+            ("(identity 3)", "3"),
+            ("(list (ignore 1 2) (ignore))", "(nil nil)"),
+            (
+                "(list (zerop 0) (zerop 0.0) (zerop -0.0) (zerop 1) (zerop 1.5))",
+                "(t t t nil nil)",
+            ),
+            (
+                "(zerop 'a)",
+                "(ERR (wrong-type-argument number-or-marker-p a))",
+            ),
+            (
+                r#"(zerop "0")"#,
+                r#"(ERR (wrong-type-argument number-or-marker-p "0"))"#,
+            ),
+        ]);
+    }
+
+    #[test]
+    fn symbol_name_and_fboundp() {
+        assert_results(&[
+            (
+                "(list (symbol-name 'abc) (symbol-name nil) (symbol-name :k))",
+                r#"("abc" "nil" ":k")"#,
+            ),
+            (
+                r#"(symbol-name "a")"#,
+                r#"(ERR (wrong-type-argument symbolp "a"))"#,
+            ),
+            (
+                "(list (fboundp 'car) (fboundp 'when) (fboundp 'if) (fboundp 'no-such))",
+                "(t t t nil)",
+            ),
+            ("(list (fboundp nil) (fboundp :k))", "(nil nil)"),
+            ("(fboundp 5)", "(ERR (wrong-type-argument symbolp 5))"),
+            // A `let` binding is not a function definition.
+            ("(let ((f (lambda () 1))) (fboundp 'f))", "nil"),
+            ("(progn (setq x5 5) (fboundp 'x5))", "nil"),
+            // Unlike in Emacs, a function and a variable share one cell.
+            ("(progn (setq vv (lambda () 1)) (fboundp 'vv))", "t"),
+        ]);
+    }
+
+    // `fboundp` asks the symbol it is given, so a symbol `make-symbol` made is
+    // not taken for the interned one of the same name.
+    #[test]
+    fn fboundp_asks_an_uninterned_symbol_about_itself() {
+        assert_results(&[(
+            r#"(let ((s (make-symbol "car"))) (list (fboundp s) (fboundp 'car)))"#,
+            "(nil t)",
+        )]);
+    }
 
     // `alist-get` refuses a non-nil REMOVE, which needs `setf`.
     #[test]
