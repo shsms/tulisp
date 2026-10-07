@@ -27,38 +27,51 @@ differences from Emacs are called out inline.
 - **Output**: `princ`, `print` (behaves like `princ`, not Emacs's `print`),
   `prin1-to-string`.
 - **Mutation**: `aset` (replaces a single char at an index).
+- **Parts and searches**: `substring`, `string-search`, `string-prefix-p`,
+  `string-suffix-p`, `string-empty-p`, `string-replace`. Indexes count
+  characters.
+- **Case**: `upcase`, `downcase`, `capitalize`, each on a string or a
+  character.
+- **Conversion**: `string-to-number` (an integer too large for tulisp's
+  integers is an `arith-error`, where Emacs makes a bignum),
+  `number-to-string`, `char-to-string`, `string`, `string-to-char`.
 
 # Lists
 
 - **Construction**: `cons`, `list`, `append`.
 - **Access**: `car`, `cdr`, every `c[ad]+r` form up to four `a`/`d`s,
-  `nth`, `nthcdr`, `last`.
-- **Modification**: `setcar`, `setcdr`, `push` (PLACE must be a
-  variable: tulisp has no generalized variables).
+  `nth`, `nthcdr`, `last`, `car-safe`, `cdr-safe`.
+- **Modification**: `setcar`, `setcdr`, `push` and `pop` (PLACE must be
+  a variable: tulisp has no generalized variables), `add-to-list`, and
+  `delq`, `delete` and `nreverse`, which relink the cells of the list
+  they are given.
 - **Length / membership**: `length` (also for strings),
   `memq`, `memql`, `member`.
-- **Sequence operations**: `reverse`, `sort`, `mapcar`, `mapconcat`,
-  `string-join`, `seq-map`, `seq-filter`, `seq-reduce`, `seq-find`,
-  `seq-take`, `seq-drop`.
+- **Sequence operations**: `reverse`, `sort`, `mapcar`, `mapc`,
+  `mapconcat`, `string-join`, `remove`, `seq-map`, `seq-filter`,
+  `seq-reduce`, `seq-find`, `seq-take`, `seq-drop`.
 - **Ordering**: `value<`, the order `sort` uses when given no predicate:
   numbers by value, strings and symbols by name, lists element by element.
-- **Alists**: `assoc`, `alist-get`.
+- **Alists**: `assoc`, `assq`, `alist-get`.
 - **Plists**: `plist-get`.
 
 A list function that must walk a whole list signals a `Circular list`
 error when the list's cdrs loop back to an earlier cell. Unlike Emacs,
 `last` and `plist-get` without a PREDICATE also do so.
 
-Tulisp has no vector type — sequence functions are list-only.
+Tulisp has no vector type. Of the sequence functions, `length`, `append`,
+`mapc`, `remove`, `delete` and `nreverse` also take a string; the others
+take only lists.
 
 # Symbols and variables
 
 - **Bindings**: `let`, `let*`, `setq`, `set`, `symbol-value`.
 - **Symbols**: `intern` (always uses the default obarray), `make-symbol`,
-  `gensym`.
+  `gensym`, `symbol-name`, `fboundp` (also `t` for a variable that holds
+  a function, since a symbol has one value).
 - **Declaration**: `defvar` (sets only when the name has no top-level
   value — preserves value across reloads; with no value, only marks the
-  name special).
+  name special), `defconst` (always sets).
 - **Constants**: `nil`, `t`.
 
 # Functions and macros
@@ -74,6 +87,7 @@ Tulisp has no vector type — sequence functions are list-only.
   `#'expr`; makes a closure of a `lambda`), backquote / unquote / splice
   (`` ` ``, `,`, `,@`).
 - **Threading**: `->` / `thread-first`, `->>` / `thread-last`.
+- **Trivial functions**: `identity`, `ignore`.
 
 Tail-call optimisation is applied to recursive functions automatically.
 
@@ -89,6 +103,7 @@ Tail-call optimisation is applied to recursive functions automatically.
 
 - **Types**: `atom`, `consp`, `listp`, `floatp`, `integerp`, `numberp`,
   `stringp`, `symbolp`, `keywordp`, `functionp`, `boundp`, `null`.
+- **Numbers**: `zerop`.
 - **Equality**: `eq`, `equal`, `eql`.
 
 # Hash tables
@@ -109,7 +124,7 @@ pairs. `format-seconds` formats a duration.
 # Errors
 
 `error`, `signal`, `define-error`, `error-message-string`, `user-error`,
-`throw`, `catch`, `condition-case`, `unwind-protect`.
+`throw`, `catch`, `condition-case`, `ignore-errors`, `unwind-protect`.
 */
 
 pub(crate) mod docs;
