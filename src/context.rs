@@ -564,21 +564,17 @@ impl TulispContext {
         }
 
         let kind = describe::kind_of(&value);
-        let identity = describe::value_identity(&value);
-        let sym = self.intern(name);
-        if let Err(err) = self.set_function_value(&sym, value.into_ref(None)) {
-            panic!("can't define a function named {name}: {}", err.desc());
-        }
-        if let Some(signature) = signature
-            && let Some(identity) = identity
-        {
-            let entry = describe::FunctionDoc {
+        let entry = describe::value_identity(&value)
+            .zip(signature)
+            .map(|(identity, signature)| describe::FunctionDoc {
                 kind,
                 identity,
                 signature: Some(signature),
                 doc: None,
-            };
-            self.set_function_doc(&sym, Some(entry));
+            });
+        let sym = self.intern(name);
+        if let Err(err) = self.set_function_value(&sym, value.into_ref(None), entry) {
+            panic!("can't define a function named {name}: {}", err.desc());
         }
     }
 
@@ -879,24 +875,25 @@ impl TulispContext {
             )));
         }
         let sym = self.intern(name);
-        self.set_function_value(&sym, function)
+        self.set_function_value(&sym, function, None)
     }
 
     /// Makes FUNCTION the global value of SYM, and drops what the compiler and
     /// the machine kept for the old one, so code compiled later calls FUNCTION.
-    /// SYM's function doc stays only when FUNCTION is the very object SYM held.
-    /// Use it to set a function from outside the compiler, as `fset` and a Rust
-    /// registration do.
+    /// SYM's function doc becomes ENTRY, or stays as it is when FUNCTION is the
+    /// very object SYM held. Use it to set a function from outside the
+    /// compiler, as `fset` and a Rust registration do.
     pub(crate) fn set_function_value(
         &mut self,
         sym: &TulispObject,
         function: TulispObject,
+        entry: Option<describe::FunctionDoc>,
     ) -> Result<(), Error> {
         let addr = sym.addr_as_usize();
-        if sym.global().is_some_and(|old| old.eq_ptr(&function)) {
-            sym.set_global(function.clone())?;
-        } else {
-            self.replace_global_function(sym, function.clone())?;
+        let same_object = sym.global().is_some_and(|old| old.eq_ptr(&function));
+        sym.set_global(function.clone())?;
+        if !same_object {
+            self.set_function_doc(sym, entry);
         }
         self.evict_compiled_dispatch(addr);
         // Put a compiled function in the machine's table, as `defun` does,

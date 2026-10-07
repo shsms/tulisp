@@ -26,6 +26,7 @@ pub(crate) fn define_macro(
             compiled: SharedMut::new(None),
         }
         .into_ref(None),
+        None,
     )?;
     Ok(name)
 }
