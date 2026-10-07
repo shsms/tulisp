@@ -514,6 +514,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         ),
     ),
     (
+        "downcase",
+        concat!(
+            "Convert OBJ, a string or a character, to lower case and return that.",
+            "\n\n",
+            "(fn OBJ)"
+        ),
+    ),
+    (
         "eq",
         concat!(
             "Return t if the two args are the same Lisp object.",
@@ -1324,6 +1332,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
             "Do BODYFORM, protecting with UNWINDFORMS.",
             "\n\n",
             "(fn BODYFORM &rest UNWINDFORMS)"
+        ),
+    ),
+    (
+        "upcase",
+        concat!(
+            "Convert OBJ, a string or a character, to upper case and return that.",
+            "\n\n",
+            "(fn OBJ)"
         ),
     ),
     (

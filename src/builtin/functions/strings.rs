@@ -64,6 +64,14 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             in_string.with_str(|text| text.replace(&from, &to))
         },
     );
+
+    ctx.defun("upcase", |obj: TulispObject| {
+        change_case(&obj, upcase_char, str::to_uppercase)
+    });
+
+    ctx.defun("downcase", |obj: TulispObject| {
+        change_case(&obj, downcase_char, str::to_lowercase)
+    });
 }
 
 /// `nil` for an absent index, as Emacs shows one in an error.
@@ -125,6 +133,40 @@ fn downcase_char(c: char) -> char {
 fn one_char(mut chars: impl Iterator<Item = char>) -> Option<char> {
     let first = chars.next()?;
     chars.next().is_none().then_some(first)
+}
+
+/// OBJ, a string or a character, with ON_TEXT or ON_CHAR applied. A code past
+/// Unicode is a character to Emacs, which leaves it as it is.
+fn change_case(
+    obj: &TulispObject,
+    on_char: fn(char) -> char,
+    on_text: fn(&str) -> String,
+) -> Result<TulispObject, Error> {
+    if let Ok(code) = i64::try_from(obj)
+        && code >= 0
+    {
+        let changed = u32::try_from(code)
+            .ok()
+            .and_then(char::from_u32)
+            .map_or(code, |c| i64::from(u32::from(on_char(c))));
+        return Ok(TulispObject::from(changed));
+    }
+    obj.with_str(on_text).map(TulispObject::from).map_err(|_| {
+        Error::wrong_type_argument(
+            "char-or-string-p",
+            obj.clone(),
+            format!("Expected character or string, got: {obj}"),
+        )
+    })
+}
+
+/// C in the other case, when that is one character; else C. `ß` is the
+/// exception Emacs makes: its upper case is `ẞ`.
+fn upcase_char(c: char) -> char {
+    if c == 'ß' {
+        return 'ẞ';
+    }
+    one_char(c.to_uppercase()).unwrap_or(c)
 }
 
 #[cfg(test)]
@@ -250,6 +292,43 @@ mod tests {
             (
                 r#"(string-replace "" "x" "foo")"#,
                 "(ERR (wrong-length-argument 0))",
+            ),
+        ]);
+    }
+
+    #[test]
+    fn case_of_strings() {
+        assert_results(&[
+            (r#"(upcase "abé")"#, r#""ABÉ""#),
+            (r#"(upcase "ß")"#, r#""SS""#),
+            (r#"(upcase "ﬁ")"#, r#""FI""#),
+            (r#"(upcase "σας")"#, r#""ΣΑΣ""#),
+            (r#"(downcase "AB")"#, r#""ab""#),
+            (r#"(downcase "ΣΑΣ")"#, r#""σας""#),
+        ]);
+    }
+
+    #[test]
+    fn case_of_characters() {
+        assert_results(&[
+            ("(upcase 97)", "65"),
+            ("(downcase 65)", "97"),
+            ("(upcase ?ß)", "7838"),
+            ("(upcase ?ǆ)", "452"),
+            ("(upcase ?ﬁ)", "64257"),
+            ("(downcase ?İ)", "304"),
+            ("(upcase 4194303)", "4194303"),
+            (
+                "(upcase -1)",
+                "(ERR (wrong-type-argument char-or-string-p -1))",
+            ),
+            (
+                "(upcase 1.5)",
+                "(ERR (wrong-type-argument char-or-string-p 1.5))",
+            ),
+            (
+                "(upcase 'a)",
+                "(ERR (wrong-type-argument char-or-string-p a))",
             ),
         ]);
     }
