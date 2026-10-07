@@ -70,7 +70,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     });
 
     ctx.defun("downcase", |obj: TulispObject| {
-        change_case(&obj, downcase_char, str::to_lowercase)
+        change_case(&obj, downcase_char, downcase_text)
     });
 
     ctx.defun("capitalize", |obj: TulispObject| {
@@ -269,27 +269,64 @@ fn iota_title(c: char) -> Option<char> {
     char::from_u32(title)
 }
 
+/// TEXT in lower case.
+fn downcase_text(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    let mut before = None;
+    while let Some(c) = chars.next() {
+        push_lower(&mut out, c, before, chars.peek().copied());
+        before = Some(c);
+    }
+    out
+}
+
 /// TEXT with each word's first letter in title case and the rest in lower case.
-/// A word is a run of letters and digits, so `don't` is two words, as in Emacs.
+/// `don't` is two words, as in Emacs.
 fn capitalize_words(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
-    let mut rest = text;
-    while let Some(start) = rest.find(char::is_alphanumeric) {
-        out.push_str(&rest[..start]);
-        rest = &rest[start..];
-        let end = rest
-            .find(|c: char| !c.is_alphanumeric())
-            .unwrap_or(rest.len());
-        let word = &rest[..end];
-        let mut chars = word.chars();
-        if let Some(first) = chars.next() {
-            push_title(&mut out, first);
-            out.push_str(&chars.as_str().to_lowercase());
+    let mut chars = text.chars().peekable();
+    let mut before = None;
+    while let Some(c) = chars.next() {
+        if !is_word(c) {
+            out.push(c);
+        } else if before.is_some_and(is_word) {
+            push_lower(&mut out, c, before, chars.peek().copied());
+        } else {
+            push_title(&mut out, c);
         }
-        rest = &rest[end..];
+        before = Some(c);
     }
-    out.push_str(rest);
     out
+}
+
+/// Pushes C in lower case, with the characters BEFORE and AFTER it. A capital
+/// sigma becomes the final `ς` when it ends a word: after a word character and
+/// not before one, as in Emacs.
+fn push_lower(out: &mut String, c: char, before: Option<char>, after: Option<char>) {
+    if c == 'Σ' {
+        let ends_word = before.is_some_and(is_word) && !after.is_some_and(is_word);
+        out.push(if ends_word { 'ς' } else { 'σ' });
+    } else {
+        out.extend(c.to_lowercase());
+    }
+}
+
+/// Whether C belongs to a word: a letter, a digit, or a combining mark from the
+/// common blocks, such as the acute accent in `x\u{301}`. Emacs's syntax table
+/// differs: it also counts most symbols, some punctuation and the combining
+/// marks of other blocks, but not some characters counted here, such as `½`,
+/// `ª` and `①`.
+fn is_word(c: char) -> bool {
+    c.is_alphanumeric()
+        || matches!(
+            c,
+            '\u{300}'..='\u{36F}'
+                | '\u{1AB0}'..='\u{1AFF}'
+                | '\u{1DC0}'..='\u{1DFF}'
+                | '\u{20D0}'..='\u{20FF}'
+                | '\u{FE20}'..='\u{FE2F}'
+        )
 }
 
 /// Pushes FIRST, the first letter of a word, in title case. One that upper case
@@ -536,6 +573,12 @@ mod tests {
             (r#"(downcase "ΣΑΣ")"#, r#""σας""#),
             // Emacs keeps `ı` and `ſ`.
             (r#"(upcase "ıſa")"#, r#""ıſA""#),
+            // A capital sigma that ends a word becomes the final sigma.
+            (
+                r#"(downcase "ΑΣ ΑΣ1 ΑΣ'Α 1Σ ΣΣ")"#,
+                r#""ας ασ1 ας'α 1ς σς""#,
+            ),
+            ("(downcase \"ΑΣ\u{301}\")", "\"ασ\u{301}\""),
         ]);
     }
 
@@ -597,6 +640,8 @@ mod tests {
             (r#"(capitalize "ᾳx ᾀx")"#, r#""ᾼx ᾈx""#),
             (r#"(capitalize "გამარჯობა")"#, r#""გამარჯობა""#),
             (r#"(capitalize "ŉa")"#, r#""ʼNa""#),
+            (r#"(capitalize "ΟΣ 1Σ ΣΣ")"#, r#""Ος 1ς Σς""#),
+            ("(capitalize \"x\u{301}y\")", "\"X\u{301}y\""),
         ]);
     }
 
