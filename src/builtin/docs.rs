@@ -4,7 +4,7 @@
 
 use crate::TulispContext;
 
-const DOCS: &[(&str, &str)] = &[
+pub(crate) const DOCS: &[(&str, &str)] = &[
     (
         "%",
         concat!("Return remainder of X divided by Y.", "\n\n", "(fn X Y)"),

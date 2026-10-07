@@ -195,7 +195,8 @@ impl TulispContext {
         let mut ctx = Self {
             obarray,
             filenames: vec!["<eval_string>".to_string()],
-            function_docs: HashMap::new(),
+            // Every built-in gets an entry.
+            function_docs: HashMap::with_capacity(builtin::docs::DOCS.len()),
             variable_docs: HashMap::new(),
             compiler: None,
             keywords,
