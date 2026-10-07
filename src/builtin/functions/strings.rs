@@ -66,7 +66,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     );
 
     ctx.defun("upcase", |obj: TulispObject| {
-        change_case(&obj, upcase_char, str::to_uppercase)
+        change_case(&obj, upcase_char, upcase_text)
     });
 
     ctx.defun("downcase", |obj: TulispObject| {
@@ -157,7 +157,12 @@ fn same_chars(
         .all(|p| text.next().is_some_and(|t| fold(t) == fold(p)))
 }
 
+/// C in lower case, when that is one character; else C. The Kelvin sign is the
+/// exception Emacs makes: it stays as it is.
 fn downcase_char(c: char) -> char {
+    if c == '\u{212A}' {
+        return c;
+    }
     one_char(c.to_lowercase()).unwrap_or(c)
 }
 
@@ -167,8 +172,7 @@ fn one_char(mut chars: impl Iterator<Item = char>) -> Option<char> {
     chars.next().is_none().then_some(first)
 }
 
-/// OBJ, a string or a character, with ON_TEXT or ON_CHAR applied. A code past
-/// Unicode is a character to Emacs, which leaves it as it is.
+/// OBJ, a string or a character, with ON_TEXT or ON_CHAR applied.
 fn change_case(
     obj: &TulispObject,
     on_char: fn(char) -> char,
@@ -177,11 +181,7 @@ fn change_case(
     if let Ok(code) = i64::try_from(obj)
         && code >= 0
     {
-        let changed = u32::try_from(code)
-            .ok()
-            .and_then(char::from_u32)
-            .map_or(code, |c| i64::from(u32::from(on_char(c))));
-        return Ok(TulispObject::from(changed));
+        return Ok(TulispObject::from(change_code(code, on_char)));
     }
     obj.with_str(on_text).map(TulispObject::from).map_err(|_| {
         Error::wrong_type_argument(
@@ -192,30 +192,81 @@ fn change_case(
     })
 }
 
-/// C in the other case, when that is one character; else C. `ß` is the
-/// exception Emacs makes: its upper case is `ẞ`.
-fn upcase_char(c: char) -> char {
-    if c == 'ß' {
-        return 'ẞ';
+/// The character code CODE with ON_CHAR applied, as Emacs does it: the
+/// modifier bits above the character (Meta, Control and the like) are kept,
+/// and a code that is not a Unicode character, such as one of Emacs's raw
+/// bytes, stays as it is.
+fn change_code(code: i64, on_char: fn(char) -> char) -> i64 {
+    const MODIFIERS: i64 = 0xFC0_0000;
+    if code > 0xFFF_FFFF {
+        return code;
     }
-    one_char(c.to_uppercase()).unwrap_or(c)
+    let (modifiers, base) = (code & MODIFIERS, code & !MODIFIERS);
+    u32::try_from(base)
+        .ok()
+        .and_then(char::from_u32)
+        .map_or(code, |c| modifiers | i64::from(u32::from(on_char(c))))
+}
+
+/// C in upper case, when that is one character; else C. The exceptions Emacs
+/// makes: `ß` upcases to `ẞ`, `ı` and `ſ` stay as they are, and a Greek letter
+/// with a small iota below takes its one-character title case.
+fn upcase_char(c: char) -> char {
+    match c {
+        'ß' => 'ẞ',
+        'ı' | 'ſ' => c,
+        _ => iota_title(c)
+            .or_else(|| one_char(c.to_uppercase()))
+            .unwrap_or(c),
+    }
+}
+
+/// TEXT in upper case, where `ı` and `ſ` stay as they are, as in Emacs.
+fn upcase_text(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        if matches!(c, 'ı' | 'ſ') {
+            out.push(c);
+        } else {
+            out.extend(c.to_uppercase());
+        }
+    }
+    out
 }
 
 /// The character `capitalize` makes of C.
 fn titlecase_char(c: char) -> char {
-    digraph_title(c).unwrap_or_else(|| upcase_char(c))
+    title_exception(c).unwrap_or_else(|| upcase_char(c))
 }
 
-/// The title case of a digraph, the only letters whose title case is not their
-/// upper case.
-fn digraph_title(c: char) -> Option<char> {
+/// The title case of C, for the letters whose title case is one character other
+/// than their upper case: the digraphs, Georgian letters, which are their own
+/// title case, the Greek letters with a small iota below, and `ı` and `ſ`,
+/// which Emacs titles though it does not upcase them.
+fn title_exception(c: char) -> Option<char> {
     match c {
+        'ı' => Some('I'),
+        'ſ' => Some('S'),
         'Ǆ' | 'ǅ' | 'ǆ' => Some('ǅ'),
         'Ǉ' | 'ǈ' | 'ǉ' => Some('ǈ'),
         'Ǌ' | 'ǋ' | 'ǌ' => Some('ǋ'),
         'Ǳ' | 'ǲ' | 'ǳ' => Some('ǲ'),
-        _ => None,
+        '\u{10D0}'..='\u{10FA}' | '\u{10FD}'..='\u{10FF}' => Some(c),
+        _ => iota_title(c),
     }
+}
+
+/// The title case of a Greek letter with a small iota below, such as `ᾳ` or
+/// `ᾀ`: one character, where its upper case is two.
+fn iota_title(c: char) -> Option<char> {
+    let code = u32::from(c);
+    let title = match code {
+        0x1F80..=0x1F87 | 0x1F90..=0x1F97 | 0x1FA0..=0x1FA7 => code + 8,
+        0x1FB3 | 0x1FC3 | 0x1FF3 => code + 9,
+        0x1F88..=0x1F8F | 0x1F98..=0x1F9F | 0x1FA8..=0x1FAF | 0x1FBC | 0x1FCC | 0x1FFC => code,
+        _ => return None,
+    };
+    char::from_u32(title)
 }
 
 /// TEXT with each word's first letter in title case and the rest in lower case.
@@ -243,10 +294,14 @@ fn capitalize_words(text: &str) -> String {
 
 /// Pushes FIRST, the first letter of a word, in title case. One that upper case
 /// makes into several letters, such as `ß` into `SS`, keeps only the first of
-/// them in upper case.
+/// them in upper case; `ŉ` gives `ʼN`, as in Emacs.
 fn push_title(out: &mut String, first: char) {
-    if let Some(title) = digraph_title(first) {
+    if let Some(title) = title_exception(first) {
         out.push(title);
+        return;
+    }
+    if first == 'ŉ' {
+        out.push_str("ʼN");
         return;
     }
     let mut upper = first.to_uppercase();
@@ -479,6 +534,8 @@ mod tests {
             (r#"(upcase "σας")"#, r#""ΣΑΣ""#),
             (r#"(downcase "AB")"#, r#""ab""#),
             (r#"(downcase "ΣΑΣ")"#, r#""σας""#),
+            // Emacs keeps `ı` and `ſ`.
+            (r#"(upcase "ıſa")"#, r#""ıſA""#),
         ]);
     }
 
@@ -492,6 +549,13 @@ mod tests {
             ("(upcase ?ﬁ)", "64257"),
             ("(downcase ?İ)", "304"),
             ("(upcase 4194303)", "4194303"),
+            // Meta-a: the modifier bits are kept.
+            ("(upcase 134217825)", "134217793"),
+            ("(upcase ?ı)", "305"),
+            ("(upcase ?ſ)", "383"),
+            ("(downcase ?\u{212A})", "8490"),
+            ("(upcase ?ᾳ)", "8124"),
+            ("(upcase ?ᾀ)", "8072"),
             (
                 "(upcase -1)",
                 "(ERR (wrong-type-argument char-or-string-p -1))",
@@ -527,6 +591,12 @@ mod tests {
             ("(capitalize ?ß)", "7838"),
             ("(capitalize ?a)", "65"),
             ("(capitalize ?ǆ)", "453"),
+            ("(capitalize ?ა)", "4304"),
+            ("(capitalize ?ı)", "73"),
+            ("(capitalize ?ᾳ)", "8124"),
+            (r#"(capitalize "ᾳx ᾀx")"#, r#""ᾼx ᾈx""#),
+            (r#"(capitalize "გამარჯობა")"#, r#""გამარჯობა""#),
+            (r#"(capitalize "ŉa")"#, r#""ʼNa""#),
         ]);
     }
 
