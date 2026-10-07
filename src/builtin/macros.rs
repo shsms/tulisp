@@ -51,19 +51,51 @@ fn quote(_ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, 
     Ok(TulispValue::Quote { value: arg }.into_ref(None))
 }
 
+/// `(pop PLACE)` is `(let ((V (car-safe PLACE))) (setq PLACE (cdr PLACE)) V)`,
+/// with V a symbol of its own. PLACE must be a variable, as for `push`: tulisp
+/// has no generalized variables.
+fn pop(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+    let (place,): (TulispObject,) = args.destructure(ctx)?;
+    if !place.symbolp() {
+        return Err(Error::lisp_error(format!(
+            "pop: PLACE must be a variable, got: {place}"
+        )));
+    }
+    let first = TulispObject::symbol("pop-first".to_string(), false);
+    let car = list!(ctx => ,ctx.intern("car-safe") ,&place)?;
+    let binding = list!(ctx => ,&first ,car)?;
+    let bindings = list!(ctx => ,binding)?;
+    let rest = list!(ctx => ,ctx.intern("cdr") ,&place)?;
+    let set = list!(ctx => ,ctx.intern("setq") ,&place ,rest)?;
+    list!(ctx => ,ctx.intern("let") ,bindings ,set ,first)
+}
+
+/// `(ignore-errors BODY...)` is `(condition-case nil (progn BODY...) (error
+/// nil))`.
+fn ignore_errors(ctx: &mut TulispContext, body: &TulispObject) -> Result<TulispObject, Error> {
+    let progn = list!(ctx => ,ctx.intern("progn") ,@body)?;
+    let handler = list!(ctx => ,ctx.intern("error") ,TulispObject::nil())?;
+    list!(ctx => ,ctx.intern("condition-case") ,TulispObject::nil() ,progn ,handler)
+}
+
 pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defmacro("->", thread_first);
     ctx.defmacro("thread-first", thread_first);
     ctx.defmacro("->>", thread_last);
     ctx.defmacro("thread-last", thread_last);
     ctx.defmacro("quote", quote);
+    ctx.defmacro("pop", pop);
+    ctx.defmacro("ignore-errors", ignore_errors);
 }
 
 #[cfg(test)]
 mod tests {
     use crate::{
         TulispContext,
-        test_utils::{eval_assert_equal, eval_assert_error, eval_assert_prints_as},
+        test_utils::{
+            assert_results, eval_assert_equal, eval_assert_error, eval_assert_error_line,
+            eval_assert_prints_as,
+        },
     };
 
     #[test]
@@ -148,5 +180,41 @@ mod tests {
         );
         eval_assert_equal(&mut fresh(), "(-> 10)", "10");
         eval_assert_equal(&mut fresh(), "(->> 10)", "10");
+    }
+
+    #[test]
+    fn pop_takes_the_first_element_off_a_variable() {
+        assert_results(&[
+            ("(let ((l (list 1 2))) (list (pop l) l))", "(1 (2))"),
+            ("(let ((l nil)) (list (pop l) l))", "(nil nil)"),
+            ("(let ((l '(1 . 2))) (list (pop l) l))", "(1 2)"),
+            (
+                "(let ((l 5)) (pop l))",
+                "(ERR (wrong-type-argument listp 5))",
+            ),
+        ]);
+        // As for `push`, only a variable is a place, and the macro refuses any
+        // other when it expands.
+        eval_assert_error_line(
+            &mut TulispContext::new(),
+            "(let ((l (list (list 1)))) (pop (car l)))",
+            "ERR LispError: pop: PLACE must be a variable, got: (car l)",
+        );
+    }
+
+    #[test]
+    fn ignore_errors_gives_nil_for_an_error() {
+        assert_results(&[
+            ("(ignore-errors (car 1))", "nil"),
+            ("(ignore-errors 1 2)", "2"),
+            ("(ignore-errors)", "nil"),
+        ]);
+        // `quit` is not an error.
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(
+            ctx,
+            "(condition-case e (ignore-errors (signal 'quit nil)) (quit 'quit))",
+            "'quit",
+        );
     }
 }

@@ -778,6 +778,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         ),
     ),
     (
+        "ignore-errors",
+        concat!(
+            "Execute BODY; if an error occurs, return nil. Otherwise, return the value of the last form in BODY.",
+            "\n\n",
+            "(fn &rest BODY)"
+        ),
+    ),
+    (
         "integerp",
         concat!("Return t if OBJECT is an integer.", "\n\n", "(fn OBJECT)"),
     ),
@@ -1048,6 +1056,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
             "Extract a value from a property list.",
             "\n\n",
             "(fn PLIST PROP &optional PREDICATE)"
+        ),
+    ),
+    (
+        "pop",
+        concat!(
+            "Return the first element of PLACE's value, and remove it from the list. PLACE must be a variable.",
+            "\n\n",
+            "(fn PLACE)"
         ),
     ),
     (
@@ -1647,11 +1663,13 @@ mod tests {
         "if",
         "if-let",
         "if-let*",
+        "ignore-errors",
         "interactive",
         "lambda",
         "let",
         "let*",
         "or",
+        "pop",
         "progn",
         "quote",
         "setq",
