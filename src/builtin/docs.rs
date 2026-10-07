@@ -506,6 +506,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         ),
     ),
     (
+        "defconst",
+        concat!(
+            "Define SYMBOL as a constant variable: set it to the value of INITVALUE, even when it already has a value, and declare it special. DOCSTRING documents it.",
+            "\n\n",
+            "(fn SYMBOL INITVALUE &optional DOCSTRING)"
+        ),
+    ),
+    (
         "define-error",
         concat!(
             "Define NAME as a new error signal.",
@@ -1654,6 +1662,7 @@ mod tests {
         "cond",
         "condition-case",
         "declare",
+        "defconst",
         "defmacro",
         "defun",
         "defvar",

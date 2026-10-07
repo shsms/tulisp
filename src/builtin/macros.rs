@@ -78,6 +78,22 @@ fn ignore_errors(ctx: &mut TulispContext, body: &TulispObject) -> Result<TulispO
     list!(ctx => ,ctx.intern("condition-case") ,TulispObject::nil() ,progn ,handler)
 }
 
+/// `(defconst SYMBOL INITVALUE [DOCSTRING])` evaluates INITVALUE once, before
+/// SYMBOL is declared, and sets SYMBOL to it even when it already has a
+/// value: `(let ((V INITVALUE)) (defvar SYMBOL V DOCSTRING) (setq SYMBOL V)
+/// 'SYMBOL)`, with V a symbol of its own.
+fn defconst(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+    let (symbol, initvalue, docstring): (TulispObject, TulispObject, Option<TulispObject>) =
+        args.destructure(ctx)?;
+    let value = TulispObject::symbol("defconst-value".to_string(), false);
+    let binding = list!(ctx => ,&value ,initvalue)?;
+    let bindings = list!(ctx => ,binding)?;
+    let declare = list!(ctx => ,ctx.intern("defvar") ,&symbol ,&value ,docstring)?;
+    let set = list!(ctx => ,ctx.intern("setq") ,&symbol ,&value)?;
+    let quoted = TulispValue::Quote { value: symbol }.into_ref(None);
+    list!(ctx => ,ctx.intern("let") ,bindings ,declare ,set ,quoted)
+}
+
 pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defmacro("->", thread_first);
     ctx.defmacro("thread-first", thread_first);
@@ -86,6 +102,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defmacro("quote", quote);
     ctx.defmacro("pop", pop);
     ctx.defmacro("ignore-errors", ignore_errors);
+    ctx.defmacro("defconst", defconst);
 }
 
 #[cfg(test)]
@@ -216,5 +233,24 @@ mod tests {
             "(condition-case e (ignore-errors (signal 'quit nil)) (quit 'quit))",
             "'quit",
         );
+    }
+
+    // Unlike `defvar`, `defconst` sets a symbol that already has a value.
+    #[test]
+    fn defconst_always_sets() {
+        assert_results(&[
+            (r#"(defconst kk 5 "Doc.")"#, "kk"),
+            ("(progn (defconst kk 6) kk)", "6"),
+            ("(progn (defconst kk2 (+ 1 2)) kk2)", "3"),
+            ("(let ((n 0)) (defconst kk4 (setq n (1+ n))) n)", "1"),
+            (
+                "(progn (defconst kk3 1) (let ((kk3 2)) (symbol-value 'kk3)))",
+                "2",
+            ),
+        ]);
+        let ctx = &mut TulispContext::new();
+        ctx.eval_string(r#"(defconst kk 5 "The kk.")"#).unwrap();
+        let info = ctx.describe("kk").unwrap();
+        assert_eq!(info.doc.as_deref(), Some("The kk."));
     }
 }
