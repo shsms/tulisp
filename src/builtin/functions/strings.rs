@@ -192,13 +192,13 @@ fn change_case(
     })
 }
 
-/// The character code CODE with ON_CHAR applied, as Emacs does it: the
-/// modifier bits above the character (Meta, Control and the like) are kept,
-/// and a code that is not a Unicode character, such as one of Emacs's raw
-/// bytes, stays as it is.
+/// The character code CODE with ON_CHAR applied, as Emacs does it: the modifier
+/// bits above the character (Meta, Control and the like) are kept, and a code
+/// that is not a Unicode character, such as one of Emacs's raw bytes, stays as
+/// it is, as does one with all six modifier bits set.
 fn change_code(code: i64, on_char: fn(char) -> char) -> i64 {
     const MODIFIERS: i64 = 0xFC0_0000;
-    if code > 0xFFF_FFFF {
+    if code >= MODIFIERS {
         return code;
     }
     let (modifiers, base) = (code & MODIFIERS, code & !MODIFIERS);
@@ -302,11 +302,14 @@ fn capitalize_words(text: &str) -> String {
 
 /// Pushes C in lower case, with the characters BEFORE and AFTER it. A capital
 /// sigma becomes the final `ς` when it ends a word: after a word character and
-/// not before one, as in Emacs.
+/// not before one, as in Emacs. The Kelvin sign stays as it is, as `downcase`
+/// keeps it when given it as a character.
 fn push_lower(out: &mut String, c: char, before: Option<char>, after: Option<char>) {
     if c == 'Σ' {
         let ends_word = before.is_some_and(is_word) && !after.is_some_and(is_word);
         out.push(if ends_word { 'ς' } else { 'σ' });
+    } else if c == '\u{212A}' {
+        out.push(c);
     } else {
         out.extend(c.to_lowercase());
     }
@@ -331,7 +334,8 @@ fn is_word(c: char) -> bool {
 
 /// Pushes FIRST, the first letter of a word, in title case. One that upper case
 /// makes into several letters, such as `ß` into `SS`, keeps only the first of
-/// them in upper case; `ŉ` gives `ʼN`, as in Emacs.
+/// them in upper case; `ŉ` gives `ʼN`, and the iota below a letter such as `ᾲ`
+/// stays a combining iota, as in Emacs.
 fn push_title(out: &mut String, first: char) {
     if let Some(title) = title_exception(first) {
         out.push(title);
@@ -345,7 +349,13 @@ fn push_title(out: &mut String, first: char) {
     if let Some(head) = upper.next() {
         out.push(head);
     }
-    out.extend(upper.flat_map(char::to_lowercase));
+    for rest in upper {
+        if rest == 'Ι' {
+            out.push('\u{345}');
+        } else {
+            out.extend(rest.to_lowercase());
+        }
+    }
 }
 
 /// The character with code OBJ, or the error Emacs gives for one that is not a
@@ -580,6 +590,7 @@ mod tests {
             (r#"(downcase "ΣΑΣ")"#, r#""σας""#),
             // Emacs keeps `ı` and `ſ`.
             (r#"(upcase "ıſa")"#, r#""ıſA""#),
+            ("(downcase \"A\u{212A}\")", "\"a\u{212A}\""),
             // A capital sigma that ends a word becomes the final sigma.
             (
                 r#"(downcase "ΑΣ ΑΣ1 ΑΣ'Α 1Σ ΣΣ")"#,
@@ -601,6 +612,8 @@ mod tests {
             ("(upcase 4194303)", "4194303"),
             // Meta-a: the modifier bits are kept.
             ("(upcase 134217825)", "134217793"),
+            // With all six modifier bits set, the code stays as it is.
+            ("(upcase 264241249)", "264241249"),
             ("(upcase ?ı)", "305"),
             ("(upcase ?ſ)", "383"),
             ("(downcase ?\u{212A})", "8490"),
@@ -647,6 +660,7 @@ mod tests {
             (r#"(capitalize "ᾳx ᾀx")"#, r#""ᾼx ᾈx""#),
             (r#"(capitalize "გამარჯობა")"#, r#""გამარჯობა""#),
             (r#"(capitalize "ŉa")"#, r#""ʼNa""#),
+            ("(capitalize \"ᾲa a\u{212A}\")", "\"Ὰ\u{345}a A\u{212A}\""),
             (r#"(capitalize "ΟΣ 1Σ ΣΣ")"#, r#""Ος 1ς Σς""#),
             ("(capitalize \"x\u{301}y\")", "\"X\u{301}y\""),
         ]);
