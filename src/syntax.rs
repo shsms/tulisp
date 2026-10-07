@@ -339,7 +339,10 @@ impl<'a> Builder<'a> {
         while let Some(Open { id: top, dotted }) = self.open.pop() {
             let range = self.nodes[top.0].range.clone();
             if matches!(self.nodes[top.0].kind, NodeKind::Prefix { .. }) {
-                self.error(range, "Unexpected EOF");
+                self.error(
+                    range,
+                    self.prefix_message(self.open.len() + 1, "Unexpected EOF"),
+                );
             } else {
                 self.nodes[top.0].range.end = end;
                 // As the parser does, a list that ends on its dot is blamed for
@@ -487,7 +490,10 @@ impl<'a> Builder<'a> {
         while let Some(top) = self.open.last().map(|open| open.id)
             && matches!(self.nodes[top.0].kind, NodeKind::Prefix { .. })
         {
-            self.error(range.clone(), "Unexpected closing parenthesis");
+            self.error(
+                range.clone(),
+                self.prefix_message(self.open.len(), "Unexpected closing parenthesis"),
+            );
             reported = true;
             self.open.pop();
             self.attach_value(top);
@@ -551,6 +557,16 @@ impl<'a> Builder<'a> {
                 }
                 NodeKind::Atom(_) | NodeKind::Dot | NodeKind::Comment => return false,
             }
+        }
+    }
+
+    /// Why a prefix at DEPTH, counting itself, has no form. The parser checks
+    /// its limit before it reads the form, so at the limit it reports that.
+    fn prefix_message(&self, depth: usize, otherwise: &str) -> String {
+        if depth >= self.limit {
+            nesting_message(self.limit)
+        } else {
+            otherwise.to_string()
         }
     }
 
@@ -710,8 +726,10 @@ mod tests {
         }
     }
 
-    // Where the parser stops with an error, the tree has an error at the same
-    // place. The parser stops at its first error; the tree may find more.
+    // Where the parser stops with an error, the tree has an error with its
+    // message, at the same place when the parser gives one. The parser stops at
+    // its first error; the tree may find more. The cases nest past a low limit
+    // and stop just under it.
     #[test]
     fn the_tree_has_an_error_where_the_parser_fails() {
         let cases = [
@@ -731,27 +749,39 @@ mod tests {
             r#"("a\M-b" c)"#,
             "(#z)",
             "\"abc",
+            "(((((a)))))",
+            "(')",
+            "(((')",
+            "((((')",
+            "('",
+            "((('",
+            "(((('",
+            "'''",
+            "''''",
         ];
         for source in cases {
             let mut ctx = TulispContext::new();
-            let err = ctx
-                .parse_file_text("<parity>", source)
-                .expect_err(source)
-                .to_string();
-            let tree = read(source);
+            ctx.set_max_eval_depth(1);
+            let limit = ctx.max_nesting_depth() as usize;
+            assert_eq!(limit, 4);
+            let err = ctx.parse_file_text("<parity>", source).expect_err(source);
+            let tree = read_with_limit(source, limit);
+            // The parser puts the error's kind before a tokenizer's message.
+            assert!(
+                tree.errors()
+                    .iter()
+                    .any(|e| err.desc().ends_with(&e.message)),
+                "{source}: the parser says {err}, the tree {:?}",
+                tree.errors()
+            );
+            // The parser gives no position for a nesting error, nor when it
+            // blames a shared symbol, which has no span of its own.
+            let err = err.to_string();
             let Some(at) = err
                 .split("<parity>:")
                 .nth(1)
                 .and_then(|rest| rest.split('-').next())
             else {
-                // The parser blames a shared symbol, which has no span of its
-                // own, so it reports no position: compare the message.
-                let message = err.rsplit("ParsingError: ").next().unwrap_or(&err);
-                assert!(
-                    tree.errors().iter().any(|e| e.message == message),
-                    "{source}: the parser says {err}, the tree {:?}",
-                    tree.errors()
-                );
                 continue;
             };
             let found: Vec<String> = tree
@@ -769,21 +799,21 @@ mod tests {
         }
     }
 
-    // The parser's nesting error has no position; the tree has the same error.
+    // `read` refuses the nesting a new context refuses, with its message.
     #[test]
-    fn the_tree_refuses_the_nesting_the_parser_refuses() {
-        let source = format!("{}a{}", "(".repeat(100), ")".repeat(100));
+    fn read_uses_the_nesting_limit_of_a_new_context() {
         let mut ctx = TulispContext::new();
+        let depth = ctx.max_nesting_depth() as usize + 1;
+        let source = format!("{}a{}", "(".repeat(depth), ")".repeat(depth));
         let err = ctx
             .parse_file_text("<parity>", &source)
-            .expect_err("too deep")
-            .to_string();
-        assert!(err.contains("Lisp nesting exceeds"), "{err}");
+            .expect_err("too deep");
+        assert_eq!(err.desc(), nesting_message(ctx.max_nesting_depth()));
         assert!(
             read(&source)
                 .errors()
                 .iter()
-                .any(|e| e.message.starts_with("Lisp nesting exceeds"))
+                .any(|e| e.message == err.desc())
         );
     }
 
@@ -1118,6 +1148,22 @@ mod tests {
             errors_at_limit("('.)", 3),
             pairs(&[(".", "Unexpected dot")])
         );
+    }
+
+    // So is a prefix that the input or a `)` leaves without a form.
+    #[test]
+    fn a_prefix_at_the_limit_with_no_form_is_a_nesting_error() {
+        assert_eq!(errors_at_limit("(')", 2), pairs(&[(")", TOO_DEEP_2)]));
+        assert_eq!(errors_at_limit("' '", 2), pairs(&[("'", TOO_DEEP_2)]));
+        assert_eq!(
+            errors_at_limit("('", 2),
+            pairs(&[("(", "Unclosed list"), ("'", TOO_DEEP_2)])
+        );
+        assert_eq!(
+            errors_at_limit("(')", 3),
+            pairs(&[(")", "Unexpected closing parenthesis")])
+        );
+        assert_eq!(errors_at_limit("' '", 3), pairs(&[("'", "Unexpected EOF")]));
     }
 
     #[test]
