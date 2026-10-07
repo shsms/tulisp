@@ -1,6 +1,22 @@
 use crate::{Error, TulispContext, TulispObject, lists};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
+    ctx.defun("car-safe", |obj: TulispObject| {
+        if obj.consp() {
+            obj.car()
+        } else {
+            Ok(TulispObject::nil())
+        }
+    });
+
+    ctx.defun("cdr-safe", |obj: TulispObject| {
+        if obj.consp() {
+            obj.cdr()
+        } else {
+            Ok(TulispObject::nil())
+        }
+    });
+
     ctx.defun(
         "nth",
         |n: i64, list: TulispObject| -> Result<TulispObject, Error> { lists::nth(n, &list) },
@@ -57,7 +73,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 #[cfg(test)]
 mod tests {
     use crate::TulispContext;
-    use crate::test_utils::{eval_assert_equal, eval_assert_error_line};
+    use crate::test_utils::{assert_results, eval_assert_equal, eval_assert_error_line};
 
     #[test]
     fn nth_and_nthcdr_index_a_list() {
@@ -131,5 +147,17 @@ mod tests {
             "(let ((l (list 1 2))) (setcdr (cdr l) l) (last l))",
             "ERR OutOfRange: Circular list",
         );
+    }
+
+    #[test]
+    fn safe_car_and_cdr() {
+        assert_results(&[
+            (
+                "(list (car-safe 5) (car-safe '(1 2)) (cdr-safe '(1 . 2)) (cdr-safe nil))",
+                "(nil 1 2 nil)",
+            ),
+            (r#"(car-safe "a")"#, "nil"),
+            ("(cdr-safe 5)", "nil"),
+        ]);
     }
 }

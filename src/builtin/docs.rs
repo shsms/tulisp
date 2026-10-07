@@ -294,6 +294,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         ),
     ),
     (
+        "car-safe",
+        concat!(
+            "Return the car of OBJECT if it is a cons cell, or else nil.",
+            "\n\n",
+            "(fn OBJECT)"
+        ),
+    ),
+    (
         "catch",
         concat!(
             "Eval BODY allowing nonlocal exits using `throw'.",
@@ -411,6 +419,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
             "Return the cdr of LIST, or nil if LIST is nil.",
             "\n\n",
             "(fn LIST)"
+        ),
+    ),
+    (
+        "cdr-safe",
+        concat!(
+            "Return the cdr of OBJECT if it is a cons cell, or else nil.",
+            "\n\n",
+            "(fn OBJECT)"
         ),
     ),
     (
