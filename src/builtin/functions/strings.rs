@@ -145,14 +145,14 @@ fn search(needle: &str, haystack: &str, start: i64) -> Option<Option<i64>> {
     }))
 }
 
-/// Whether the characters of PART come first in TEXT; with IGNORE_CASE, a
-/// character matches its other case.
+/// Whether the characters of PART come first in TEXT; with IGNORE_CASE, two
+/// characters match when their upper cases do, as in Emacs's `compare-strings`.
 fn same_chars(
     part: impl Iterator<Item = char>,
     mut text: impl Iterator<Item = char>,
     ignore_case: bool,
 ) -> bool {
-    let fold = |c: char| if ignore_case { downcase_char(c) } else { c };
+    let fold = |c: char| if ignore_case { upcase_char(c) } else { c };
     part.into_iter()
         .all(|p| text.next().is_some_and(|t| fold(t) == fold(p)))
 }
@@ -530,6 +530,13 @@ mod tests {
             (r#"(string-suffix-p "IT" "git" t)"#, "t"),
             (r#"(string-suffix-p "É" "aé" t)"#, "t"),
             (r#"(string-suffix-p "" "x")"#, "t"),
+            // Letters that share an upper case match, as in Emacs.
+            (r#"(string-prefix-p "σ" "ς" t)"#, "t"),
+            (r#"(string-suffix-p "Σ" "aς" t)"#, "t"),
+            ("(string-prefix-p \"\u{B5}\" \"\u{3BC}\" t)", "t"),
+            (r#"(string-prefix-p "ᾳ" "ᾼ" t)"#, "t"),
+            (r#"(string-prefix-p "ı" "I" t)"#, "nil"),
+            ("(string-prefix-p \"\u{212A}\" \"k\" t)", "nil"),
         ]);
     }
 
