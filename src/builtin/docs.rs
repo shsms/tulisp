@@ -158,6 +158,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         ),
     ),
     (
+        "assq",
+        concat!(
+            "Return non-nil if KEY is `eq' to the car of an element of ALIST. The value is actually the first element of ALIST whose car is KEY.",
+            "\n\n",
+            "(fn KEY ALIST)"
+        ),
+    ),
+    (
         "atom",
         concat!(
             "Return t if OBJECT is not a cons cell, nil included.",
@@ -1076,6 +1084,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
             "Return the argument, without evaluating it.",
             "\n\n",
             "(fn ARG)"
+        ),
+    ),
+    (
+        "remove",
+        concat!(
+            "Return a copy of SEQ with all occurrences of ELT removed, compared with `equal'. SEQ is not changed.",
+            "\n\n",
+            "(fn ELT SEQ)"
         ),
     ),
     (

@@ -1,4 +1,8 @@
-use crate::{Error, TulispContext, TulispObject, cons::CycleCheck, lists};
+use crate::{
+    Error, TulispContext, TulispObject,
+    cons::{CycleCheck, ListBuilder},
+    lists,
+};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defun("car-safe", |obj: TulispObject| {
@@ -17,6 +21,19 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         }
     });
 
+    // An element that is not a cons is skipped, as in Emacs.
+    ctx.defun("assq", |key: TulispObject, alist: TulispObject| {
+        let mut found = TulispObject::nil();
+        each_element(&alist, Blame::List, |element| {
+            if element.consp() && element.car()?.eq(&key) {
+                found = element;
+                return Ok(false);
+            }
+            Ok(true)
+        })?;
+        Ok(found)
+    });
+
     ctx.defun("delq", |elt: TulispObject, list: TulispObject| {
         delete_cells(list, |item| Ok(item.eq(&elt)))
     });
@@ -27,6 +44,21 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         }
         check_list(&seq, "sequencep")?;
         delete_cells(seq, |item| item.try_equal(&elt))
+    });
+
+    ctx.defun("remove", |elt: TulispObject, seq: TulispObject| {
+        if seq.stringp() {
+            return without_char(&elt, &seq);
+        }
+        check_list(&seq, "sequencep")?;
+        let mut kept = ListBuilder::new();
+        each_element(&seq, Blame::Tail, |item| {
+            if !item.try_equal(&elt)? {
+                kept.push(item);
+            }
+            Ok(true)
+        })?;
+        Ok(kept.build())
     });
 
     ctx.defun(
@@ -80,6 +112,41 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         caaaar, caaadr, caadar, caaddr, cadaar, cadadr, caddar, cadddr, cdaaar, cdaadr, cdadar,
         cdaddr, cddaar, cddadr, cdddar, cddddr
     );
+}
+
+/// What a walk that ends on a tail that is not a list names in its error.
+#[derive(Clone, Copy)]
+enum Blame {
+    /// The whole list, as Emacs's `assq` does.
+    List,
+    /// The tail itself, as Emacs's `remove` does.
+    Tail,
+}
+
+/// Calls F on each element of LIST, in order, until F returns false. A tail
+/// that is not a list is the error Emacs gives, naming what BLAME says, and so
+/// is a list that loops back.
+fn each_element(
+    list: &TulispObject,
+    blame: Blame,
+    mut f: impl FnMut(TulispObject) -> Result<bool, Error>,
+) -> Result<(), Error> {
+    let mut rest = list.clone();
+    let mut cycle = CycleCheck::new();
+    while rest.consp() {
+        if !f(rest.car()?)? {
+            return Ok(());
+        }
+        rest = rest.cdr()?;
+        cycle.step(&rest)?;
+    }
+    if rest.null() {
+        return Ok(());
+    }
+    Err(not_a_list(match blame {
+        Blame::List => list,
+        Blame::Tail => &rest,
+    }))
 }
 
 /// LIST with the elements MATCHES accepts taken out in place, as Emacs's `delq`
@@ -237,6 +304,23 @@ mod tests {
         ]);
     }
 
+    #[test]
+    fn assq_finds_a_pair_by_eq() {
+        assert_results(&[
+            ("(assq 'b '((a . 1) (b . 2)))", "(b . 2)"),
+            ("(assq 'b '(x (b . 2)))", "(b . 2)"),
+            ("(assq 'c '((a . 1)))", "nil"),
+            (r#"(assq "a" '(("a" . 1)))"#, "nil"),
+            ("(assq 1 '((1 . 2)))", "(1 . 2)"),
+            ("(assq nil '(nil (nil . 1)))", "(nil . 1)"),
+            (
+                "(assq 'c '((a . 1) . z))",
+                "(ERR (wrong-type-argument listp ((a . 1) . z)))",
+            ),
+            ("(assq 'a 5)", "(ERR (wrong-type-argument listp 5))"),
+        ]);
+    }
+
     // `delq` and `delete` relink the cells of the list they are given.
     #[test]
     fn delq_and_delete_change_the_list() {
@@ -272,6 +356,25 @@ mod tests {
             ("(delete 1 '(1 . 2))", "(ERR (wrong-type-argument listp 2))"),
             ("(delq 1 '(1 . 2))", "(ERR (wrong-type-argument listp 2))"),
             ("(delete 1 5)", "(ERR (wrong-type-argument sequencep 5))"),
+        ]);
+    }
+
+    // `remove` leaves its list alone. On a string, both make a new one when
+    // they remove a character, and give the string itself when they do not.
+    #[test]
+    fn remove_copies() {
+        assert_results(&[
+            (
+                "(let ((l (list 1 2 1))) (list (remove 1 l) l))",
+                "((2) (1 2 1))",
+            ),
+            ("(let ((l (list 2 3))) (eq (remove 1 l) l))", "nil"),
+            ("(remove 1 nil)", "nil"),
+            (r#"(remove 97 "abca")"#, r#""bc""#),
+            ("(let ((s (string 97 98))) (eq s (remove 122 s)))", "t"),
+            (r#"(delete 97 "abca")"#, r#""bc""#),
+            (r#"(let ((s "abca")) (delete 97 s) s)"#, r#""abca""#),
+            ("(remove 1 '(2 . 3))", "(ERR (wrong-type-argument listp 3))"),
         ]);
     }
 }
