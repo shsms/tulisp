@@ -53,6 +53,17 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         }
         string.with_str(str::is_empty)
     });
+
+    ctx.defun(
+        "string-replace",
+        |ctx: &mut TulispContext, from: String, to: String, in_string: TulispObject| {
+            if from.is_empty() {
+                let data = TulispObject::cons(TulispObject::from(0), TulispObject::nil());
+                return Err(ctx.signal("wrong-length-argument", data));
+            }
+            in_string.with_str(|text| text.replace(&from, &to))
+        },
+    );
 }
 
 /// `nil` for an absent index, as Emacs shows one in an error.
@@ -224,6 +235,21 @@ mod tests {
             (
                 "(string-empty-p 5)",
                 "(ERR (wrong-type-argument stringp 5))",
+            ),
+        ]);
+    }
+
+    #[test]
+    fn string_replace_replaces_every_match() {
+        assert_results(&[
+            (r#"(string-replace "o" "0" "foo")"#, r#""f00""#),
+            (r#"(string-replace "ab" "" "xaby")"#, r#""xy""#),
+            (r#"(string-replace "aa" "b" "aaa")"#, r#""ba""#),
+            (r#"(string-replace "é" "e" "éé")"#, r#""ee""#),
+            (r#"(string-replace "a" "b" "")"#, r#""""#),
+            (
+                r#"(string-replace "" "x" "foo")"#,
+                "(ERR (wrong-length-argument 0))",
             ),
         ]);
     }

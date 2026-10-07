@@ -1175,6 +1175,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         ),
     ),
     (
+        "string-replace",
+        concat!(
+            "Replace FROM-STRING with TO-STRING in IN-STRING, every time it appears.",
+            "\n\n",
+            "(fn FROM-STRING TO-STRING IN-STRING)"
+        ),
+    ),
+    (
         "string-search",
         concat!(
             "Search for the string NEEDLE in the string HAYSTACK, and return where the first match starts, in characters, or nil. The search starts at START-POS, a character position.",
