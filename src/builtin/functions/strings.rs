@@ -72,6 +72,10 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defun("downcase", |obj: TulispObject| {
         change_case(&obj, downcase_char, str::to_lowercase)
     });
+
+    ctx.defun("capitalize", |obj: TulispObject| {
+        change_case(&obj, titlecase_char, capitalize_words)
+    });
 }
 
 /// `nil` for an absent index, as Emacs shows one in an error.
@@ -167,6 +171,61 @@ fn upcase_char(c: char) -> char {
         return 'ẞ';
     }
     one_char(c.to_uppercase()).unwrap_or(c)
+}
+
+/// The character `capitalize` makes of C.
+fn titlecase_char(c: char) -> char {
+    digraph_title(c).unwrap_or_else(|| upcase_char(c))
+}
+
+/// The title case of a digraph, the only letters whose title case is not their
+/// upper case.
+fn digraph_title(c: char) -> Option<char> {
+    match c {
+        'Ǆ' | 'ǅ' | 'ǆ' => Some('ǅ'),
+        'Ǉ' | 'ǈ' | 'ǉ' => Some('ǈ'),
+        'Ǌ' | 'ǋ' | 'ǌ' => Some('ǋ'),
+        'Ǳ' | 'ǲ' | 'ǳ' => Some('ǲ'),
+        _ => None,
+    }
+}
+
+/// TEXT with each word's first letter in title case and the rest in lower case.
+/// A word is a run of letters and digits, so `don't` is two words, as in Emacs.
+fn capitalize_words(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find(char::is_alphanumeric) {
+        out.push_str(&rest[..start]);
+        rest = &rest[start..];
+        let end = rest
+            .find(|c: char| !c.is_alphanumeric())
+            .unwrap_or(rest.len());
+        let word = &rest[..end];
+        let mut chars = word.chars();
+        if let Some(first) = chars.next() {
+            push_title(&mut out, first);
+            out.push_str(&chars.as_str().to_lowercase());
+        }
+        rest = &rest[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Pushes FIRST, the first letter of a word, in title case. One that upper case
+/// makes into several letters, such as `ß` into `SS`, keeps only the first of
+/// them in upper case.
+fn push_title(out: &mut String, first: char) {
+    if let Some(title) = digraph_title(first) {
+        out.push(title);
+        return;
+    }
+    let mut upper = first.to_uppercase();
+    if let Some(head) = upper.next() {
+        out.push(head);
+    }
+    out.extend(upper.flat_map(char::to_lowercase));
 }
 
 #[cfg(test)]
@@ -330,6 +389,29 @@ mod tests {
                 "(upcase 'a)",
                 "(ERR (wrong-type-argument char-or-string-p a))",
             ),
+        ]);
+    }
+
+    #[test]
+    fn capitalize_strings_and_characters() {
+        assert_results(&[
+            (
+                r#"(capitalize "hello wORLD foo-bar 3rd")"#,
+                r#""Hello World Foo-Bar 3rd""#,
+            ),
+            (
+                r#"(capitalize "don't it's o'neil")"#,
+                r#""Don'T It'S O'Neil""#,
+            ),
+            (r#"(capitalize "x_y z.w")"#, r#""X_Y Z.W""#),
+            (r#"(capitalize "ÉCOLE élève")"#, r#""École Élève""#),
+            (r#"(capitalize "ΣΑΣ abc")"#, r#""Σας Abc""#),
+            (r#"(capitalize "ǆemal")"#, r#""ǅemal""#),
+            (r#"(capitalize "ß")"#, r#""Ss""#),
+            (r#"(capitalize "é")"#, r#""É""#),
+            ("(capitalize ?ß)", "7838"),
+            ("(capitalize ?a)", "65"),
+            ("(capitalize ?ǆ)", "453"),
         ]);
     }
 }

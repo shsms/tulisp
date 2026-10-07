@@ -278,6 +278,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         concat!("Return the car of the cdr of X.", "\n\n", "(fn X)"),
     ),
     (
+        "capitalize",
+        concat!(
+            "Convert OBJ, a string or a character, to capitalized form: the first letter of each word in title case and the rest in lower case. A word is a run of letters and digits.",
+            "\n\n",
+            "(fn OBJ)"
+        ),
+    ),
+    (
         "car",
         concat!(
             "Return the car of LIST, or nil if LIST is nil.",
