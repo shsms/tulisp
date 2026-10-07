@@ -525,11 +525,15 @@ mod tests {
         assert!(!ctx.function_docs.contains_key("gone"));
     }
 
+    // set_doc replaces the entry left from the Rust function.
     #[test]
-    fn a_lambda_set_over_a_rust_function_has_its_own_signature() {
+    fn a_lambda_set_over_a_rust_function_has_its_own_signature_and_doc() {
         let mut ctx = TulispContext::new();
         ctx.defun("f", |a: i64| a);
         ctx.eval_string("(setq f (lambda (x) x))").unwrap();
+        assert_eq!(rendered(&ctx, "f"), "(f X)");
+        ctx.set_doc("f", "New.").unwrap();
+        assert_eq!(doc(&ctx, "f").as_deref(), Some("New."));
         assert_eq!(rendered(&ctx, "f"), "(f X)");
     }
 
@@ -618,6 +622,16 @@ mod tests {
         assert_eq!(doc(&ctx, "v").as_deref(), Some("The v."));
         ctx.eval_string("(setq v 2)").unwrap();
         assert_eq!(doc(&ctx, "v").as_deref(), Some("The v."));
+    }
+
+    // Only an interned symbol, which `describe` can find, gets a docstring.
+    #[test]
+    fn an_uninterned_defvar_keeps_no_docstring() {
+        let mut ctx = TulispContext::new();
+        let before = ctx.variable_docs.len();
+        ctx.eval_string("(eval (list 'defvar (make-symbol \"u\") 1 \"Doc.\"))")
+            .unwrap();
+        assert_eq!(ctx.variable_docs.len(), before);
     }
 
     #[test]
