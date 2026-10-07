@@ -1187,6 +1187,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         concat!("Return t if OBJECT is a string.", "\n\n", "(fn OBJECT)"),
     ),
     (
+        "substring",
+        concat!(
+            "Return a new string holding the part of STRING from character FROM up to character TO. A negative index counts from the end; FROM defaults to the start and TO to the end.",
+            "\n\n",
+            "(fn STRING &optional FROM TO)"
+        ),
+    ),
+    (
         "symbol-value",
         concat!(
             "Return SYMBOL's value, or signal an error if it is void.",

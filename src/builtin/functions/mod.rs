@@ -11,6 +11,7 @@ mod list_elements;
 mod numbers;
 mod sequences;
 mod sort;
+mod strings;
 mod time_operations;
 
 pub(crate) fn add(ctx: &mut TulispContext) {
@@ -24,6 +25,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     numbers::add(ctx);
     sequences::add(ctx);
     sort::add(ctx);
+    strings::add(ctx);
     time_operations::add(ctx);
 }
 

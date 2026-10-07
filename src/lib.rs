@@ -133,6 +133,19 @@ mod test_utils {
         assert!(av.null(), "{}(=> {}) is not nil", a, av);
     }
 
+    /// Checks each of CASES, a program and what it gives, printed, or `(ERR
+    /// ERROR)` for the error it raises, as a `condition-case` handler sees it.
+    /// All run in one fresh context.
+    #[track_caller]
+    pub(crate) fn assert_results(cases: &[(&str, &str)]) {
+        let ctx = &mut crate::TulispContext::new();
+        for (program, expected) in cases {
+            let caught = format!("(condition-case e {program} (error (list 'ERR e)))");
+            let result = must_eval_string(ctx, &caught).to_string();
+            assert_eq!(&result, expected, "{program}");
+        }
+    }
+
     /// Asserts that ERR's data, what a `condition-case` handler sees, is
     /// EXPECTED, read as Lisp.
     #[track_caller]

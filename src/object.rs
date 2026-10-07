@@ -939,6 +939,22 @@ impl TulispObject {
         self.rc.borrow()
     }
 
+    /// Calls F with this string's text, borrowed rather than copied, and
+    /// returns what F returns. An error, as for a `String` argument, if the
+    /// value is not a string.
+    ///
+    /// Calls for several strings nest. Nested calls for the same value read its
+    /// lock twice; with the `sync` feature, the inner read may block or panic
+    /// if another thread is already waiting to write that value.
+    pub(crate) fn with_str<R>(&self, f: impl FnOnce(&str) -> R) -> Result<R, Error> {
+        if let TulispValue::String { value } = &self.inner_ref().0 {
+            return Ok(f(value));
+        }
+        // Printing the value reads it again, so the borrow above has ended.
+        let err = self.inner_ref().0.not_a_string();
+        Err(err.fill_and_trace(self))
+    }
+
     pub(crate) fn as_list_cons(&self) -> Option<Cons> {
         self.rc.borrow().0.as_list_cons()
     }
@@ -1324,6 +1340,49 @@ mod tests {
             })
             .unwrap_err();
         assert_data(ctx, err, r#"'("m")"#);
+    }
+
+    fn text(s: &str) -> TulispObject {
+        crate::TulispValue::from(s).into_ref(None)
+    }
+
+    #[test]
+    fn with_str_lends_the_text() -> Result<(), Error> {
+        let (a, b) = (text("héllo"), text(" world"));
+        assert_eq!(a.with_str(|a| a.chars().count())?, 5);
+        let joined = a.with_str(|a| b.with_str(|b| format!("{a}{b}")))??;
+        assert_eq!(joined, "héllo world");
+        Ok(())
+    }
+
+    // Nested calls may lend the same value twice.
+    #[test]
+    fn with_str_nests_on_the_same_value() -> Result<(), Error> {
+        let a = text("ab");
+        let joined = a.with_str(|x| a.with_str(|y| format!("{x}-{y}")))??;
+        assert_eq!(joined, "ab-ab");
+        Ok(())
+    }
+
+    // A value that is not a string gives the error a `String` argument gives.
+    #[test]
+    fn with_str_refuses_a_non_string_as_a_string_argument_does() {
+        let ctx = &mut TulispContext::new();
+        let n = TulispObject::from(5);
+        let err = n.with_str(|_| ()).unwrap_err();
+        let expected = String::try_from(&n).unwrap_err();
+        assert_eq!(err.desc(), "Expected string, got: 5");
+        assert_eq!(err.desc(), expected.desc());
+        assert!(err.data(ctx).equal(&expected.data(ctx)));
+    }
+
+    // In a function, the error names the predicate and the value, as in Emacs.
+    #[test]
+    fn with_str_errors_name_the_value_in_a_call() {
+        let ctx = &mut TulispContext::new();
+        ctx.defun("first-text", |s: TulispObject| s.with_str(str::to_string));
+        let err = ctx.eval_string("(first-text 5)").unwrap_err();
+        assert_data(ctx, err, "'(stringp 5)");
     }
 
     // `nil` is a symbol, so refusing it as one keeps the message as data.

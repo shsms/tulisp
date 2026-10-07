@@ -804,11 +804,13 @@ impl TulispValue {
     pub(crate) fn as_string(&self) -> Result<String, Error> {
         match self {
             TulispValue::String { value, .. } => Ok(value.to_owned()),
-            _ => Err(Error::wrong_type_unfilled(
-                "stringp",
-                format!("Expected string, got: {self}"),
-            )),
+            _ => Err(self.not_a_string()),
         }
+    }
+
+    /// The error for reading this value as a string.
+    pub(crate) fn not_a_string(&self) -> Error {
+        Error::wrong_type_unfilled("stringp", format!("Expected string, got: {self}"))
     }
 
     #[inline(always)]
