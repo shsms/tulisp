@@ -1127,6 +1127,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         concat!("Return the square root of ARG.", "\n\n", "(fn ARG)"),
     ),
     (
+        "string-empty-p",
+        concat!(
+            "Check whether STRING is empty. A symbol stands for its name.",
+            "\n\n",
+            "(fn STRING)"
+        ),
+    ),
+    (
         "string-equal",
         concat!(
             "Return t if two strings have identical contents.",
@@ -1159,11 +1167,27 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         ),
     ),
     (
+        "string-prefix-p",
+        concat!(
+            "Return non-nil if PREFIX is a prefix of STRING. With IGNORE-CASE, a letter matches its other case.",
+            "\n\n",
+            "(fn PREFIX STRING &optional IGNORE-CASE)"
+        ),
+    ),
+    (
         "string-search",
         concat!(
             "Search for the string NEEDLE in the string HAYSTACK, and return where the first match starts, in characters, or nil. The search starts at START-POS, a character position.",
             "\n\n",
             "(fn NEEDLE HAYSTACK &optional START-POS)"
+        ),
+    ),
+    (
+        "string-suffix-p",
+        concat!(
+            "Return non-nil if SUFFIX is a suffix of STRING. With IGNORE-CASE, a letter matches its other case.",
+            "\n\n",
+            "(fn SUFFIX STRING &optional IGNORE-CASE)"
         ),
     ),
     (

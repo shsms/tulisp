@@ -25,6 +25,34 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             found.ok_or_else(|| Error::out_of_range(start.to_string()))
         },
     );
+
+    ctx.defun(
+        "string-prefix-p",
+        |prefix: String, string: TulispObject, ignore_case: Option<TulispObject>| {
+            string.with_str(|text| same_chars(prefix.chars(), text.chars(), ignore_case.is_some()))
+        },
+    );
+
+    ctx.defun(
+        "string-suffix-p",
+        |suffix: String, string: TulispObject, ignore_case: Option<TulispObject>| {
+            string.with_str(|text| {
+                same_chars(
+                    suffix.chars().rev(),
+                    text.chars().rev(),
+                    ignore_case.is_some(),
+                )
+            })
+        },
+    );
+
+    // As Emacs's `(string= STRING "")`, so a symbol stands for its name.
+    ctx.defun("string-empty-p", |string: TulispObject| {
+        if string.symbolp() {
+            return Ok(string.symbol_name()?.is_empty());
+        }
+        string.with_str(str::is_empty)
+    });
 }
 
 /// `nil` for an absent index, as Emacs shows one in an error.
@@ -64,6 +92,28 @@ fn search(needle: &str, haystack: &str, start: i64) -> Option<Option<i64>> {
         let skipped = haystack[from..from + at].chars().count();
         start + i64::try_from(skipped).unwrap_or(i64::MAX)
     }))
+}
+
+/// Whether the characters of PART come first in TEXT; with IGNORE_CASE, a
+/// character matches its other case.
+fn same_chars(
+    part: impl Iterator<Item = char>,
+    mut text: impl Iterator<Item = char>,
+    ignore_case: bool,
+) -> bool {
+    let fold = |c: char| if ignore_case { downcase_char(c) } else { c };
+    part.into_iter()
+        .all(|p| text.next().is_some_and(|t| fold(t) == fold(p)))
+}
+
+fn downcase_char(c: char) -> char {
+    one_char(c.to_lowercase()).unwrap_or(c)
+}
+
+/// The one character in CHARS, if there is exactly one.
+fn one_char(mut chars: impl Iterator<Item = char>) -> Option<char> {
+    let first = chars.next()?;
+    chars.next().is_none().then_some(first)
 }
 
 #[cfg(test)]
@@ -142,6 +192,38 @@ mod tests {
             (
                 r#"(string-search 'a "abc")"#,
                 "(ERR (wrong-type-argument stringp a))",
+            ),
+        ]);
+    }
+
+    #[test]
+    fn prefixes_and_suffixes() {
+        assert_results(&[
+            (r#"(string-prefix-p "gi" "git")"#, "t"),
+            (r#"(string-prefix-p "GI" "git" t)"#, "t"),
+            (r#"(string-prefix-p "GI" "git")"#, "nil"),
+            (r#"(string-prefix-p "" "git")"#, "t"),
+            (r#"(string-prefix-p "gitx" "git")"#, "nil"),
+            (r#"(string-prefix-p "ẞ" "ßx" t)"#, "t"),
+            (r#"(string-prefix-p "ss" "ßx" t)"#, "nil"),
+            (r#"(string-prefix-p "é" "Éa" t)"#, "t"),
+            (r#"(string-suffix-p "it" "git")"#, "t"),
+            (r#"(string-suffix-p "IT" "git" t)"#, "t"),
+            (r#"(string-suffix-p "É" "aé" t)"#, "t"),
+            (r#"(string-suffix-p "" "x")"#, "t"),
+        ]);
+    }
+
+    #[test]
+    fn string_empty_p_takes_a_symbol_by_its_name() {
+        assert_results(&[
+            (r#"(string-empty-p "")"#, "t"),
+            (r#"(string-empty-p "a")"#, "nil"),
+            ("(string-empty-p nil)", "nil"),
+            ("(string-empty-p 'a)", "nil"),
+            (
+                "(string-empty-p 5)",
+                "(ERR (wrong-type-argument stringp 5))",
             ),
         ]);
     }
