@@ -187,25 +187,6 @@ impl TulispContext {
         }
     }
 
-    /// Whether SYM's function doc stays when SYM's global value goes from OLD
-    /// to NEW: when it describes OLD, and NEW has OLD's kind and identity.
-    pub(crate) fn function_doc_stays(
-        &self,
-        sym: &TulispObject,
-        old: &TulispObject,
-        new: &TulispObject,
-    ) -> bool {
-        let (kind, identity) = held_kind_and_identity(Some(old));
-        let Some(identity) = identity else {
-            return false;
-        };
-        held_kind_and_identity(Some(new)) == (kind, Some(identity))
-            && self
-                .interned_name(sym)
-                .and_then(|name| self.function_doc(&name, kind, identity))
-                .is_some()
-    }
-
     /// NAME's function doc, when it describes a value of KIND with IDENTITY.
     fn function_doc(&self, name: &str, kind: SymbolKind, identity: usize) -> Option<&FunctionDoc> {
         self.function_docs
@@ -218,9 +199,14 @@ impl TulispContext {
     /// line `(fn HOST &optional PORT)` after a blank line, as Emacs writes it,
     /// gives the parameter names to show.
     ///
-    /// A function's docstring goes when NAME is defined again, so call this
-    /// after the `defun` it documents. A variable's docstring stays whatever
-    /// NAME is given.
+    /// A function's docstring belongs to NAME, not to the value. It goes when
+    /// NAME is defined again, by a compiled `defun` or `defmacro` or from Rust;
+    /// when `fset` gives NAME another value; and when `fmakunbound` clears it.
+    /// So call this after the definition it documents. Running a function whose
+    /// body holds a `defun` of NAME keeps it, unless the run replaces a value
+    /// of other code with that `defun`'s function. A `setq` leaves it in place:
+    /// it shows whenever NAME holds that function, or another closure of the
+    /// same code. A variable's docstring stays whatever NAME is given.
     ///
     /// Returns an Error if NAME has no value and was not declared with
     /// `defvar`.
@@ -315,7 +301,9 @@ impl TulispContext {
     /// The kind and the signature come from the value. The docstring is the
     /// function entry's, when the entry describes the value; else the one the
     /// value itself holds; else the variable's, while NAME holds a variable or
-    /// was declared with `defvar`.
+    /// was declared with `defvar`. A Rust function's parameter types are kept
+    /// under the name it was defined with, so another name given the same
+    /// function shows plain parameter names.
     pub fn describe(&self, name: &str) -> Option<SymbolInfo> {
         let sym = self.obarray.get(name)?;
         let value = described_value(name, sym)?;
@@ -744,9 +732,10 @@ mod tests {
         assert_eq!(doc(&ctx, "ali").as_deref(), Some("Orig doc."));
     }
 
-    // fset of the value a name already holds keeps its docstring and signature.
+    // fset of the very object a name already holds keeps its docstring and
+    // signature.
     #[test]
-    fn fset_of_the_same_value_keeps_its_entry() {
+    fn fset_of_the_same_object_keeps_its_entry() {
         let mut ctx = TulispContext::new();
         ctx.defun("q", |a: i64| a);
         ctx.set_doc("q", "NewQ.\n\n(fn NUM)").unwrap();
@@ -767,6 +756,34 @@ mod tests {
         assert!(!ctx.function_docs.contains_key("q"));
     }
 
+    // fset of another function made from the same code drops the entry.
+    #[test]
+    fn fset_of_another_closure_of_the_same_code_drops_the_entry() {
+        let mut ctx = TulispContext::new();
+        ctx.eval_string("(defun mk (n) (lambda () n))").unwrap();
+        let first = ctx.eval_string("(mk 1)").unwrap();
+        ctx.fset("f", first).unwrap();
+        ctx.set_doc("f", "Set doc.").unwrap();
+        assert_eq!(doc(&ctx, "f").as_deref(), Some("Set doc."));
+        let second = ctx.eval_string("(mk 2)").unwrap();
+        ctx.fset("f", second).unwrap();
+        assert_eq!(doc(&ctx, "f"), None);
+        assert!(!ctx.function_docs.contains_key("f"));
+    }
+
+    // A capturing `defun` made again as the program runs keeps a docstring that
+    // `set_doc` gave it.
+    #[test]
+    fn a_capturing_defun_made_again_keeps_a_set_doc() {
+        let mut ctx = TulispContext::new();
+        ctx.eval_string("(defun make-cf () (let ((x 1)) (defun cf () \"Lisp doc.\" x)))")
+            .unwrap();
+        ctx.eval_string("(make-cf)").unwrap();
+        ctx.set_doc("cf", "Set doc.").unwrap();
+        ctx.eval_string("(make-cf)").unwrap();
+        assert_eq!(doc(&ctx, "cf").as_deref(), Some("Set doc."));
+    }
+
     // A capturing `defun` that a program makes as it runs drops the entry of
     // the function it replaces.
     #[test]
@@ -776,6 +793,20 @@ mod tests {
             .unwrap();
         ctx.defun("cf", |a: i64| a);
         ctx.set_doc("cf", "Rust doc.").unwrap();
+        ctx.eval_string("(make-cf)").unwrap();
+        assert!(!ctx.function_docs.contains_key("cf"));
+        assert_eq!(doc(&ctx, "cf").as_deref(), Some("Lisp doc."));
+    }
+
+    // A closure of other code is not the same defun made again.
+    #[test]
+    fn a_capturing_defun_made_over_another_closure_drops_the_entry() {
+        let mut ctx = TulispContext::new();
+        ctx.eval_string("(defun make-cf () (let ((x 1)) (defun cf () \"Lisp doc.\" x)))")
+            .unwrap();
+        let other = ctx.eval_string("(let ((y 2)) (lambda () y))").unwrap();
+        ctx.fset("cf", other).unwrap();
+        ctx.set_doc("cf", "Lambda doc.").unwrap();
         ctx.eval_string("(make-cf)").unwrap();
         assert!(!ctx.function_docs.contains_key("cf"));
         assert_eq!(doc(&ctx, "cf").as_deref(), Some("Lisp doc."));

@@ -877,18 +877,22 @@ impl TulispContext {
         self.set_function_value(&sym, function)
     }
 
-    /// Makes FUNCTION the global value of SYM, as
-    /// [`replace_global_function`](Self::replace_global_function) does, and
-    /// also drops what the compiler and the machine kept for the old one, so
-    /// code compiled later calls FUNCTION. Use it to set a function from
-    /// outside the compiler, as `fset` and a Rust registration do.
+    /// Makes FUNCTION the global value of SYM, and drops what the compiler and
+    /// the machine kept for the old one, so code compiled later calls FUNCTION.
+    /// SYM's function doc stays only when FUNCTION is the very object SYM held.
+    /// Use it to set a function from outside the compiler, as `fset` and a Rust
+    /// registration do.
     pub(crate) fn set_function_value(
         &mut self,
         sym: &TulispObject,
         function: TulispObject,
     ) -> Result<(), Error> {
         let addr = sym.addr_as_usize();
-        self.replace_global_function(sym, function.clone())?;
+        if sym.global().is_some_and(|old| old.eq_ptr(&function)) {
+            sym.set_global(function.clone())?;
+        } else {
+            self.replace_global_function(sym, function.clone())?;
+        }
         self.evict_compiled_dispatch(addr);
         // Put a compiled function in the machine's table, as `defun` does,
         // so compiled calls run it directly.
@@ -898,26 +902,17 @@ impl TulispContext {
         Ok(())
     }
 
-    /// Makes FUNCTION the global value of SYM, and drops SYM's function doc
-    /// unless it describes the old value and FUNCTION is that same value. Use
-    /// it where the compiler and the machine keep what they hold, as a Lisp
-    /// `defun` that installs itself does; else use
+    /// Makes FUNCTION the global value of SYM, and drops SYM's function doc.
+    /// It leaves what the compiler and the machine hold for SYM alone, as a
+    /// Lisp `defun` needs; else use
     /// [`set_function_value`](Self::set_function_value).
     pub(crate) fn replace_global_function(
         &mut self,
         sym: &TulispObject,
         function: TulispObject,
     ) -> Result<(), Error> {
-        // The old value is held until the check is done, so its address cannot
-        // be reused by FUNCTION.
-        let old = sym.global();
-        let keep = old
-            .as_ref()
-            .is_some_and(|old| self.function_doc_stays(sym, old, &function));
         sym.set_global(function)?;
-        if !keep {
-            self.set_function_doc(sym, None);
-        }
+        self.set_function_doc(sym, None);
         Ok(())
     }
 

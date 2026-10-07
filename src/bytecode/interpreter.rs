@@ -914,7 +914,19 @@ fn run_impl_inner(
                     current.name.eq_ptr(name) && !current.same_code(&function)
                 });
                 if !holds_another_defun {
-                    ctx.replace_global_function(name, closure)?;
+                    // The same defun made again keeps the name's function doc.
+                    let made_again = name.global().is_some_and(|current| {
+                        if let TulispValue::CompiledDefun { value } = &current.inner_ref().0 {
+                            value.same_code(&function)
+                        } else {
+                            false
+                        }
+                    });
+                    if made_again {
+                        name.set_global(closure)?;
+                    } else {
+                        ctx.replace_global_function(name, closure)?;
+                    }
                     ctx.vm.set_function(addr, function);
                 }
             }
