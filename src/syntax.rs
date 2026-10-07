@@ -369,10 +369,11 @@ impl<'a> Builder<'a> {
                 self.attach_comment(id);
             }
             Token::CloseParen { .. } => self.close(range),
-            Token::Dot { .. } => self.dot(range),
             // The parser counts every form it enters, lists and prefixes and
-            // atoms, against its limit.
+            // atoms, against its limit. It reads a form after a dot, so a dot
+            // here is past the limit too.
             token if self.open.len() >= self.limit => self.too_deep(&token, range),
+            Token::Dot { .. } => self.dot(range),
             Token::OpenParen { .. } => {
                 let id = self.add(NodeKind::List { closed: false }, range);
                 self.open.push(Open::new(id));
@@ -790,14 +791,28 @@ mod tests {
         read(source).sexp()
     }
 
-    /// The text each error covers, and its message.
-    fn errors(source: &str) -> Vec<(String, String)> {
-        read(source)
-            .errors()
+    /// The text each error of TREE covers, and its message.
+    fn error_texts(tree: &SyntaxTree) -> Vec<(String, String)> {
+        tree.errors()
             .iter()
-            .map(|e| (source[e.range.clone()].to_string(), e.message.clone()))
+            .map(|e| {
+                (
+                    tree.source()[e.range.clone()].to_string(),
+                    e.message.clone(),
+                )
+            })
             .collect()
     }
+
+    fn errors(source: &str) -> Vec<(String, String)> {
+        error_texts(&read(source))
+    }
+
+    fn errors_at_limit(source: &str, limit: usize) -> Vec<(String, String)> {
+        error_texts(&read_with_limit(source, limit))
+    }
+
+    const TOO_DEEP_2: &str = "Lisp nesting exceeds max-nesting-depth (2)";
 
     fn pairs(list: &[(&str, &str)]) -> Vec<(String, String)> {
         list.iter()
@@ -1082,16 +1097,26 @@ mod tests {
     #[test]
     fn nesting_past_the_limit_is_one_error() {
         let source = "(((a b) c) d)";
-        let tree = read_with_limit(source, 2);
-        assert_eq!(tree.sexp(), "((#err) d)");
-        let found: Vec<(&str, &str)> = tree
-            .errors()
-            .iter()
-            .map(|e| (&source[e.range.clone()], e.message.as_str()))
-            .collect();
+        assert_eq!(read_with_limit(source, 2).sexp(), "((#err) d)");
         assert_eq!(
-            found,
-            [("(a b) c", "Lisp nesting exceeds max-nesting-depth (2)")]
+            errors_at_limit(source, 2),
+            pairs(&[("(a b) c", TOO_DEEP_2)])
+        );
+    }
+
+    // A dot past the limit is refused as too deep, as the parser refuses the
+    // form it then reads; just under the limit it keeps its own error.
+    #[test]
+    fn a_dot_past_the_limit_is_a_nesting_error() {
+        assert_eq!(errors_at_limit("((.))", 2), pairs(&[(".", TOO_DEEP_2)]));
+        assert_eq!(errors_at_limit("('.)", 2), pairs(&[(".", TOO_DEEP_2)]));
+        assert_eq!(
+            errors_at_limit("((.))", 3),
+            pairs(&[(")", "Unexpected closing parenthesis")])
+        );
+        assert_eq!(
+            errors_at_limit("('.)", 3),
+            pairs(&[(".", "Unexpected dot")])
         );
     }
 
@@ -1141,18 +1166,17 @@ mod tests {
     }
 
     // Each dot after the first is an error; finding the first must not scan the
-    // list again for every dot. In linear time the read takes well under a
-    // second, even in a debug build; scanning again for every dot takes most of
-    // a minute.
+    // list again for every dot. A read that does would make billions of steps
+    // here, too many to finish in the time the test allows.
     #[test]
     fn many_dots_in_a_long_list_read_in_linear_time() {
-        let n = 50_000;
+        let n = 200_000;
         let source = "(".to_string() + &"a ".repeat(n) + &". ".repeat(n) + ")";
         let started = std::time::Instant::now();
         let tree = read(&source);
         let took = started.elapsed();
         assert!(
-            took < std::time::Duration::from_secs(10),
+            took < std::time::Duration::from_secs(2),
             "reading took {took:?}"
         );
         let dots = tree
