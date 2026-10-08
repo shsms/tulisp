@@ -21,8 +21,10 @@ pub(crate) fn append(
             for c in value.chars() {
                 builder.push(i64::from(u32::from(c)).into());
             }
-        } else {
+        } else if arg.listp() {
             builder.push_all(&arg)?;
+        } else {
+            return Err(not_a_sequence(&arg));
         }
     }
     Ok(builder.build_with_tail(last))
@@ -58,12 +60,32 @@ pub fn length(list: &TulispObject) -> Result<i64, Error> {
     }
 }
 
+/// The length of SEQUENCE, as Emacs's `length` gives it: like [`length`], and a
+/// value that is neither a list nor a string is an error that names
+/// `sequencep`.
+pub(crate) fn sequence_length(sequence: &TulispObject) -> Result<i64, Error> {
+    if !sequence.listp() && !sequence.stringp() {
+        return Err(not_a_sequence(sequence));
+    }
+    length(sequence)
+}
+
 /// The error for VALUE where a list is wanted, as Emacs gives it: `listp`.
 pub(crate) fn not_a_list(value: &TulispObject) -> Error {
     Error::wrong_type_argument(
         "listp",
         value.clone(),
         format!("Expected list, got: {value}"),
+    )
+}
+
+/// The error for VALUE, which is neither a list nor a string, where a sequence
+/// is wanted; Emacs names `sequencep`.
+pub(crate) fn not_a_sequence(value: &TulispObject) -> Error {
+    Error::wrong_type_argument(
+        "sequencep",
+        value.clone(),
+        format!("Expected sequence, got: {value}"),
     )
 }
 

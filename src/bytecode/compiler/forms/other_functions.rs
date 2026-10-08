@@ -565,7 +565,7 @@ mod tests {
         eval_assert_error_line(
             &mut TulispContext::new(),
             "(progn (append 5 nil) 2)",
-            "ERR TypeMismatch: Expected list, got: 5",
+            "ERR TypeMismatch: Expected sequence, got: 5",
         );
         eval_assert_equal_fresh("(progn (append '(1) 5) 2)", "2");
         // A string adds its characters, as in Emacs 30.1.

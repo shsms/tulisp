@@ -1381,11 +1381,11 @@ mod tests {
             "ERR TypeMismatch: Expected list, got: 2\n\
              <eval_string>:1.1-1.21:  at (append '(1 . 2) nil)\n",
         );
-        // A non-list gets the same error as a dotted list's tail.
+        // A value that is not a sequence names `sequencep`, as in Emacs.
         eval_assert_error(
             ctx,
             "(append 5 nil)",
-            "ERR TypeMismatch: Expected list, got: 5\n\
+            "ERR TypeMismatch: Expected sequence, got: 5\n\
              <eval_string>:1.1-1.14:  at (append 5 nil)\n",
         );
         // Only the last argument may loop: it is shared, not copied.

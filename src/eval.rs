@@ -1081,7 +1081,11 @@ mod tests {
             ctx,
             "(setq g (list 1 2)) (defun h () g) (eq (cdr `(a ,@(h))) g)",
         );
-        eval_assert_error_line(ctx, "`(a ,@5 b)", "ERR TypeMismatch: Expected list, got: 5");
+        eval_assert_error_line(
+            ctx,
+            "`(a ,@5 b)",
+            "ERR TypeMismatch: Expected sequence, got: 5",
+        );
     }
 
     #[test]
@@ -1110,12 +1114,12 @@ mod tests {
         eval_assert_error_line(
             ctx,
             "(let ((x 5)) `(a ,@x b))",
-            "ERR TypeMismatch: Expected list, got: 5",
+            "ERR TypeMismatch: Expected sequence, got: 5",
         );
         eval_assert_error_line(
             ctx,
             "(let ((x 5)) `(,@x b))",
-            "ERR TypeMismatch: Expected list, got: 5",
+            "ERR TypeMismatch: Expected sequence, got: 5",
         );
     }
 

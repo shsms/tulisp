@@ -2,7 +2,7 @@ use crate::{Error, TulispContext, TulispObject, TulispValue, cons::CycleCheck, l
 
 pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defun("length", |list: TulispObject| {
-        lists::length(&list).map(TulispObject::from)
+        lists::sequence_length(&list).map(TulispObject::from)
     });
 
     ctx.defun("reverse", |list: TulispObject| {
@@ -165,7 +165,9 @@ pub(crate) fn member_with(
 mod tests {
     use crate::{
         TulispContext,
-        test_utils::{eval_assert_equal, eval_assert_error, eval_assert_error_line},
+        test_utils::{
+            assert_results, eval_assert_equal, eval_assert_error, eval_assert_error_line,
+        },
     };
 
     #[test]
@@ -346,5 +348,16 @@ mod tests {
         eval_assert_equal(ctx, "(reverse '(1))", "'(1)");
         eval_assert_equal(ctx, "(reverse '(1 2 3))", "'(3 2 1)");
         eval_assert_equal(ctx, r#"(reverse '("a" "b" "c"))"#, r#"'("c" "b" "a")"#);
+    }
+
+    // A value that is no sequence names `sequencep`; a list that ends in one
+    // names its tail with `listp`, as in Emacs.
+    #[test]
+    fn length_names_a_value_that_is_no_sequence() {
+        assert_results(&[
+            ("(length 5)", "(ERR (wrong-type-argument sequencep 5))"),
+            ("(length (cons 1 2))", "(ERR (wrong-type-argument listp 2))"),
+            ("(append 5 nil)", "(ERR (wrong-type-argument sequencep 5))"),
+        ]);
     }
 }
