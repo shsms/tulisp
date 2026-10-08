@@ -1567,6 +1567,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         ),
     ),
     (
+        "type-of",
+        concat!(
+            "Return a symbol naming the type of OBJECT: integer, float, string, symbol, cons, hash-table, subr for a built-in function or special form, interpreted-function for a function defined in Lisp, or user-ptr for a value the host program made.",
+            "\n\n",
+            "(fn OBJECT)"
+        ),
+    ),
+    (
         "unless",
         concat!(
             "If COND yields nil, do BODY, else return nil.",

@@ -422,6 +422,14 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         },
     );
 
+    ctx.defun(
+        "type-of",
+        |ctx: &mut TulispContext, object: TulispObject| {
+            let name = type_name(&object);
+            ctx.intern(name)
+        },
+    );
+
     // predicates begin
     macro_rules! predicate_function {
         ($name: ident) => {
@@ -467,6 +475,42 @@ pub(crate) fn push_text(out: &mut String, obj: &TulispObject) -> Result<(), Erro
         out.push(to_char(&item)?);
     }
     iter.take_error()
+}
+
+/// The name Emacs 30's `type-of` gives OBJECT. A macro is a `cons`, as Emacs
+/// keeps one as `(macro . FUNCTION)`, and a host value other than a hash table
+/// is a `user-ptr`, Emacs's type for a value a module gives it.
+fn type_name(object: &TulispObject) -> &'static str {
+    match &object.inner_ref().0 {
+        TulispValue::Nil | TulispValue::T | TulispValue::Symbol { .. } => "symbol",
+        TulispValue::Number {
+            value: crate::Number::Int(_),
+        } => "integer",
+        TulispValue::Number {
+            value: crate::Number::Float(_),
+        } => "float",
+        TulispValue::String { .. } => "string",
+        TulispValue::List { .. }
+        | TulispValue::Quote { .. }
+        | TulispValue::Backquote { .. }
+        | TulispValue::Unquote { .. }
+        | TulispValue::Splice { .. }
+        | TulispValue::Macro(_)
+        | TulispValue::Defmacro { .. } => "cons",
+        // Tests the type under the borrow the match holds:
+        // `TulispObject::downcast` would borrow again.
+        TulispValue::Any(value)
+            if (&**value as &dyn std::any::Any).is::<super::hash_table::HashTable>() =>
+        {
+            "hash-table"
+        }
+        TulispValue::Any(_) => "user-ptr",
+        TulispValue::SpecialForm
+        | TulispValue::Defun { .. }
+        | TulispValue::Special { .. }
+        | TulispValue::Bounce => "subr",
+        TulispValue::CompiledDefun { .. } => "interpreted-function",
+    }
 }
 
 /// The number OBJ holds, or the error Emacs's arithmetic gives for any other
@@ -1643,6 +1687,50 @@ tests/bad-load.lisp:1.9-1.9:  at nil
                 "(ERR (wrong-type-argument plistp (a . 1)))",
             ),
         ]);
+    }
+
+    #[test]
+    fn type_of_names_the_type_as_emacs_30_does() {
+        assert_results(&[
+            (
+                r#"(list (type-of 1) (type-of 1.5) (type-of "a") (type-of 'a) (type-of nil) (type-of t) (type-of :k) (type-of (list 1)) (type-of (make-hash-table)) (type-of ?a))"#,
+                "(integer float string symbol symbol symbol symbol cons hash-table integer)",
+            ),
+            ("(type-of (lambda (x) x))", "interpreted-function"),
+            (
+                "(progn (defun tf (x) x) (type-of (symbol-value 'tf)))",
+                "interpreted-function",
+            ),
+            (
+                "(list (type-of (symbol-value 'car)) (type-of (symbol-value 'if)))",
+                "(subr subr)",
+            ),
+            ("(type-of (symbol-value 'when))", "cons"),
+            (
+                "(progn (defmacro tm (x) x) (type-of (symbol-value 'tm)))",
+                "cons",
+            ),
+        ]);
+    }
+
+    // A host value other than a hash table is a `user-ptr`, Emacs's type for a
+    // value a module gives it.
+    #[test]
+    fn type_of_names_a_host_value_a_user_ptr() {
+        struct Host;
+        impl std::fmt::Display for Host {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("#<host>")
+            }
+        }
+        impl crate::TulispAny for Host {}
+        let mut ctx = TulispContext::new();
+        ctx.defun("make-host", || crate::Shared::new(Host));
+        eval_assert_equal(
+            &mut ctx,
+            "(list (type-of (make-host)) (type-of (make-hash-table)))",
+            "'(user-ptr hash-table)",
+        );
     }
 
     // Setting a constant is a `setting-constant` error naming the symbol, as in
