@@ -19,6 +19,8 @@ pub(crate) struct Tokenizer<'a> {
     token_start: usize,
     /// Whether comments come back as `Token::Comment` instead of being skipped.
     keep_comments: bool,
+    /// Whether `next_char` was asked for a character past the end of the text.
+    read_past_end: bool,
 }
 
 #[derive(PartialEq, Debug)]
@@ -30,6 +32,8 @@ enum ParserErrorKind {
 #[derive(Debug)]
 pub(crate) struct ParserError {
     kind: ParserErrorKind,
+    /// Whether the text ended inside the token.
+    at_end_of_input: bool,
     pub(crate) desc: String,
     pub(crate) span: Span,
     /// Where the error is in the source, in bytes: the character the start of
@@ -41,9 +45,17 @@ impl ParserError {
     fn syntax_error(desc: String, span: Span, offset: usize) -> Self {
         ParserError {
             kind: ParserErrorKind::SyntaxError,
+            at_end_of_input: false,
             desc,
             span,
             offset,
+        }
+    }
+
+    fn end_of_input(desc: String, span: Span, offset: usize) -> Self {
+        ParserError {
+            at_end_of_input: true,
+            ..Self::syntax_error(desc, span, offset)
         }
     }
 }
@@ -108,6 +120,7 @@ impl Tokenizer<'_> {
             pos: 0,
             token_start: 0,
             keep_comments: false,
+            read_past_end: false,
         }
     }
 
@@ -174,6 +187,7 @@ impl Tokenizer<'_> {
             Some(peeked) => peeked,
             None => self.chars.next(),
         };
+        self.read_past_end |= next.is_none();
         next.inspect(|ch| {
             if *ch == '\n' {
                 self.line += 1;
@@ -204,12 +218,11 @@ impl Tokenizer<'_> {
                             let pos = (self.line, self.pos);
                             let span = Span::new(self.file_id, pos, pos);
                             let offset = self.last_char_offset();
+                            let error = self.escape_error(desc, span, offset);
                             if !self.ended_on_bare_quote() {
                                 self.skip_rest_of_string();
                             }
-                            return Some(Token::ParserError(ParserError::syntax_error(
-                                desc, span, offset,
-                            )));
+                            return Some(Token::ParserError(error));
                         }
                     }
                 }
@@ -227,7 +240,7 @@ impl Tokenizer<'_> {
             }
         }
 
-        Some(Token::ParserError(ParserError::syntax_error(
+        Some(Token::ParserError(ParserError::end_of_input(
             "Incomplete string literal".to_owned(),
             Span {
                 file_id: self.file_id,
@@ -300,10 +313,18 @@ impl Tokenizer<'_> {
                 span,
                 value: value.into(),
             },
-            Err(desc) => {
-                Token::ParserError(ParserError::syntax_error(desc, span, self.token_start))
-            }
+            Err(desc) => Token::ParserError(self.escape_error(desc, span, self.token_start)),
         })
+    }
+
+    /// The error for an escape `read_escape` refused: the end of the text when
+    /// the escape ran into it.
+    fn escape_error(&self, desc: String, span: Span, offset: usize) -> ParserError {
+        if self.read_past_end {
+            ParserError::end_of_input(desc, span, offset)
+        } else {
+            ParserError::syntax_error(desc, span, offset)
+        }
     }
 
     /// Read the escape after a backslash, as Emacs does: `\n`, `\s`, `\d` and
@@ -612,7 +633,7 @@ impl Iterator for Tokenizer<'_> {
                             });
                         }
                         None => {
-                            return Some(Token::ParserError(ParserError::syntax_error(
+                            return Some(Token::ParserError(ParserError::end_of_input(
                                 "Unexpected EOF after ,".to_string(),
                                 Span::new(self.file_id, start_pos, (self.line, self.pos)),
                                 self.token_start,
@@ -641,6 +662,11 @@ struct Parser<'a, 'b> {
     tokenizer: Tokenizer<'a>,
     /// A token read ahead by `peek_token` and not yet taken.
     peeked: Option<Option<Token>>,
+    /// Whether a token was wanted after the end of the text, or a token ran
+    /// into it. Each place that wants a token raises an error when there is
+    /// none, but where it looks for the first value of the text, so an error
+    /// after this is set comes from text that ends inside a value.
+    hit_end_of_input: bool,
     ctx: &'b mut TulispContext,
     ints: HashMap<i64, TulispObject>,
     /// Current parse nesting depth, bounded by `ctx.max_nesting_depth()`.
@@ -660,6 +686,7 @@ impl Parser<'_, '_> {
             file_id,
             tokenizer: Tokenizer::new(file_id, program),
             peeked: None,
+            hit_end_of_input: false,
             ctx,
             ints: Default::default(),
             depth: 0,
@@ -669,16 +696,18 @@ impl Parser<'_, '_> {
     }
 
     fn next_token(&mut self) -> Option<Token> {
-        match self.peeked.take() {
+        let token = match self.peeked.take() {
             Some(token) => token,
             None => self.tokenizer.next(),
-        }
+        };
+        self.hit_end_of_input |= token.is_none();
+        token
     }
 
     fn peek_token(&mut self) -> Option<&Token> {
-        self.peeked
-            .get_or_insert_with(|| self.tokenizer.next())
-            .as_ref()
+        let token = self.peeked.get_or_insert_with(|| self.tokenizer.next());
+        self.hit_end_of_input |= token.is_none();
+        token.as_ref()
     }
 
     fn parse_list(&mut self, start_span: Span) -> Result<TulispObject, Error> {
@@ -901,6 +930,7 @@ impl Parser<'_, '_> {
             // anyway is skipped too.
             Token::Comment => self.parse_value_inner(),
             Token::ParserError(err) => {
+                self.hit_end_of_input |= err.at_end_of_input;
                 Err(Error::parsing_error(format!("{:?} {}", err.kind, err.desc))
                     .with_trace(TulispValue::Nil.into_ref(Some(err.span))))
             }
@@ -1038,6 +1068,32 @@ fn try_mark_tail_form(
             Ok(marked.into())
         }
         _ => Ok(form.clone()),
+    }
+}
+
+/// The first value in TEXT, as Emacs's `read` reads it, and how many bytes of
+/// TEXT it takes, with the whitespace before it. As in Emacs, TEXT that ends
+/// before a whole value, such as only whitespace or an unclosed list, is an
+/// `end-of-file` error.
+pub(crate) fn read_one(
+    ctx: &mut TulispContext,
+    text: &str,
+) -> Result<(TulispObject, usize), Error> {
+    let mut parser = Parser::new(
+        ctx,
+        0,
+        text,
+        #[cfg(feature = "etags")]
+        false,
+    );
+    let value = parser.parse_value();
+    let (hit_end_of_input, offset) = (parser.hit_end_of_input, parser.tokenizer.offset());
+    drop(parser);
+    match value {
+        Ok(Some(value)) => Ok((value, offset)),
+        Ok(None) => Err(ctx.signal("end-of-file", TulispObject::nil())),
+        Err(_) if hit_end_of_input => Err(ctx.signal("end-of-file", TulispObject::nil())),
+        Err(err) => Err(err.with_file_names(ctx)),
     }
 }
 

@@ -7,6 +7,7 @@ mod equality_predicates;
 pub(crate) mod errors;
 mod format;
 mod hash_table;
+mod input_functions;
 mod list_elements;
 mod numbers;
 mod sequences;
@@ -21,6 +22,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     errors::add(ctx);
     core::add(ctx);
     hash_table::add(ctx);
+    input_functions::add(ctx);
     list_elements::add(ctx);
     numbers::add(ctx);
     sequences::add(ctx);

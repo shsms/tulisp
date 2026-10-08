@@ -1319,6 +1319,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         ),
     ),
     (
+        "read",
+        concat!(
+            "Read one Lisp expression as text from STREAM, return as Lisp object.",
+            "\n\n",
+            "(fn STREAM)"
+        ),
+    ),
+    (
         "remhash",
         concat!(
             "Remove the entry for KEY from hash table TABLE, if there is one. Return nil.",
