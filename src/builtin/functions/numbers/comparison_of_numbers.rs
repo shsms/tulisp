@@ -1,4 +1,6 @@
-use crate::{Error, Number, Rest, TulispContext, TulispObject};
+use crate::{
+    Error, Number, Rest, TulispContext, TulispObject, builtin::functions::core::number_of,
+};
 
 /// Compare each argument with the next. The chain stops at the first
 /// pair that fails, before the arguments after it are checked for
@@ -48,6 +50,10 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     });
     ctx.defun("<=", |args: Rest<TulispObject>| {
         compare_pairwise(args, PartialOrd::le)
+    });
+
+    ctx.defun("/=", |a: TulispObject, b: TulispObject| {
+        Ok::<_, Error>(number_of(&a)? != number_of(&b)?)
     });
 
     ctx.defun("max", |first: Number, rest: Rest<Number>| -> Number {
@@ -111,5 +117,26 @@ mod tests {
         eval_assert_equal(ctx, "(abs 5)", "5");
         eval_assert_equal(ctx, "(integerp (abs -3))", "t");
         eval_assert_equal(ctx, "(floatp (abs -3.0))", "t");
+    }
+
+    #[test]
+    fn not_equal_compares_two_numbers() {
+        let ctx = &mut TulispContext::new();
+        for (program, expected) in [
+            ("(/= 1 2)", "t"),
+            ("(/= 1 1)", "nil"),
+            ("(/= 1 1.0)", "nil"),
+            ("(/= 0.0e+NaN 0.0e+NaN)", "t"),
+            (
+                r#"(condition-case e (/= 1 "a") (error e))"#,
+                r#"'(wrong-type-argument number-or-marker-p "a")"#,
+            ),
+            (
+                r#"(condition-case e (/= "a" 1) (error e))"#,
+                r#"'(wrong-type-argument number-or-marker-p "a")"#,
+            ),
+        ] {
+            eval_assert_equal(ctx, program, expected);
+        }
     }
 }

@@ -11,7 +11,7 @@ differences from Emacs are called out inline.
 
 - **Arithmetic**: `+`, `-`, `*`, `/`, `%` (remainder, with the sign of the
   dividend), `mod`, `1+`, `1-`.
-- **Comparison**: `=`, `<`, `>`, `<=`, `>=`, `eql`, `max`, `min`, `abs`.
+- **Comparison**: `=`, `/=`, `<`, `>`, `<=`, `>=`, `eql`, `max`, `min`, `abs`.
 - **Math**: `expt`, `sqrt`, `isnan`, `exp`, `log` (with an optional base),
   `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, and the variables `float-pi`
   and `float-e`.

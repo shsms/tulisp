@@ -58,6 +58,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         ),
     ),
     (
+        "/=",
+        concat!(
+            "Return t if first arg is not equal to second arg.  Both must be numbers.",
+            "\n\n",
+            "(fn NUM1 NUM2)"
+        ),
+    ),
+    (
         "1+",
         concat!("Return NUMBER plus one.", "\n\n", "(fn NUMBER)"),
     ),
