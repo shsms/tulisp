@@ -2,6 +2,8 @@
 
 use std::hash::{BuildHasher, RandomState};
 
+use crate::TulispContext;
+
 /// A SplitMix64 generator, which gives the same numbers on every platform from
 /// the same seed.
 pub(crate) struct Random {
@@ -16,6 +18,16 @@ impl Random {
 
     pub(crate) fn seeded(seed: u64) -> Self {
         Self { state: seed }
+    }
+
+    /// A generator seeded from TEXT, the same for the same TEXT.
+    pub(crate) fn from_text(text: &str) -> Self {
+        // FNV-1a, which, unlike the standard library's hashers, gives the same
+        // hash in every Rust version.
+        let seed = text.bytes().fold(0xcbf2_9ce4_8422_2325, |hash: u64, byte| {
+            (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+        });
+        Self::seeded(seed)
     }
 
     pub(crate) fn next(&mut self) -> u64 {
@@ -37,6 +49,25 @@ impl Random {
                 return number % limit;
             }
         }
+    }
+}
+
+impl TulispContext {
+    /// Seeds Lisp's `random` with SEED, so that it gives the same numbers again
+    /// after the same seed, as it does after `(random "TEXT")` with the same
+    /// TEXT. A new context has a seed from the system, different each time.
+    ///
+    /// ```rust
+    /// # use tulisp::TulispContext;
+    /// let mut ctx = TulispContext::new();
+    /// ctx.set_random_seed(42);
+    /// let first = ctx.eval_string("(list (random 100) (random 100))").unwrap();
+    /// ctx.set_random_seed(42);
+    /// let again = ctx.eval_string("(list (random 100) (random 100))").unwrap();
+    /// assert!(first.equal(&again));
+    /// ```
+    pub fn set_random_seed(&mut self, seed: u64) {
+        self.random = Random::seeded(seed);
     }
 }
 
@@ -80,5 +111,15 @@ mod tests {
             seen[random.below(3) as usize] = true;
         }
         assert_eq!(seen, [true; 3]);
+    }
+
+    #[test]
+    fn the_same_text_gives_the_same_numbers() {
+        let mut a = Random::from_text("seed");
+        let mut b = Random::from_text("seed");
+        let mut c = Random::from_text("other");
+        let (a, b, c) = (a.next(), b.next(), c.next());
+        assert_eq!(a, b);
+        assert_ne!(a, c);
     }
 }

@@ -8,8 +8,9 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
 /// `(random &optional LIMIT)`: a number from 0 to LIMIT - 1 for a positive
 /// integer LIMIT, and an `args-out-of-range` error for any other integer. Any
-/// other LIMIT gives any integer, and t seeds the numbers from the system
-/// first.
+/// other LIMIT gives any integer. Before that, t seeds the numbers from the
+/// system, and a string seeds them from its text, so the numbers after the same
+/// string are the same.
 fn random(ctx: &mut TulispContext, limit: Option<TulispObject>) -> Result<i64, Error> {
     let limit = limit.unwrap_or_default();
     if limit.integerp() {
@@ -20,7 +21,9 @@ fn random(ctx: &mut TulispContext, limit: Option<TulispObject>) -> Result<i64, E
         // LIMIT is at most `i64::MAX`, so the number fits.
         return Ok(ctx.random.below(limit) as i64);
     }
-    if matches!(limit.inner_ref().0, TulispValue::T) {
+    if limit.stringp() {
+        ctx.random = limit.with_str(Random::from_text)?;
+    } else if matches!(limit.inner_ref().0, TulispValue::T) {
         ctx.random = Random::from_system();
     }
     Ok(ctx.random.next() as i64)
@@ -55,5 +58,31 @@ mod tests {
                 "'refused",
             );
         }
+    }
+
+    // A string seed repeats the numbers after it, here and in another context.
+    #[test]
+    fn a_string_seed_repeats_the_numbers() {
+        let program = r#"(progn (random "seed") (list (random 1000) (random) (random 10)))"#;
+        let ctx = &mut TulispContext::new();
+        let first = ctx.eval_string(program).unwrap();
+        let again = ctx.eval_string(program).unwrap();
+        let elsewhere = TulispContext::new().eval_string(program).unwrap();
+        assert!(first.equal(&again), "{first} {again}");
+        assert!(first.equal(&elsewhere), "{first} {elsewhere}");
+        let other = ctx
+            .eval_string(r#"(progn (random "other") (list (random 1000) (random) (random 10)))"#)
+            .unwrap();
+        assert!(!first.equal(&other), "{first} {other}");
+    }
+
+    #[test]
+    fn set_random_seed_repeats_the_numbers() {
+        let ctx = &mut TulispContext::new();
+        ctx.set_random_seed(5);
+        let first = ctx.eval_string("(list (random) (random 7))").unwrap();
+        ctx.set_random_seed(5);
+        let again = ctx.eval_string("(list (random) (random 7))").unwrap();
+        assert!(first.equal(&again), "{first} {again}");
     }
 }
