@@ -605,11 +605,12 @@ impl TulispObject {
     /// the function a name calls, use
     /// [`TulispContext::fset`](crate::TulispContext::fset).
     pub fn set(&self, to_set: TulispObject) -> Result<(), Error> {
-        self.rc
-            .borrow_mut()
-            .0
-            .set(to_set)
-            .map_err(|e| e.fill_and_trace(self))
+        let mut value = self.rc.borrow_mut();
+        if !value.0.symbolp() {
+            drop(value);
+            return Err(self.not_a_symbol());
+        }
+        value.0.set(to_set).map_err(|e| e.fill_and_trace(self))
     }
 
     /// Sets a value to `self`, in the new scope, such that when it is `unset`,
@@ -618,8 +619,12 @@ impl TulispObject {
     /// Returns an Error if `self` is not a symbol, or is a constant:
     /// `nil`, `t` or a keyword.
     pub(crate) fn set_scope(&self, to_set: TulispObject) -> Result<(), Error> {
-        self.rc
-            .borrow_mut()
+        let mut value = self.rc.borrow_mut();
+        if !value.0.symbolp() {
+            drop(value);
+            return Err(self.not_a_symbol());
+        }
+        value
             .0
             .set_scope(to_set)
             .map_err(|e| e.fill_and_trace(self))
@@ -897,14 +902,16 @@ impl TulispObject {
     }
 
     pub(crate) fn set_global(&self, to_set: TulispObject) -> Result<(), Error> {
-        self.rc
-            .borrow_mut()
-            .0
-            .set_global(to_set)
-            .map_err(|e| e.fill_value(self))
+        let mut value = self.rc.borrow_mut();
+        if !value.0.symbolp() {
+            drop(value);
+            return Err(self.not_a_symbol());
+        }
+        value.0.set_global(to_set).map_err(|e| e.fill_value(self))
     }
 
-    /// The `symbolp` error for `self`, which is no symbol.
+    /// The `symbolp` error for `self`, which is no symbol. It borrows `self` to
+    /// print it, so a setter calls it only after letting go of its own borrow.
     pub(crate) fn not_a_symbol(&self) -> Error {
         self.rc.borrow().0.not_a_symbol().fill_and_trace(self)
     }
@@ -1690,6 +1697,26 @@ mod tests {
         .join()
         .expect("thread panicked")?;
         assert!(TulispObject::from(true).span().is_none());
+        Ok(())
+    }
+
+    // Each setter refuses a value that is no symbol with the error that prints
+    // it, even for a list that holds itself.
+    #[test]
+    fn a_setter_refuses_a_value_that_is_no_symbol() -> Result<(), Error> {
+        let cell = TulispObject::cons(TulispObject::nil(), TulispObject::nil());
+        cell.set_car(cell.clone())?;
+        let one = TulispObject::from(1);
+        for err in [
+            cell.set(one.clone()).unwrap_err(),
+            cell.set_scope(one.clone()).unwrap_err(),
+            cell.set_global(one).unwrap_err(),
+        ] {
+            assert!(
+                err.desc().contains("Can't assign to"),
+                "unexpected error: {err}"
+            );
+        }
         Ok(())
     }
 

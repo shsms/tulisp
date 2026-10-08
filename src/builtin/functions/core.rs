@@ -1630,6 +1630,10 @@ tests/bad-load.lisp:1.9-1.9:  at nil
                 "(eval '(defconst 5 1) t)",
                 "(ERR (wrong-type-argument symbolp 5))",
             ),
+            (
+                "(let ((l (list 1 2))) (setcar l l) (condition-case e (set l 1) (error (list (car e) (cadr e) (eq (nth 2 e) l)))))",
+                "(wrong-type-argument symbolp t)",
+            ),
         ]);
     }
 }

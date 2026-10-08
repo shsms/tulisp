@@ -463,7 +463,7 @@ impl TulispValue {
         match self {
             TulispValue::Symbol { value } => value.set(to_set),
             TulispValue::Nil | TulispValue::T => Err(Error::setting_constant(&*self)),
-            _ => Err(self.not_a_symbol()),
+            _ => Err(Self::not_a_symbol_while_borrowed()),
         }
     }
 
@@ -485,7 +485,7 @@ impl TulispValue {
         match self {
             TulispValue::Symbol { value } => value.set_global(to_set),
             TulispValue::Nil | TulispValue::T => Err(Error::setting_constant(&*self)),
-            _ => Err(self.not_a_symbol()),
+            _ => Err(Self::not_a_symbol_while_borrowed()),
         }
     }
 
@@ -513,7 +513,7 @@ impl TulispValue {
         match self {
             TulispValue::Symbol { value } => value.set_scope(to_set),
             TulispValue::Nil | TulispValue::T => Err(Error::setting_constant(&*self)),
-            _ => Err(self.not_a_symbol()),
+            _ => Err(Self::not_a_symbol_while_borrowed()),
         }
     }
 
@@ -932,6 +932,13 @@ impl TulispValue {
             "symbolp",
             format!("Expected Symbol: Can't assign to {self}"),
         )
+    }
+
+    /// Like `not_a_symbol`, for a setter whose caller has the value borrowed to
+    /// change it: it does not print the value. The `TulispObject` setters check
+    /// for a symbol first, so they never get it.
+    fn not_a_symbol_while_borrowed() -> Error {
+        Error::wrong_type_unfilled("symbolp", "Expected Symbol")
     }
 
     /// The error for a list operation applied to a non-list: a `TypeMismatch`,
