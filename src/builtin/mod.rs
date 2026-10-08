@@ -38,13 +38,14 @@ differences from Emacs are called out inline.
 
 # Lists
 
-- **Construction**: `cons`, `list`, `append`.
+- **Construction**: `cons`, `list`, `append`, `number-sequence`,
+  `string-to-list`.
 - **Access**: `car`, `cdr`, every `c[ad]+r` form up to four `a`/`d`s,
-  `nth`, `nthcdr`, `last`, `car-safe`, `cdr-safe`.
+  `nth`, `nthcdr`, `elt`, `last`, `butlast`, `car-safe`, `cdr-safe`.
 - **Modification**: `setcar`, `setcdr`, `push` and `pop` (PLACE must be
   a variable: tulisp has no generalized variables), `add-to-list`, and
-  `delq`, `delete` and `nreverse`, which relink the cells of the list
-  they are given.
+  `delq`, `delete`, `delete-dups`, `nconc` and `nreverse`, which relink
+  the cells of the list they are given.
 - **Length / membership**: `length` (also for strings),
   `memq`, `memql`, `member`.
 - **Sequence operations**: `reverse`, `sort`, `mapcar`, `mapc`,
@@ -53,15 +54,16 @@ differences from Emacs are called out inline.
 - **Ordering**: `value<`, the order `sort` uses when given no predicate:
   numbers by value, strings and symbols by name, lists element by element.
 - **Alists**: `assoc`, `assq`, `alist-get`.
-- **Plists**: `plist-get`.
+- **Plists**: `plist-get`, `plist-put`.
 
 A list function that must walk a whole list signals a `Circular list`
 error when the list's cdrs loop back to an earlier cell. Unlike Emacs,
 `last` and `plist-get` without a PREDICATE also do so.
 
-Tulisp has no vector type. Of the sequence functions, `length`, `append`,
-`mapc`, `remove`, `delete` and `nreverse` also take a string; the others
-take only lists.
+Tulisp has no vector type. Of the sequence functions, `length`, `elt`,
+`append`, `string-to-list`, `mapc`, `mapcar`, `mapconcat`, `seq-map`,
+`seq-filter`, `seq-reduce`, `seq-find`, `remove`, `delete` and `nreverse`
+also take a string; the others take only lists.
 
 # Symbols and variables
 
@@ -104,13 +106,16 @@ Tail-call optimisation is applied to recursive functions automatically.
 - **Types**: `atom`, `consp`, `listp`, `floatp`, `integerp`, `numberp`,
   `stringp`, `symbolp`, `keywordp`, `functionp`, `boundp`, `null`.
 - **Numbers**: `zerop`.
+- **Type name**: `type-of`.
 - **Equality**: `eq`, `equal`, `eql`.
 
 # Hash tables
 
 `make-hash-table` (`:test` selects `eq` / `eql` / `equal` key
 comparison, default `eql`; `:size` is accepted as a hint and
-ignored), `puthash`, `gethash` (optional 3rd `default` argument).
+ignored), `puthash`, `gethash` (optional 3rd `default` argument),
+`remhash`, `hash-table-count`, and `maphash`, which visits the entries in
+the order Emacs does.
 
 # Time
 
