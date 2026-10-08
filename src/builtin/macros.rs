@@ -73,6 +73,31 @@ fn check_place(macro_name: &str, place: &TulispObject) -> Result<(), Error> {
     )))
 }
 
+/// `(push NEWELT PLACE)` is `(setq PLACE (cons NEWELT PLACE))`. PLACE must be a
+/// variable.
+fn push(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+    let (newelt, place): (TulispObject, TulispObject) = args.destructure(ctx)?;
+    check_place("push", &place)?;
+    let cons = list!(ctx => ,ctx.intern("cons") ,newelt ,&place)?;
+    list!(ctx => ,ctx.intern("setq") ,&place ,cons)
+}
+
+/// `(prog1 FIRST BODY...)` is `(let ((V FIRST)) BODY... V)`, with V an
+/// uninterned symbol.
+fn prog1(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+    let (first, body): (TulispObject, Rest<TulispObject>) = args.destructure(ctx)?;
+    let (value, bindings) = bind_uninterned(ctx, "prog1-value", first)?;
+    list!(ctx => ,ctx.intern("let") ,bindings ,@body ,value)
+}
+
+/// `(prog2 FIRST SECOND BODY...)` is `(progn FIRST (prog1 SECOND BODY...))`.
+fn prog2(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
+    let (first, second, body): (TulispObject, TulispObject, Rest<TulispObject>) =
+        args.destructure(ctx)?;
+    let prog1 = list!(ctx => ,ctx.intern("prog1") ,second ,@body)?;
+    list!(ctx => ,ctx.intern("progn") ,first ,prog1)
+}
+
 /// `(pop PLACE)` is `(let ((V (car-safe PLACE))) (setq PLACE (cdr PLACE)) V)`,
 /// with V an uninterned symbol. PLACE must be a variable, as for `push`.
 fn pop(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
@@ -113,7 +138,10 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defmacro("->>", thread_last);
     ctx.defmacro("thread-last", thread_last);
     ctx.defmacro("quote", quote);
+    ctx.defmacro("push", push);
     ctx.defmacro("pop", pop);
+    ctx.defmacro("prog1", prog1);
+    ctx.defmacro("prog2", prog2);
     ctx.defmacro("ignore-errors", ignore_errors);
     ctx.defmacro("defconst", defconst);
 }
@@ -265,5 +293,82 @@ mod tests {
         ctx.eval_string(r#"(defconst kk 5 "The kk.")"#).unwrap();
         let info = ctx.describe("kk").unwrap();
         assert_eq!(info.doc.as_deref(), Some("The kk."));
+    }
+
+    // `push` conses onto a variable, evaluating NEWELT first, and
+    // gives the new list.
+    #[test]
+    fn push_conses_onto_a_variable() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(let ((l '(2))) (push 1 l) l)", "'(1 2)");
+        eval_assert_equal(ctx, "(let ((l nil)) (push 1 l))", "'(1)");
+        eval_assert_equal(
+            ctx,
+            "(let ((l nil) (i 0)) (push (setq i (1+ i)) l) (push i l))",
+            "'(1 1)",
+        );
+        eval_assert_equal(
+            ctx,
+            "(let ((l '(2))) (push (progn (setq l nil) 1) l))",
+            "'(1)",
+        );
+        eval_assert_equal(ctx, "(defun f (l) (push 0 l)) (f '(1))", "'(0 1)");
+        // The `cons` it expands to is the function, not a variable.
+        eval_assert_equal(ctx, "(defun g (cons) (push 1 cons) cons) (g nil)", "'(1)");
+        // Only a variable is a place: tulisp has no generalized
+        // variables.
+        eval_assert_error_line(
+            ctx,
+            "(let ((l (list 1))) (push 0 (car l)))",
+            "ERR LispError: push: PLACE must be a variable, got: (car l)",
+        );
+    }
+
+    #[test]
+    fn prog1_and_prog2_give_first_and_second() {
+        let ctx = &mut TulispContext::new();
+        // prog1 returns FIRST, evaluates BODY for side effects.
+        eval_assert_equal(
+            ctx,
+            "(let ((trace nil))
+           (prog1 (progn (setq trace (cons 1 trace)) 'first)
+                  (setq trace (cons 2 trace))
+                  (setq trace (cons 3 trace))))",
+            "'first",
+        );
+        // Order of evaluation is FIRST, then BODY left-to-right.
+        eval_assert_equal(
+            ctx,
+            "(let ((trace nil))
+           (prog1 (progn (setq trace (cons 1 trace)) 'first)
+                  (setq trace (cons 2 trace))
+                  (setq trace (cons 3 trace)))
+           (reverse trace))",
+            "'(1 2 3)",
+        );
+        // prog1 with no body still returns FIRST.
+        eval_assert_equal(ctx, "(prog1 42)", "42");
+        // prog2 returns SECOND.
+        eval_assert_equal(ctx, "(prog2 1 2 3 4)", "2");
+        // prog2 evaluates FIRST, then SECOND, then BODY.
+        eval_assert_equal(
+            ctx,
+            "(let ((trace nil))
+           (prog2 (setq trace (cons 1 trace))
+                  (setq trace (cons 2 trace))
+                  (setq trace (cons 3 trace)))
+           (reverse trace))",
+            "'(1 2 3)",
+        );
+        // Hygiene: a user variable named `prog1-value` doesn't collide with the
+        // macro's uninterned symbol.
+        eval_assert_equal(
+            ctx,
+            "(let ((prog1-value 'outer))
+           (prog1 'returned
+                  (setq prog1-value 'mutated))
+           prog1-value)",
+            "'mutated",
+        );
     }
 }
