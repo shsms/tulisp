@@ -530,6 +530,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         concat!("Return t if OBJECT is a cons cell.", "\n\n", "(fn OBJECT)"),
     ),
     (
+        "copy-sequence",
+        concat!(
+            "Return a copy of a list, vector, string, char-table or record.",
+            "\n\n",
+            "(fn ARG)"
+        ),
+    ),
+    (
         "cos",
         concat!("Return the cosine of ARG.", "\n\n", "(fn ARG)"),
     ),

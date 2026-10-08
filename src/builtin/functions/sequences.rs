@@ -129,6 +129,8 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         },
     );
 
+    ctx.defun("copy-sequence", |arg: TulispObject| arg.copy_sequence());
+
     // The rest of SEQ after N elements, shared with SEQ, as `nthcdr` gives it.
     ctx.defun("seq-drop", |seq: TulispObject, n: i64| {
         lists::nthcdr(n, &seq)
@@ -346,6 +348,35 @@ mod tests {
             ("(seq-uniq 5)", "(ERR (wrong-type-argument sequencep 5))"),
             ("(seq-uniq '(1 . 2))", "(ERR (wrong-type-argument listp 2))"),
         ]);
+    }
+
+    #[test]
+    fn copy_sequence_copies_the_top_level() {
+        assert_results(&[
+            ("(copy-sequence '(1 2 3))", "(1 2 3)"),
+            (
+                "(let* ((l (list 1 (list 2))) (c (copy-sequence l))) (list (eq c l) (eq (cadr c) (cadr l))))",
+                "(nil t)",
+            ),
+            (
+                r#"(let* ((s "ab") (c (copy-sequence s))) (aset c 0 ?x) (list s c (eq c s)))"#,
+                r#"("ab" "xb" nil)"#,
+            ),
+            ("(copy-sequence nil)", "nil"),
+            (
+                "(copy-sequence 5)",
+                "(ERR (wrong-type-argument sequencep 5))",
+            ),
+            (
+                "(copy-sequence '(1 . 2))",
+                "(ERR (wrong-type-argument listp 2))",
+            ),
+        ]);
+        eval_assert_error_line(
+            &mut TulispContext::new(),
+            "(let ((l (list 1 2))) (setcdr (cdr l) l) (copy-sequence l))",
+            "ERR OutOfRange: Circular list",
+        );
     }
 
     #[test]
