@@ -1015,10 +1015,9 @@ mod tests {
 
     #[test]
     fn setq_and_set_reject_a_target_that_is_not_a_variable() {
-        // `setq` rejects non-symbol and constant-symbol targets at compile
-        // time; `set` rejects them at runtime. Regression: the VM used to
-        // `.unwrap()` the result of `obj.set(...)`, which crashed on
-        // `(setq t 5)`, `(setq nil 5)`, `(setq :foo 5)`, etc.
+        // `setq` and `set` reject non-symbol and constant-symbol targets.
+        // Regression: the VM used to `.unwrap()` the result of `obj.set(...)`,
+        // which crashed on `(setq t 5)`, `(setq nil 5)`, `(setq :foo 5)`, etc.
         let ctx = &mut TulispContext::new();
         eval_assert_error(
             ctx,

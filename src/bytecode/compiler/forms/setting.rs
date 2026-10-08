@@ -22,15 +22,23 @@ pub(super) fn compile_fn_setq(
         let Some(value) = items.next() else {
             return Err(Error::too_few_arguments());
         };
-        // A keyword is a constant, unless it names a parameter of the
-        // function being compiled.
+        // A keyword is a constant, unless it names a parameter of the function
+        // being compiled. A target that is no variable fails when its pair
+        // runs, after its value, as in Emacs.
         let assignment = resolve_assignment(ctx, &target)?;
-        if !assignment.is_local() {
-            crate::builtin::check_settable_target(&target)?;
-        }
+        let refused = if assignment.is_local() {
+            None
+        } else {
+            crate::builtin::check_settable_target(&target).err()
+        };
         result.append(&mut compile_expr_keep_result(ctx, &value)?);
-        let keep = keep_result && items.peek().is_none();
-        result.push(assignment.store(&target, keep));
+        match refused {
+            Some(err) => result.push(Instruction::Raise(Box::new(err))),
+            None => {
+                let keep = keep_result && items.peek().is_none();
+                result.push(assignment.store(&target, keep));
+            }
+        }
     }
     if result.is_empty() && keep_result {
         result.push(Instruction::Push(TulispObject::nil()));
@@ -393,6 +401,41 @@ mod tests {
             "(setq a 1 t 2)",
             "ERR SettingConstant: Can't set constant symbol: t",
         );
+    }
+
+    // As in Emacs, a target that is no variable fails when its pair runs, after
+    // its value: the pairs before it are set, a handler catches the error, and
+    // code that never runs does not fail.
+    #[test]
+    fn a_setq_target_that_is_no_variable_fails_when_it_runs() {
+        let ctx = &mut TulispContext::new();
+        for (program, expected) in [
+            (
+                "(let ((a 0)) (condition-case nil (setq a 1 t 2) (error nil)) a)",
+                "1",
+            ),
+            (
+                "(let ((n 0)) (condition-case nil (setq t (setq n 1)) (error nil)) n)",
+                "1",
+            ),
+            ("(progn (if nil (setq t 1)) 'ran)", "'ran"),
+            ("(progn (if nil (setq 5 1)) 'ran)", "'ran"),
+            (
+                "(condition-case e (setq nil 1) (error e))",
+                "'(setting-constant nil)",
+            ),
+            (
+                "(condition-case e (setq :k 1) (error e))",
+                "'(setting-constant :k)",
+            ),
+            (
+                r#"(condition-case e (setq "x" 1) (error e))"#,
+                r#"'(wrong-type-argument symbolp "x")"#,
+            ),
+            ("(defun f () (if nil (setq t 1)) 'ran) (f)", "'ran"),
+        ] {
+            eval_assert_equal(ctx, program, expected);
+        }
     }
 
     #[test]
