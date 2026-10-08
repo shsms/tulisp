@@ -1371,6 +1371,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         ),
     ),
     (
+        "seq-remove",
+        concat!(
+            "Return a list of all the elements in SEQUENCE for which PRED returns nil.",
+            "\n\n",
+            "(fn PRED SEQUENCE)"
+        ),
+    ),
+    (
         "seq-sort",
         concat!(
             "Sort SEQUENCE using PRED as the sorting comparison function.",
@@ -1384,6 +1392,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
             "Return a new list of the first N elements of LIST.",
             "\n\n",
             "(fn LIST N)"
+        ),
+    ),
+    (
+        "seq-uniq",
+        concat!(
+            "Return a list of the elements of SEQUENCE with duplicates removed.",
+            "\n\n",
+            "(fn SEQUENCE &optional TESTFN)"
         ),
     ),
     (

@@ -1,4 +1,9 @@
-use crate::{Error, TulispContext, TulispObject, TulispValue, cons::CycleCheck, lists};
+use crate::{
+    Error, TulispContext, TulispObject, TulispValue,
+    builtin::functions::hash_table::EqualSet,
+    cons::{CycleCheck, ListBuilder},
+    lists,
+};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defun("length", |list: TulispObject| {
@@ -71,6 +76,58 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         }
         Ok::<_, crate::Error>(ret.build())
     });
+
+    ctx.defun(
+        "seq-remove",
+        |ctx: &mut TulispContext, pred: TulispObject, sequence: TulispObject| {
+            let mut kept = ListBuilder::new();
+            for item in lists::sequence_elements(&sequence)? {
+                if !ctx.funcall(&pred, (item.clone(),))?.is_truthy() {
+                    kept.push(item);
+                }
+            }
+            Ok::<_, Error>(kept.build())
+        },
+    );
+
+    // As in Emacs, an element is compared with `equal`, or else with TESTFN
+    // called with each element kept so far, the last kept first, and the
+    // element.
+    ctx.defun(
+        "seq-uniq",
+        |ctx: &mut TulispContext, sequence: TulispObject, testfn: Option<TulispObject>| {
+            let items = lists::sequence_elements(&sequence)?;
+            let mut kept = Vec::with_capacity(items.len());
+            match testfn.filter(|testfn| !testfn.null()) {
+                None => {
+                    let mut seen = EqualSet::with_capacity(items.len());
+                    for item in items {
+                        if seen.insert(item.clone())? {
+                            kept.push(item);
+                        }
+                    }
+                }
+                Some(testfn) => {
+                    for item in items {
+                        let mut found = false;
+                        for other in kept.iter().rev() {
+                            if ctx
+                                .funcall(&testfn, (other.clone(), item.clone()))?
+                                .is_truthy()
+                            {
+                                found = true;
+                                break;
+                            }
+                        }
+                        if !found {
+                            kept.push(item);
+                        }
+                    }
+                }
+            }
+            Ok::<_, Error>(kept.into_iter().collect::<TulispObject>())
+        },
+    );
 
     // The rest of SEQ after N elements, shared with SEQ, as `nthcdr` gives it.
     ctx.defun("seq-drop", |seq: TulispObject, n: i64| {
@@ -251,6 +308,44 @@ mod tests {
             "ERR TypeMismatch: Expected list, got: 3\n\
              <eval_string>:1.1-1.23:  at (seq-take '(1 2 . 3) 5)\n",
         );
+    }
+
+    #[test]
+    fn seq_remove_keeps_what_pred_refuses() {
+        assert_results(&[
+            (
+                "(seq-remove (lambda (n) (= (% n 2) 0)) '(1 2 3 4))",
+                "(1 3)",
+            ),
+            ("(seq-remove (lambda (c) (= c ?b)) \"abc\")", "(97 99)"),
+            ("(seq-remove #'identity nil)", "nil"),
+            (
+                "(seq-remove #'identity 5)",
+                "(ERR (wrong-type-argument sequencep 5))",
+            ),
+            (
+                "(seq-remove #'identity '(1 . 2))",
+                "(ERR (wrong-type-argument listp 2))",
+            ),
+        ]);
+    }
+
+    #[test]
+    fn seq_uniq_keeps_the_first_of_each() {
+        assert_results(&[
+            ("(seq-uniq '(1 2 1 3 2))", "(1 2 3)"),
+            ("(seq-uniq '(\"a\" \"a\" (1) (1)))", "(\"a\" (1))"),
+            ("(seq-uniq '(1 1.0 2) #'=)", "(1 2)"),
+            ("(seq-uniq '(1 1.0 2) nil)", "(1 1.0 2)"),
+            ("(seq-uniq \"abca\")", "(97 98 99)"),
+            ("(seq-uniq nil)", "nil"),
+            (
+                "(let ((calls nil)) (seq-uniq '(1 2 3) (lambda (a b) (push (list a b) calls) nil)) calls)",
+                "((1 3) (2 3) (1 2))",
+            ),
+            ("(seq-uniq 5)", "(ERR (wrong-type-argument sequencep 5))"),
+            ("(seq-uniq '(1 . 2))", "(ERR (wrong-type-argument listp 2))"),
+        ]);
     }
 
     #[test]
