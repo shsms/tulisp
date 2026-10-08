@@ -3,7 +3,7 @@
 use std::ops::Range;
 
 use crate::TulispContext;
-use crate::symbols::{Signature, SymbolInfo, SymbolKind};
+use crate::symbols::{DocOwner, Signature, SymbolInfo, SymbolKind};
 use crate::syntax::{AtomKind, NodeId, NodeKind, Prefix, SyntaxTree, string_value};
 
 /// Whether ID is data: inside a `'` or `` ` ``, with no `,` or `,@` nearer to
@@ -101,10 +101,13 @@ pub(super) fn definitions(tree: &SyntaxTree) -> Vec<Definition> {
         }
         let (mut signature, mut doc) = (None, None);
         if kind == SymbolKind::Variable {
-            doc = forms.get(3).and_then(|&d| string_of(tree, d));
+            doc = forms
+                .get(3)
+                .and_then(|&d| string_of(tree, d))
+                .map(|d| (d, DocOwner::Variable));
         } else if let Some(&params) = forms.get(2) {
             signature = Some(lambda_list(tree, params));
-            doc = body_docstring(tree, &forms[3..]);
+            doc = body_docstring(tree, &forms[3..]).map(|d| (d, DocOwner::Function));
         }
         found.push(Definition {
             name: tree.text(name).to_string(),

@@ -2,7 +2,7 @@
 
 use std::borrow::Cow;
 
-use crate::symbols::{ParamPosition, Signature, SignatureParam, SymbolInfo, SymbolKind};
+use crate::symbols::{DocOwner, ParamPosition, Signature, SignatureParam, SymbolInfo, SymbolKind};
 use crate::{Error, TulispContext, TulispObject, TulispValue};
 
 /// The kind of name a value makes.
@@ -200,9 +200,9 @@ impl TulispContext {
     }
 
     /// Attaches DOC to what NAME holds, a function or a variable, for
-    /// [`describe`](Self::describe) and the editor tools built on it. A last
-    /// line `(fn HOST &optional PORT)` after a blank line, as Emacs writes it,
-    /// gives the parameter names to show.
+    /// [`describe`](Self::describe) and the editor tools built on it. For a
+    /// function, a last line `(fn HOST &optional PORT)` after a blank line, as
+    /// Emacs writes it, gives the parameter names to show.
     ///
     /// A function's docstring belongs to NAME, not to the value. It goes when
     /// NAME is defined again, by a compiled `defun` or `defmacro` or from Rust;
@@ -305,12 +305,19 @@ impl TulispContext {
     /// `None` when NAME has no value and was not declared with `defvar`, or is
     /// a keyword. It does not intern NAME.
     ///
-    /// The kind and the signature come from the value. The docstring is the
-    /// function entry's, when the entry describes the value; else the one the
-    /// value itself holds; else the variable's, while NAME holds a variable or
-    /// was declared with `defvar`. A Rust function's parameter types are kept
-    /// under the name it was defined with, so another name given the same
-    /// function shows plain parameter names.
+    /// The kind comes from the value. The docstring is the function entry's,
+    /// when the entry describes the value; else the one the value itself holds;
+    /// else the variable's, while NAME holds a variable or was declared with
+    /// `defvar`.
+    ///
+    /// A usage line at the end of a function's docstring, a flat list of names
+    /// like `(fn A &optional B)` after a blank line or as the whole docstring,
+    /// gives the signature, and is cut from the docstring; a variable's
+    /// docstring is kept whole, as `describe-variable` shows it. When no usage
+    /// line gives the signature, it is the one the function entry holds, else
+    /// the value's own. A Rust function's parameter types are kept under the
+    /// name it was defined with, so another name given the same function shows
+    /// plain parameter names.
     pub fn describe(&self, name: &str) -> Option<SymbolInfo> {
         let sym = self.obarray.get(name)?;
         let value = described_value(name, sym)?;
@@ -325,11 +332,12 @@ impl TulispContext {
                     .and_then(|value| derived_doc(&value.inner_ref().0))
                     .map(Cow::Owned)
             })
+            .map(|doc| (doc, DocOwner::Function))
             .or_else(|| {
                 (kind == SymbolKind::Variable || sym.is_special())
                     .then(|| self.variable_docs.get(&sym.addr_as_usize()))
                     .flatten()
-                    .map(|doc| Cow::Borrowed(doc.as_ref()))
+                    .map(|doc| (Cow::Borrowed(doc.as_ref()), DocOwner::Variable))
             });
         Some(SymbolInfo::from_doc(kind, doc, || {
             entry.and_then(|entry| entry.signature.clone()).or_else(|| {
@@ -636,6 +644,29 @@ mod tests {
         assert_eq!(doc(&ctx, "v").as_deref(), Some("The v."));
         ctx.eval_string("(setq v 2)").unwrap();
         assert_eq!(doc(&ctx, "v").as_deref(), Some("The v."));
+    }
+
+    // Emacs splits a usage line off a function's docstring only.
+    #[test]
+    fn a_variable_docstring_keeps_its_usage_line() {
+        let mut ctx = TulispContext::new();
+        ctx.eval_string("(defvar v 1 \"The v.\n\n(fn A)\")")
+            .unwrap();
+        let info = ctx.describe("v").unwrap();
+        assert_eq!(info.signature, None);
+        assert_eq!(info.doc.as_deref(), Some("The v.\n\n(fn A)"));
+        // Also when the variable holds a function: the signature is the
+        // function's own.
+        ctx.eval_string("(defvar w (lambda (x) x) \"The w.\n\n(fn A)\")")
+            .unwrap();
+        let info = ctx.describe("w").unwrap();
+        assert_eq!(info.kind, SymbolKind::Function);
+        assert_eq!(info.signature.unwrap().render("w"), "(w X)");
+        assert_eq!(info.doc.as_deref(), Some("The w.\n\n(fn A)"));
+        // And when the doc comes from `set_doc`.
+        ctx.eval_string("(setq u 2)").unwrap();
+        ctx.set_doc("u", "The u.\n\n(fn A)").unwrap();
+        assert_eq!(doc(&ctx, "u").as_deref(), Some("The u.\n\n(fn A)"));
     }
 
     // Only an interned symbol, which `describe` can find, gets a docstring.

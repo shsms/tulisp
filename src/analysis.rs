@@ -215,9 +215,6 @@ pub fn signature_help(
     }
     let name = scope::head(tree, call.list)?;
     let info = scope::lookup(ctx, tree, name)?;
-    if info.kind == SymbolKind::Variable {
-        return None;
-    }
     let signature = info.signature?;
     let active = call
         .position
@@ -545,6 +542,20 @@ mod tests {
     }
 
     #[test]
+    fn a_file_defvar_has_no_signature() {
+        let ctx = context();
+        let (text, offset) = at_cursor("(defvar my-var 1 \"Doc.\n\n(fn A)\") (car my-|");
+        let tree = read(&text);
+        let found = completions(&ctx, &tree, offset);
+        let item = found
+            .items
+            .iter()
+            .find(|i| i.name == "my-var")
+            .expect("my-var");
+        assert_eq!(item.signature, None);
+    }
+
+    #[test]
     fn the_last_of_two_definitions_is_offered() {
         let ctx = context();
         let (text, offset) = at_cursor("(defun twice (a) a) (defun twice (b c) b) (twi|");
@@ -647,6 +658,20 @@ mod tests {
         let ctx = hint_context();
         let found = help(&ctx, "(defun three (x) x) (three |").expect("help");
         assert_eq!(found.signature.render("three"), "(three X)");
+    }
+
+    #[test]
+    fn a_file_defun_usage_line_gives_the_signature() {
+        let ctx = hint_context();
+        let found = help(&ctx, "(defun f (x) \"Doc.\n\n(fn A)\" x) (f |").expect("help");
+        assert_eq!(found.signature.render("f"), "(f A)");
+        assert_eq!(found.doc.as_deref(), Some("Doc."));
+    }
+
+    #[test]
+    fn a_variable_has_no_signature_help() {
+        let ctx = hint_context();
+        assert!(help(&ctx, "(defvar v 1 \"Doc.\n\n(fn A)\") (v |").is_none());
     }
 
     #[test]

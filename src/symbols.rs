@@ -141,23 +141,44 @@ pub struct SymbolInfo {
     pub doc: Option<String>,
 }
 
+/// Whose docstring a doc is. As in Emacs, only a function's docstring has a
+/// usage line split off its end.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum DocOwner {
+    Function,
+    Variable,
+}
+
 impl SymbolInfo {
-    /// The info of a name of KIND. A usage line at the end of DOC gives the
-    /// signature in place of SIGNATURE, and is cut from the text.
-    pub(crate) fn new(kind: SymbolKind, signature: Option<Signature>, doc: Option<String>) -> Self {
-        Self::from_doc(kind, doc.map(Cow::Owned), || signature)
+    /// The info of a name of KIND. When DOC is a function's docstring, a usage
+    /// line at its end gives the signature in place of SIGNATURE, and is cut
+    /// from the text.
+    pub(crate) fn new(
+        kind: SymbolKind,
+        signature: Option<Signature>,
+        doc: Option<(String, DocOwner)>,
+    ) -> Self {
+        Self::from_doc(
+            kind,
+            doc.map(|(doc, owner)| (Cow::Owned(doc), owner)),
+            || signature,
+        )
     }
 
     /// [`new`](Self::new), with DOC owned or borrowed, and SIGNATURE called
-    /// only when DOC has no usage line.
+    /// only when no usage line is cut from DOC.
     pub(crate) fn from_doc(
         kind: SymbolKind,
-        doc: Option<Cow<'_, str>>,
+        doc: Option<(Cow<'_, str>, DocOwner)>,
         signature: impl FnOnce() -> Option<Signature>,
     ) -> Self {
-        let (signature, doc) = match doc.as_deref().and_then(split_usage) {
+        let usage = match &doc {
+            Some((text, DocOwner::Function)) => split_usage(text),
+            Some((_, DocOwner::Variable)) | None => None,
+        };
+        let (signature, doc) = match usage {
             Some((text, usage)) => (Some(usage), (!text.is_empty()).then(|| text.to_string())),
-            None => (signature(), doc.map(Cow::into_owned)),
+            None => (signature(), doc.map(|(doc, _)| doc.into_owned())),
         };
         SymbolInfo {
             kind,
