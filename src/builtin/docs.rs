@@ -538,6 +538,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         ),
     ),
     (
+        "copy-tree",
+        concat!(
+            "Make a copy of TREE.",
+            "\n\n",
+            "(fn TREE &optional VECTORS-AND-RECORDS)"
+        ),
+    ),
+    (
         "cos",
         concat!("Return the cosine of ARG.", "\n\n", "(fn ARG)"),
     ),

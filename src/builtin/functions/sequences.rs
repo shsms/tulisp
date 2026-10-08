@@ -130,6 +130,11 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     );
 
     ctx.defun("copy-sequence", |arg: TulispObject| arg.copy_sequence());
+    // Tulisp has no vectors or records for the second argument to copy.
+    ctx.defun(
+        "copy-tree",
+        |tree: TulispObject, _vectors_and_records: Option<TulispObject>| tree.copy_tree(),
+    );
 
     // The rest of SEQ after N elements, shared with SEQ, as `nthcdr` gives it.
     ctx.defun("seq-drop", |seq: TulispObject, n: i64| {
@@ -377,6 +382,36 @@ mod tests {
             "(let ((l (list 1 2))) (setcdr (cdr l) l) (copy-sequence l))",
             "ERR OutOfRange: Circular list",
         );
+    }
+
+    #[test]
+    fn copy_tree_copies_every_cons() {
+        assert_results(&[
+            ("(copy-tree '(1 (2 3) . 4))", "(1 (2 3) . 4)"),
+            (
+                "(let* ((l (list 1 (list 2))) (c (copy-tree l))) (list (eq (cadr c) (cadr l)) (equal c l)))",
+                "(nil t)",
+            ),
+            ("(copy-tree 5)", "5"),
+            (r#"(let ((s "ab")) (eq s (copy-tree s)))"#, "t"),
+            ("(copy-tree nil)", "nil"),
+            ("(copy-tree '(1 2) t)", "(1 2)"),
+        ]);
+    }
+
+    // A list that loops back, in its cdrs or in its cars, is an error, where
+    // Emacs loops forever or runs out of nesting.
+    #[test]
+    fn copy_tree_refuses_a_list_that_loops_back() {
+        let ctx = &mut TulispContext::new();
+        for program in [
+            "(let ((l (list 1 2))) (setcdr (cdr l) l) (copy-tree l))",
+            "(let ((l (list 1 2))) (setcar l l) (copy-tree l))",
+            "(let ((l (list 1 2))) (setcar (cdr l) l) (copy-tree l))",
+            "(let ((l (list 1 (list 2)))) (setcar (cadr l) l) (copy-tree l))",
+        ] {
+            eval_assert_error_line(ctx, program, "ERR OutOfRange: Circular list");
+        }
     }
 
     #[test]
