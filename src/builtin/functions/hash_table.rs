@@ -141,6 +141,43 @@ impl PartialEq for HashKey {
 }
 impl Eq for HashKey {}
 
+/// A set of values in which no two are `equal`, kept in buckets by their
+/// `equal_hash`: the first value of a bucket, and any others.
+pub(crate) struct EqualSet(HashMap<u64, (TulispObject, Vec<TulispObject>)>);
+
+impl EqualSet {
+    /// An empty set with room for CAPACITY values.
+    pub(crate) fn with_capacity(capacity: usize) -> Self {
+        Self(HashMap::with_capacity(capacity))
+    }
+
+    /// Adds VALUE unless the set holds a value `equal` to it, and tells whether
+    /// it did. As in Emacs, VALUE is the first argument of each `equal`. A
+    /// VALUE whose cdrs loop back can be an error when it meets a value with
+    /// the same `equal_hash`, as `try_equal` describes.
+    pub(crate) fn insert(&mut self, value: TulispObject) -> Result<bool, Error> {
+        let mut state = std::hash::DefaultHasher::new();
+        equal_hash(&value, &mut state);
+        let (first, others) = match self.0.entry(state.finish()) {
+            Entry::Vacant(vacant) => {
+                vacant.insert((value, Vec::new()));
+                return Ok(true);
+            }
+            Entry::Occupied(occupied) => occupied.into_mut(),
+        };
+        if value.try_equal(first)? {
+            return Ok(false);
+        }
+        for kept in others.iter() {
+            if value.try_equal(kept)? {
+                return Ok(false);
+            }
+        }
+        others.push(value);
+        Ok(true)
+    }
+}
+
 /// A table's entries, in the order Emacs keeps them: each entry has a slot, a
 /// new key takes the slot freed last or else a new one at the end, and
 /// `maphash` visits the slots in order.

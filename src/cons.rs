@@ -231,7 +231,7 @@ impl ListBuilder {
 /// after 8, 16, 32, ... steps. A list that loops back meets the saved
 /// cell within three times as many steps as the list has cells, plus
 /// a few, and gets the "Circular list" error. Short lists never pay
-/// for the clone.
+/// for the clone. No loop is found in a walk's first 8 steps.
 pub(crate) struct CycleCheck {
     saved: Option<TulispObject>,
     /// Steps taken since `saved` last moved.

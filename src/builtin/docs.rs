@@ -562,6 +562,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         ),
     ),
     (
+        "delete-dups",
+        concat!(
+            "Remove the `equal' duplicates from LIST, keeping the first of each, and changing LIST. Return LIST.",
+            "\n\n",
+            "(fn LIST)"
+        ),
+    ),
+    (
         "delq",
         concat!(
             "Delete members of LIST which are `eq' to ELT, and return the result. LIST is changed in place, so use the result: (setq foo (delq element foo)).",

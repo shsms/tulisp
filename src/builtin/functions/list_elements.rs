@@ -169,6 +169,42 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         },
     );
 
+    // As in Emacs, the length is taken first, so a list that ends in a non-list
+    // or loops back is an error before anything changes. A list of more than
+    // 100 elements is checked against a set of the elements kept so far.
+    ctx.defun("delete-dups", |list: TulispObject| {
+        let length = lists::sequence_length(&list)?;
+        if !list.listp() {
+            return Err(lists::not_a_list(&list));
+        }
+        if length > 100 {
+            let mut kept =
+                super::hash_table::EqualSet::with_capacity(usize::try_from(length).unwrap_or(0));
+            kept.insert(list.car()?)?;
+            let mut tail = list.clone();
+            loop {
+                let next = tail.cdr()?;
+                if next.null() {
+                    break;
+                }
+                if kept.insert(next.car()?)? {
+                    tail = next;
+                } else {
+                    tail.set_cdr(next.cdr()?)?;
+                }
+            }
+            return Ok(list);
+        }
+        let mut rest = list.clone();
+        while rest.consp() {
+            let first = rest.car()?;
+            let others = delete_cells(rest.cdr()?, |item| first.try_equal(item))?;
+            rest.set_cdr(others)?;
+            rest = rest.cdr()?;
+        }
+        Ok::<_, Error>(list)
+    });
+
     ctx.defun(
         "nth",
         |n: i64, list: TulispObject| -> Result<TulispObject, Error> { lists::nth(n, &list) },
@@ -635,5 +671,66 @@ mod tests {
                 "ERR OutOfRange: Circular list",
             );
         }
+    }
+
+    #[test]
+    fn delete_dups_keeps_the_first_of_each() {
+        assert_results(&[
+            ("(delete-dups (list 1 2 1 3 2))", "(1 2 3)"),
+            (r#"(delete-dups (list "a" "b" "a"))"#, r#"("a" "b")"#),
+            ("(let ((l (list 1 1 2))) (delete-dups l) l)", "(1 2)"),
+            ("(delete-dups (list 1.0 1 1.0))", "(1.0 1)"),
+            ("(delete-dups nil)", "nil"),
+            (
+                "(delete-dups (cons 1 2))",
+                "(ERR (wrong-type-argument listp 2))",
+            ),
+            ("(delete-dups 5)", "(ERR (wrong-type-argument sequencep 5))"),
+            (
+                r#"(delete-dups "aba")"#,
+                r#"(ERR (wrong-type-argument listp "aba"))"#,
+            ),
+            (
+                r#"(delete-dups "")"#,
+                r#"(ERR (wrong-type-argument listp ""))"#,
+            ),
+            (
+                "(let ((l nil) (want nil)) (dotimes (i 150) (setq l (cons (% i 50) l))) (dotimes (i 50) (setq want (cons i want))) (equal (delete-dups l) want))",
+                "t",
+            ),
+            (
+                r#"(let ((l nil)) (dotimes (i 120) (setq l (cons i l))) (setq l (append l (list 1.0 "a" "a" 2))) (delete-dups l) (last l 3))"#,
+                r#"(0 1.0 "a")"#,
+            ),
+            // An element that loops back, as the first argument of an `equal`,
+            // can be an error on either path, as in Emacs, which names the
+            // error `circular-list`.
+            (
+                "(let ((l nil) (a (list 1)) (b nil)) (setcdr a a) (setq b (list 1)) (setcdr b b) (dotimes (i 5) (setq l (cons i l))) (length (delete-dups (append l (list a b)))))",
+                r#"(ERR (args-out-of-range "Circular list"))"#,
+            ),
+            (
+                "(let ((l nil) (a (list 1)) (b nil)) (setcdr a a) (setq b (list 1)) (setcdr b b) (dotimes (i 120) (setq l (cons i l))) (length (delete-dups (append l (list a b)))))",
+                r#"(ERR (args-out-of-range "Circular list"))"#,
+            ),
+            (
+                "(let ((l nil) (a (list 1)) (b nil)) (setcdr a a) (dotimes (i 30) (setq b (cons 1 b))) (dotimes (i 5) (setq l (cons i l))) (length (delete-dups (append l (list a b)))))",
+                r#"(ERR (args-out-of-range "Circular list"))"#,
+            ),
+            (
+                "(let ((l nil) (a (list 1)) (b nil)) (setcdr a a) (dotimes (i 30) (setq b (cons 1 b))) (dotimes (i 120) (setq l (cons i l))) (length (delete-dups (append l (list a b)))))",
+                "122",
+            ),
+            // Lists that differ only after their seventh element share a bucket
+            // of the set.
+            (
+                "(let ((l nil)) (dotimes (i 110) (setq l (cons i l))) (dotimes (k 3) (setq l (cons (list 0 0 0 0 0 0 0 k) l)) (setq l (cons (list 0 0 0 0 0 0 0 k) l))) (length (delete-dups l)))",
+                "113",
+            ),
+            (
+                "(let ((l nil) (a (list 1)) (k (list 1 1 1 1 1 1 1 2)) (ones nil)) (setcdr a a) (dotimes (i 30) (setq ones (cons 1 ones))) (dotimes (i 110) (setq l (cons i l))) (length (delete-dups (append l (list k ones a)))))",
+                r#"(ERR (args-out-of-range "Circular list"))"#,
+            ),
+        ]);
     }
 }

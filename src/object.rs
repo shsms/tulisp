@@ -118,7 +118,8 @@ impl CdrLoop {
 const EQUAL_BUDGET: u32 = 1000;
 
 /// `equal` on A and B by plain recursion, which is the quickest way for the
-/// small values most comparisons see. `None` when the values hold more than
+/// small values most comparisons see. It goes depth first, car before cdr, as
+/// Emacs does. `None` when the values hold more than
 /// BUDGET lists and quote forms, or the cdrs of A, walked with CDRS, loop back:
 /// `EqualWalk` then compares them.
 fn equal_within(
@@ -383,9 +384,9 @@ impl TulispObject {
 
     /// Returns true if `self` and `other` have the same structure: numbers by
     /// kind and value, strings and lists by contents. Lambdas, hash tables and
-    /// other opaque values are `equal` only to themselves. A list whose cdrs
-    /// loop back is not `equal` to another object, where Lisp's `equal` raises
-    /// an error.
+    /// other opaque values are `equal` only to themselves. Tulisp's Lisp
+    /// `equal` raises an error only for some lists whose cdrs loop back; this
+    /// returns false for them.
     ///
     /// Read more about Emacs equality predicates
     /// [here](https://www.gnu.org/software/emacs/manual/html_node/elisp/Equality-Predicates.html).
@@ -408,9 +409,13 @@ impl TulispObject {
     /// `equal` by a walk that loops along the cdrs and leaves the pairs nested
     /// deeper than `EqualWalk::MAX_DEPTH` levels on a list of its own, so it
     /// takes no more stack however deep the lists are nested. As in Emacs, a
-    /// list whose cdrs loop back is an error once the walk along `self` comes
-    /// round to an earlier cell, unless the two differ before then, and a pair
-    /// of lists met again inside their own comparison counts as equal.
+    /// list whose cdrs loop back is an error once the loop is found, unless the
+    /// two lists differ, or share a tail, before then. Like Emacs, `CdrLoop`
+    /// looks for the loop along `self`, but it checks at other steps, so it may
+    /// find it at a different step than Emacs does. The walk compares the pairs
+    /// it leaves on its list last, so it can meet a loop or a difference in a
+    /// different order from `equal_within` and Emacs. A pair of lists met again
+    /// inside their own comparison counts as equal.
     #[inline(never)]
     fn equal_walk(&self, other: &TulispObject) -> Result<bool, Error> {
         let mut walk = EqualWalk::default();
