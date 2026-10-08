@@ -107,14 +107,18 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 }
 
 /// `nil` for an absent index, as Emacs shows one in an error.
-fn or_nil(index: Option<i64>) -> String {
+pub(crate) fn or_nil(index: Option<i64>) -> String {
     index.map_or_else(|| "nil".to_string(), |index| index.to_string())
 }
 
 /// The bytes of TEXT from character FROM to character TO, as `substring` counts
 /// them: a negative index counts from the end, and an absent one is the start
 /// or the end. `None` when the span is not inside TEXT.
-fn char_span(text: &str, from: Option<i64>, to: Option<i64>) -> Option<std::ops::Range<usize>> {
+pub(crate) fn char_span(
+    text: &str,
+    from: Option<i64>,
+    to: Option<i64>,
+) -> Option<std::ops::Range<usize>> {
     let byte = |at: Option<i64>, default: usize| match at {
         None => Some(default),
         Some(at) if at < 0 => byte_at(text, i64::try_from(text.chars().count()).ok()? + at),
