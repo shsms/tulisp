@@ -90,9 +90,9 @@ pub(super) fn compile_fn_append(
 ///
 /// Inside a `let` or `let*` that binds a special variable, the call
 /// stays an ordinary call: arity is checked at run time, and the call
-/// counts toward the eval depth limit. Otherwise a self call rebinds
-/// the parameters in their slots and jumps to the start of the body, and
-/// a call to another function becomes a `TailCall`, which
+/// counts toward the eval depth limit. Otherwise a self call that its
+/// parameters take rebinds them in their slots and jumps to the start of
+/// the body, and any other call becomes a `TailCall`, which
 /// `run_tail_calls` follows without growing the Rust stack.
 pub(super) fn compile_fn_defun_bounce_call(
     ctx: &mut TulispContext,
@@ -115,34 +115,22 @@ pub(super) fn compile_fn_defun_bounce_call(
         .as_ref()
         .filter(|n| n.eq(name))
         .and_then(|_| compiler.defun_args.get(&name.addr_as_usize()).cloned());
+    // A self call its own parameters do not take goes the way of a call to
+    // another function.
+    let self_call = self_params.and_then(|params| {
+        let counts = params.arity().split(call_args.base_iter().count()).ok()?;
+        Some((params, counts))
+    });
 
-    let Some(params) = self_params else {
-        let mut result = vec![];
-        let mut args_count = 0;
-        for arg in call_args.base_iter() {
-            result.append(&mut compile_expr_keep_result(ctx, &arg)?);
-            args_count += 1;
-        }
-        // If the target is a known VM defun (mutual-recursion TCO path;
-        // `mark_tail_calls` only marks `Bounce` for these and self
-        // calls), validate arity at compile time — same shape as the
-        // self-bounce path below and the `TulispValue::Defun` arm in
-        // `compile_form`. The runtime `TailCall` handler also re-checks
-        // against the resolved `bytecode.functions[name].params`.
-        let target_arity = ctx
-            .compiler
-            .as_ref()
-            .and_then(|c| c.defun_args.get(&name.addr_as_usize()).cloned());
-        if let Some(params) = target_arity {
-            let arity = params.arity();
-            arity.check(args_count).map_err(|e| {
-                Error::arity_mismatch(format!(
-                    "{}: tail call to {name} takes {}, got {args_count}",
-                    e.desc(),
-                    arity.describe()
-                ))
-            })?;
-        }
+    let mut result = vec![];
+    let mut args_count = 0;
+    for arg in call_args.base_iter() {
+        result.append(&mut compile_expr_keep_result(ctx, &arg)?);
+        args_count += 1;
+    }
+    let Some((params, (optional_count, rest_count))) = self_call else {
+        // The `TailCall` checks the arguments against the function it finds
+        // when it runs: a later `defun` of NAME may take others.
         result.push(Instruction::TailCall {
             name: name.clone(),
             // The marked call, at the span of the source call (see
@@ -156,21 +144,6 @@ pub(super) fn compile_fn_defun_bounce_call(
         });
         return Ok(result);
     };
-
-    let mut result = vec![];
-    let mut args_count = 0;
-    for arg in call_args.base_iter() {
-        result.append(&mut compile_expr_keep_result(ctx, &arg)?);
-        args_count += 1;
-    }
-    let arity = params.arity();
-    let (optional_count, rest_count) = arity.split(args_count).map_err(|e| {
-        Error::arity_mismatch(format!(
-            "{}: {name} takes {}, got {args_count}",
-            e.desc(),
-            arity.describe()
-        ))
-    })?;
     // The parameters are rebound in their slots: they are the first
     // variables of the function's scope, required, then optional, then
     // rest.
@@ -984,90 +957,79 @@ mod tests {
         Ok(())
     }
 
+    // A tail call's arguments are checked when it runs, against the function it
+    // finds then, as Emacs checks them. A later `defun` replaces an earlier one
+    // before any code runs, and a macro can run the earlier one first, with its
+    // tail calls.
     #[test]
-    fn test_mutual_tail_call_arity_checked_at_compile_time() -> Result<(), Error> {
-        // Non-self bounce path now arity-checks at compile time when the
-        // target is a known VM defun. Catches mismatches without running
-        // the program — same shape as the self-bounce and
-        // `TulispValue::Defun` checks.
+    fn a_tail_call_checks_its_arguments_when_it_runs() {
+        for (program, expected) in [
+            (
+                "(defun b (x) x) (defun a () (b 1 2)) (defun b (x y) y) (a)",
+                "2",
+            ),
+            (
+                "(defun f (x) (f x 1)) (defun f (x &optional y) (if y y (f x 7))) (f 1)",
+                "7",
+            ),
+            ("(defun f (x) (f 1 2 3)) (defun f (x y) y) (f 1 2)", "2"),
+            (
+                "(defun h (x) (k 1 2 3)) (defun k (a) a) (defun h (x) x) (h 5)",
+                "5",
+            ),
+            ("(defun f (a b) (if (= a 0) b (f (- a 1)))) (f 0 5)", "5"),
+            (
+                "(defun b (x) x) (when t (defun b (x z w) x)) (defun a () (b 1 2))
+                 (defun b (x y) y) (a)",
+                "2",
+            ),
+            (
+                "(defun down (n) (if (= n 0) 'done (down (1- n))))
+                 (defmacro at-compile () (list 'quote (down 100000)))
+                 (setq r (at-compile))
+                 (defun down (n) 'done2)
+                 (list r (down 5))",
+                "'(done done2)",
+            ),
+            (
+                "(defun b (x y) y) (defun a () (b 1 2 3)) (defun b (x) x)
+                 (condition-case e (a) (error (car e)))",
+                "'wrong-number-of-arguments",
+            ),
+        ] {
+            eval_assert_equal_fresh(program, expected);
+        }
+    }
 
-        // Too few: helper takes 2, called with 1 in tail position.
-        let mut ctx = TulispContext::new();
-        let err = ctx.eval_string(
-            r#"
-        (defun helper (a b) (+ a b))
-        (defun caller () (helper 1))
-        "#,
-        );
-        let msg = err.unwrap_err().to_string();
-        assert!(
-            msg.contains("Too few arguments: tail call to helper takes 2 arguments, got 1"),
-            "expected too-few error from mutual tail-call, got: {}",
-            msg
-        );
-
-        // Too many: helper takes 1, called with 3.
-        let mut ctx = TulispContext::new();
-        let err = ctx.eval_string(
-            r#"
-        (defun helper (a) a)
-        (defun caller () (helper 1 2 3))
-        "#,
-        );
-        let msg = err.unwrap_err().to_string();
-        assert!(
-            msg.contains("Too many arguments: tail call to helper takes 1 argument, got 3"),
-            "expected too-many error from mutual tail-call, got: {}",
-            msg
-        );
-
-        // The message gives the accepted range for &optional and &rest.
-        let mut ctx = TulispContext::new();
-        let err = ctx.eval_string(
-            r#"
-        (defun helper (a &optional b c) a)
-        (defun caller () (helper 1 2 3 4))
-        "#,
-        );
-        let msg = err.unwrap_err().to_string();
-        assert!(
-            msg.contains("Too many arguments: tail call to helper takes 1 to 3 arguments, got 4"),
-            "expected the &optional range, got: {}",
-            msg
-        );
-        let mut ctx = TulispContext::new();
-        let err = ctx.eval_string(
-            r#"
-        (defun helper (a &rest r) a)
-        (defun caller () (helper))
-        "#,
-        );
-        let msg = err.unwrap_err().to_string();
-        assert!(
-            msg.contains("Too few arguments: tail call to helper takes at least 1 argument, got 0"),
-            "expected the &rest floor, got: {}",
-            msg
-        );
-
-        // Cyclic mutual recursion (a calls b, b calls a) defined in
-        // either order — pre-pass populates both arities first, so
-        // mark_tail_calls catches mismatches whichever direction is
-        // wrong.
-        let mut ctx = TulispContext::new();
-        let err = ctx.eval_string(
-            r#"
-        (defun a (n) (if (= n 0) 'done (b)))     ; b takes 1, called with 0
-        (defun b (n) (if (= n 0) 'done (a (- n 1))))
-        "#,
-        );
-        let msg = err.unwrap_err().to_string();
-        assert!(
-            msg.contains("too few arguments") || msg.contains("Too few arguments"),
-            "expected too-few error in cyclic case, got: {}",
-            msg
-        );
-
-        Ok(())
+    // A tail call to another function with the wrong number of arguments
+    // compiles, and fails when it runs.
+    #[test]
+    fn a_mutual_tail_call_checks_its_arguments_when_it_runs() {
+        for (program, expected) in [
+            (
+                "(defun helper (a b) (+ a b)) (defun caller () (helper 1)) (caller)",
+                "ERR ArityMismatch: Too few arguments",
+            ),
+            (
+                "(defun helper (a) a) (defun caller () (helper 1 2 3)) (caller)",
+                "ERR ArityMismatch: Too many arguments",
+            ),
+            (
+                "(defun helper (a &optional b c) a) (defun caller () (helper 1 2 3 4)) (caller)",
+                "ERR ArityMismatch: Too many arguments",
+            ),
+            (
+                "(defun helper (a &rest r) a) (defun caller () (helper)) (caller)",
+                "ERR ArityMismatch: Too few arguments",
+            ),
+            // Cyclic mutual recursion, defined in either order.
+            (
+                "(defun a (n) (if (= n 0) 'done (b))) (defun b (n) (if (= n 0) 'done (a (- n 1)))) (a 1)",
+                "ERR ArityMismatch: Too few arguments",
+            ),
+        ] {
+            eval_assert_error_line(&mut TulispContext::new(), program, expected);
+        }
     }
 
     // A call with a `(lambda ...)` head sees the variables of the
@@ -1172,11 +1134,11 @@ mod tests {
         );
         eval_assert_error(
             ctx,
-            "(defun g (a) a) (defun h (c) (if c 1 (g 1 2)))",
-            "ERR ArityMismatch: Too many arguments: tail call to g takes 1 argument, got 2
+            "(defun g (a) a) (defun h (c) (if c 1 (g 1 2))) (h nil)",
+            "ERR ArityMismatch: Too many arguments
 <eval_string>:1.38-1.44:  at (g 1 2)
 <eval_string>:1.30-1.45:  at (if c 1 (g 1 2))
-<eval_string>:1.17-1.46:  at (defun h (c) (if c 1 (g 1 2)))
+<eval_string>:1.48-1.54:  at (h nil)
 ",
         );
     }
@@ -1227,16 +1189,16 @@ mod tests {
     fn a_tail_call_arity_error_traces_the_call_once() {
         for (program, expected) in [
             (
-                "(defun f (a b) (f a))",
-                "ERR ArityMismatch: Too few arguments: f takes 2 arguments, got 1\n\
+                "(defun f (a b) (f a)) (f 1 2)",
+                "ERR ArityMismatch: Too few arguments\n\
                  <eval_string>:1.16-1.20:  at (f a)\n\
-                 <eval_string>:1.1-1.21:  at (defun f (a b) (f a))",
+                 <eval_string>:1.23-1.29:  at (f 1 2)",
             ),
             (
-                "(defun g (x) x) (defun f (a) (g a a))",
-                "ERR ArityMismatch: Too many arguments: tail call to g takes 1 argument, got 2\n\
+                "(defun g (x) x) (defun f (a) (g a a)) (f 1)",
+                "ERR ArityMismatch: Too many arguments\n\
                  <eval_string>:1.30-1.36:  at (g a a)\n\
-                 <eval_string>:1.17-1.37:  at (defun f (a) (g a a))",
+                 <eval_string>:1.39-1.43:  at (f 1)",
             ),
         ] {
             let ctx = &mut TulispContext::new();
@@ -1258,46 +1220,22 @@ mod tests {
         );
     }
 
+    // A self call with the wrong number of arguments still compiles, and fails
+    // only when it runs.
     #[test]
-    fn test_self_tail_recursion_arity_checked_at_compile_time() -> Result<(), Error> {
-        // `mark_tail_calls` rewrites self-recursive tail calls into
-        // `(Bounce f args …)`, which `compile_fn_defun_bounce_call`
-        // compiles into the in-place arg-rebind and a jump to the start
-        // of the body (no `Instruction::Call`). That path arity-checks against
-        // `compiler.defun_args[name]` at compile time and reports the
-        // mismatch instead of silently wrapping a usize subtraction.
-
-        // Too many: 2 required, called with 3.
-        let mut ctx = TulispContext::new();
-        let err = ctx.eval_string(
-            r#"
-        (defun f (a b)
-          (if (= a 0) b (f (- a 1) (+ b a) (* b 2))))
-        "#,
-        );
-        let msg = err.unwrap_err().to_string();
-        assert!(
-            msg.contains("Too many arguments: f takes 2 arguments, got 3"),
-            "expected too-many error from self tail-call, got: {}",
-            msg
-        );
-
-        // Too few: 2 required, called with 1. This previously underflowed
-        // `args_count - params.required.len()` (usize) and surfaced a
-        // misleading "too many" error in release mode.
-        let mut ctx = TulispContext::new();
-        let err = ctx.eval_string(
-            r#"
-        (defun f (a b)
-          (if (= a 0) b (f (- a 1))))
-        "#,
-        );
-        let msg = err.unwrap_err().to_string();
-        assert!(
-            msg.contains("Too few arguments: f takes 2 arguments, got 1"),
-            "expected too-few error from self tail-call, got: {}",
-            msg
-        );
+    fn test_self_tail_recursion_arity_checked_when_it_runs() -> Result<(), Error> {
+        for (program, expected) in [
+            (
+                "(defun f (a b) (if (= a 0) b (f (- a 1) (+ b a) (* b 2)))) (f 1 1)",
+                "ERR ArityMismatch: Too many arguments",
+            ),
+            (
+                "(defun f (a b) (if (= a 0) b (f (- a 1)))) (f 1 1)",
+                "ERR ArityMismatch: Too few arguments",
+            ),
+        ] {
+            eval_assert_error_line(&mut TulispContext::new(), program, expected);
+        }
 
         // Sanity: matching arity compiles + runs cleanly.
         let mut ctx = TulispContext::new();
@@ -1311,6 +1249,24 @@ mod tests {
         assert_eq!(r.try_int()?, 55);
 
         Ok(())
+    }
+
+    // A self tail call rebinds every parameter: an `&optional` it leaves out is
+    // nil, and the arguments past the optional ones go to `&rest`.
+    #[test]
+    fn a_self_tail_call_fills_optional_and_rest_parameters() {
+        for (program, expected) in [
+            (
+                "(defun f (n &optional x &rest r) (if (= n 0) (list x r) (f (1- n)))) (f 1 'a 'b)",
+                "'(nil nil)",
+            ),
+            (
+                "(defun f (n &optional x &rest r) (if (= n 0) (list x r) (f (1- n) 'p 'q 'r))) (f 1)",
+                "'(p (q r))",
+            ),
+        ] {
+            eval_assert_equal_fresh(program, expected);
+        }
     }
 
     #[test]

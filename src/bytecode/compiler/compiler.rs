@@ -223,10 +223,9 @@ pub fn compile_progn(
 /// identify mutual-recursion targets even before their own
 /// `compile_fn_defun` runs.
 ///
-/// Only required/optional/rest **lengths** are consulted by
-/// `mark_tail_calls` and `compile_fn_defun_bounce_call`'s non-self
-/// arity check. When `compile_fn_defun` runs for that defun, it
-/// replaces this entry with its own.
+/// `mark_tail_calls` only asks whether a name has an entry. When
+/// `compile_fn_defun` runs for that defun, it replaces this entry with its
+/// own, which its self calls read.
 fn pre_register_defun_arities(ctx: &mut TulispContext, body: &TulispObject) {
     for expr in body.base_iter() {
         try_pre_register_one(ctx, &expr);

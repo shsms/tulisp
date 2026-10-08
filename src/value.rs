@@ -53,20 +53,6 @@ impl DefunArity {
         let optional = left.min(self.optional);
         Ok((optional, left - optional))
     }
-
-    /// The counts a call must meet, for a message: `2 arguments`,
-    /// `1 to 3 arguments`, `at least 1 argument`.
-    pub(crate) fn describe(&self) -> String {
-        let plural = |n: usize| if n == 1 { "argument" } else { "arguments" };
-        match (self.has_rest, self.optional) {
-            (true, _) => format!("at least {} {}", self.required, plural(self.required)),
-            (false, 0) => format!("{} {}", self.required, plural(self.required)),
-            (false, optional) => {
-                let most = self.required + optional;
-                format!("{} to {most} {}", self.required, plural(most))
-            }
-        }
-    }
 }
 
 #[derive(Default, Clone, Debug)]
