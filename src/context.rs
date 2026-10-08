@@ -6,6 +6,7 @@ pub(crate) mod special;
 mod errors;
 mod interrupt;
 pub use interrupt::Interrupt;
+pub(crate) mod random;
 mod rest;
 pub use rest::Rest;
 
@@ -177,6 +178,8 @@ pub struct TulispContext {
     interrupt_check: Option<std::sync::Mutex<Box<dyn InterruptCheckFn<Interrupt>>>>,
     /// Checkpoints left before `interrupt_check` is called again.
     interrupt_countdown: u32,
+    /// What Lisp's `random` draws from.
+    pub(crate) random: random::Random,
     #[cfg(feature = "etags")]
     pub(crate) tags_table: HashMap<String, HashMap<String, usize>>,
 }
@@ -209,6 +212,7 @@ impl TulispContext {
             catch_tags: Vec::new(),
             interrupt_check: None,
             interrupt_countdown: interrupt::INTERRUPT_CHECK_INTERVAL,
+            random: random::Random::from_system(),
             max_eval_depth: DEFAULT_MAX_EVAL_DEPTH,
             #[cfg(feature = "etags")]
             tags_table: HashMap::new(),

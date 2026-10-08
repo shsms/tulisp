@@ -1295,6 +1295,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         ),
     ),
     (
+        "random",
+        concat!(
+            "Return a pseudo-random integer.",
+            "\n\n",
+            "(fn &optional LIMIT)"
+        ),
+    ),
+    (
         "remhash",
         concat!(
             "Remove the entry for KEY from hash table TABLE, if there is one. Return nil.",
