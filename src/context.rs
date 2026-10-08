@@ -1720,15 +1720,16 @@ mod tests {
         assert_eq!(ctx.file_name(&span), Some(path));
     }
 
-    // `defvar` refuses a constant name, as the Lisp `defvar` does.
+    // `defvar` refuses a constant name, where the Lisp `defvar` gives it back,
+    // and marks nothing special first.
     #[test]
     fn defvar_refuses_a_constant() {
         let ctx = &mut TulispContext::new();
-        for name in ["nil", "t"] {
+        for name in ["nil", "t", ":k"] {
             let err = ctx.defvar(name, 1).unwrap_err();
             assert_eq!(err.desc(), format!("Can't set constant symbol: {name}"));
         }
-        assert!(ctx.defvar(":k", 1).is_err());
+        assert!(!ctx.intern(":k").is_special());
         eval_assert_equal(ctx, ":k", ":k");
     }
 

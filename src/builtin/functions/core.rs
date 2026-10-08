@@ -1237,6 +1237,21 @@ mod tests {
         eval_assert_equal(ctx, "(defvar foo-sym 1)", "'foo-sym");
     }
 
+    // As in Emacs, `defvar` of a constant does nothing, not even evaluate its
+    // value, and gives the constant; `defconst` refuses one.
+    #[test]
+    fn defvar_of_a_constant_gives_it() {
+        assert_results(&[
+            ("(defvar nil 1)", "nil"),
+            ("(defvar t 1)", "t"),
+            ("(defvar :k 1)", ":k"),
+            ("(defvar :k)", ":k"),
+            (r#"(progn (defvar :k (error "evaluated")) 'ok)"#, "ok"),
+            ("(progn (defvar nil 1) nil)", "nil"),
+            ("(defconst nil 1)", "(ERR (setting-constant nil))"),
+        ]);
+    }
+
     #[test]
     fn binding_nil_or_t_is_an_error() {
         let ctx = &mut TulispContext::new();
@@ -1253,7 +1268,6 @@ mod tests {
             // no iterations.
             ("(dolist (nil nil) 1)", "nil"),
             ("(dotimes (t 0))", "t"),
-            ("(defvar t 1)", "t"),
             ("(defun f (t) 1)", "t"),
             ("(defmacro m (a nil) a)", "nil"),
             ("(funcall (lambda (t) 1) 2)", "t"),
@@ -1746,9 +1760,8 @@ tests/bad-load.lisp:1.9-1.9:  at nil
                 "(ERR (setting-constant nil))",
             ),
             ("(add-to-list nil 1)", "(ERR (setting-constant nil))"),
-            // Emacs lets `defvar` and `defun` take a keyword; Tulisp refuses it
-            // as a constant.
-            ("(eval '(defvar :k 1) t)", "(ERR (setting-constant :k))"),
+            // Emacs lets `defun` take a keyword; Tulisp refuses it as a
+            // constant.
             ("(eval '(defun :k () 1) t)", "(ERR (setting-constant :k))"),
             (
                 "(condition-case e (set nil 1) (error (error-message-string e)))",

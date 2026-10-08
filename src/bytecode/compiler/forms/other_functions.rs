@@ -473,6 +473,15 @@ pub(super) fn compile_fn_defvar(
     ctx.compile_1_arg_call(name, args, true, |ctx, sym, rest| {
         let (value, docstring): (Option<TulispObject>, Option<TulispObject>) =
             rest.destructure(ctx)?;
+        let keep_result = ctx.compiler.as_ref().unwrap().keep_result;
+        // As in Emacs, a constant is left as it is, and VALUE is not evaluated.
+        if crate::builtin::is_constant_symbol(sym) {
+            return Ok(if keep_result {
+                vec![Instruction::Push(sym.clone())]
+            } else {
+                vec![]
+            });
+        }
         crate::builtin::check_defvar_name(sym)?;
         sym.set_special()?;
         if let Some(docstring) = docstring
@@ -480,7 +489,6 @@ pub(super) fn compile_fn_defvar(
         {
             ctx.set_variable_doc(sym, docstring);
         }
-        let keep_result = ctx.compiler.as_ref().unwrap().keep_result;
         let mut result = vec![];
         // With no VALUE, SYM is only marked special and stays void. An explicit
         // nil VALUE destructures to `None` too, so check the form.

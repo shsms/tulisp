@@ -159,9 +159,16 @@ pub(crate) fn check_not_nil_or_t(name: &TulispObject) -> Result<(), Error> {
     Ok(())
 }
 
-/// Refuses a `defvar` name that is `nil`, `t` or not a symbol.
+/// Whether NAME is a constant symbol: `nil`, `t` or a keyword.
+pub(crate) fn is_constant_symbol(name: &TulispObject) -> bool {
+    matches!(name.inner_ref().0, TulispValue::Nil | TulispValue::T) || name.keywordp()
+}
+
+/// Refuses a `defvar` name that is a constant symbol or no symbol.
 pub(crate) fn check_defvar_name(name: &TulispObject) -> Result<(), Error> {
-    check_not_nil_or_t(name)?;
+    if is_constant_symbol(name) {
+        return Err(Error::setting_constant(name).fill_and_trace(name));
+    }
     if !name.is_symbol_variant() {
         return Err(name.not_a_symbol());
     }
