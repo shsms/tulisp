@@ -5,6 +5,30 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         lists::sequence_length(&list).map(TulispObject::from)
     });
 
+    // On a list, as in Emacs, the element N steps in, or nil past its end; on a
+    // string, the character at N, and an error outside it.
+    ctx.defun("elt", |sequence: TulispObject, n: i64| {
+        if sequence.listp() {
+            return lists::nth(n, &sequence);
+        }
+        if !sequence.stringp() {
+            return Err(lists::not_a_sequence(&sequence));
+        }
+        let found = sequence.with_str(|text| {
+            let at = usize::try_from(n).ok()?;
+            text.chars().nth(at)
+        })?;
+        match found {
+            Some(c) => Ok(TulispObject::from(i64::from(u32::from(c)))),
+            None => Err(Error::out_of_range(format!("{sequence}, {n}"))),
+        }
+    });
+
+    // As `(append STRING nil)` in Emacs, so any sequence is taken.
+    ctx.defun("string-to-list", |string: TulispObject| {
+        lists::append([string, TulispObject::nil()].into_iter())
+    });
+
     ctx.defun("reverse", |list: TulispObject| {
         let mut iter = list.base_iter();
         let result = iter.by_ref().fold(TulispObject::nil(), |acc, item| {
@@ -348,6 +372,34 @@ mod tests {
         eval_assert_equal(ctx, "(reverse '(1))", "'(1)");
         eval_assert_equal(ctx, "(reverse '(1 2 3))", "'(3 2 1)");
         eval_assert_equal(ctx, r#"(reverse '("a" "b" "c"))"#, r#"'("c" "b" "a")"#);
+    }
+
+    #[test]
+    fn elt_takes_an_element_of_a_list_or_string() {
+        assert_results(&[
+            ("(elt (list 1 2 3) 1)", "2"),
+            ("(elt (list 1 2) 5)", "nil"),
+            ("(elt (list 1 2) -1)", "1"),
+            ("(elt nil 0)", "nil"),
+            (r#"(elt "abc" 1)"#, "98"),
+            ("(elt 5 0)", "(ERR (wrong-type-argument sequencep 5))"),
+        ]);
+        let ctx = &mut TulispContext::new();
+        eval_assert_error_line(ctx, r#"(elt "abc" 5)"#, r#"ERR OutOfRange: "abc", 5"#);
+    }
+
+    #[test]
+    fn string_to_list_gives_the_characters() {
+        assert_results(&[
+            (r#"(string-to-list "abc")"#, "(97 98 99)"),
+            (r#"(string-to-list "")"#, "nil"),
+            ("(string-to-list \"\u{e9}\u{1F600}\")", "(233 128512)"),
+            ("(string-to-list (list 1 2))", "(1 2)"),
+            (
+                "(string-to-list 5)",
+                "(ERR (wrong-type-argument sequencep 5))",
+            ),
+        ]);
     }
 
     // A value that is no sequence names `sequencep`; a list that ends in one

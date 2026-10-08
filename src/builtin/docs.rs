@@ -610,6 +610,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         ),
     ),
     (
+        "elt",
+        concat!(
+            "Return element N of SEQUENCE, counting from 0. On a list, an N past the end gives nil; on a string, it is an error.",
+            "\n\n",
+            "(fn SEQUENCE N)"
+        ),
+    ),
+    (
         "eq",
         concat!(
             "Return t if the two args are the same Lisp object.",
@@ -1422,6 +1430,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         "string-to-char",
         concat!(
             "Return the first character in STRING, or 0 for an empty string.",
+            "\n\n",
+            "(fn STRING)"
+        ),
+    ),
+    (
+        "string-to-list",
+        concat!(
+            "Return a list of the characters in STRING.",
             "\n\n",
             "(fn STRING)"
         ),
