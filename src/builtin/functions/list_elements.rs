@@ -205,6 +205,33 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok::<_, Error>(list)
     });
 
+    // Each list but the last is joined to the next by setting the cdr of its
+    // last cell, as in Emacs; a nil argument is skipped.
+    ctx.defun("nconc", |lists: crate::Rest<TulispObject>| {
+        let mut result = TulispObject::nil();
+        // The last cell of the lists joined so far.
+        let mut last: Option<TulispObject> = None;
+        let mut lists = lists.into_iter().peekable();
+        while let Some(list) = lists.next() {
+            match &last {
+                Some(cell) => cell.set_cdr(list.clone())?,
+                None => result = list.clone(),
+            }
+            if list.null() || lists.peek().is_none() {
+                continue;
+            }
+            if !list.consp() {
+                return Err(Error::wrong_type_argument(
+                    "consp",
+                    list.clone(),
+                    format!("Expected a cons, got: {list}"),
+                ));
+            }
+            last = Some(crate::cons::last_cons(list)?);
+        }
+        Ok(result)
+    });
+
     ctx.defun(
         "nth",
         |n: i64, list: TulispObject| -> Result<TulispObject, Error> { lists::nth(n, &list) },
@@ -730,6 +757,28 @@ mod tests {
             (
                 "(let ((l nil) (a (list 1)) (k (list 1 1 1 1 1 1 1 2)) (ones nil)) (setcdr a a) (dotimes (i 30) (setq ones (cons 1 ones))) (dotimes (i 110) (setq l (cons i l))) (length (delete-dups (append l (list k ones a)))))",
                 r#"(ERR (args-out-of-range "Circular list"))"#,
+            ),
+        ]);
+    }
+
+    #[test]
+    fn nconc_joins_lists_in_place() {
+        assert_results(&[
+            ("(nconc)", "nil"),
+            ("(nconc nil (list 1))", "(1)"),
+            ("(nconc (list 1) nil (list 2) 3)", "(1 2 . 3)"),
+            ("(nconc (list 1) 2)", "(1 . 2)"),
+            (
+                "(let ((a (list 1 2)) (b (list 3))) (nconc a b) a)",
+                "(1 2 3)",
+            ),
+            ("(nconc nil nil)", "nil"),
+            ("(nconc 5)", "5"),
+            ("(nconc (cons 1 2) (list 3))", "(1 3)"),
+            ("(nconc 1 (list 2))", "(ERR (wrong-type-argument consp 1))"),
+            (
+                "(nconc (list 1) 1 (list 2))",
+                "(ERR (wrong-type-argument consp 1))",
             ),
         ]);
     }

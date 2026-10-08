@@ -1031,6 +1031,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
     ),
     ("mod", concat!("Return X modulo Y.", "\n\n", "(fn X Y)")),
     (
+        "nconc",
+        concat!(
+            "Concatenate any number of lists by changing them: the last cell of each list is set to point to the next. Only the last argument is not changed, and it need not be a list.",
+            "\n\n",
+            "(fn &rest LISTS)"
+        ),
+    ),
+    (
         "not",
         concat!(
             "Return t if OBJECT is nil, and return nil otherwise.",
