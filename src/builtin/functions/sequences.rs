@@ -5,6 +5,22 @@ use crate::{
     lists,
 };
 
+/// Whether TESTFN finds an element of KEPT, the last kept first, the same as
+/// the element ITEM gives, calling TESTFN with the kept element and the item.
+fn is_kept(
+    ctx: &mut TulispContext,
+    testfn: &TulispObject,
+    kept: &[TulispObject],
+    item: impl Fn() -> Result<TulispObject, Error>,
+) -> Result<bool, Error> {
+    for other in kept.iter().rev() {
+        if ctx.funcall(testfn, (other.clone(), item()?))?.is_truthy() {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defun("length", |list: TulispObject| {
         lists::sequence_length(&list).map(TulispObject::from)
@@ -81,11 +97,12 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         "seq-remove",
         |ctx: &mut TulispContext, pred: TulispObject, sequence: TulispObject| {
             let mut kept = ListBuilder::new();
-            for item in lists::sequence_elements(&sequence)? {
+            lists::each_sequence_element(&sequence, |item| {
                 if !ctx.funcall(&pred, (item.clone(),))?.is_truthy() {
                     kept.push(item);
                 }
-            }
+                Ok(())
+            })?;
             Ok::<_, Error>(kept.build())
         },
     );
@@ -96,10 +113,10 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defun(
         "seq-uniq",
         |ctx: &mut TulispContext, sequence: TulispObject, testfn: Option<TulispObject>| {
-            let items = lists::sequence_elements(&sequence)?;
-            let mut kept = Vec::with_capacity(items.len());
+            let mut kept = Vec::new();
             match testfn.filter(|testfn| !testfn.null()) {
                 None => {
+                    let items = lists::sequence_elements(&sequence)?;
                     let mut seen = EqualSet::with_capacity(items.len());
                     for item in items {
                         if seen.insert(item.clone())? {
@@ -107,21 +124,27 @@ pub(crate) fn add(ctx: &mut TulispContext) {
                         }
                     }
                 }
-                Some(testfn) => {
-                    for item in items {
-                        let mut found = false;
-                        for other in kept.iter().rev() {
-                            if ctx
-                                .funcall(&testfn, (other.clone(), item.clone()))?
-                                .is_truthy()
-                            {
-                                found = true;
-                                break;
-                            }
-                        }
-                        if !found {
+                Some(testfn) if !sequence.listp() => {
+                    lists::each_sequence_element(&sequence, |item| {
+                        if !is_kept(ctx, &testfn, &kept, || Ok(item.clone()))? {
                             kept.push(item);
                         }
+                        Ok(())
+                    })?
+                }
+                // As Emacs's `seq-uniq` does, the walk follows the list as
+                // TESTFN changes it, and reads each element again after TESTFN
+                // runs. A list whose cdrs loop back is an error, where Emacs
+                // loops forever.
+                Some(testfn) => {
+                    let mut rest = sequence.clone();
+                    let mut cycle = CycleCheck::new();
+                    while !rest.null() {
+                        if !is_kept(ctx, &testfn, &kept, || rest.car())? {
+                            kept.push(rest.car()?);
+                        }
+                        rest = rest.cdr()?;
+                        cycle.step(&rest)?;
                     }
                 }
             }
@@ -333,6 +356,53 @@ mod tests {
             (
                 "(seq-remove #'identity '(1 . 2))",
                 "(ERR (wrong-type-argument listp 2))",
+            ),
+        ]);
+    }
+
+    // As in Emacs, the walk follows the list as PRED or TESTFN changes it:
+    // `seq-remove` for at most as many elements as the list had, as `mapc`, and
+    // `seq-uniq` to the list's end, reading each element again after TESTFN
+    // runs.
+    #[test]
+    fn seq_remove_and_seq_uniq_walk_the_list_as_it_changes() {
+        assert_results(&[
+            (
+                "(let ((l (list 1 2 3 4))) (list (seq-remove (lambda (x) (setcdr l nil) nil) l) l))",
+                "((1) (1))",
+            ),
+            (
+                "(let ((l (list 1 2 3 4))) (list (seq-remove (lambda (x) (setcdr (cdr l) (list 9 9 9 9)) nil) l) l))",
+                "((1 2 9 9) (1 2 9 9 9 9))",
+            ),
+            (
+                "(let ((l (list 1 2 3 4))) (list (seq-uniq l (lambda (a b) (setcdr (cdr l) nil) nil)) l))",
+                "((1 2) (1 2))",
+            ),
+            (
+                "(let ((l (list 1 2 3 4))) (list (seq-uniq l (lambda (a b) (setcdr l nil) nil)) l))",
+                "((1 2 3 4) (1))",
+            ),
+            (
+                "(let ((l (list 1 2 3 4))) (seq-uniq l (lambda (a b) (setcdr (cdr l) (list 9 8 7 6 5)) nil)))",
+                "(1 2 9 8 7 6 5)",
+            ),
+            (
+                "(let ((l (list 1 2 3 4))) (seq-uniq l (lambda (a b) (setcar (cdr l) 7) nil)))",
+                "(1 7 3 4)",
+            ),
+            (
+                "(let ((n 0)) (list (condition-case e (seq-uniq (cons 1 (cons 2 3)) (lambda (a b) (setq n (1+ n)) nil)) (error e)) n))",
+                "((wrong-type-argument listp 3) 1)",
+            ),
+            (
+                "(seq-uniq 5 #'eq)",
+                "(ERR (wrong-type-argument sequencep 5))",
+            ),
+            // A circular list is an error; TESTFN stops a walk that loops.
+            (
+                "(let ((l (list 1 2)) (n 0)) (setcdr (cdr l) l) (seq-uniq l (lambda (a b) (when (> (setq n (1+ n)) 1000) (error \"looped\")) (eq a b))))",
+                r#"(ERR (args-out-of-range "Circular list"))"#,
             ),
         ]);
     }

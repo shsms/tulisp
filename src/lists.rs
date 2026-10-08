@@ -90,6 +90,29 @@ pub(crate) fn sequence_elements(sequence: &TulispObject) -> Result<Vec<TulispObj
     Ok(elements)
 }
 
+/// Calls F with each element of SEQUENCE: a list's elements, or a string's
+/// characters. As Emacs's `mapc` does, it takes the length first, so the errors
+/// of [`sequence_length`] come before F runs. It then walks the list as F
+/// leaves it, for at most that many elements.
+pub(crate) fn each_sequence_element(
+    sequence: &TulispObject,
+    mut f: impl FnMut(TulispObject) -> Result<(), Error>,
+) -> Result<(), Error> {
+    if sequence.stringp() {
+        return sequence_elements(sequence)?.into_iter().try_for_each(f);
+    }
+    let length = sequence_length(sequence)?;
+    let mut rest = sequence.clone();
+    for _ in 0..length {
+        if !rest.consp() {
+            break;
+        }
+        f(rest.car()?)?;
+        rest = rest.cdr()?;
+    }
+    Ok(())
+}
+
 /// The error for VALUE where a list is wanted, as Emacs gives it: `listp`.
 pub(crate) fn not_a_list(value: &TulispObject) -> Error {
     Error::wrong_type_argument(

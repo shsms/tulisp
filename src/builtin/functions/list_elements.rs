@@ -89,29 +89,11 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(reversed)
     });
 
-    // As Emacs does, the length is taken first, then FUNCTION is called on the
-    // elements as the walk reaches them.
     ctx.defun(
         "mapc",
         |ctx: &mut TulispContext, function: TulispObject, seq: TulispObject| {
-            if seq.stringp() {
-                let codes: Vec<i64> =
-                    seq.with_str(|text| text.chars().map(|c| i64::from(u32::from(c))).collect())?;
-                for code in codes {
-                    ctx.funcall(&function, (code,))?;
-                }
-                return Ok(seq);
-            }
-            check_list(&seq, "sequencep")?;
-            let mut rest = seq.clone();
-            for _ in 0..lists::length(&seq)? {
-                if !rest.consp() {
-                    break;
-                }
-                ctx.funcall(&function, (rest.car()?,))?;
-                rest = rest.cdr()?;
-            }
-            Ok(seq)
+            lists::each_sequence_element(&seq, |item| ctx.funcall(&function, (item,)).map(drop))?;
+            Ok::<_, Error>(seq)
         },
     );
 
