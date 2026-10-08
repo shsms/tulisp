@@ -1,4 +1,4 @@
-use std::{collections::HashMap, iter::Peekable, ops::Range, str::Chars};
+use std::{collections::HashMap, ops::Range, str::Chars};
 
 use crate::{Error, Number, Rest, TulispContext, TulispObject, TulispValue, object::Span};
 
@@ -638,7 +638,9 @@ impl Iterator for Tokenizer<'_> {
 
 struct Parser<'a, 'b> {
     file_id: usize,
-    tokenizer: Peekable<Tokenizer<'a>>,
+    tokenizer: Tokenizer<'a>,
+    /// A token read ahead by `peek_token` and not yet taken.
+    peeked: Option<Option<Token>>,
     ctx: &'b mut TulispContext,
     ints: HashMap<i64, TulispObject>,
     /// Current parse nesting depth, bounded by `ctx.max_nesting_depth()`.
@@ -656,7 +658,8 @@ impl Parser<'_, '_> {
     ) -> Parser<'a, 'b> {
         Parser {
             file_id,
-            tokenizer: Tokenizer::new(file_id, program).peekable(),
+            tokenizer: Tokenizer::new(file_id, program),
+            peeked: None,
             ctx,
             ints: Default::default(),
             depth: 0,
@@ -665,21 +668,35 @@ impl Parser<'_, '_> {
         }
     }
 
+    fn next_token(&mut self) -> Option<Token> {
+        match self.peeked.take() {
+            Some(token) => token,
+            None => self.tokenizer.next(),
+        }
+    }
+
+    fn peek_token(&mut self) -> Option<&Token> {
+        self.peeked
+            .get_or_insert_with(|| self.tokenizer.next())
+            .as_ref()
+    }
+
     fn parse_list(&mut self, start_span: Span) -> Result<TulispObject, Error> {
         let mut builder = crate::cons::ListBuilder::new();
         let mut got_dot = false;
         let mut full_span: Option<Span> = None;
         loop {
-            let Some(token) = self.tokenizer.peek() else {
+            let Some(token) = self.peek_token() else {
                 return Err(Error::parsing_error("Unclosed list".to_string())
                     .with_trace(TulispObject::nil().with_span(Some(start_span))));
             };
             match token {
                 Token::CloseParen { span: end_span } => {
+                    let end = end_span.end;
                     full_span = Some(Span {
                         file_id: self.file_id,
                         start: start_span.start,
-                        end: end_span.end,
+                        end,
                     });
                     break;
                 }
@@ -690,7 +707,7 @@ impl Parser<'_, '_> {
                 // The parser's tokenizer skips comments; one that reaches here
                 // anyway is skipped too.
                 Token::Comment => {
-                    let _ = self.tokenizer.next();
+                    let _ = self.next_token();
                 }
                 _ => {
                     let next = self.parse_value()?.unwrap();
@@ -700,14 +717,14 @@ impl Parser<'_, '_> {
         }
 
         // consume a close paren or a dot.
-        let _ = self.tokenizer.next();
+        let _ = self.next_token();
 
         if got_dot {
             let Some(next) = self.parse_value()? else {
                 return Err(Error::parsing_error("Unexpected EOF after dot".to_string())
                     .with_trace(TulispObject::nil().with_span(Some(start_span))));
             };
-            if let Some(Token::CloseParen { span: end_span }) = self.tokenizer.next() {
+            if let Some(Token::CloseParen { span: end_span }) = self.next_token() {
                 full_span = Some(Span {
                     file_id: self.file_id,
                     start: start_span.start,
@@ -779,7 +796,7 @@ impl Parser<'_, '_> {
     }
 
     fn parse_value_inner(&mut self) -> Result<Option<TulispObject>, Error> {
-        let Some(token) = self.tokenizer.next() else {
+        let Some(token) = self.next_token() else {
             return Ok(None);
         };
         match token {
