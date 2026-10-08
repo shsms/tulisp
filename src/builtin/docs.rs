@@ -162,6 +162,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         ),
     ),
     (
+        "ash",
+        concat!(
+            "Return integer VALUE with its bits shifted left by COUNT bit positions.",
+            "\n\n",
+            "(fn VALUE COUNT)"
+        ),
+    ),
+    (
         "asin",
         concat!("Return the inverse sine of ARG.", "\n\n", "(fn ARG)"),
     ),

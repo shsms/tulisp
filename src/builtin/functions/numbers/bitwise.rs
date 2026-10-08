@@ -15,6 +15,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         fold(args, 0, |a, b| a ^ b)
     });
     ctx.defun("lognot", |number: i64| !number);
+    ctx.defun("ash", ash);
     // For a negative VALUE, Emacs counts the zero bits.
     ctx.defun("logcount", |value: i64| {
         i64::from(if value < 0 {
@@ -55,6 +56,24 @@ fn integer_of(arg: &TulispObject) -> Result<i64, Error> {
     }
 }
 
+/// VALUE shifted left by COUNT bits, or right for a negative COUNT, rounding
+/// down. Emacs gives a bignum where the result does not fit; this gives an
+/// error.
+fn ash(value: i64, count: i64) -> Result<i64, Error> {
+    if count < 0 {
+        return Ok(value >> count.unsigned_abs().min(63));
+    }
+    if value == 0 {
+        return Ok(0);
+    }
+    match u32::try_from(count) {
+        Ok(count) if count < 64 && (value << count) >> count == value => Ok(value << count),
+        _ => Err(Error::arith_error(format!(
+            "integer overflow: ash {value} {count}"
+        ))),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::TulispContext;
@@ -83,6 +102,36 @@ mod tests {
     }
 
     #[test]
+    fn ash_shifts_and_rounds_down() {
+        let ctx = &mut TulispContext::new();
+        for (program, expected) in [
+            ("(ash 1 3)", "8"),
+            ("(ash 7 -1)", "3"),
+            ("(ash -8 -1)", "-4"),
+            ("(ash -7 -1)", "-4"),
+            ("(ash 1 -100)", "0"),
+            ("(ash -1 -100)", "-1"),
+            ("(ash 0 1000)", "0"),
+            ("(ash 1 62)", "4611686018427387904"),
+            ("(ash -1 62)", "-4611686018427387904"),
+        ] {
+            eval_assert_equal(ctx, program, expected);
+        }
+        for program in [
+            "(ash 1 63)",
+            "(ash -1 64)",
+            "(ash 3 62)",
+            "(ash 1 4294967296)",
+        ] {
+            eval_assert_equal(
+                ctx,
+                &format!("(condition-case nil {program} (arith-error 'overflow))"),
+                "'overflow",
+            );
+        }
+    }
+
+    #[test]
     fn bitwise_operations_take_only_integers() {
         let ctx = &mut TulispContext::new();
         for (program, expected) in [
@@ -107,6 +156,8 @@ mod tests {
                 r#"'(wrong-type-argument number-or-marker-p "a")"#,
             ),
             ("(lognot 1.0)", "'(wrong-type-argument integerp 1.0)"),
+            ("(ash 1.0 1)", "'(wrong-type-argument integerp 1.0)"),
+            ("(ash 1 1.0)", "'(wrong-type-argument integerp 1.0)"),
             ("(logcount 1.0)", "'(wrong-type-argument integerp 1.0)"),
         ] {
             eval_assert_equal(
