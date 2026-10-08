@@ -13,45 +13,57 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     });
 
     ctx.defun("time-less-p", |t1: TulispObject, t2: TulispObject| {
-        time_operation(t1, t2, |a, b, _| (a < b).into())
+        let (ticks1, ticks2, _) = common_ticks(ticks_hz_from_obj(&t1)?, ticks_hz_from_obj(&t2)?);
+        Ok::<_, Error>(ticks1 < ticks2)
     });
 
     ctx.defun("time-equal-p", |t1: TulispObject, t2: TulispObject| {
-        time_operation(t1, t2, |a, b, _| (a == b).into())
+        let (ticks1, ticks2, _) = common_ticks(ticks_hz_from_obj(&t1)?, ticks_hz_from_obj(&t2)?);
+        Ok::<_, Error>(ticks1 == ticks2)
     });
 
     ctx.defun("time-subtract", |t1: TulispObject, t2: TulispObject| {
-        time_operation(t1, t2, |a, b, hz| {
-            TulispObject::cons((a - b).into(), hz.into())
-        })
+        let (ticks1, ticks2, hz) = common_ticks(ticks_hz_from_obj(&t1)?, ticks_hz_from_obj(&t2)?);
+        time_from_ticks(ticks1 - ticks2, hz)
     });
 
     ctx.defun("time-add", |t1: TulispObject, t2: TulispObject| {
-        time_operation(t1, t2, |a, b, hz| {
-            TulispObject::cons((a + b).into(), hz.into())
-        })
+        let (ticks1, ticks2, hz) = common_ticks(ticks_hz_from_obj(&t1)?, ticks_hz_from_obj(&t2)?);
+        time_from_ticks(ticks1 + ticks2, hz)
     });
 
-    fn time_operation(
-        t1: TulispObject,
-        t2: TulispObject,
-        op: impl Fn(i64, i64, i64) -> TulispObject,
-    ) -> Result<TulispObject, Error> {
-        let (ticks1, hz1) = ticks_hz_from_obj(&t1)?;
-        let (ticks2, hz2) = ticks_hz_from_obj(&t2)?;
-
-        if hz1 == hz2 {
-            Ok(op(ticks1, ticks2, hz1))
-        } else if hz1 > hz2 {
-            let factor = hz1 / hz2;
-            Ok(op(ticks1, ticks2 * factor, hz1))
-        } else {
-            let factor = hz2 / hz1;
-            Ok(op(ticks1 * factor, ticks2, hz2))
-        }
-    }
-
     ctx.defun("format-seconds", format_seconds);
+}
+
+/// The ticks of two `(TICKS . HZ)` times over one HZ, the least common multiple
+/// of theirs, and that HZ. In `i128` neither these ticks nor their sum or
+/// difference can overflow.
+fn common_ticks((ticks1, hz1): (i64, i64), (ticks2, hz2): (i64, i64)) -> (i128, i128, i128) {
+    let (hz1, hz2) = (i128::from(hz1), i128::from(hz2));
+    let hz = hz1 / gcd(hz1, hz2) * hz2;
+    (
+        i128::from(ticks1) * (hz / hz1),
+        i128::from(ticks2) * (hz / hz2),
+        hz,
+    )
+}
+
+fn gcd(mut a: i128, mut b: i128) -> i128 {
+    while b != 0 {
+        (a, b) = (b, a % b);
+    }
+    a
+}
+
+/// The time `(TICKS . HZ)`. One whose ticks or HZ do not fit an integer is an
+/// `arith-error`.
+fn time_from_ticks(ticks: i128, hz: i128) -> Result<TulispObject, Error> {
+    match (i64::try_from(ticks), i64::try_from(hz)) {
+        (Ok(ticks), Ok(hz)) => Ok(TulispObject::cons(ticks.into(), hz.into())),
+        _ => Err(Error::arith_error(format!(
+            "integer overflow: time ({ticks} . {hz})"
+        ))),
+    }
 }
 
 /// The `(TICKS . HZ)` of OBJ, an integer number of seconds or such a pair. As
@@ -572,6 +584,56 @@ mod tests {
         );
 
         Ok(())
+    }
+
+    // As in Emacs, two times with different HZ meet at the least common
+    // multiple of the two, and a comparison is exact. A result whose ticks or HZ
+    // do not fit an integer is an arith-error.
+    #[test]
+    fn time_arithmetic_with_different_hz_is_exact() {
+        assert_results(&[
+            ("(time-add '(1 . 3) '(1 . 2))", "(5 . 6)"),
+            ("(time-add '(1 . 4) '(1 . 6))", "(5 . 12)"),
+            ("(time-add '(1 . 2) '(1 . 4))", "(3 . 4)"),
+            ("(time-add '(3 . 6) '(1 . 3))", "(5 . 6)"),
+            ("(time-add 1 '(1 . 2))", "(3 . 2)"),
+            ("(time-add '(1 . 2) '(1 . 2))", "(2 . 2)"),
+            ("(time-subtract '(1 . 2) '(1 . 3))", "(1 . 6)"),
+            ("(time-less-p '(1 . 3) '(1 . 2))", "t"),
+            ("(time-less-p '(1 . 2) '(1 . 3))", "nil"),
+            ("(time-equal-p '(1 . 3) '(1 . 2))", "nil"),
+            ("(time-equal-p '(2 . 4) '(1 . 2))", "t"),
+            ("(time-less-p 9223372036854775807 '(1 . 3))", "nil"),
+            (
+                "(time-less-p '(-9223372036854775807 . 2) -9223372036854775807)",
+                "nil",
+            ),
+            (
+                "(time-equal-p '(9223372036854775807 . 9223372036854775807) 1)",
+                "t",
+            ),
+            (
+                "(time-add '(1 . 9223372036854775807) '(1 . 7))",
+                "(1317624576693539402 . 9223372036854775807)",
+            ),
+            ("(time-add 9223372036854775807 1)", "(ERR (arith-error))"),
+            (
+                "(time-subtract -9223372036854775807 2)",
+                "(ERR (arith-error))",
+            ),
+            (
+                "(time-subtract '(1 . 9223372036854775807) '(1 . 9223372036854775806))",
+                "(ERR (arith-error))",
+            ),
+            (
+                "(time-add '(9223372036854775807 . 3) '(1 . 2))",
+                "(ERR (arith-error))",
+            ),
+            (
+                "(time-add '(1 . 9223372036854775807) '(1 . 9223372036854775806))",
+                "(ERR (arith-error))",
+            ),
+        ]);
     }
 
     #[test]
