@@ -1,6 +1,27 @@
 use crate::{Error, Number, TulispContext, TulispObject};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
+    // Each returns a float, NaN or an infinity included, as in Emacs.
+    ctx.defun("sin", |arg: f64| arg.sin());
+    ctx.defun("cos", |arg: f64| arg.cos());
+    ctx.defun("tan", |arg: f64| arg.tan());
+    ctx.defun("asin", |arg: f64| arg.asin());
+    ctx.defun("acos", |arg: f64| arg.acos());
+    ctx.defun("atan", |y: f64, x: Option<f64>| match x {
+        Some(x) => y.atan2(x),
+        None => y.atan(),
+    });
+    ctx.defun("exp", |arg: f64| arg.exp());
+    ctx.defun("log", |arg: f64, base: Option<f64>| match base {
+        None => arg.ln(),
+        Some(10.0) => arg.log10(),
+        Some(2.0) => arg.log2(),
+        Some(base) => arg.ln() / base.ln(),
+    });
+    // `defvar` fails only for `nil`, `t` or a keyword.
+    let _ = ctx.defvar("float-pi", std::f64::consts::PI);
+    let _ = ctx.defvar("float-e", std::f64::consts::E);
+
     // Match Emacs: `sqrt` always returns a float, including NaN for
     // negative inputs (no error, no panic).
     ctx.defun("sqrt", |val: f64| -> f64 { val.sqrt() });
@@ -51,6 +72,45 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 #[cfg(test)]
 mod tests {
     use crate::{TulispContext, test_utils::eval_assert_equal};
+
+    #[test]
+    fn trigonometry_and_logarithms() {
+        let ctx = &mut TulispContext::new();
+        for (program, expected) in [
+            ("(sin 0)", "0.0"),
+            ("(sin 1)", "0.8414709848078965"),
+            ("(cos 0)", "1.0"),
+            ("(tan 0)", "0.0"),
+            ("(asin 1)", "1.5707963267948966"),
+            ("(acos 1)", "0.0"),
+            ("(atan 1)", "0.7853981633974483"),
+            ("(atan 1 -1)", "2.356194490192345"),
+            ("(atan 0.0 -1)", "3.141592653589793"),
+            ("(exp 1)", "2.718281828459045"),
+            ("(exp 710)", "1.0e+INF"),
+            ("(log 1)", "0.0"),
+            ("(log 0)", "-1.0e+INF"),
+            ("(isnan (log -1))", "t"),
+            ("(isnan (asin 2))", "t"),
+            ("(log 8 2)", "3.0"),
+            ("(log 8 2.0)", "3.0"),
+            ("(log 100 10)", "2.0"),
+            ("(log 27 3)", "3.0"),
+            ("(log 125 5)", "3.0000000000000004"),
+            ("(log 0.5 3)", "-0.6309297535714574"),
+            ("float-pi", "3.141592653589793"),
+            ("float-e", "2.718281828459045"),
+        ] {
+            eval_assert_equal(ctx, program, expected);
+        }
+        for program in [r#"(sin "a")"#, r#"(atan 1 "a")"#, r#"(log 2 "a")"#] {
+            eval_assert_equal(
+                ctx,
+                &format!("(condition-case e {program} (error e))"),
+                r#"'(wrong-type-argument numberp "a")"#,
+            );
+        }
+    }
 
     #[test]
     fn test_sqrt() {

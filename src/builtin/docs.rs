@@ -110,6 +110,10 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         concat!("Return the absolute value of ARG.", "\n\n", "(fn ARG)"),
     ),
     (
+        "acos",
+        concat!("Return the inverse cosine of ARG.", "\n\n", "(fn ARG)"),
+    ),
+    (
         "add-to-list",
         concat!(
             "Add ELEMENT to the value of LIST-VAR if it isn't there yet, and return the new value. ELEMENT goes at the start, or at the end with APPEND. Elements are compared with `equal', or with COMPARE-FN when given.",
@@ -158,6 +162,10 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         ),
     ),
     (
+        "asin",
+        concat!("Return the inverse sine of ARG.", "\n\n", "(fn ARG)"),
+    ),
+    (
         "assoc",
         concat!(
             "Return non-nil if KEY is equal to the car of an element of ALIST.",
@@ -171,6 +179,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
             "Return non-nil if KEY is `eq' to the car of an element of ALIST. The value is actually the first element of ALIST whose car is KEY.",
             "\n\n",
             "(fn KEY ALIST)"
+        ),
+    ),
+    (
+        "atan",
+        concat!(
+            "Return the inverse tangent of the arguments.",
+            "\n\n",
+            "(fn Y &optional X)"
         ),
     ),
     (
@@ -506,6 +522,10 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         concat!("Return t if OBJECT is a cons cell.", "\n\n", "(fn OBJECT)"),
     ),
     (
+        "cos",
+        concat!("Return the cosine of ARG.", "\n\n", "(fn ARG)"),
+    ),
+    (
         "current-time",
         concat!(
             "Return the current time, as a (TICKS . HZ) pair counting nanoseconds since 1970-01-01 00:00:00 UTC.",
@@ -664,6 +684,10 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
             "\n\n",
             "(fn FORM &optional LEXICAL)"
         ),
+    ),
+    (
+        "exp",
+        concat!("Return the exponential base e of ARG.", "\n\n", "(fn ARG)"),
     ),
     (
         "expt",
@@ -923,6 +947,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
             "Execute a file of Lisp code named FILE.",
             "\n\n",
             "(fn FILE &optional NOERROR NOMESSAGE NOSUFFIX MUST-SUFFIX)"
+        ),
+    ),
+    (
+        "log",
+        concat!(
+            "Return the natural logarithm of ARG.",
+            "\n\n",
+            "(fn ARG &optional BASE)"
         ),
     ),
     (
@@ -1335,6 +1367,10 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         ),
     ),
     (
+        "sin",
+        concat!("Return the sine of ARG.", "\n\n", "(fn ARG)"),
+    ),
+    (
         "sort",
         concat!(
             "Sort LIST, stably, and return the sorted list.",
@@ -1501,6 +1537,10 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
     (
         "symbolp",
         concat!("Return t if OBJECT is a symbol.", "\n\n", "(fn OBJECT)"),
+    ),
+    (
+        "tan",
+        concat!("Return the tangent of ARG.", "\n\n", "(fn ARG)"),
     ),
     (
         "thread-first",
