@@ -146,9 +146,7 @@ pub(crate) fn check_not_nil_or_t(name: &TulispObject) -> Result<(), Error> {
 pub(crate) fn check_defvar_name(name: &TulispObject) -> Result<(), Error> {
     check_not_nil_or_t(name)?;
     if !name.is_symbol_variant() {
-        return Err(Error::type_mismatch(
-            "defvar: first argument must be a symbol".to_string(),
-        ));
+        return Err(name.not_a_symbol());
     }
     Ok(())
 }
@@ -233,10 +231,7 @@ pub(crate) fn check_param_list(ctx: &TulispContext, params: &TulispObject) -> Re
 pub(crate) fn check_settable_target(target: &TulispObject) -> Result<(), Error> {
     check_not_nil_or_t(target)?;
     if !target.is_symbol_variant() {
-        return Err(
-            Error::type_mismatch(format!("Expected Symbol: Can't assign to {}", target))
-                .with_trace(target.clone()),
-        );
+        return Err(target.not_a_symbol());
     }
     if target.keywordp() {
         return Err(Error::setting_constant(target).fill_and_trace(target));

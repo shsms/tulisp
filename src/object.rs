@@ -904,6 +904,11 @@ impl TulispObject {
             .map_err(|e| e.fill_value(self))
     }
 
+    /// The `symbolp` error for `self`, which is no symbol.
+    pub(crate) fn not_a_symbol(&self) -> Error {
+        self.rc.borrow().0.not_a_symbol().fill_and_trace(self)
+    }
+
     pub(crate) fn global(&self) -> Option<TulispObject> {
         self.rc.borrow().0.global()
     }

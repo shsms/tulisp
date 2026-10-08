@@ -99,9 +99,11 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         "symbol-value",
         |sym: TulispObject| -> Result<TulispObject, Error> {
             if !sym.symbolp() {
-                return Err(Error::type_mismatch(format!(
-                    "symbol-value: expected a symbol, got {sym}"
-                )));
+                return Err(Error::wrong_type_argument(
+                    "symbolp",
+                    sym.clone(),
+                    format!("symbol-value: expected a symbol, got {sym}"),
+                ));
             }
             sym.get()
         },
@@ -1609,6 +1611,24 @@ tests/bad-load.lisp:1.9-1.9:  at nil
             (
                 "(condition-case e (set nil 1) (error (error-message-string e)))",
                 r#""Attempt to set a constant symbol: nil""#,
+            ),
+        ]);
+    }
+
+    // Setting, reading or defining a value that is no symbol names `symbolp`,
+    // as in Emacs.
+    #[test]
+    fn a_value_that_is_no_symbol_names_symbolp() {
+        assert_results(&[
+            ("(set 5 1)", "(ERR (wrong-type-argument symbolp 5))"),
+            ("(symbol-value 5)", "(ERR (wrong-type-argument symbolp 5))"),
+            (
+                "(eval '(defvar 5 1) t)",
+                "(ERR (wrong-type-argument symbolp 5))",
+            ),
+            (
+                "(eval '(defconst 5 1) t)",
+                "(ERR (wrong-type-argument symbolp 5))",
             ),
         ]);
     }

@@ -463,9 +463,7 @@ impl TulispValue {
         match self {
             TulispValue::Symbol { value } => value.set(to_set),
             TulispValue::Nil | TulispValue::T => Err(Error::setting_constant(&*self)),
-            _ => Err(Error::type_mismatch(format!(
-                "Expected Symbol: Can't assign to {self}"
-            ))),
+            _ => Err(self.not_a_symbol()),
         }
     }
 
@@ -478,9 +476,7 @@ impl TulispValue {
             }
             TulispValue::Symbol { .. } => Ok(()),
             TulispValue::Nil | TulispValue::T => Err(Error::setting_constant(self)),
-            _ => Err(Error::type_mismatch(format!(
-                "Expected Symbol: Can't assign to {self}"
-            ))),
+            _ => Err(self.not_a_symbol()),
         }
     }
 
@@ -489,9 +485,7 @@ impl TulispValue {
         match self {
             TulispValue::Symbol { value } => value.set_global(to_set),
             TulispValue::Nil | TulispValue::T => Err(Error::setting_constant(&*self)),
-            _ => Err(Error::type_mismatch(format!(
-                "Expected Symbol: Can't assign to {self}"
-            ))),
+            _ => Err(self.not_a_symbol()),
         }
     }
 
@@ -519,9 +513,7 @@ impl TulispValue {
         match self {
             TulispValue::Symbol { value } => value.set_scope(to_set),
             TulispValue::Nil | TulispValue::T => Err(Error::setting_constant(&*self)),
-            _ => Err(Error::type_mismatch(format!(
-                "Expected Symbol: Can't assign to {self}"
-            ))),
+            _ => Err(self.not_a_symbol()),
         }
     }
 
@@ -568,8 +560,9 @@ impl TulispValue {
                 }
                 value.get()
             }
-            _ => Err(Error::type_mismatch(
-                "Can get only from Symbols".to_string(),
+            _ => Err(Error::wrong_type_unfilled(
+                "symbolp",
+                "Can get only from Symbols",
             )),
         }
     }
@@ -932,6 +925,15 @@ macro_rules! make_cxr {
 
 // cxr implementations
 impl TulispValue {
+    /// The error for setting a value that is no symbol: Emacs gives
+    /// `(wrong-type-argument symbolp VALUE)`.
+    pub(crate) fn not_a_symbol(&self) -> Error {
+        Error::wrong_type_unfilled(
+            "symbolp",
+            format!("Expected Symbol: Can't assign to {self}"),
+        )
+    }
+
     /// The error for a list operation applied to a non-list: a `TypeMismatch`,
     /// which `condition-case` sees as `(wrong-type-argument listp VALUE)` once
     /// a `TulispObject` method fills VALUE in.

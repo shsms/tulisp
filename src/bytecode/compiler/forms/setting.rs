@@ -141,11 +141,7 @@ fn compile_varlist_and_body(
             let value = value.unwrap_or_default();
             crate::builtin::check_not_nil_or_t(&name)?;
             if !name.is_symbol_variant() {
-                return Err(Error::new(
-                    ErrorKind::TypeMismatch,
-                    format!("Expected Symbol: Can't assign to {}", name),
-                )
-                .with_trace(name));
+                return Err(name.not_a_symbol());
             }
             if !rest.is_empty() {
                 return Err(Error::new(
