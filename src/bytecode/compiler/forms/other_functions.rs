@@ -795,7 +795,7 @@ mod tests {
         eval_assert_error(
             &mut TulispContext::new(),
             "(defun j (&rest x y) nil) (j)",
-            r#"ERR TypeMismatch: Too many &rest parameters
+            r#"ERR Signal(invalid-function): Invalid function: (&rest x y)
 <eval_string>:1.1-1.25:  at (defun j (&rest x y) nil)
 "#,
         );

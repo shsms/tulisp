@@ -1291,7 +1291,7 @@ mod tests {
         eval_assert_error_line(
             ctx,
             "(funcall (lambda (&rest a t) 1))",
-            "ERR TypeMismatch: Too many &rest parameters",
+            "ERR Signal(invalid-function): Invalid function: (&rest a t)",
         );
     }
 

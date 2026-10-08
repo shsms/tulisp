@@ -216,36 +216,57 @@ pub(crate) fn split_docstring(body: TulispObject) -> Result<(Option<String>, Tul
     }
 }
 
-/// Checks the parameter list of a `defun`, `defmacro` or `lambda`: a
-/// list of symbols, with at most one symbol after `&rest`. `&optional`
-/// and `&rest` are the interned symbols, as the compilers read them.
-pub(crate) fn check_param_list(ctx: &TulispContext, params: &TulispObject) -> Result<(), Error> {
+/// Checks the parameter list of a `defun`, `defmacro` or `lambda`: a list of
+/// symbols, with `&optional` at most once, and `&rest` followed by one symbol,
+/// last. `&optional` and `&rest` are the interned symbols, as the compilers
+/// read them. A list that puts `&optional` or `&rest` out of place is Emacs's
+/// `invalid-function` error, with the parameter list as its data where Emacs
+/// gives the function. A PARAMS that is not a list is a syntax error, a dotted
+/// list or a parameter that is not a symbol is `wrong-type-argument`, and a
+/// parameter `nil` or `t` is `setting-constant`.
+pub(crate) fn check_param_list(
+    ctx: &mut TulispContext,
+    params: &TulispObject,
+) -> Result<(), Error> {
     if !params.listp() {
         return Err(Error::syntax_error(
             "Parameter list needs to be a list".to_string(),
         ));
     }
+    let invalid = |ctx: &mut TulispContext| {
+        let data = TulispObject::cons(params.clone(), TulispObject::nil());
+        Err(ctx.signal("invalid-function", data))
+    };
     let mut params_iter = params.base_iter();
-    let mut is_rest = false;
-    while let Some(param) = params_iter.next() {
+    let mut optional = false;
+    // How many parameters follow `&rest`, once it is seen.
+    let mut after_rest: Option<usize> = None;
+    for param in params_iter.by_ref() {
+        let is_optional = param.eq(&ctx.keywords.amp_optional);
+        let is_rest = param.eq(&ctx.keywords.amp_rest);
+        if let Some(count) = &mut after_rest {
+            if is_optional || is_rest || *count == 1 {
+                return invalid(ctx);
+            }
+            *count += 1;
+        } else if is_optional {
+            if optional {
+                return invalid(ctx);
+            }
+            optional = true;
+            continue;
+        } else if is_rest {
+            after_rest = Some(0);
+            continue;
+        }
         check_not_nil_or_t(&param)?;
         param.as_symbol()?;
-        if param.eq(&ctx.keywords.amp_optional) {
-            continue;
-        } else if param.eq(&ctx.keywords.amp_rest) {
-            is_rest = true;
-            continue;
-        }
-        if is_rest {
-            if params_iter.next().is_some() {
-                return Err(Error::type_mismatch(
-                    "Too many &rest parameters".to_string(),
-                ));
-            }
-            break;
-        }
     }
-    params_iter.take_error()
+    params_iter.take_error()?;
+    if after_rest == Some(0) {
+        return invalid(ctx);
+    }
+    Ok(())
 }
 
 /// Validate that `target` is a writable variable cell. The compilers of `setq`
@@ -266,6 +287,46 @@ pub(crate) fn check_settable_target(target: &TulispObject) -> Result<(), Error> 
 mod tests {
     use crate::TulispContext;
     use crate::test_utils::{assert_results, eval_assert_equal, eval_assert_error_line};
+
+    // A parameter list that breaks the rules of `&optional` and `&rest` is
+    // Emacs's `invalid-function` error, for `lambda`, `defun` and `defmacro`.
+    #[test]
+    fn a_bad_parameter_list_is_an_invalid_function() {
+        let mut cases = Vec::new();
+        for params in [
+            "(&rest a &optional b)",
+            "(&rest a &rest b)",
+            "(&rest &rest a)",
+            "(&rest &optional a)",
+            "(&rest a b)",
+            "(&rest)",
+            "(a &optional &optional b)",
+            "(&optional a &optional b)",
+        ] {
+            let error = format!("(ERR (invalid-function {params}))");
+            cases.push((
+                format!("(funcall (eval '(lambda {params} 1) t) 1)"),
+                error.clone(),
+            ));
+            cases.push((format!("(eval '(defun f {params} 1) t)"), error.clone()));
+            cases.push((format!("(eval '(defmacro m {params} 1) t)"), error));
+        }
+        for (program, expected) in [
+            ("(funcall (lambda (&optional) 1))", "1"),
+            ("(funcall (lambda (&optional &rest a) a) 1)", "(1)"),
+            (
+                "(funcall (lambda (a &optional b &rest c) (list a b c)) 1 2 3)",
+                "(1 2 (3))",
+            ),
+        ] {
+            cases.push((program.to_string(), expected.to_string()));
+        }
+        let cases: Vec<(&str, &str)> = cases
+            .iter()
+            .map(|(p, e)| (p.as_str(), e.as_str()))
+            .collect();
+        assert_results(&cases);
+    }
 
     // An uninterned symbol named `&rest` is an ordinary parameter, as
     // in Emacs.
