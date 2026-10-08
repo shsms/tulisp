@@ -6,7 +6,7 @@ use crate::{
     builtin::functions::errors::{ParsedHandlers, check_condition_case_var, parse_handlers},
     bytecode::{
         Block, Handler, Instruction,
-        compiler::compiler::{BlockBinding, compile_block, compile_expr_keep_result},
+        compiler::compiler::{compile_block, compile_expr_keep_result},
     },
     object::wrappers::generic::Shared,
 };
@@ -62,12 +62,9 @@ pub(super) fn compile_fn_condition_case(
         let compile_handler = |ctx: &mut TulispContext, forms: &TulispObject| {
             if let Some(err) = &refused {
                 Block::new(vec![Instruction::Raise(Box::new(err.clone()))], false)
-            } else if !binds {
-                compile_block(ctx, forms, None)
-            } else if var.is_special() {
-                compile_block(ctx, forms, Some(BlockBinding::Special(var.clone())))
             } else {
-                compile_block(ctx, forms, Some(BlockBinding::Lexical(var.clone())))
+                // VAR binds lexically even when it is special, as in Emacs.
+                compile_block(ctx, forms, binds.then(|| var.clone()))
             }
         };
         let mut compiled = Vec::with_capacity(handlers.len());

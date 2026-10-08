@@ -1674,10 +1674,9 @@ mod tests {
 
     #[test]
     fn test_error_escape_does_not_leak_scope() -> Result<(), Error> {
-        // Every `BeginScope` (let, let*, a `condition-case` handler's special
-        // variable; dolist and dotimes expand to let) is undone when the body
-        // errors before the matching `EndScope`: the guard of the run or block
-        // around it undoes the special bindings left.
+        // Every `BeginScope` (let and let*; dolist and dotimes expand to let)
+        // is undone when the body errors before the matching `EndScope`: the
+        // guard of the run or block around it undoes the special bindings left.
         let cases: &[(&str, &str, &str)] = &[
             (
                 "let_body_errors",

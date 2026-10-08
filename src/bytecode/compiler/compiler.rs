@@ -340,36 +340,24 @@ pub(crate) fn compile_progn_keep_result(
     ret
 }
 
-/// The variable a block binds to the value its runner pushes.
-pub(crate) enum BlockBinding {
-    /// A special variable, bound on its symbol's own stack.
-    Special(TulispObject),
-    /// A lexical variable, in a slot of the function's frame.
-    Lexical(TulispObject),
-}
-
-/// Compiles FORMS as a block whose value is kept. With BINDING, the
-/// block first binds it to the value its runner pushes, and unbinds it
-/// at the end.
+/// Compiles FORMS as a block whose value is kept. With VAR, the block first
+/// binds the lexical variable VAR to the value its runner pushes, and unbinds
+/// it at the end.
 pub(crate) fn compile_block(
     ctx: &mut TulispContext,
     forms: &TulispObject,
-    binding: Option<BlockBinding>,
+    var: Option<TulispObject>,
 ) -> Result<crate::bytecode::Block, Error> {
     let compiler = ctx.compiler.as_mut().unwrap();
     let mut instructions = Vec::new();
-    let mut slot = None;
-    match &binding {
-        Some(BlockBinding::Special(symbol)) => {
-            instructions.push(Instruction::BeginScope(symbol.clone()))
-        }
-        Some(BlockBinding::Lexical(name)) => {
-            let bound = compiler.bind_slot(name.clone())?;
+    let slot = match var {
+        Some(name) => {
+            let bound = compiler.bind_slot(name)?;
             instructions.push(Instruction::BindLocal(bound));
-            slot = Some(bound);
+            Some(bound)
         }
-        None => {}
-    }
+        None => None,
+    };
     let compiled = compile_progn_keep_result(ctx, forms);
     let compiler = ctx.compiler.as_mut().unwrap();
     // The variable leaves the scope, and its slot is free again, on
@@ -382,20 +370,14 @@ pub(crate) fn compile_block(
         None => Vec::new(),
     };
     instructions.append(&mut compiled?);
-    match (&binding, slot) {
-        (Some(BlockBinding::Special(symbol)), _) => {
-            instructions.push(Instruction::EndScope(symbol.clone()))
-        }
-        (Some(BlockBinding::Lexical(_)), Some(slot)) => {
-            instructions.push(Instruction::ClearLocals {
-                from: slot,
-                to: slot + 1,
-            });
-            swap_shared(&closed, &mut instructions);
-        }
-        (Some(BlockBinding::Lexical(_)), None) | (None, _) => {}
+    if let Some(slot) = slot {
+        instructions.push(Instruction::ClearLocals {
+            from: slot,
+            to: slot + 1,
+        });
+        swap_shared(&closed, &mut instructions);
     }
-    crate::bytecode::Block::new(instructions, binding.is_some())
+    crate::bytecode::Block::new(instructions, slot.is_some())
 }
 
 /// Compile a backquoted form at quasi-quote `depth` (1 inside the

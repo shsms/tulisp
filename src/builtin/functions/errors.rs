@@ -136,9 +136,10 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     // checks, `(SYMBOL)` for a void variable or for calling a symbol with no
     // function, and nil for an arith error. Calling another value that is not a
     // function, a macro or a special form gives `(VALUE)`, and other built-in
-    // errors give `(DESC)`, their description. It is bound lexically, like a
-    // `let` variable, or dynamically when it is special. A `nil` VAR binds
-    // nothing; `t` or a keyword fails when a handler binds it.
+    // errors give `(DESC)`, their description. VAR is always bound lexically,
+    // even when it is special: a function the handler calls does not see the
+    // error in it. A `nil` VAR binds nothing; `t` or a keyword fails when a
+    // handler binds it.
     //
     // A `(:success BODY...)` handler runs when BODYFORM does not fail, with VAR
     // bound to its value, and gives the result. An error in it is not caught by
@@ -1253,16 +1254,19 @@ mod tests {
         );
     }
 
+    // As in Emacs, VAR binds lexically even when it is special: a function the
+    // handler calls sees the variable's own value.
     #[test]
-    fn a_special_condition_case_variable_is_bound_dynamically() {
+    fn a_special_condition_case_variable_is_bound_lexically() {
         let ctx = &mut TulispContext::new();
         eval_assert_equal(
             ctx,
             r#"(defvar cc-special 1)
                (defun cc-read () cc-special)
                (list (condition-case cc-special (error "a") (error (cc-read)))
+                     (condition-case cc-special (error "a") (error cc-special))
                      cc-special)"#,
-            r#"'((error "a") 1)"#,
+            r#"'(1 (error "a") 1)"#,
         );
     }
 

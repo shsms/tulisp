@@ -64,8 +64,8 @@ pub struct Machine {
     pub(crate) captures: Captures,
     /// Tells this machine from any other, for `Form`.
     pub(crate) id: u64,
-    /// The special variables bound by a `let` or a `condition-case`
-    /// handler that has not ended, in the order bound; each `EndScope`
+    /// The special variables bound by a `let` that has not ended, in the
+    /// order bound; each `EndScope`
     /// ends the last one. When a run or a block ends, an error or a
     /// panic included, its `RunGuard` undoes the ones bound since it
     /// began. A `Call` or `TailCall` of a compiled `defun` runs under its
