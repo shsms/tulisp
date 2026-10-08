@@ -70,6 +70,26 @@ pub(crate) fn sequence_length(sequence: &TulispObject) -> Result<i64, Error> {
     length(sequence)
 }
 
+/// The elements of SEQUENCE: a list's elements, or a string's characters. As
+/// with [`sequence_length`], a value that is neither, a list that ends in a
+/// non-list, and one whose cdrs loop back are errors.
+pub(crate) fn sequence_elements(sequence: &TulispObject) -> Result<Vec<TulispObject>, Error> {
+    if sequence.stringp() {
+        return sequence.with_str(|text| {
+            text.chars()
+                .map(|c| TulispObject::from(i64::from(u32::from(c))))
+                .collect()
+        });
+    }
+    if !sequence.listp() {
+        return Err(not_a_sequence(sequence));
+    }
+    let mut items = sequence.base_iter();
+    let elements = items.by_ref().collect();
+    items.take_error()?;
+    Ok(elements)
+}
+
 /// The error for VALUE where a list is wanted, as Emacs gives it: `listp`.
 pub(crate) fn not_a_list(value: &TulispObject) -> Error {
     Error::wrong_type_argument(

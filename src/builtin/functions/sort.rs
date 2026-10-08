@@ -1,9 +1,10 @@
-//! Emacs's `sort` and `value<`.
+//! Emacs's `sort`, `seq-sort` and `value<`.
 
 use std::cmp::Ordering;
 
 use crate::{
-    Error, Number, Rest, TulispContext, TulispObject, as_symbol::with_name, cons::CycleCheck,
+    Error, Number, Rest, TulispContext, TulispObject, as_symbol::with_name,
+    builtin::functions::core::to_char, cons::CycleCheck, lists,
 };
 
 pub(crate) fn add(ctx: &mut TulispContext) {
@@ -14,6 +15,21 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         "sort",
         |ctx: &mut TulispContext, seq: TulispObject, args: Rest<TulispObject>| {
             sort(ctx, seq, &args)
+        },
+    );
+    // A new sequence of the kind SEQUENCE is: a string for a string.
+    ctx.defun(
+        "seq-sort",
+        |ctx: &mut TulispContext, pred: TulispObject, sequence: TulispObject| {
+            let items = lists::sequence_elements(&sequence)?;
+            let sorted = merge_sort(items, &mut |a, b| {
+                Ok(ctx.funcall(&pred, (a.clone(), b.clone()))?.is_truthy())
+            })?;
+            if !sequence.stringp() {
+                return Ok(sorted.into_iter().collect());
+            }
+            let text = sorted.iter().map(to_char).collect::<Result<String, _>>()?;
+            Ok(TulispObject::from(text))
         },
     );
 }
@@ -468,6 +484,40 @@ mod tests {
         eval_assert_error_line(
             ctx,
             "(let ((l (list 2 1))) (setcdr (cdr l) l) (sort l #'<))",
+            "ERR OutOfRange: Circular list",
+        );
+    }
+
+    // seq-sort leaves SEQUENCE as it was, keeps equal elements in order, and
+    // gives a string for a string, as in Emacs.
+    #[test]
+    fn seq_sort_sorts_a_copy() {
+        let ctx = &mut TulispContext::new();
+        let cases = [
+            ("(seq-sort #'< '(3 1 2))", "'(1 2 3)"),
+            ("(let ((l (list 3 1 2))) (seq-sort #'< l) l)", "'(3 1 2)"),
+            (
+                "(seq-sort (lambda (a b) (< (car a) (car b))) '((1 . a) (0 . b) (1 . c) (0 . d)))",
+                "'((0 . b) (0 . d) (1 . a) (1 . c))",
+            ),
+            (r#"(seq-sort #'< "cba")"#, r#""abc""#),
+            (r#"(seq-sort #'< "")"#, r#""""#),
+            ("(seq-sort #'< nil)", "nil"),
+            (
+                "(condition-case e (seq-sort #'< 5) (error e))",
+                "'(wrong-type-argument sequencep 5)",
+            ),
+            (
+                "(condition-case e (seq-sort #'< '(1 . 2)) (error e))",
+                "'(wrong-type-argument listp 2)",
+            ),
+        ];
+        for (program, expected) in cases {
+            eval_assert_equal(ctx, program, expected);
+        }
+        eval_assert_error_line(
+            ctx,
+            "(let ((l (list 2 1))) (setcdr (cdr l) l) (seq-sort #'< l))",
             "ERR OutOfRange: Circular list",
         );
     }

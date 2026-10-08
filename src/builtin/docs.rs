@@ -1371,6 +1371,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         ),
     ),
     (
+        "seq-sort",
+        concat!(
+            "Sort SEQUENCE using PRED as the sorting comparison function.",
+            "\n\n",
+            "(fn PRED SEQUENCE)"
+        ),
+    ),
+    (
         "seq-take",
         concat!(
             "Return a new list of the first N elements of LIST.",
