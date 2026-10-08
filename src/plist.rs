@@ -73,6 +73,56 @@ pub(crate) fn plist_get_by(
     Ok(TulispObject::nil())
 }
 
+/// PLIST with PROPERTY's value set to VALUE, as Emacs Lisp's `plist-put` does.
+/// The value of the first key that matches is replaced in place; with none,
+/// PROPERTY and VALUE go at the end of PLIST, in place unless PLIST is nil.
+/// Keys are compared with `eq`, or by calling PREDICATE with the key and
+/// PROPERTY. A PLIST that does not hold whole pairs is an error that names it.
+pub(crate) fn plist_put(
+    ctx: &mut TulispContext,
+    plist: TulispObject,
+    property: TulispObject,
+    value: TulispObject,
+    predicate: Option<&TulispObject>,
+) -> Result<TulispObject, Error> {
+    let mut last_value_cell = None;
+    let mut cur = plist.clone();
+    let mut cycle = crate::cons::CycleCheck::new();
+    while cur.consp() {
+        let value_cell = cur.cdr()?;
+        if !value_cell.consp() {
+            break;
+        }
+        let key = cur.car()?;
+        let found = match predicate {
+            Some(predicate) => ctx.funcall(predicate, (key, property.clone()))?.is_truthy(),
+            None => key.eq(&property),
+        };
+        if found {
+            value_cell.set_car(value)?;
+            return Ok(plist);
+        }
+        cur = value_cell.cdr()?;
+        last_value_cell = Some(value_cell);
+        cycle.step(&cur)?;
+    }
+    if !cur.null() {
+        return Err(Error::wrong_type_argument(
+            "plistp",
+            plist.clone(),
+            format!("Expected a property list, got: {plist}"),
+        ));
+    }
+    let pair = TulispObject::cons(property, TulispObject::cons(value, TulispObject::nil()));
+    match last_value_cell {
+        Some(cell) => {
+            cell.set_cdr(pair)?;
+            Ok(plist)
+        }
+        None => Ok(pair),
+    }
+}
+
 /// A typed wrapper around a Lisp plist, for use as a [`defun`](crate::TulispContext::defun) argument.
 ///
 /// When `Plist<T>` appears as a parameter type, the function receives the

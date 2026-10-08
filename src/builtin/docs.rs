@@ -1091,6 +1091,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         ),
     ),
     (
+        "plist-put",
+        concat!(
+            "Change the value in PLIST of PROP to VAL. If PROP is already a property on the list, its value is set to VAL; otherwise PROP and VAL are added at the end, changing PLIST. Return the new plist; use it, as PLIST may have been nil. Properties are compared with `eq', or with PREDICATE when given.",
+            "\n\n",
+            "(fn PLIST PROP VAL &optional PREDICATE)"
+        ),
+    ),
+    (
         "pop",
         concat!(
             "Return the first element of PLACE's value, and remove it from the list. PLACE must be a variable.",

@@ -421,6 +421,17 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         },
     );
 
+    ctx.defun(
+        "plist-put",
+        |ctx: &mut TulispContext,
+         plist: TulispObject,
+         property: TulispObject,
+         value: TulispObject,
+         predicate: Option<TulispObject>| {
+            crate::plist::plist_put(ctx, plist, property, value, predicate.as_ref())
+        },
+    );
+
     // predicates begin
     macro_rules! predicate_function {
         ($name: ident) => {
@@ -1588,6 +1599,47 @@ tests/bad-load.lisp:1.9-1.9:  at nil
             "(concat '(4294967393))",
             "ERR TypeMismatch: Not a character: 4294967393",
         );
+    }
+
+    #[test]
+    fn plist_put_sets_or_adds_a_property() {
+        assert_results(&[
+            ("(plist-put nil 'a 1)", "(a 1)"),
+            (
+                "(let ((p (list 'a 1 'b 2))) (list (plist-put p 'b 3) p))",
+                "((a 1 b 3) (a 1 b 3))",
+            ),
+            ("(let ((p (list 'a 1))) (plist-put p 'c 3) p)", "(a 1 c 3)"),
+            ("(let ((p (list 'a 1))) (eq p (plist-put p 'c 3)))", "t"),
+            ("(plist-put (list 'a 1 'b 2) 'a 9)", "(a 9 b 2)"),
+            (r#"(plist-put (list "a" 1) "a" 2 #'equal)"#, r#"("a" 2)"#),
+            (r#"(plist-put (list "a" 1) "a" 2)"#, r#"("a" 1 "a" 2)"#),
+        ]);
+    }
+
+    // A plist with a key and no value is an error that names the whole plist,
+    // even when that key is the property.
+    #[test]
+    fn plist_put_rejects_a_plist_that_is_not_pairs() {
+        assert_results(&[
+            (
+                "(plist-put (list 'a) 'b 1)",
+                "(ERR (wrong-type-argument plistp (a)))",
+            ),
+            (
+                "(plist-put (list 'a 1 'b) 'c 2)",
+                "(ERR (wrong-type-argument plistp (a 1 b)))",
+            ),
+            (
+                "(plist-put (list 'a 1 'b) 'b 2)",
+                "(ERR (wrong-type-argument plistp (a 1 b)))",
+            ),
+            ("(plist-put 5 'a 1)", "(ERR (wrong-type-argument plistp 5))"),
+            (
+                "(plist-put (cons 'a 1) 'b 2)",
+                "(ERR (wrong-type-argument plistp (a . 1)))",
+            ),
+        ]);
     }
 
     // Setting a constant is a `setting-constant` error naming the symbol, as in
