@@ -117,6 +117,10 @@ pub(super) fn compile_fn_cond(
     let cond_end = ctx.compiler.as_mut().unwrap().new_label();
 
     for branch in args.base_iter() {
+        // An empty clause is skipped, as in Emacs.
+        if branch.null() {
+            continue;
+        }
         result.append(
             &mut ctx
                 .compile_1_arg_call(&"cond-branch".into(), &branch, true, |ctx, cond, body| {
@@ -463,6 +467,21 @@ mod tests {
             ctx,
             "(defun f (x) (cond ((car x)) (t 'none))) (list (f '(4)) (f nil))",
             "'(4 none)",
+        );
+    }
+
+    // An empty `cond` clause is skipped, as in Emacs.
+    #[test]
+    fn an_empty_cond_clause_is_skipped() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(cond ())", "nil");
+        eval_assert_equal(ctx, "(cond (nil 1) ())", "nil");
+        eval_assert_equal(ctx, "(cond () (t 2))", "2");
+        eval_assert_equal(ctx, "(progn (cond ()) 3)", "3");
+        eval_assert_equal(
+            ctx,
+            "(defun f (x) (cond () (x 'yes))) (list (f t) (f nil))",
+            "'(yes nil)",
         );
     }
 
