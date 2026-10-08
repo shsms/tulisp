@@ -51,20 +51,35 @@ fn quote(_ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, 
     Ok(TulispValue::Quote { value: arg }.into_ref(None))
 }
 
+/// An uninterned symbol named NAME, and the `let` bindings `((SYMBOL INIT))`.
+fn bind_uninterned(
+    ctx: &mut TulispContext,
+    name: &str,
+    init: TulispObject,
+) -> Result<(TulispObject, TulispObject), Error> {
+    let symbol = TulispObject::symbol(name.to_string(), false);
+    let binding = list!(ctx => ,&symbol ,init)?;
+    Ok((symbol, list!(ctx => ,binding)?))
+}
+
+/// Refuses a PLACE of the macro MACRO_NAME that is no variable: tulisp has no
+/// generalized variables.
+fn check_place(macro_name: &str, place: &TulispObject) -> Result<(), Error> {
+    if place.symbolp() {
+        return Ok(());
+    }
+    Err(Error::lisp_error(format!(
+        "{macro_name}: PLACE must be a variable, got: {place}"
+    )))
+}
+
 /// `(pop PLACE)` is `(let ((V (car-safe PLACE))) (setq PLACE (cdr PLACE)) V)`,
-/// with V a symbol of its own. PLACE must be a variable, as for `push`: tulisp
-/// has no generalized variables.
+/// with V an uninterned symbol. PLACE must be a variable, as for `push`.
 fn pop(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
     let (place,): (TulispObject,) = args.destructure(ctx)?;
-    if !place.symbolp() {
-        return Err(Error::lisp_error(format!(
-            "pop: PLACE must be a variable, got: {place}"
-        )));
-    }
-    let first = TulispObject::symbol("pop-first".to_string(), false);
+    check_place("pop", &place)?;
     let car = list!(ctx => ,ctx.intern("car-safe") ,&place)?;
-    let binding = list!(ctx => ,&first ,car)?;
-    let bindings = list!(ctx => ,binding)?;
+    let (first, bindings) = bind_uninterned(ctx, "pop-first", car)?;
     let rest = list!(ctx => ,ctx.intern("cdr") ,&place)?;
     let set = list!(ctx => ,ctx.intern("setq") ,&place ,rest)?;
     list!(ctx => ,ctx.intern("let") ,bindings ,set ,first)
@@ -79,15 +94,13 @@ fn ignore_errors(ctx: &mut TulispContext, body: &TulispObject) -> Result<TulispO
 }
 
 /// `(defconst SYMBOL INITVALUE [DOCSTRING])` evaluates INITVALUE once, before
-/// SYMBOL is declared, and sets SYMBOL to it even when it already has a
-/// value: `(let ((V INITVALUE)) (defvar SYMBOL V DOCSTRING) (setq SYMBOL V)
-/// 'SYMBOL)`, with V a symbol of its own.
+/// SYMBOL is declared, and sets SYMBOL to it even when it already has a value:
+/// `(let ((V INITVALUE)) (defvar SYMBOL V DOCSTRING) (setq SYMBOL V) 'SYMBOL)`,
+/// with V an uninterned symbol.
 fn defconst(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
     let (symbol, initvalue, docstring): (TulispObject, TulispObject, Option<TulispObject>) =
         args.destructure(ctx)?;
-    let value = TulispObject::symbol("defconst-value".to_string(), false);
-    let binding = list!(ctx => ,&value ,initvalue)?;
-    let bindings = list!(ctx => ,binding)?;
+    let (value, bindings) = bind_uninterned(ctx, "defconst-value", initvalue)?;
     let declare = list!(ctx => ,ctx.intern("defvar") ,&symbol ,&value ,docstring)?;
     let set = list!(ctx => ,ctx.intern("setq") ,&symbol ,&value)?;
     let quoted = TulispValue::Quote { value: symbol }.into_ref(None);
