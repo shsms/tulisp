@@ -958,6 +958,42 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         ),
     ),
     (
+        "logand",
+        concat!(
+            "Return bitwise-and of all the arguments.",
+            "\n\n",
+            "(fn &rest INTS-OR-MARKERS)"
+        ),
+    ),
+    (
+        "logcount",
+        concat!("Return population count of VALUE.", "\n\n", "(fn VALUE)"),
+    ),
+    (
+        "logior",
+        concat!(
+            "Return bitwise-or of all the arguments.",
+            "\n\n",
+            "(fn &rest INTS-OR-MARKERS)"
+        ),
+    ),
+    (
+        "lognot",
+        concat!(
+            "Return the bitwise complement of NUMBER.  NUMBER must be an integer.",
+            "\n\n",
+            "(fn NUMBER)"
+        ),
+    ),
+    (
+        "logxor",
+        concat!(
+            "Return bitwise-exclusive-or of all the arguments.",
+            "\n\n",
+            "(fn &rest INTS-OR-MARKERS)"
+        ),
+    ),
+    (
         "macroexpand",
         concat!(
             "Return result of expanding macros at top level of FORM.",
