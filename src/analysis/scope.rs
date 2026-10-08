@@ -68,7 +68,7 @@ fn body_docstring(tree: &SyntaxTree, body: &[NodeId]) -> Option<String> {
     (!rest.is_empty()).then_some(doc)
 }
 
-/// A name the file defines with `defun`, `defmacro` or `defvar`.
+/// A name the file defines with `defun`, `defmacro`, `defvar` or `defconst`.
 pub(super) struct Definition {
     pub(super) name: String,
     pub(super) info: SymbolInfo,
@@ -86,7 +86,7 @@ pub(super) fn definitions(tree: &SyntaxTree) -> Vec<Definition> {
         let kind = match head(tree, id) {
             Some("defun") => SymbolKind::Function,
             Some("defmacro") => SymbolKind::Macro,
-            Some("defvar") => SymbolKind::Variable,
+            Some("defvar" | "defconst") => SymbolKind::Variable,
             _ => continue,
         };
         if quoted(tree, id) {

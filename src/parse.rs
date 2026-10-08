@@ -748,7 +748,7 @@ impl Parser<'_, '_> {
 
         // A name that is no plain symbol, such as `t`, gets no tag.
         #[cfg(feature = "etags")]
-        if let Ok("defun" | "defmacro" | "defvar") =
+        if let Ok("defun" | "defmacro" | "defvar" | "defconst") =
             inner.car()?.as_symbol().as_ref().map(|x| x.as_str())
             && let Ok(name) = inner.cadr().and_then(|name| name.as_symbol())
             && let Some(span) = inner.span()
@@ -1661,6 +1661,7 @@ mod etags_tests {
             "defvar_test.el",
             r#"(defvar my-test-var 42)
 (defvar my-test-var-with-doc 7 "docs")
+(defconst my-test-const 1)
 "#,
         );
         let mut ctx = TulispContext::new();
@@ -1668,6 +1669,7 @@ mod etags_tests {
         let tags = ctx.tags_table(Some(&[path_str]))?;
         assert_tag_entry(&tags, "my-test-var");
         assert_tag_entry(&tags, "my-test-var-with-doc");
+        assert_tag_entry(&tags, "my-test-const");
         Ok(())
     }
 

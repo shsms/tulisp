@@ -540,6 +540,8 @@ mod tests {
     fn a_file_defvar_is_a_variable() {
         let names = complete(&context(), "(defvar my-var 1) (car my-|");
         assert!(has(&names, "my-var"));
+        let names = complete(&context(), "(defconst my-const 1) (car my-|");
+        assert!(has(&names, "my-const"));
     }
 
     #[test]
