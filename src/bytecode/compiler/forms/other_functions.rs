@@ -1,6 +1,6 @@
 use super::common::compile_args_then;
 use crate::{
-    Error, ErrorKind, TulispContext, TulispObject,
+    Error, TulispContext, TulispObject,
     bytecode::{
         Captured, CapturedValue, Captures, Instruction, LambdaTemplate, Pos,
         bytecode::{CompiledCode, CompiledDefun},
@@ -330,39 +330,19 @@ fn compile_defun(
         let args = args.base_iter().collect::<Vec<_>>();
         let mut is_optional = false;
         let mut is_rest = false;
+        // `check_param_list` checked the markers' order.
         for arg in args.iter() {
             if arg.eq(&ctx.keywords.amp_optional) {
-                if is_rest {
-                    return Err(Error::new(
-                        ErrorKind::Undefined,
-                        "optional after rest".to_string(),
-                    )
-                    .with_trace(arg.clone()));
-                }
                 is_optional = true;
             } else if arg.eq(&ctx.keywords.amp_rest) {
-                if is_rest {
-                    return Err(
-                        Error::new(ErrorKind::Undefined, "rest after rest".to_string())
-                            .with_trace(arg.clone()),
-                    );
-                }
                 is_optional = false;
                 is_rest = true;
             } else {
-                crate::builtin::check_not_nil_or_t(arg)?;
                 let name = arg.clone();
                 param_names.push(name.clone());
                 if is_optional {
                     defun_params.optional.push(name);
                 } else if is_rest {
-                    if defun_params.rest.is_some() {
-                        return Err(Error::new(
-                            ErrorKind::Undefined,
-                            "multiple rest arguments".to_string(),
-                        )
-                        .with_trace(arg.clone()));
-                    }
                     defun_params.rest = Some(name);
                 } else {
                     defun_params.required.push(name);

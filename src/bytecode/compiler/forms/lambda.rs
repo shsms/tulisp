@@ -65,67 +65,23 @@ pub(super) fn compile_lambda(
         optional: Vec::new(),
         rest: None,
     };
-    // First pass: validate &optional / &rest ordering and collect
-    // raw param names. The actual is_optional / is_rest tracking
-    // for the bindings happens in the second pass below.
-    let mut seen_rest = false;
-    let mut rest_named = false;
-    let mut params_iter = params.base_iter();
-    for p in params_iter.by_ref() {
+    // `check_param_list` checked the markers' order.
+    let mut is_optional = false;
+    let mut is_rest = false;
+    for p in params.base_iter() {
         if p.eq(&ctx.keywords.amp_optional) {
-            if seen_rest {
-                return Err(
-                    Error::new(ErrorKind::Undefined, "optional after rest".to_string())
-                        .with_trace(p),
-                );
-            }
-            continue;
-        }
-        if p.eq(&ctx.keywords.amp_rest) {
-            if seen_rest {
-                return Err(
-                    Error::new(ErrorKind::Undefined, "rest after rest".to_string()).with_trace(p),
-                );
-            }
-            seen_rest = true;
-            continue;
-        }
-        if seen_rest {
-            if rest_named {
-                return Err(Error::type_mismatch(
-                    "Too many &rest parameters".to_string(),
-                ));
-            }
-            rest_named = true;
-        }
-        crate::builtin::check_not_nil_or_t(&p)?;
-        param_names.push(p);
-    }
-
-    params_iter.take_error()?;
-    // Populate DefunParams from the names, honoring &optional /
-    // &rest positions from the original declaration.
-    {
-        let mut names = param_names.iter();
-        let mut is_optional = false;
-        let mut is_rest = false;
-        for p in params.base_iter() {
-            if p.eq(&ctx.keywords.amp_optional) {
-                is_optional = true;
-                continue;
-            }
-            if p.eq(&ctx.keywords.amp_rest) {
-                is_optional = false;
-                is_rest = true;
-                continue;
-            }
-            let Some(name) = names.next() else { break };
+            is_optional = true;
+        } else if p.eq(&ctx.keywords.amp_rest) {
+            is_optional = false;
+            is_rest = true;
+        } else {
+            param_names.push(p.clone());
             if is_rest {
-                vm_params.rest = Some(name.clone());
+                vm_params.rest = Some(p);
             } else if is_optional {
-                vm_params.optional.push(name.clone());
+                vm_params.optional.push(p);
             } else {
-                vm_params.required.push(name.clone());
+                vm_params.required.push(p);
             }
         }
     }
