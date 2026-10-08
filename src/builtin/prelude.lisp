@@ -16,9 +16,10 @@
 ;;; `dolist` runs forever on a list that loops back, as in Emacs, so
 ;;; the functions below that walk all of SEQ first call `length`,
 ;;; which signals an error for such a list, as Emacs's `mapcar` does.
+;;; A string is walked as the list of its characters.
 
 (defun seq-map (func seq)
-  (length seq)
+  (if (stringp seq) (setq seq (append seq nil)) (length seq))
   (let ((out nil))
     (dolist (item seq)
       (setq out (cons (funcall func item) out)))
@@ -27,7 +28,7 @@
 (defun mapcar (func seq) (seq-map func seq))
 
 (defun seq-filter (func seq)
-  (length seq)
+  (if (stringp seq) (setq seq (append seq nil)) (length seq))
   (let ((out nil))
     (dolist (item seq)
       (when (funcall func item)
@@ -35,14 +36,14 @@
     (reverse out)))
 
 (defun seq-reduce (func seq initial)
-  (length seq)
+  (if (stringp seq) (setq seq (append seq nil)) (length seq))
   (let ((acc initial))
     (dolist (item seq)
       (setq acc (funcall func acc item)))
     acc))
 
 (defun seq-find (func seq &optional default)
-  (length seq)
+  (if (stringp seq) (setq seq (append seq nil)) (length seq))
   (let ((hit nil) (found nil))
     (dolist (item seq)
       (when (and (not found) (funcall func item))

@@ -242,7 +242,7 @@ pub(crate) fn check_settable_target(target: &TulispObject) -> Result<(), Error> 
 #[cfg(test)]
 mod tests {
     use crate::TulispContext;
-    use crate::test_utils::{eval_assert_equal, eval_assert_error_line};
+    use crate::test_utils::{assert_results, eval_assert_equal, eval_assert_error_line};
 
     // An uninterned symbol named `&rest` is an ordinary parameter, as
     // in Emacs.
@@ -414,5 +414,24 @@ mod tests {
            prog1-result)",
             "'mutated",
         );
+    }
+
+    // The sequence functions walk a string as its characters, as in Emacs.
+    #[test]
+    fn sequence_functions_walk_a_string() {
+        assert_results(&[
+            (r#"(mapcar #'1+ "ab")"#, "(98 99)"),
+            (r#"(mapcar #'identity "")"#, "nil"),
+            (r#"(seq-map #'identity "ab")"#, "(97 98)"),
+            (r#"(seq-filter (lambda (c) (> c 97)) "abc")"#, "(98 99)"),
+            (r#"(seq-reduce #'+ "ab" 0)"#, "195"),
+            (r#"(seq-find (lambda (c) (> c 97)) "abc")"#, "98"),
+            (r#"(seq-find (lambda (c) (> c 120)) "abc" 'none)"#, "none"),
+            (r#"(mapconcat #'char-to-string "abc" "-")"#, r#""a-b-c""#),
+            (
+                "(mapcar #'identity 5)",
+                "(ERR (wrong-type-argument sequencep 5))",
+            ),
+        ]);
     }
 }
