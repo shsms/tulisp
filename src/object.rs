@@ -610,12 +610,11 @@ impl TulispObject {
     /// the function a name calls, use
     /// [`TulispContext::fset`](crate::TulispContext::fset).
     pub fn set(&self, to_set: TulispObject) -> Result<(), Error> {
-        let mut value = self.rc.borrow_mut();
-        if !value.0.symbolp() {
-            drop(value);
-            return Err(self.not_a_symbol());
-        }
-        value.0.set(to_set).map_err(|e| e.fill_and_trace(self))
+        self.rc
+            .borrow_mut()
+            .0
+            .set(to_set)
+            .map_err(|e| e.fill_and_trace(self))
     }
 
     /// Sets a value to `self`, in the new scope, such that when it is `unset`,
@@ -624,12 +623,8 @@ impl TulispObject {
     /// Returns an Error if `self` is not a symbol, or is a constant:
     /// `nil`, `t` or a keyword.
     pub(crate) fn set_scope(&self, to_set: TulispObject) -> Result<(), Error> {
-        let mut value = self.rc.borrow_mut();
-        if !value.0.symbolp() {
-            drop(value);
-            return Err(self.not_a_symbol());
-        }
-        value
+        self.rc
+            .borrow_mut()
             .0
             .set_scope(to_set)
             .map_err(|e| e.fill_and_trace(self))
@@ -915,8 +910,8 @@ impl TulispObject {
         value.0.set_global(to_set).map_err(|e| e.fill_value(self))
     }
 
-    /// The `symbolp` error for `self`, which is no symbol. It borrows `self` to
-    /// print it, so a setter calls it only after letting go of its own borrow.
+    /// The `symbolp` error for `self`, which is no symbol. It borrows `self`,
+    /// so a setter calls it only after letting go of its own borrow.
     pub(crate) fn not_a_symbol(&self) -> Error {
         self.rc.borrow().0.not_a_symbol().fill_and_trace(self)
     }
@@ -979,9 +974,7 @@ impl TulispObject {
         if let TulispValue::String { value } = &self.inner_ref().0 {
             return Ok(f(value));
         }
-        // Printing the value reads it again, so the borrow above has ended.
-        let err = self.inner_ref().0.not_a_string();
-        Err(err.fill_and_trace(self))
+        Err(self.inner_ref().0.not_a_string().fill_and_trace(self))
     }
 
     pub(crate) fn as_list_cons(&self) -> Option<Cons> {

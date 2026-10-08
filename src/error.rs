@@ -188,6 +188,7 @@ impl Error {
         Error::type_mismatch(desc).with_data(ErrorData::WrongType {
             predicate,
             value: Some(value),
+            ends_in_value: false,
         })
     }
 
@@ -199,6 +200,19 @@ impl Error {
         Error::type_mismatch(desc).with_data(ErrorData::WrongType {
             predicate,
             value: None,
+            ends_in_value: false,
+        })
+    }
+
+    /// Like `wrong_type_unfilled`, for a description that ends in the value:
+    /// BEFORE is the text before it. The description prints the value only when
+    /// it is asked for, from the object filled in, so a list that holds itself
+    /// prints as it does anywhere else.
+    pub(crate) fn wrong_type_before_value(predicate: &'static str, before: &'static str) -> Error {
+        Error::type_mismatch(before).with_data(ErrorData::WrongType {
+            predicate,
+            value: None,
+            ends_in_value: true,
         })
     }
 
@@ -227,6 +241,8 @@ enum ErrorData {
     WrongType {
         predicate: &'static str,
         value: Option<TulispObject>,
+        /// Whether the error's description is the text before VALUE.
+        ends_in_value: bool,
     },
     /// `(SYMBOL)`, for `void-variable` and `void-function`; for a void
     /// function, SYMBOL is whatever was called. SYMBOL is `None` until a
@@ -371,7 +387,9 @@ impl Error {
     /// in.
     fn filled_data(&self, ctx: &mut TulispContext) -> Option<TulispObject> {
         match self.data.as_deref()? {
-            ErrorData::WrongType { predicate, value } => Some(TulispObject::cons(
+            ErrorData::WrongType {
+                predicate, value, ..
+            } => Some(TulispObject::cons(
                 ctx.intern(predicate),
                 TulispObject::cons(value.clone()?, TulispObject::nil()),
             )),
@@ -481,14 +499,23 @@ impl Error {
     }
 
     /// Returns the description of the error. For a `Throw`, it is built on
-    /// each call and reads `No catch for tag: TAG, VALUE`.
+    /// each call and reads `No catch for tag: TAG, VALUE`. A wrong-type error
+    /// may print its value on each call too.
     pub fn desc(&self) -> Cow<'_, str> {
-        match &self.kind {
-            ErrorKind::Throw(pair) => Cow::Owned(format!(
+        match (&self.kind, self.data.as_deref()) {
+            (ErrorKind::Throw(pair), _) => Cow::Owned(format!(
                 "No catch for tag: {}, {}",
                 pair.car().unwrap_or_default(),
                 pair.cdr().unwrap_or_default()
             )),
+            (
+                _,
+                Some(ErrorData::WrongType {
+                    value: Some(value),
+                    ends_in_value: true,
+                    ..
+                }),
+            ) => Cow::Owned(format!("{}{value}", self.desc)),
             _ => Cow::Borrowed(&self.desc),
         }
     }
@@ -631,6 +658,24 @@ mod tests {
         }
         let keyword = Error::setting_constant(":k").data(ctx).car().unwrap();
         assert!(keyword.eq(&ctx.intern(":k")));
+    }
+
+    // A wrong-type error prints its value from the value's own object, so a
+    // list that holds itself prints as it does anywhere else.
+    #[test]
+    fn a_wrong_type_text_prints_a_list_that_holds_itself_as_print_does() {
+        let ctx = &mut crate::TulispContext::new();
+        for (program, text) in [
+            ("(+ l 1)", "Expected number, got: (#0 2)"),
+            ("(1+ l)", "Expected number, got: (#0 2)"),
+            ("(symbol-name l)", "Expected symbol, got: (#0 2)"),
+            ("(set l 1)", "Expected Symbol: Can't assign to (#0 2)"),
+            ("(string-to-number l)", "Expected string, got: (#0 2)"),
+        ] {
+            let program = format!("(let ((l (list 1 2))) (setcar l l) {program})");
+            let err = ctx.eval_string(&program).unwrap_err();
+            assert_eq!(err.desc(), text, "{program}");
+        }
     }
 
     // Every `Result` in the VM carries an `Error`.

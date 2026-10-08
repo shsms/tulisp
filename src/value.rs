@@ -463,7 +463,7 @@ impl TulispValue {
         match self {
             TulispValue::Symbol { value } => value.set(to_set),
             TulispValue::Nil | TulispValue::T => Err(Error::setting_constant(&*self)),
-            _ => Err(Self::not_a_symbol_while_borrowed()),
+            _ => Err(self.not_a_symbol()),
         }
     }
 
@@ -485,7 +485,7 @@ impl TulispValue {
         match self {
             TulispValue::Symbol { value } => value.set_global(to_set),
             TulispValue::Nil | TulispValue::T => Err(Error::setting_constant(&*self)),
-            _ => Err(Self::not_a_symbol_while_borrowed()),
+            _ => Err(self.not_a_symbol()),
         }
     }
 
@@ -513,7 +513,7 @@ impl TulispValue {
         match self {
             TulispValue::Symbol { value } => value.set_scope(to_set),
             TulispValue::Nil | TulispValue::T => Err(Error::setting_constant(&*self)),
-            _ => Err(Self::not_a_symbol_while_borrowed()),
+            _ => Err(self.not_a_symbol()),
         }
     }
 
@@ -631,9 +631,9 @@ impl TulispValue {
             TulispValue::Nil | TulispValue::T => Err(Error::type_mismatch(format!(
                 "Expected symbol, got: {self}"
             ))),
-            _ => Err(Error::wrong_type_unfilled(
+            _ => Err(Error::wrong_type_before_value(
                 "symbolp",
-                format!("Expected symbol, got: {self}"),
+                "Expected symbol, got: ",
             )),
         }
     }
@@ -657,9 +657,9 @@ impl TulispValue {
                 value: Number::Float(value),
                 ..
             } => Ok(*value),
-            t => Err(Error::wrong_type_unfilled(
+            _ => Err(Error::wrong_type_before_value(
                 "floatp",
-                format!("Expected float, got: {t}"),
+                "Expected float, got: ",
             )),
         }
     }
@@ -675,9 +675,9 @@ impl TulispValue {
                 value: Number::Int(value),
                 ..
             } => Ok(*value as f64),
-            t => Err(Error::wrong_type_unfilled(
+            _ => Err(Error::wrong_type_before_value(
                 "numberp",
-                format!("Expected number, got: {t}"),
+                "Expected number, got: ",
             )),
         }
     }
@@ -689,9 +689,9 @@ impl TulispValue {
                 value: Number::Int(value),
                 ..
             } => Ok(*value),
-            t => Err(Error::wrong_type_unfilled(
+            _ => Err(Error::wrong_type_before_value(
                 "integerp",
-                format!("Expected integer: {t}"),
+                "Expected integer: ",
             )),
         }
     }
@@ -707,9 +707,9 @@ impl TulispValue {
                 value: Number::Int(value),
                 ..
             } => Ok(*value),
-            t => Err(Error::wrong_type_unfilled(
+            _ => Err(Error::wrong_type_before_value(
                 "numberp",
-                format!("Expected number, got {t}"),
+                "Expected number, got ",
             )),
         }
     }
@@ -718,9 +718,9 @@ impl TulispValue {
     pub(crate) fn as_number(&self) -> Result<Number, Error> {
         match self {
             TulispValue::Number { value, .. } => Ok(*value),
-            t => Err(Error::wrong_type_unfilled(
+            _ => Err(Error::wrong_type_before_value(
                 "numberp",
-                format!("Expected number, got: {t}"),
+                "Expected number, got: ",
             )),
         }
     }
@@ -803,7 +803,7 @@ impl TulispValue {
 
     /// The error for reading this value as a string.
     pub(crate) fn not_a_string(&self) -> Error {
-        Error::wrong_type_unfilled("stringp", format!("Expected string, got: {self}"))
+        Error::wrong_type_before_value("stringp", "Expected string, got: ")
     }
 
     #[inline(always)]
@@ -928,24 +928,14 @@ impl TulispValue {
     /// The error for setting a value that is no symbol: Emacs gives
     /// `(wrong-type-argument symbolp VALUE)`.
     pub(crate) fn not_a_symbol(&self) -> Error {
-        Error::wrong_type_unfilled(
-            "symbolp",
-            format!("Expected Symbol: Can't assign to {self}"),
-        )
-    }
-
-    /// Like `not_a_symbol`, for a setter whose caller has the value borrowed to
-    /// change it: it does not print the value. The `TulispObject` setters check
-    /// for a symbol first, so they never get it.
-    fn not_a_symbol_while_borrowed() -> Error {
-        Error::wrong_type_unfilled("symbolp", "Expected Symbol")
+        Error::wrong_type_before_value("symbolp", "Expected Symbol: Can't assign to ")
     }
 
     /// The error for a list operation applied to a non-list: a `TypeMismatch`,
     /// which `condition-case` sees as `(wrong-type-argument listp VALUE)` once
     /// a `TulispObject` method fills VALUE in.
     pub(crate) fn not_a_list(&self) -> Error {
-        Error::wrong_type_unfilled("listp", format!("Expected list, got: {self}"))
+        Error::wrong_type_before_value("listp", "Expected list, got: ")
     }
 
     #[inline(always)]
