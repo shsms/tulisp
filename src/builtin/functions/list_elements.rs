@@ -249,6 +249,61 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok::<_, Error>(kept.build())
     });
 
+    // As in Emacs, with a float FROM or INC element N is FROM plus N times INC,
+    // so the rounding errors do not add up. With integers, a step past the
+    // 64-bit range ends the list when it is past TO. A float TO can reach it,
+    // and Tulisp has no bignums to go on with, so then the step is an overflow
+    // error, as for `+`.
+    ctx.defun(
+        "number-sequence",
+        |from: TulispObject, to: Option<TulispObject>, inc: Option<TulispObject>| {
+            let Some(to) = to else {
+                return list!(,from);
+            };
+            let (from_number, to) = (super::core::number_of(&from)?, super::core::number_of(&to)?);
+            if from_number == to {
+                return list!(,from);
+            }
+            let inc = match inc {
+                Some(inc) => super::core::number_of(&inc)?,
+                None => crate::Number::Int(1),
+            };
+            if inc == 0 {
+                return Err(Error::lisp_error("The increment can not be zero"));
+            }
+            let in_range = |n: crate::Number| if inc > 0 { n <= to } else { n >= to };
+            // Whether TO reaches VALUE, an integer past the 64-bit range.
+            let reaches = |value: i128| match to {
+                crate::Number::Float(to) if inc > 0 => to.floor() as i128 >= value,
+                crate::Number::Float(to) => to.ceil() as i128 <= value,
+                crate::Number::Int(_) => false,
+            };
+            let mut out = ListBuilder::new();
+            let (mut next, mut steps) = (from_number, 0_i64);
+            while in_range(next) {
+                out.push(TulispObject::from(next));
+                steps += 1;
+                next = match (next, inc) {
+                    (crate::Number::Int(n), crate::Number::Int(by)) => {
+                        match next.checked_add(inc) {
+                            Ok(after) => after,
+                            Err(err) if reaches(i128::from(n) + i128::from(by)) => return Err(err),
+                            Err(_) => break,
+                        }
+                    }
+                    (crate::Number::Float(_), _) | (_, crate::Number::Float(_)) => {
+                        let times = match inc {
+                            crate::Number::Int(inc) => (i128::from(inc) * i128::from(steps)) as f64,
+                            crate::Number::Float(inc) => inc * steps as f64,
+                        };
+                        from_number.checked_add(crate::Number::Float(times))?
+                    }
+                };
+            }
+            Ok(out.build())
+        },
+    );
+
     ctx.defun(
         "nth",
         |n: i64, list: TulispObject| -> Result<TulispObject, Error> { lists::nth(n, &list) },
@@ -818,6 +873,73 @@ mod tests {
                 "(ERR (wrong-type-argument listp 3))",
             ),
             ("(butlast 5)", "(ERR (wrong-type-argument sequencep 5))"),
+        ]);
+    }
+
+    #[test]
+    fn number_sequence_counts_from_from_to_to() {
+        assert_results(&[
+            ("(number-sequence 1 5)", "(1 2 3 4 5)"),
+            ("(number-sequence 5)", "(5)"),
+            ("(number-sequence 1 nil)", "(1)"),
+            ("(number-sequence 1 1)", "(1)"),
+            ("(number-sequence 1 5 2)", "(1 3 5)"),
+            ("(number-sequence 1 6 2)", "(1 3 5)"),
+            ("(number-sequence 5 1 -2)", "(5 3 1)"),
+            ("(number-sequence 5 1)", "nil"),
+            ("(number-sequence 0 1 0.25)", "(0 0.25 0.5 0.75 1.0)"),
+            ("(number-sequence 1.5 3)", "(1.5 2.5)"),
+            ("(number-sequence 1 1 0)", "(1)"),
+            ("(number-sequence 0 0.3 0.1)", "(0 0.1 0.2)"),
+            (
+                "(number-sequence 0.1 0.5 0.1)",
+                "(0.1 0.2 0.30000000000000004 0.4 0.5)",
+            ),
+            (
+                "(number-sequence 9223372036854775806 9223372036854775807)",
+                "(9223372036854775806 9223372036854775807)",
+            ),
+            (
+                "(number-sequence -9223372036854775807 9223372036854775807 9223372036854775807)",
+                "(-9223372036854775807 0 9223372036854775807)",
+            ),
+            (
+                "(number-sequence 9223372036854774000 9.223372036854775808e18 1000)",
+                "(9223372036854774000 9223372036854775000)",
+            ),
+            (
+                "(number-sequence -9223372036854774000 -9.223372036854775808e18 -1000)",
+                "(-9223372036854774000 -9223372036854775000)",
+            ),
+            // Emacs goes on with bignums.
+            (
+                "(number-sequence 9223372036854775807 2e19 9223372036854775807)",
+                "(ERR (arith-error))",
+            ),
+            (
+                "(number-sequence -9223372036854775807 -2e19 -9223372036854775807)",
+                "(ERR (arith-error))",
+            ),
+            (
+                "(number-sequence 9223372036854775000 9.223372036854775808e18 808)",
+                "(ERR (arith-error))",
+            ),
+            (
+                "(number-sequence -9223372036854775807 -9.223372036854777856e18 -2049)",
+                "(ERR (arith-error))",
+            ),
+            (
+                "(let ((l (number-sequence 0.0 2e19 4611686018427387904))) (list (length l) (= (car (last l)) 1.8446744073709552e19)))",
+                "(5 t)",
+            ),
+            (
+                "(number-sequence 1 2 0)",
+                r#"(ERR (error "The increment can not be zero"))"#,
+            ),
+            (
+                "(number-sequence 'a 3)",
+                "(ERR (wrong-type-argument number-or-marker-p a))",
+            ),
         ]);
     }
 }

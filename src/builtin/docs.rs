@@ -1083,6 +1083,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         ),
     ),
     (
+        "number-sequence",
+        concat!(
+            "Return the list of numbers from FROM to TO, stepping by INC. INC defaults to 1, and may be negative to count down. With TO nil or equal to FROM, return (FROM). A zero INC is an error.",
+            "\n\n",
+            "(fn FROM &optional TO INC)"
+        ),
+    ),
+    (
         "number-to-string",
         concat!(
             "Return the decimal representation of NUMBER as a string, as `prin1' prints it.",

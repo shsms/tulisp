@@ -131,17 +131,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.defun("ignore", |_arguments: crate::Rest<TulispObject>| ());
 
     ctx.defun("zerop", |number: TulispObject| {
-        if number.integerp() {
-            return Ok(i64::try_from(&number)? == 0);
-        }
-        if number.floatp() {
-            return Ok(f64::try_from(&number)? == 0.0);
-        }
-        Err(Error::wrong_type_argument(
-            "number-or-marker-p",
-            number.clone(),
-            format!("Expected number, got: {number}"),
-        ))
+        Ok::<_, Error>(number_of(&number)? == 0)
     });
 
     fn make_symbol(name: String) -> TulispObject {
@@ -477,6 +467,19 @@ pub(crate) fn push_text(out: &mut String, obj: &TulispObject) -> Result<(), Erro
         out.push(to_char(&item)?);
     }
     iter.take_error()
+}
+
+/// The number OBJ holds, or the error Emacs's arithmetic gives for any other
+/// value.
+pub(crate) fn number_of(obj: &TulispObject) -> Result<crate::Number, Error> {
+    if !obj.numberp() {
+        return Err(Error::wrong_type_argument(
+            "number-or-marker-p",
+            obj.clone(),
+            format!("Expected number, got: {obj}"),
+        ));
+    }
+    obj.inner_ref().0.as_number()
 }
 
 /// The character whose code is OBJ.
