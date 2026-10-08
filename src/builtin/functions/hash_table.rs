@@ -329,6 +329,12 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok::<_, Error>(TulispObject::nil())
     });
 
+    ctx.defun("hash-table-count", |table: TulispObject| {
+        let table = table_of(&table)?;
+        let count = table.inner.borrow().index.len();
+        i64::try_from(count).map_err(|_| Error::out_of_range(count.to_string()))
+    });
+
     // FUNCTION may change the table. As in Emacs, each slot is read as the walk
     // reaches it: an entry removed before then is not visited, and one added in
     // a slot after the current one is.
@@ -734,6 +740,21 @@ mod tests {
             ),
             (
                 "(remhash 'a 5)",
+                "(ERR (wrong-type-argument hash-table-p 5))",
+            ),
+        ]);
+    }
+
+    #[test]
+    fn hash_table_count_counts_the_entries() {
+        assert_results(&[
+            (
+                r#"(let ((h (make-hash-table :test 'equal))) (puthash "a" 1 h) (puthash "b" 2 h) (puthash "a" 3 h) (list (hash-table-count h) (progn (remhash "a" h) (hash-table-count h))))"#,
+                "(2 1)",
+            ),
+            ("(hash-table-count (make-hash-table))", "0"),
+            (
+                "(hash-table-count 5)",
                 "(ERR (wrong-type-argument hash-table-p 5))",
             ),
         ]);

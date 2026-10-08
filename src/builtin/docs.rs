@@ -758,6 +758,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         ),
     ),
     (
+        "hash-table-count",
+        concat!(
+            "Return the number of entries in hash table TABLE.",
+            "\n\n",
+            "(fn TABLE)"
+        ),
+    ),
+    (
         "identity",
         concat!("Return the ARGUMENT unchanged.", "\n\n", "(fn ARGUMENT)"),
     ),
