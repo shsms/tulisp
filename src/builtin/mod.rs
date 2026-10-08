@@ -12,7 +12,15 @@ differences from Emacs are called out inline.
 - **Arithmetic**: `+`, `-`, `*`, `/`, `%` (remainder, with the sign of the
   dividend), `mod`, `1+`, `1-`.
 - **Comparison**: `=`, `<`, `>`, `<=`, `>=`, `eql`, `max`, `min`, `abs`.
-- **Math**: `expt`, `sqrt`, `isnan`.
+- **Math**: `expt`, `sqrt`, `isnan`, `exp`, `log` (with an optional base),
+  `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, and the variables `float-pi`
+  and `float-e`.
+- **Bitwise**: `logand`, `logior`, `logxor`, `lognot`, `ash`, `logcount`. A
+  result of `ash` too large for tulisp's integers is an `arith-error`, where
+  Emacs makes a bignum.
+- **Random numbers**: `random`. `(random "TEXT")` seeds it from TEXT, so the
+  numbers after it repeat; a host can seed it with
+  [`set_random_seed`](crate::TulispContext::set_random_seed).
 - **Numerical conversion**: `floor`, `ceiling`, `truncate`, `round`,
   `ffloor`, `fceiling`, `ftruncate`, `fround`. The integer-returning
   forms take an optional divisor, and divide two integers exactly. `round`
@@ -35,11 +43,13 @@ differences from Emacs are called out inline.
 - **Conversion**: `string-to-number` (an integer too large for tulisp's
   integers is an `arith-error`, where Emacs makes a bignum),
   `number-to-string`, `char-to-string`, `string`, `string-to-char`.
+- **Reading**: `read` and `read-from-string`, which read a value from a
+  string. `read` takes only a string: tulisp has no buffers or input streams.
 
 # Lists
 
 - **Construction**: `cons`, `list`, `append`, `number-sequence`,
-  `string-to-list`.
+  `string-to-list`, `copy-sequence`, `copy-tree`.
 - **Access**: `car`, `cdr`, every `c[ad]+r` form up to four `a`/`d`s,
   `nth`, `nthcdr`, `elt`, `last`, `butlast`, `car-safe`, `cdr-safe`.
 - **Modification**: `setcar`, `setcdr`, `push` and `pop` (PLACE must be
@@ -50,7 +60,8 @@ differences from Emacs are called out inline.
   `memq`, `memql`, `member`.
 - **Sequence operations**: `reverse`, `sort`, `mapcar`, `mapc`,
   `mapconcat`, `string-join`, `remove`, `seq-map`, `seq-filter`,
-  `seq-reduce`, `seq-find`, `seq-take`, `seq-drop`.
+  `seq-remove`, `seq-reduce`, `seq-find`, `seq-take`, `seq-drop`,
+  `seq-sort`, `seq-uniq`.
 - **Ordering**: `value<`, the order `sort` uses when given no predicate:
   numbers by value, strings and symbols by name, lists element by element.
 - **Alists**: `assoc`, `assq`, `alist-get`.
@@ -61,9 +72,10 @@ error when the list's cdrs loop back to an earlier cell. Unlike Emacs,
 `last` and `plist-get` without a PREDICATE also do so.
 
 Tulisp has no vector type. Of the sequence functions, `length`, `elt`,
-`append`, `string-to-list`, `mapc`, `mapcar`, `mapconcat`, `seq-map`,
-`seq-filter`, `seq-reduce`, `seq-find`, `remove`, `delete` and `nreverse`
-also take a string; the others take only lists.
+`append`, `string-to-list`, `copy-sequence`, `mapc`, `mapcar`, `mapconcat`,
+`seq-map`, `seq-filter`, `seq-remove`, `seq-reduce`, `seq-find`,
+`seq-sort`, `seq-uniq`, `remove`, `delete` and `nreverse` also take a
+string; the others take only lists.
 
 # Symbols and variables
 
