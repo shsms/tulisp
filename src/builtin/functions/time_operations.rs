@@ -23,13 +23,11 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     });
 
     ctx.defun("time-subtract", |t1: TulispObject, t2: TulispObject| {
-        let (ticks1, ticks2, hz) = common_ticks(ticks_hz_from_obj(&t1)?, ticks_hz_from_obj(&t2)?);
-        time_from_ticks(ticks1 - ticks2, hz)
+        time_arith(&t1, &t2, |a, b| a - b)
     });
 
     ctx.defun("time-add", |t1: TulispObject, t2: TulispObject| {
-        let (ticks1, ticks2, hz) = common_ticks(ticks_hz_from_obj(&t1)?, ticks_hz_from_obj(&t2)?);
-        time_from_ticks(ticks1 + ticks2, hz)
+        time_arith(&t1, &t2, |a, b| a + b)
     });
 
     ctx.defun("format-seconds", format_seconds);
@@ -48,6 +46,25 @@ fn common_ticks((ticks1, hz1): (i64, i64), (ticks2, hz2): (i64, i64)) -> (i128, 
     )
 }
 
+/// The sum or difference OP of T1 and T2 over their common HZ, reduced to
+/// lowest terms but kept at the smaller of the two HZ or above, as Emacs
+/// reduces it. With equal HZ this gives back that HZ.
+fn time_arith(
+    t1: &TulispObject,
+    t2: &TulispObject,
+    op: fn(i128, i128) -> i128,
+) -> Result<TulispObject, Error> {
+    let (time1, time2) = (ticks_hz_from_obj(t1)?, ticks_hz_from_obj(t2)?);
+    let (ticks1, ticks2, hz) = common_ticks(time1, time2);
+    let ticks = op(ticks1, ticks2);
+    let divisor = gcd(ticks.abs(), hz);
+    let (ticks, hz) = (ticks / divisor, hz / divisor);
+    let min_hz = i128::from(time1.1.min(time2.1));
+    // The smallest whole factor that brings HZ to MIN_HZ or above.
+    let scale = (min_hz + hz - 1) / hz;
+    time_from_ticks(ticks * scale, hz * scale)
+}
+
 fn gcd(mut a: i128, mut b: i128) -> i128 {
     while b != 0 {
         (a, b) = (b, a % b);
@@ -56,7 +73,7 @@ fn gcd(mut a: i128, mut b: i128) -> i128 {
 }
 
 /// The time `(TICKS . HZ)`. One whose ticks or HZ do not fit an integer is an
-/// `arith-error`.
+/// `arith-error`, where Emacs makes a bignum.
 fn time_from_ticks(ticks: i128, hz: i128) -> Result<TulispObject, Error> {
     match (i64::try_from(ticks), i64::try_from(hz)) {
         (Ok(ticks), Ok(hz)) => Ok(TulispObject::cons(ticks.into(), hz.into())),
@@ -538,25 +555,25 @@ mod tests {
         eval_assert_equal(
             ctx,
             &format!("(time-add '{t1} '(1 . 1000000))"),
-            "'(1758549821506646000 . 1000000000)",
+            "'(1758549821506646 . 1000000)",
         );
 
         eval_assert_equal(
             ctx,
             &format!("(time-add '{t1} '(1 . 1))"),
-            "'(1758549822506645000 . 1000000000)",
+            "'(351709964501329 . 200000)",
         );
 
         eval_assert_equal(
             ctx,
             &format!("(time-add 1 '{t1})"),
-            "'(1758549822506645000 . 1000000000)",
+            "'(351709964501329 . 200000)",
         );
 
         eval_assert_equal(
             ctx,
             &format!("(time-add '{t1} 1)"),
-            "'(1758549822506645000 . 1000000000)",
+            "'(351709964501329 . 200000)",
         );
 
         eval_assert_equal(
@@ -568,27 +585,29 @@ mod tests {
         eval_assert_equal(
             ctx,
             &format!("(time-subtract '{t1} '(1 . 1000000))"),
-            "'(1758549821506644000 . 1000000000)",
+            "'(1758549821506644 . 1000000)",
         );
 
         eval_assert_equal(
             ctx,
             &format!("(time-subtract '{t1} '(1 . 1))"),
-            "'(1758549820506645000 . 1000000000)",
+            "'(351709964101329 . 200000)",
         );
 
         eval_assert_equal(
             ctx,
             &format!("(time-subtract '{t1} 1)"),
-            "'(1758549820506645000 . 1000000000)",
+            "'(351709964101329 . 200000)",
         );
 
         Ok(())
     }
 
     // As in Emacs, two times with different HZ meet at the least common
-    // multiple of the two, and a comparison is exact. A result whose ticks or HZ
-    // do not fit an integer is an arith-error.
+    // multiple of the two, and a comparison is exact. A sum or difference is
+    // then reduced to lowest terms, but not below the smaller HZ. A result
+    // whose ticks or HZ do not fit an integer is an arith-error, where Emacs
+    // makes a bignum.
     #[test]
     fn time_arithmetic_with_different_hz_is_exact() {
         assert_results(&[
@@ -598,7 +617,15 @@ mod tests {
             ("(time-add '(3 . 6) '(1 . 3))", "(5 . 6)"),
             ("(time-add 1 '(1 . 2))", "(3 . 2)"),
             ("(time-add '(1 . 2) '(1 . 2))", "(2 . 2)"),
+            ("(time-add '(2 . 4) '(2 . 4))", "(4 . 4)"),
             ("(time-subtract '(1 . 2) '(1 . 3))", "(1 . 6)"),
+            ("(time-add '(1 . 4) '(1 . 12))", "(2 . 6)"),
+            ("(time-add '(1 . 2) '(1 . 6))", "(2 . 3)"),
+            ("(time-add '(1 . 2) '(3 . 6))", "(2 . 2)"),
+            ("(time-add '(1 . 10) '(1 . 15))", "(2 . 12)"),
+            ("(time-add '(-1 . 10) '(-1 . 15))", "(-2 . 12)"),
+            ("(time-subtract '(1 . 12) '(1 . 4))", "(-1 . 6)"),
+            ("(time-subtract '(1 . 2) '(2 . 4))", "(0 . 2)"),
             ("(time-less-p '(1 . 3) '(1 . 2))", "t"),
             ("(time-less-p '(1 . 2) '(1 . 3))", "nil"),
             ("(time-equal-p '(1 . 3) '(1 . 2))", "nil"),
@@ -615,6 +642,10 @@ mod tests {
             (
                 "(time-add '(1 . 9223372036854775807) '(1 . 7))",
                 "(1317624576693539402 . 9223372036854775807)",
+            ),
+            (
+                "(time-add '(9223372036854775807 . 9223372036854775807) '(0 . 2))",
+                "(2 . 2)",
             ),
             ("(time-add 9223372036854775807 1)", "(ERR (arith-error))"),
             (
