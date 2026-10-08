@@ -232,6 +232,23 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         Ok(result)
     });
 
+    // As in Emacs, an N of 0 or less gives LIST itself, and any other N a new
+    // list.
+    ctx.defun("butlast", |list: TulispObject, n: Option<i64>| {
+        let n = n.unwrap_or(1);
+        if n <= 0 {
+            return Ok(list);
+        }
+        let keep = lists::sequence_length(&list)?.saturating_sub(n);
+        let mut kept = ListBuilder::new();
+        let mut rest = list;
+        for _ in 0..keep {
+            kept.push(rest.car()?);
+            rest = rest.cdr()?;
+        }
+        Ok::<_, Error>(kept.build())
+    });
+
     ctx.defun(
         "nth",
         |n: i64, list: TulispObject| -> Result<TulispObject, Error> { lists::nth(n, &list) },
@@ -780,6 +797,27 @@ mod tests {
                 "(nconc (list 1) 1 (list 2))",
                 "(ERR (wrong-type-argument consp 1))",
             ),
+        ]);
+    }
+
+    #[test]
+    fn butlast_copies_all_but_the_last() {
+        assert_results(&[
+            ("(butlast (list 1 2 3))", "(1 2)"),
+            ("(butlast (list 1 2 3) 2)", "(1)"),
+            ("(butlast (list 1 2 3) 5)", "nil"),
+            ("(butlast nil)", "nil"),
+            ("(let ((l (list 1 2 3))) (butlast l) l)", "(1 2 3)"),
+            // An N of 0 or less gives the list itself.
+            (
+                "(let ((l (list 1 2))) (list (eq (butlast l 0) l) (eq (butlast l -1) l)))",
+                "(t t)",
+            ),
+            (
+                "(butlast (cons 1 (cons 2 3)))",
+                "(ERR (wrong-type-argument listp 3))",
+            ),
+            ("(butlast 5)", "(ERR (wrong-type-argument sequencep 5))"),
         ]);
     }
 }

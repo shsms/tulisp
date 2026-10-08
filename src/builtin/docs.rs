@@ -190,6 +190,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         ),
     ),
     (
+        "butlast",
+        concat!(
+            "Return a copy of LIST without its last N elements. N defaults to 1; with N of 0 or less, return LIST itself.",
+            "\n\n",
+            "(fn LIST &optional N)"
+        ),
+    ),
+    (
         "caaaar",
         concat!(
             "Return the `car' of the `car' of the `car' of the `car' of X.",
