@@ -355,7 +355,7 @@ mod tests {
         eval_assert_error_line(
             &mut ctx,
             r#"(condition-case t (error "x") (error 'caught))"#,
-            "ERR TypeMismatch: Can't set constant symbol: t",
+            "ERR SettingConstant: Can't set constant symbol: t",
         );
         eval_assert_equal(&mut ctx, "(condition-case t 5 (error 'caught))", "5");
         // Normal completion returns the protected-form's value.

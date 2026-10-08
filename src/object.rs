@@ -609,7 +609,7 @@ impl TulispObject {
             .borrow_mut()
             .0
             .set(to_set)
-            .map_err(|e| e.with_trace(self.clone()))
+            .map_err(|e| e.fill_and_trace(self))
     }
 
     /// Sets a value to `self`, in the new scope, such that when it is `unset`,
@@ -622,7 +622,7 @@ impl TulispObject {
             .borrow_mut()
             .0
             .set_scope(to_set)
-            .map_err(|e| e.with_trace(self.clone()))
+            .map_err(|e| e.fill_and_trace(self))
     }
 
     /// Marks `self` as a "special" (dynamically-bound) variable. Once
@@ -889,11 +889,19 @@ impl TulispObject {
     }
 
     pub(crate) fn check_global_settable(&self) -> Result<(), Error> {
-        self.rc.borrow().0.check_global_settable()
+        self.rc
+            .borrow()
+            .0
+            .check_global_settable()
+            .map_err(|e| e.fill_value(self))
     }
 
     pub(crate) fn set_global(&self, to_set: TulispObject) -> Result<(), Error> {
-        self.rc.borrow_mut().0.set_global(to_set)
+        self.rc
+            .borrow_mut()
+            .0
+            .set_global(to_set)
+            .map_err(|e| e.fill_value(self))
     }
 
     pub(crate) fn global(&self) -> Option<TulispObject> {
@@ -901,7 +909,11 @@ impl TulispObject {
     }
 
     pub(crate) fn unset_global(&self) -> Result<(), Error> {
-        self.rc.borrow_mut().0.unset_global()
+        self.rc
+            .borrow_mut()
+            .0
+            .unset_global()
+            .map_err(|e| e.fill_value(self))
     }
 
     /// True for any symbol but `nil` and `t`: a `Symbol` value,

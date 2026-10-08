@@ -137,7 +137,7 @@ use crate::{Error, TulispContext, TulispObject, TulispValue};
 /// or `t`. Keywords are not checked here.
 pub(crate) fn check_not_nil_or_t(name: &TulispObject) -> Result<(), Error> {
     if matches!(name.inner_ref().0, TulispValue::Nil | TulispValue::T) {
-        return Err(Error::setting_constant(name).with_trace(name.clone()));
+        return Err(Error::setting_constant(name).fill_and_trace(name));
     }
     Ok(())
 }
@@ -239,7 +239,7 @@ pub(crate) fn check_settable_target(target: &TulispObject) -> Result<(), Error> 
         );
     }
     if target.keywordp() {
-        return Err(Error::setting_constant(target).with_trace(target.clone()));
+        return Err(Error::setting_constant(target).fill_and_trace(target));
     }
     Ok(())
 }

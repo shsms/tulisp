@@ -340,7 +340,7 @@ mod tests {
         eval_assert_error(
             ctx,
             "(let ((nil 1)) 1)",
-            "ERR TypeMismatch: Can't set constant symbol: nil\n\
+            "ERR SettingConstant: Can't set constant symbol: nil\n\
              <eval_string>:1.8-1.10:  at nil\n\
              <eval_string>:1.1-1.17:  at (let ((nil 1)) 1)\n",
         );
@@ -395,7 +395,7 @@ mod tests {
         eval_assert_error_line(
             ctx,
             "(setq a 1 t 2)",
-            "ERR TypeMismatch: Can't set constant symbol: t",
+            "ERR SettingConstant: Can't set constant symbol: t",
         );
     }
 
@@ -551,7 +551,7 @@ mod tests {
         eval_assert_error_line(
             ctx,
             "(let ((:k 1)) :k)",
-            "ERR TypeMismatch: Can't set constant symbol: :k",
+            "ERR SettingConstant: Can't set constant symbol: :k",
         );
     }
 

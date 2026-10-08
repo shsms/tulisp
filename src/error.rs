@@ -7,11 +7,11 @@ pub(crate) use table::ErrorTable;
 
 /// A macro for defining the `ErrorKind` enum, the `Display` implementation for
 /// it, and the constructors for the `Error` struct. The kinds before the `;`
-/// carry only a description; those after it carry a value too, and print
-/// through `ErrorKind::fmt_value`.
+/// carry only a description, and each gets a constructor if it names one; those
+/// after it carry a value too, and print through `ErrorKind::fmt_value`.
 macro_rules! ErrorKind {
     (
-        $($(#[$kind_meta:meta])* ($kind:ident, $ctor:ident)),* $(,)?
+        $($(#[$kind_meta:meta])* ($kind:ident $(, $ctor:ident)?)),* $(,)?
         ;
         $($(#[$meta:meta])* $valued:ident $fields:tt),* $(,)?
     ) => {
@@ -44,7 +44,7 @@ macro_rules! ErrorKind {
 
         /// Constructors for [`Error`].
         impl Error {
-            $(
+            $($(
                 #[doc = concat!(
                     "Creates a new [`Error`] with the `",
                     stringify!($kind),
@@ -53,7 +53,7 @@ macro_rules! ErrorKind {
                 pub fn $ctor(desc: impl Into<String>) -> crate::error::Error {
                     Self::new(ErrorKind::$kind, desc)
                 }
-            )*
+            )?)*
         }
     };
 }
@@ -80,8 +80,7 @@ ErrorKind!(
     (OSError,         os_error),
     /// Output to a pipe whose reader has gone. `file-error` in Lisp.
     (BrokenPipe,      broken_pipe),
-    /// An argument of the wrong type, or setting a constant such as
-    /// `nil`. `wrong-type-argument` in Lisp.
+    /// An argument of the wrong type. `wrong-type-argument` in Lisp.
     (TypeMismatch,    type_mismatch),
     /// A malformed property list. `wrong-type-argument` in Lisp.
     (PlistError,      plist_error),
@@ -110,7 +109,10 @@ ErrorKind!(
     (SyntaxError,     syntax_error),
     /// A run stopped by [`Interrupt::Stop`](crate::Interrupt::Stop). No
     /// `condition-case` handler catches it.
-    (Interrupted,     interrupted);
+    (Interrupted,     interrupted),
+    /// Setting or binding a constant, such as `nil`, `t` or a keyword; see
+    /// [`Error::setting_constant`]. `setting-constant` in Lisp.
+    (SettingConstant);
     /// A `throw`, holding `(TAG . VALUE)`; see [`Error::throw`].
     Throw(TulispObject),
     /// An error symbol raised with its data, by `signal` or
@@ -149,10 +151,21 @@ impl Error {
         Error::out_of_range("Circular list".to_string())
     }
 
-    /// The error for binding or setting a constant, such as `nil`,
-    /// `t` or a keyword. Emacs signals `setting-constant` here.
+    /// The error for binding or setting a constant, such as `nil`, `t` or a
+    /// keyword, named NAME. Emacs signals `setting-constant` here, with
+    /// `(SYMBOL)` as its data: the `TulispObject` method that sets the symbol
+    /// fills it in, and an error it did not fill names the symbol NAME interns
+    /// to.
     pub fn setting_constant(name: impl std::fmt::Display) -> Error {
-        Error::type_mismatch(format!("Can't set constant symbol: {name}"))
+        let name = name.to_string();
+        Self::new(
+            ErrorKind::SettingConstant,
+            format!("Can't set constant symbol: {name}"),
+        )
+        .with_data(ErrorData::Constant {
+            name: name.into_boxed_str(),
+            symbol: None,
+        })
     }
 
     /// The error for calling FUNCTION, which is not a function: a symbol with
@@ -219,6 +232,12 @@ enum ErrorData {
     /// function, SYMBOL is whatever was called. SYMBOL is `None` until a
     /// `TulispObject` method fills it in.
     Symbol(Option<TulispObject>),
+    /// `(SYMBOL)`, for `setting-constant`. Until a `TulispObject` method fills
+    /// SYMBOL in, the data names the symbol NAME interns to.
+    Constant {
+        name: Box<str>,
+        symbol: Option<TulispObject>,
+    },
 }
 
 /// Represents an error that occurred during Tulisp evaluation.
@@ -335,7 +354,9 @@ impl Error {
     /// value is already set, or that has none, is returned as is.
     pub(crate) fn fill_value(mut self, object: &TulispObject) -> Self {
         if let Some(data) = self.data.as_deref_mut() {
-            let (ErrorData::WrongType { value: slot, .. } | ErrorData::Symbol(slot)) = data;
+            let (ErrorData::WrongType { value: slot, .. }
+            | ErrorData::Symbol(slot)
+            | ErrorData::Constant { symbol: slot, .. }) = data;
             slot.get_or_insert_with(|| object.clone());
         }
         self
@@ -357,6 +378,10 @@ impl Error {
             ErrorData::Symbol(symbol) => {
                 Some(TulispObject::cons(symbol.clone()?, TulispObject::nil()))
             }
+            ErrorData::Constant { name, symbol } => Some(TulispObject::cons(
+                symbol.clone().unwrap_or_else(|| ctx.intern(name)),
+                TulispObject::nil(),
+            )),
         }
     }
 
@@ -473,8 +498,8 @@ impl Error {
     ///
     /// - `(PREDICATE VALUE)` for a wrong-type error whose value is set, as in
     ///   Emacs;
-    /// - `(SYMBOL)` for a void variable whose symbol is set, or for calling a
-    ///   symbol with no function, as in Emacs;
+    /// - `(SYMBOL)` for a void variable whose symbol is set, for calling a
+    ///   symbol with no function, or for setting a constant, as in Emacs;
     /// - `(VALUE)` for calling any other value that is not a function, a macro
     ///   or a special form, where Emacs signals `invalid-function`;
     /// - nil for an `ArithError`, as in Emacs;
@@ -521,6 +546,7 @@ impl Error {
             ErrorKind::OSError | ErrorKind::BrokenPipe => "file-error",
             ErrorKind::PlistError | ErrorKind::AlistError => "wrong-type-argument",
             ErrorKind::Signal { symbol, .. } => return symbol.as_symbol().ok().map(Cow::Owned),
+            ErrorKind::SettingConstant => "setting-constant",
             ErrorKind::Throw(_) | ErrorKind::Interrupted => return None,
         };
         Some(Cow::Borrowed(name))
@@ -587,6 +613,24 @@ mod tests {
         ] {
             assert_data(ctx, err, expected);
         }
+    }
+
+    // A constant's error names the symbol filled in, or else the symbol its
+    // name interns to.
+    #[test]
+    fn data_holds_the_constant() {
+        let ctx = &mut crate::TulispContext::new();
+        let symbol = ctx.intern("x");
+        for (err, expected) in [
+            (Error::setting_constant("nil"), "'(nil)"),
+            (Error::setting_constant("t"), "'(t)"),
+            (Error::setting_constant(":k"), "'(:k)"),
+            (Error::setting_constant("m").fill_value(&symbol), "'(x)"),
+        ] {
+            assert_data(ctx, err, expected);
+        }
+        let keyword = Error::setting_constant(":k").data(ctx).car().unwrap();
+        assert!(keyword.eq(&ctx.intern(":k")));
     }
 
     // Every `Result` in the VM carries an `Error`.

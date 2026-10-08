@@ -963,7 +963,7 @@ mod tests {
         eval_assert_error(
             ctx,
             "(setq t 5)",
-            r#"ERR TypeMismatch: Can't set constant symbol: t
+            r#"ERR SettingConstant: Can't set constant symbol: t
 <eval_string>:1.7-1.7:  at t
 <eval_string>:1.1-1.10:  at (setq t 5)
 "#,
@@ -971,7 +971,7 @@ mod tests {
         eval_assert_error(
             ctx,
             "(setq nil 5)",
-            r#"ERR TypeMismatch: Can't set constant symbol: nil
+            r#"ERR SettingConstant: Can't set constant symbol: nil
 <eval_string>:1.7-1.9:  at nil
 <eval_string>:1.1-1.12:  at (setq nil 5)
 "#,
@@ -979,7 +979,7 @@ mod tests {
         eval_assert_error(
             ctx,
             "(setq :foo 5)",
-            r#"ERR TypeMismatch: Can't set constant symbol: :foo
+            r#"ERR SettingConstant: Can't set constant symbol: :foo
 <eval_string>:1.1-1.13:  at (setq :foo 5)
 "#,
         );
@@ -993,7 +993,7 @@ mod tests {
         eval_assert_error(
             ctx,
             "(set 't 5)",
-            r#"ERR TypeMismatch: Can't set constant symbol: t
+            r#"ERR SettingConstant: Can't set constant symbol: t
 <eval_string>:1.7-1.7:  at t
 <eval_string>:1.1-1.10:  at (set 't 5)
 "#,
@@ -1001,7 +1001,7 @@ mod tests {
         eval_assert_error(
             ctx,
             "(set ':foo 5)",
-            r#"ERR TypeMismatch: Can't set constant symbol: :foo
+            r#"ERR SettingConstant: Can't set constant symbol: :foo
 <eval_string>:1.1-1.13:  at (set ':foo 5)
 "#,
         );
@@ -1210,7 +1210,7 @@ mod tests {
             eval_assert_error_line(
                 ctx,
                 form,
-                &format!("ERR TypeMismatch: Can't set constant symbol: {name}"),
+                &format!("ERR SettingConstant: Can't set constant symbol: {name}"),
             );
         }
         // A second parameter after `&rest` is its own error, whatever
@@ -1586,5 +1586,30 @@ tests/bad-load.lisp:1.9-1.9:  at nil
             "(concat '(4294967393))",
             "ERR TypeMismatch: Not a character: 4294967393",
         );
+    }
+
+    // Setting a constant is a `setting-constant` error naming the symbol, as in
+    // Emacs.
+    #[test]
+    fn setting_a_constant_names_the_symbol() {
+        assert_results(&[
+            ("(set nil 1)", "(ERR (setting-constant nil))"),
+            ("(set t 1)", "(ERR (setting-constant t))"),
+            ("(set :k 1)", "(ERR (setting-constant :k))"),
+            ("(eval '(setq nil 1) t)", "(ERR (setting-constant nil))"),
+            (
+                "(eval '(let ((nil 1)) 1) t)",
+                "(ERR (setting-constant nil))",
+            ),
+            ("(add-to-list nil 1)", "(ERR (setting-constant nil))"),
+            // Emacs lets `defvar` and `defun` take a keyword; Tulisp refuses it
+            // as a constant.
+            ("(eval '(defvar :k 1) t)", "(ERR (setting-constant :k))"),
+            ("(eval '(defun :k () 1) t)", "(ERR (setting-constant :k))"),
+            (
+                "(condition-case e (set nil 1) (error (error-message-string e)))",
+                r#""Attempt to set a constant symbol: nil""#,
+            ),
+        ]);
     }
 }

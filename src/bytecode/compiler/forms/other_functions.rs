@@ -719,15 +719,15 @@ mod tests {
         for (program, line) in [
             (
                 "(eval (list 'defun t nil 1))",
-                "ERR TypeMismatch: Can't set constant symbol: t",
+                "ERR SettingConstant: Can't set constant symbol: t",
             ),
             (
                 "(eval (list 'defun :k nil 1))",
-                "ERR TypeMismatch: Can't set constant symbol: :k",
+                "ERR SettingConstant: Can't set constant symbol: :k",
             ),
             (
                 "(eval (list 'defun :k nil '(car)))",
-                "ERR TypeMismatch: Can't set constant symbol: :k",
+                "ERR SettingConstant: Can't set constant symbol: :k",
             ),
             (
                 "(eval (list 'defun \"s\" nil 1))",

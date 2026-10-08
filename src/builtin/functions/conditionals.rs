@@ -313,12 +313,12 @@ mod tests {
         eval_assert_error_line(
             ctx,
             "(if-let* (nil) 1 2)",
-            "ERR TypeMismatch: Can't set constant symbol: nil",
+            "ERR SettingConstant: Can't set constant symbol: nil",
         );
         eval_assert_error_line(
             ctx,
             "(when-let ((a 1) t) 3)",
-            "ERR TypeMismatch: Can't set constant symbol: t",
+            "ERR SettingConstant: Can't set constant symbol: t",
         );
     }
 
