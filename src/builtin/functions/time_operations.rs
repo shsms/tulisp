@@ -72,10 +72,11 @@ fn gcd(mut a: i128, mut b: i128) -> i128 {
     a
 }
 
-/// The time `(TICKS . HZ)`. One whose ticks or HZ do not fit an integer is an
-/// `arith-error`, where Emacs makes a bignum.
+/// The time `(TICKS . HZ)`, or TICKS when HZ is 1, as in Emacs. One whose ticks
+/// or HZ do not fit an integer is an `arith-error`, where Emacs makes a bignum.
 fn time_from_ticks(ticks: i128, hz: i128) -> Result<TulispObject, Error> {
     match (i64::try_from(ticks), i64::try_from(hz)) {
+        (Ok(ticks), Ok(1)) => Ok(ticks.into()),
         (Ok(ticks), Ok(hz)) => Ok(TulispObject::cons(ticks.into(), hz.into())),
         _ => Err(Error::arith_error(format!(
             "integer overflow: time ({ticks} . {hz})"
@@ -663,6 +664,25 @@ mod tests {
             (
                 "(time-add '(1 . 9223372036854775807) '(1 . 9223372036854775806))",
                 "(ERR (arith-error))",
+            ),
+        ]);
+    }
+
+    // As in Emacs, a sum or difference whose HZ is 1, after it is reduced, is a
+    // number of seconds.
+    #[test]
+    fn a_time_in_whole_seconds_is_an_integer() {
+        assert_results(&[
+            ("(time-add 1 2)", "3"),
+            ("(time-subtract 2 5)", "-3"),
+            ("(time-add '(2 . 1) '(3 . 1))", "5"),
+            ("(time-subtract '(1 . 2) '(1 . 2))", "(0 . 2)"),
+            ("(time-add '(7 . 7) 1)", "2"),
+            ("(time-subtract 1 '(3 . 3))", "0"),
+            ("(time-add 9223372036854775806 1)", "9223372036854775807"),
+            (
+                "(time-subtract -9223372036854775807 1)",
+                "-9223372036854775808",
             ),
         ]);
     }
