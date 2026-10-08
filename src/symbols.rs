@@ -3,6 +3,7 @@
 //! gives them.
 
 use std::borrow::Cow;
+use std::ops::Range;
 
 use crate::value::DefunArity;
 
@@ -65,7 +66,14 @@ impl Signature {
     /// The signature as Emacs shows one: `(NAME A &optional B &rest C)`, with
     /// `&key` before keyword arguments.
     pub fn render(&self, name: &str) -> String {
+        self.render_with_ranges(name).0
+    }
+
+    /// [`render`](Self::render), and where each parameter's label is in the
+    /// result: one byte range per entry of `params`, in order.
+    pub fn render_with_ranges(&self, name: &str) -> (String, Vec<Range<usize>>) {
         let mut out = format!("({name}");
+        let mut ranges = Vec::with_capacity(self.params.len());
         let mut section = ParamPosition::Required;
         for param in &self.params {
             if param.position != section {
@@ -78,10 +86,12 @@ impl Signature {
                 });
             }
             out.push(' ');
+            let start = out.len();
             out.push_str(&param.label());
+            ranges.push(start..out.len());
         }
         out.push(')');
-        out
+        (out, ranges)
     }
 
     /// A signature with no names, from the counts of an arity.
@@ -198,4 +208,59 @@ pub(crate) fn split_usage(doc: &str) -> Option<(&str, Signature)> {
         }
     }
     Some((text.trim_end(), Signature { params }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ParamPosition, Signature};
+    use crate::value::DefunArity;
+
+    #[test]
+    fn each_range_covers_its_parameter() {
+        let signature = Signature::from_lambda_list(["a", "b", "&optional", "c", "&rest", "d"]);
+        let (text, ranges) = signature.render_with_ranges("f");
+        assert_eq!(text, "(f A B &optional C &rest D)");
+        assert_eq!(ranges, [3..4, 5..6, 17..18, 25..26]);
+    }
+
+    // Two parameters with the same label still get their own ranges.
+    #[test]
+    fn repeated_labels_get_their_own_ranges() {
+        let signature = Signature::from_arity(&DefunArity {
+            required: 2,
+            optional: 0,
+            has_rest: false,
+        });
+        let (text, ranges) = signature.render_with_ranges("f");
+        assert_eq!(text, "(f ARG ARG)");
+        assert_eq!(ranges, [3..6, 7..10]);
+    }
+
+    // ƒ and É are 2 bytes each: "(ƒ" is bytes 0..3, É is 4..6, " &key" is
+    // 6..11, and B is 12..13. `from_lambda_list` knows only `&optional` and
+    // `&rest`, so the keyword parameter is made by hand.
+    #[test]
+    fn ranges_count_bytes() {
+        let mut signature = Signature::from_lambda_list(["é", "b"]);
+        signature.params[1].position = ParamPosition::Keywords;
+        let (text, ranges) = signature.render_with_ranges("ƒ");
+        assert_eq!(text, "(ƒ É &key B)");
+        assert_eq!(ranges, [4..6, 12..13]);
+    }
+
+    // A label can take more bytes than its name: ɐ is 2 bytes, and its capital
+    // Ɐ is 3.
+    #[test]
+    fn a_range_covers_the_label_as_written() {
+        let (text, ranges) = Signature::from_lambda_list(["ɐ"]).render_with_ranges("f");
+        assert_eq!(text, "(f Ɐ)");
+        assert_eq!(ranges, vec![3..6]);
+    }
+
+    #[test]
+    fn no_parameters_no_ranges() {
+        let (text, ranges) = Signature { params: Vec::new() }.render_with_ranges("f");
+        assert_eq!(text, "(f)");
+        assert!(ranges.is_empty());
+    }
 }
