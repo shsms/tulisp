@@ -3,7 +3,7 @@ use crate::{
     object::wrappers::generic::SharedMut,
 };
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, hash_map::Entry};
 use std::hash::{Hash, Hasher};
 
 /// Key-comparison mode of a table, per Emacs `make-hash-table`'s
@@ -141,9 +141,66 @@ impl PartialEq for HashKey {
 }
 impl Eq for HashKey {}
 
+/// A table's entries, in the order Emacs keeps them: each entry has a slot, a
+/// new key takes the slot freed last or else a new one at the end, and
+/// `maphash` visits the slots in order.
+#[derive(Default)]
+struct Entries {
+    /// Each slot's key and value; `None` for a slot `remhash` freed.
+    slots: Vec<Option<(TulispObject, TulispObject)>>,
+    /// The slot of each key.
+    index: HashMap<HashKey, usize>,
+    /// The freed slots, the one freed last at the end.
+    free: Vec<usize>,
+}
+
+impl Entries {
+    fn get(&self, key: &HashKey) -> Option<TulispObject> {
+        let slot = *self.index.get(key)?;
+        let (_, value) = self.slots.get(slot)?.as_ref()?;
+        Some(value.clone())
+    }
+
+    /// Sets KEY's value, in KEY's slot if it has one.
+    fn insert(&mut self, key: HashKey, value: TulispObject) {
+        let vacant = match self.index.entry(key) {
+            Entry::Occupied(found) => {
+                if let Some(Some((_, old))) = self.slots.get_mut(*found.get()) {
+                    *old = value;
+                }
+                return;
+            }
+            Entry::Vacant(vacant) => vacant,
+        };
+        let entry = Some((vacant.key().obj.clone(), value));
+        let slot = match self.free.pop() {
+            Some(slot) => {
+                if let Some(free) = self.slots.get_mut(slot) {
+                    *free = entry;
+                }
+                slot
+            }
+            None => {
+                self.slots.push(entry);
+                self.slots.len() - 1
+            }
+        };
+        vacant.insert(slot);
+    }
+
+    fn remove(&mut self, key: &HashKey) {
+        if let Some(slot) = self.index.remove(key) {
+            if let Some(entry) = self.slots.get_mut(slot) {
+                *entry = None;
+            }
+            self.free.push(slot);
+        }
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct HashTable {
-    inner: SharedMut<HashMap<HashKey, TulispObject>>,
+    inner: SharedMut<Entries>,
     test: HashTest,
 }
 
@@ -153,9 +210,9 @@ impl Drop for HashTable {
         // is let go of before the next is released, so the last reference to an
         // object that is in the table twice is released.
         if let Some(entries) = self.inner.get_mut() {
-            for (mut key, mut value) in std::mem::take(entries) {
-                crate::object::release(&mut key.obj);
-                drop(key);
+            drop(std::mem::take(&mut entries.index));
+            for (mut key, mut value) in std::mem::take(&mut entries.slots).into_iter().flatten() {
+                crate::object::release(&mut key);
                 crate::object::release(&mut value);
             }
         }
@@ -168,6 +225,19 @@ impl HashTable {
             obj,
             test: self.test,
         }
+    }
+}
+
+/// The table OBJ holds, or the error Emacs gives for any other value.
+fn table_of(obj: &TulispObject) -> Result<HashTable, Error> {
+    match obj.downcast::<HashTable>() {
+        Some(table) => Ok((*table).clone()),
+        None => Err(Error::wrong_type_argument(
+            "hash-table-p",
+            obj.clone(),
+            format!("Expected hash-table, got: {obj}"),
+        )
+        .with_trace(obj.clone())),
     }
 }
 
@@ -224,7 +294,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         "make-hash-table",
         |args: crate::Rest<TulispObject>| -> Result<HashTable, Error> {
             Ok(HashTable {
-                inner: SharedMut::new(HashMap::new()),
+                inner: SharedMut::new(Entries::default()),
                 test: parse_keyword_args(args)?,
             })
         },
@@ -232,25 +302,49 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 
     ctx.defun(
         "gethash",
-        |key: TulispObject, table: HashTable, default: Option<TulispObject>| -> TulispObject {
+        |key: TulispObject, table: TulispObject, default: Option<TulispObject>| {
             // Match Emacs `(gethash KEY TABLE &optional DEFAULT)` —
             // returns DEFAULT (nil if omitted) when KEY isn't present.
+            let table = table_of(&table)?;
             let key = table.key(key);
-            table
-                .inner
-                .borrow()
-                .get(&key)
-                .cloned()
-                .unwrap_or_else(|| default.unwrap_or_else(TulispObject::nil))
+            let found = table.inner.borrow().get(&key);
+            Ok::<_, Error>(found.unwrap_or_else(|| default.unwrap_or_else(TulispObject::nil)))
         },
     );
 
     ctx.defun(
         "puthash",
-        |key: TulispObject, value: TulispObject, table: HashTable| {
+        |key: TulispObject, value: TulispObject, table: TulispObject| {
+            let table = table_of(&table)?;
             let key = table.key(key);
             table.inner.borrow_mut().insert(key, value.clone());
-            value
+            Ok::<_, Error>(value)
+        },
+    );
+
+    ctx.defun("remhash", |key: TulispObject, table: TulispObject| {
+        let table = table_of(&table)?;
+        let key = table.key(key);
+        table.inner.borrow_mut().remove(&key);
+        Ok::<_, Error>(TulispObject::nil())
+    });
+
+    // FUNCTION may change the table. As in Emacs, each slot is read as the walk
+    // reaches it: an entry removed before then is not visited, and one added in
+    // a slot after the current one is.
+    ctx.defun(
+        "maphash",
+        |ctx: &mut TulispContext, function: TulispObject, table: TulispObject| {
+            let table = table_of(&table)?;
+            for slot in 0.. {
+                let Some(entry) = table.inner.borrow().slots.get(slot).cloned() else {
+                    break;
+                };
+                if let Some((key, value)) = entry {
+                    ctx.funcall(&function, (key, value))?;
+                }
+            }
+            Ok::<_, Error>(TulispObject::nil())
         },
     );
 }
@@ -258,7 +352,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 #[cfg(test)]
 mod tests {
     use super::{HashKey, HashTest};
-    use crate::test_utils::{eval_assert_equal, eval_assert_error};
+    use crate::test_utils::{assert_results, eval_assert_equal, eval_assert_error};
     use crate::{Error, Shared, TulispContext, TulispObject};
 
     #[test]
@@ -588,5 +682,78 @@ mod tests {
             "(let ((h (make-hash-table))) (list (puthash 'k 42 h) (or (gethash 'j h) (puthash 'j 7 h))))",
             "'(42 7)",
         );
+    }
+
+    // `maphash` visits the entries in Emacs's order: by slot, where a new key
+    // takes the slot freed last.
+    #[test]
+    fn maphash_visits_entries_in_emacs_order() {
+        assert_results(&[
+            (
+                "(let ((h (make-hash-table)) (out nil)) (puthash 'a 1 h) (puthash 'b 2 h) (puthash 'c 3 h) (maphash (lambda (k v) (setq out (cons (cons k v) out))) h) (nreverse out))",
+                "((a . 1) (b . 2) (c . 3))",
+            ),
+            (
+                "(let ((h (make-hash-table)) (out nil)) (puthash 'a 1 h) (puthash 'b 2 h) (puthash 'c 3 h) (remhash 'b h) (puthash 'd 4 h) (maphash (lambda (k v) (setq out (cons k out))) h) (nreverse out))",
+                "(a d c)",
+            ),
+            (
+                "(let ((h (make-hash-table)) (out nil)) (puthash 'a 1 h) (puthash 'b 2 h) (puthash 'c 3 h) (remhash 'b h) (puthash 'd 4 h) (puthash 'e 5 h) (remhash 'a h) (remhash 'c h) (puthash 'f 6 h) (maphash (lambda (k v) (setq out (cons k out))) h) (nreverse out))",
+                "(d f e)",
+            ),
+            ("(maphash #'ignore (make-hash-table))", "nil"),
+        ]);
+    }
+
+    // FUNCTION may remove an entry not yet visited, which is then skipped, add
+    // one, which is then visited, or set the one it is called with.
+    #[test]
+    fn maphash_sees_changes_made_during_the_walk() {
+        assert_results(&[
+            (
+                "(let ((h (make-hash-table)) (out nil)) (puthash 'a 1 h) (puthash 'b 2 h) (puthash 'c 3 h) (maphash (lambda (k v) (remhash 'c h) (setq out (cons k out))) h) (nreverse out))",
+                "(a b)",
+            ),
+            (
+                "(let ((h (make-hash-table)) (out nil)) (puthash 'a 1 h) (puthash 'b 2 h) (maphash (lambda (k v) (puthash k (* v 10) h)) h) (maphash (lambda (k v) (setq out (cons v out))) h) (nreverse out))",
+                "(10 20)",
+            ),
+            (
+                "(let ((h (make-hash-table)) (out nil)) (puthash 'a 1 h) (maphash (lambda (k v) (setq out (cons k out)) (when (eq k 'a) (puthash 'b 2 h))) h) (nreverse out))",
+                "(a b)",
+            ),
+        ]);
+    }
+
+    #[test]
+    fn remhash_removes_an_entry() {
+        assert_results(&[
+            (
+                "(let ((h (make-hash-table))) (puthash 'a 1 h) (list (remhash 'a h) (remhash 'z h) (gethash 'a h)))",
+                "(nil nil nil)",
+            ),
+            (
+                "(remhash 'a 5)",
+                "(ERR (wrong-type-argument hash-table-p 5))",
+            ),
+        ]);
+    }
+
+    #[test]
+    fn hash_functions_name_a_value_that_is_no_table() {
+        assert_results(&[
+            (
+                "(maphash #'ignore 5)",
+                "(ERR (wrong-type-argument hash-table-p 5))",
+            ),
+            (
+                "(gethash 1 2)",
+                "(ERR (wrong-type-argument hash-table-p 2))",
+            ),
+            (
+                "(puthash 1 2 3)",
+                "(ERR (wrong-type-argument hash-table-p 3))",
+            ),
+        ]);
     }
 }

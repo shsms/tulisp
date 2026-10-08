@@ -966,6 +966,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         ),
     ),
     (
+        "maphash",
+        concat!(
+            "Call FUNCTION for each entry in hash table TABLE, with the entry's key and value. FUNCTION may set or remove entries; an entry removed before the walk reaches it is not visited. Return nil.",
+            "\n\n",
+            "(fn FUNCTION TABLE)"
+        ),
+    ),
+    (
         "max",
         concat!(
             "Return largest of all the arguments, which must be numbers.",
@@ -1152,6 +1160,14 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
             "Return the argument, without evaluating it.",
             "\n\n",
             "(fn ARG)"
+        ),
+    ),
+    (
+        "remhash",
+        concat!(
+            "Remove the entry for KEY from hash table TABLE, if there is one. Return nil.",
+            "\n\n",
+            "(fn KEY TABLE)"
         ),
     ),
     (
