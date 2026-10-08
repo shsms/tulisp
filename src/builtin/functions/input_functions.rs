@@ -123,6 +123,14 @@ mod tests {
                 r#"(car (condition-case e (read "(a . b c)") (error e)))"#,
                 "invalid-read-syntax",
             ),
+            (
+                r#"(car (condition-case e (read "(. a)") (error e)))"#,
+                "invalid-read-syntax",
+            ),
+            (
+                r#"(car (condition-case e (read "(.") (error e)))"#,
+                "invalid-read-syntax",
+            ),
         ]);
     }
 }

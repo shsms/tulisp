@@ -321,11 +321,18 @@ struct Open {
     id: NodeId,
     /// Whether the list has its dot. Always false for a prefix.
     dotted: bool,
+    /// Whether the list has a form, which a dot may follow. A token that failed
+    /// to read counts; a comment and a refused dot do not.
+    has_form: bool,
 }
 
 impl Open {
     fn new(id: NodeId) -> Self {
-        Open { id, dotted: false }
+        Open {
+            id,
+            dotted: false,
+            has_form: false,
+        }
     }
 }
 
@@ -336,7 +343,10 @@ impl<'a> Builder<'a> {
             self.token(token, range);
         }
         let end = self.source.len();
-        while let Some(Open { id: top, dotted }) = self.open.pop() {
+        while let Some(Open {
+            id: top, dotted, ..
+        }) = self.open.pop()
+        {
             let range = self.nodes[top.0].range.clone();
             if matches!(self.nodes[top.0].kind, NodeKind::Prefix { .. }) {
                 self.error(
@@ -448,6 +458,9 @@ impl<'a> Builder<'a> {
         while let Some(top) = self.open.last().map(|open| open.id) {
             if !matches!(self.nodes[top.0].kind, NodeKind::Prefix { .. }) {
                 self.push_child(Some(top), id);
+                if let Some(open) = self.open.last_mut() {
+                    open.has_form = true;
+                }
                 return;
             }
             self.push_child(Some(top), id);
@@ -468,8 +481,11 @@ impl<'a> Builder<'a> {
 
     fn dot(&mut self, range: Range<usize>) {
         match self.open.last_mut() {
+            // As the parser does, a list takes a dot only after a form.
             Some(top)
-                if !top.dotted && matches!(self.nodes[top.id.0].kind, NodeKind::List { .. }) =>
+                if !top.dotted
+                    && top.has_form
+                    && matches!(self.nodes[top.id.0].kind, NodeKind::List { .. }) =>
             {
                 top.dotted = true;
                 let list = top.id;
@@ -479,7 +495,13 @@ impl<'a> Builder<'a> {
             _ => {
                 self.error(range.clone(), "Unexpected dot");
                 let id = self.add(NodeKind::Error, range);
-                self.attach_value(id);
+                // A refused dot in a list is not a form a later dot may follow.
+                match self.open.last().map(|open| open.id) {
+                    Some(list) if matches!(self.nodes[list.0].kind, NodeKind::List { .. }) => {
+                        self.push_child(Some(list), id)
+                    }
+                    _ => self.attach_value(id),
+                }
             }
         }
     }
@@ -498,7 +520,10 @@ impl<'a> Builder<'a> {
             self.open.pop();
             self.attach_value(top);
         }
-        let Some(Open { id: list, dotted }) = self.open.pop() else {
+        let Some(Open {
+            id: list, dotted, ..
+        }) = self.open.pop()
+        else {
             if !reported {
                 self.error(range.clone(), "Unexpected closing parenthesis");
             }
@@ -1030,13 +1055,17 @@ mod tests {
                 ("[", "Vector syntax is not supported"),
             ])
         );
-        for source in ["(a .", "(a . ;c", "(."] {
+        for source in ["(a .", "(a . ;c"] {
             assert_eq!(
                 errors(source),
                 pairs(&[("(", "Unexpected EOF after dot")]),
                 "{source}"
             );
         }
+        assert_eq!(
+            errors("(."),
+            pairs(&[("(", "Unclosed list"), (".", "Unexpected dot")])
+        );
         assert_eq!(
             errors("(a . (b"),
             pairs(&[("(", "Unclosed list"), ("(", "Unclosed list")])
@@ -1142,7 +1171,7 @@ mod tests {
         assert_eq!(errors_at_limit("('.)", 2), pairs(&[(".", TOO_DEEP_2)]));
         assert_eq!(
             errors_at_limit("((.))", 3),
-            pairs(&[(")", "Unexpected closing parenthesis")])
+            pairs(&[(".", "Unexpected dot")])
         );
         assert_eq!(
             errors_at_limit("('.)", 3),
@@ -1166,6 +1195,18 @@ mod tests {
         assert_eq!(errors_at_limit("' '", 3), pairs(&[("'", "Unexpected EOF")]));
     }
 
+    // As the parser does, a list takes a dot only after a form; a comment
+    // before it does not count, but a token that failed to read does.
+    #[test]
+    fn a_dot_with_no_form_before_it_is_an_error() {
+        assert_eq!(errors("(. a)"), pairs(&[(".", "Unexpected dot")]));
+        assert_eq!(errors("( ;c\n . a)"), pairs(&[(".", "Unexpected dot")]));
+        assert!(errors("(a . b)").is_empty());
+        let found = read("(\"\\u{zz}\" . a)").errors().to_vec();
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_ne!(found[0].message, "Unexpected dot");
+    }
+
     #[test]
     fn a_second_dot_is_an_error() {
         let found = read("(a . .)").errors().to_vec();
@@ -1173,9 +1214,11 @@ mod tests {
         assert_eq!(found[0].message, "Unexpected dot");
         assert_eq!(found[0].range, 5..6);
         let found = read("(. .)").errors().to_vec();
-        assert_eq!(found.len(), 1);
+        assert_eq!(found.len(), 2);
         assert_eq!(found[0].message, "Unexpected dot");
-        assert_eq!(found[0].range.start, 3);
+        assert_eq!(found[0].range.start, 1);
+        assert_eq!(found[1].message, "Unexpected dot");
+        assert_eq!(found[1].range.start, 3);
         assert_eq!(errors("(a . .)"), pairs(&[(".", "Unexpected dot")]));
     }
 
@@ -1231,6 +1274,22 @@ mod tests {
             .filter(|e| e.message == "Unexpected dot")
             .count();
         assert_eq!(dots, n - 1);
+
+        // With no form before them, every dot is an error.
+        let source = "(".to_string() + &". ".repeat(n) + ")";
+        let started = std::time::Instant::now();
+        let tree = read(&source);
+        let took = started.elapsed();
+        assert!(
+            took < std::time::Duration::from_secs(2),
+            "reading took {took:?}"
+        );
+        let dots = tree
+            .errors()
+            .iter()
+            .filter(|e| e.message == "Unexpected dot")
+            .count();
+        assert_eq!(dots, n);
     }
 
     #[test]

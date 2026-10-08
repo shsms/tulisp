@@ -712,6 +712,7 @@ impl Parser<'_, '_> {
 
     fn parse_list(&mut self, start_span: Span) -> Result<TulispObject, Error> {
         let mut builder = crate::cons::ListBuilder::new();
+        let mut empty = true;
         let mut got_dot = false;
         let mut full_span: Option<Span> = None;
         loop {
@@ -729,7 +730,9 @@ impl Parser<'_, '_> {
                     });
                     break;
                 }
-                Token::Dot { .. } => {
+                // As in Emacs, a dot needs a form before it; a dot with none is
+                // read as a value, which is the "Unexpected dot" error.
+                Token::Dot { .. } if !empty => {
                     got_dot = true;
                     break;
                 }
@@ -741,6 +744,7 @@ impl Parser<'_, '_> {
                 _ => {
                     let next = self.parse_value()?.unwrap();
                     builder.push(next);
+                    empty = false;
                 }
             }
         }
@@ -1265,11 +1269,23 @@ mod tests {
             "(1 .",
             "ERR ParsingError: Unexpected EOF after dot\n<eval_string>:1.1-1.1:  at nil\n",
         );
+    }
+
+    // As in Emacs, a dot with no form before it in its list is an error, and a
+    // dot that follows a form is not.
+    #[test]
+    fn a_dot_needs_a_form_before_it() {
+        let ctx = &mut TulispContext::new();
+        for program in ["(.", "(. a)", "( . a)", "'(. a)"] {
+            eval_assert_error_line(ctx, program, "ERR ParsingError: Unexpected dot");
+        }
         eval_assert_error(
-            &mut ctx,
-            "(.",
-            "ERR ParsingError: Unexpected EOF after dot\n<eval_string>:1.1-1.1:  at nil\n",
+            ctx,
+            "(. a)",
+            "ERR ParsingError: Unexpected dot\n<eval_string>:1.2-1.2:  at nil\n",
         );
+        eval_assert_equal(ctx, "'(a . b)", "(cons 'a 'b)");
+        eval_assert_equal(ctx, "'((a) . b)", "(cons '(a) 'b)");
     }
 
     // Deeply nested input raises a catchable parse error instead of
