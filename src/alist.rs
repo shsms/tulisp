@@ -63,9 +63,7 @@ fn assoc_by(
     default: impl FnMut(&TulispObject, &TulispObject) -> Result<bool, Error>,
 ) -> Result<TulispObject, Error> {
     if !alist.listp() {
-        return Err(Error::type_mismatch(format!(
-            "expected alist. got: {alist}"
-        )));
+        return Err(crate::lists::not_a_list(alist));
     }
     match testfn.filter(|testfn| !testfn.null()) {
         Some(testfn) => {
@@ -99,6 +97,11 @@ fn assoc_find(
         }
         cur = cur.cdr()?;
         cycle.step(&cur)?;
+    }
+    // A tail that is not a list is an error that names the whole alist, as in
+    // Emacs.
+    if !cur.null() {
+        return Err(crate::lists::not_a_list(alist));
     }
     Ok(TulispObject::nil())
 }
@@ -365,7 +368,7 @@ mod tests {
             crate::test_utils::eval_assert_error_line(
                 ctx,
                 form,
-                "ERR TypeMismatch: expected alist. got: 5",
+                "ERR TypeMismatch: Expected list, got: 5",
             );
         }
     }
@@ -397,5 +400,27 @@ mod tests {
             r#"("a" . 1)"#
         );
         Ok(())
+    }
+
+    // A tail that is not a list is an error naming the whole alist, unless the
+    // key is found before it, as in Emacs.
+    #[test]
+    fn assoc_and_alist_get_reject_a_dotted_tail() {
+        crate::test_utils::assert_results(&[
+            (
+                "(assoc 'c '((a . 1) . z))",
+                "(ERR (wrong-type-argument listp ((a . 1) . z)))",
+            ),
+            (
+                "(assoc 'c '((a . 1) . z) #'eq)",
+                "(ERR (wrong-type-argument listp ((a . 1) . z)))",
+            ),
+            (
+                "(alist-get 'c '((a . 1) . z))",
+                "(ERR (wrong-type-argument listp ((a . 1) . z)))",
+            ),
+            ("(assoc 'a '((a . 1) . z))", "(a . 1)"),
+            ("(assoc 'c 5)", "(ERR (wrong-type-argument listp 5))"),
+        ]);
     }
 }

@@ -84,7 +84,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         }
         if !rest.null() {
             // Emacs names SEQ's first cell, which is now the last one.
-            return Err(not_a_list(&seq));
+            return Err(lists::not_a_list(&seq));
         }
         Ok(reversed)
     });
@@ -251,7 +251,7 @@ fn each_element(
     if rest.null() {
         return Ok(());
     }
-    Err(not_a_list(match blame {
+    Err(lists::not_a_list(match blame {
         Blame::List => list,
         Blame::Tail => &rest,
     }))
@@ -282,7 +282,7 @@ fn delete_cells(
         rest = next;
     }
     if !rest.null() {
-        return Err(not_a_list(&head));
+        return Err(lists::not_a_list(&head));
     }
     Ok(head)
 }
@@ -311,14 +311,6 @@ fn check_list(seq: &TulispObject, predicate: &'static str) -> Result<(), Error> 
         seq.clone(),
         format!("Expected sequence, got: {seq}"),
     ))
-}
-
-fn not_a_list(value: &TulispObject) -> Error {
-    Error::wrong_type_argument(
-        "listp",
-        value.clone(),
-        format!("Expected list, got: {value}"),
-    )
 }
 
 #[cfg(test)]

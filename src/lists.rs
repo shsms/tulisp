@@ -58,6 +58,15 @@ pub fn length(list: &TulispObject) -> Result<i64, Error> {
     }
 }
 
+/// The error for VALUE where a list is wanted, as Emacs gives it: `listp`.
+pub(crate) fn not_a_list(value: &TulispObject) -> Error {
+    Error::wrong_type_argument(
+        "listp",
+        value.clone(),
+        format!("Expected list, got: {value}"),
+    )
+}
+
 /// The only element of `list`, which must be a list of one element,
 /// or nil for an empty list when `empty_is_nil`.
 pub(crate) fn sole_element(list: &TulispObject, empty_is_nil: bool) -> Result<TulispObject, Error> {
