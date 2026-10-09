@@ -157,31 +157,6 @@ fn test_cons() -> Result<(), Error> {
 }
 
 #[test]
-fn test_quote() -> Result<(), Error> {
-    tulisp_assert! {
-        program: "(quote (1 2 3))",
-        result: "'(1 2 3)",
-    };
-    tulisp_assert! {
-        program: "(quote word)",
-        result: "'word",
-    };
-    tulisp_assert! {
-        program: "(quote)",
-        error: r#"ERR TypeMismatch: quote: expected one argument
-<eval_string>:1.1-1.7:  at (quote)
-"#
-    };
-    tulisp_assert! {
-        program: "(quote 1 2)",
-        error: r#"ERR TypeMismatch: quote: expected one argument
-<eval_string>:1.1-1.11:  at (quote 1 2)
-"#
-    };
-    Ok(())
-}
-
-#[test]
 fn test_math() -> Result<(), Error> {
     // setcar / setcdr mutate cons cells in place.
     tulisp_assert! {

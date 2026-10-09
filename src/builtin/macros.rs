@@ -157,6 +157,25 @@ mod tests {
     };
 
     #[test]
+    fn quote_gives_its_argument_unevaluated() {
+        let ctx = &mut TulispContext::new();
+        eval_assert_equal(ctx, "(quote (1 2 3))", "'(1 2 3)");
+        eval_assert_equal(ctx, "(quote word)", "'word");
+        eval_assert_error(
+            ctx,
+            "(quote)",
+            "ERR TypeMismatch: quote: expected one argument\n\
+             <eval_string>:1.1-1.7:  at (quote)\n",
+        );
+        eval_assert_error(
+            ctx,
+            "(quote 1 2)",
+            "ERR TypeMismatch: quote: expected one argument\n\
+             <eval_string>:1.1-1.11:  at (quote 1 2)\n",
+        );
+    }
+
+    #[test]
     fn threading_puts_the_value_into_each_form() {
         let ctx = &mut TulispContext::new();
         eval_assert_error(
