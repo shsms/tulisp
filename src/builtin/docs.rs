@@ -594,7 +594,9 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         concat!(
             "Define NAME as a macro.",
             "\n\n",
-            "(fn NAME ARGLIST &optional DOCSTRING DECL &rest BODY)"
+            "A (declare ...) form can follow DOCSTRING. Tulisp ignores it.",
+            "\n\n",
+            "(fn NAME ARGLIST &optional DOCSTRING &rest BODY)"
         ),
     ),
     (
@@ -602,7 +604,9 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         concat!(
             "Define NAME as a function.",
             "\n\n",
-            "(fn NAME ARGLIST &optional DOCSTRING DECL INTERACTIVE &rest BODY)"
+            "A (declare ...) form and an (interactive ...) form can follow DOCSTRING. Tulisp ignores both.",
+            "\n\n",
+            "(fn NAME ARGLIST &optional DOCSTRING &rest BODY)"
         ),
     ),
     (
@@ -922,7 +926,9 @@ pub(crate) const DOCS: &[(&str, &str)] = &[
         concat!(
             "Return an anonymous function.",
             "\n\n",
-            "(fn ARGS &optional DOCSTRING INTERACTIVE &rest BODY)"
+            "An (interactive ...) form can follow DOCSTRING. Tulisp ignores it.",
+            "\n\n",
+            "(fn ARGS &optional DOCSTRING &rest BODY)"
         ),
     ),
     (
