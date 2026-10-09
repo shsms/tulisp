@@ -159,7 +159,10 @@ pub(crate) struct FunctionDoc {
     /// The `value_identity` of the value the entry describes.
     pub(crate) identity: usize,
     pub(crate) signature: Option<Signature>,
-    pub(crate) doc: Option<Cow<'static, str>>,
+    /// The docstring, and whose it is: a usage line at the end of a built-in's
+    /// gives the signature; at the end of one a Rust definition gave, it is
+    /// text.
+    pub(crate) doc: Option<(Cow<'static, str>, DocOwner)>,
 }
 
 impl FunctionDoc {
@@ -226,7 +229,7 @@ impl TulispContext {
             }
         }
         if let Some(doc) = doc {
-            entry.doc = Some(Cow::Owned(doc.to_string()));
+            entry.doc = Some((Cow::Owned(doc.to_string()), DocOwner::DefinedFunction));
         }
     }
 
@@ -258,7 +261,7 @@ impl TulispContext {
         if !entry.describes(kind, identity) {
             *entry = blank_entry();
         }
-        entry.doc = Some(doc);
+        entry.doc = Some((doc, DocOwner::Function));
     }
 
     /// Attaches a built-in's docstring, without copying it. Skips a name that
@@ -310,26 +313,27 @@ impl TulispContext {
     /// A usage line at the end of a function's docstring, a flat list of names
     /// like `(fn A &optional B)` after a blank line or as the whole docstring,
     /// gives the signature, and is cut from the docstring; a variable's
-    /// docstring is kept whole, as `describe-variable` shows it. When no usage
-    /// line gives the signature, it is the one the function entry holds, else
-    /// the value's own. A Rust function's parameter types are kept under the
-    /// name it was defined with, so another name given the same function shows
-    /// plain parameter names.
+    /// docstring is kept whole, as `describe-variable` shows it, and so is one
+    /// that [`defun`](Self::defun), [`defspecial`](Self::defspecial) or
+    /// [`defmacro`](Self::defmacro) gave, whose parameters come from the
+    /// definition. When no usage line gives the signature, it is the one the
+    /// function entry holds, else the value's own. A Rust function's parameter
+    /// types are kept under the name it was defined with, so another name given
+    /// the same function shows plain parameter names.
     pub fn describe(&self, name: &str) -> Option<SymbolInfo> {
         let sym = self.obarray.get(name)?;
         let value = described_value(name, sym)?;
         let (kind, identity) = held_kind_and_identity(value.as_ref());
         let entry = identity.and_then(|identity| self.function_doc(sym, kind, identity));
         let doc = entry
-            .and_then(|entry| entry.doc.as_deref())
-            .map(Cow::Borrowed)
+            .and_then(|entry| entry.doc.as_ref())
+            .map(|(doc, owner)| (Cow::Borrowed(doc.as_ref()), *owner))
             .or_else(|| {
                 value
                     .as_ref()
                     .and_then(|value| derived_doc(&value.inner_ref().0))
-                    .map(Cow::Owned)
+                    .map(|doc| (Cow::Owned(doc), DocOwner::Function))
             })
-            .map(|doc| (doc, DocOwner::Function))
             .or_else(|| {
                 (kind == SymbolKind::Variable || sym.is_special())
                     .then(|| self.variable_docs.get(&sym.addr_as_usize()))
@@ -734,6 +738,19 @@ mod tests {
         assert_eq!(rendered(&ctx, "f"), "(f VARLIST &rest BODY)");
         ctx.set_builtin_doc("f", "X.\n\n(fn A [B])");
         assert_eq!(rendered(&ctx, "f"), "(f A &optional B)");
+    }
+
+    // The definition gives the parameters, so a usage line in the docstring it
+    // gives is text.
+    #[test]
+    fn a_usage_line_in_a_defined_functions_docstring_is_text() {
+        let mut ctx = TulispContext::new();
+        ctx.defun(("f", "Return A.\n\n(fn NUM)"), |a: i64| a);
+        assert_eq!(doc(&ctx, "f").as_deref(), Some("Return A.\n\n(fn NUM)"));
+        assert_eq!(rendered(&ctx, "f"), "(f INTEGER)");
+        ctx.defmacro(("m", "(fn FORM)"), |form: TulispObject| form);
+        assert_eq!(doc(&ctx, "m").as_deref(), Some("(fn FORM)"));
+        assert_eq!(rendered(&ctx, "m"), "(m ARG)");
     }
 
     #[test]

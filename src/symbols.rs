@@ -141,18 +141,22 @@ pub struct SymbolInfo {
     pub doc: Option<String>,
 }
 
-/// Whose docstring a doc is. As in Emacs, only a function's docstring has a
-/// usage line split off its end.
+/// Whose docstring a doc is. As in Emacs, a usage line is split off the end of
+/// a function's docstring, and not off a variable's. It is not split off one a
+/// Rust definition gave either: there the parameters come from the definition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum DocOwner {
     Function,
+    /// A function's docstring that its Rust definition gave. The definition
+    /// gives the parameters, so a usage line at its end is text.
+    DefinedFunction,
     Variable,
 }
 
 impl SymbolInfo {
-    /// The info of a name of KIND. When DOC is a function's docstring, a usage
-    /// line at its end gives the signature in place of SIGNATURE, and is cut
-    /// from the text.
+    /// The info of a name of KIND. When DOC is a [`DocOwner::Function`]
+    /// docstring, a usage line at its end gives the signature in place of
+    /// SIGNATURE, and is cut from the text.
     pub(crate) fn new(
         kind: SymbolKind,
         signature: Option<Signature>,
@@ -174,7 +178,7 @@ impl SymbolInfo {
     ) -> Self {
         let usage = match &doc {
             Some((text, DocOwner::Function)) => split_usage(text),
-            Some((_, DocOwner::Variable)) | None => None,
+            Some((_, DocOwner::DefinedFunction | DocOwner::Variable)) | None => None,
         };
         let (signature, doc) = match usage {
             Some((text, usage)) => (Some(usage), (!text.is_empty()).then(|| text.to_string())),
