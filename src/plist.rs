@@ -5,6 +5,7 @@
 //!
 //! [the Emacs Lisp manual]: https://www.gnu.org/software/emacs/manual/html_node/elisp/Property-Lists.html
 
+use std::borrow::Cow;
 use std::ops::Deref;
 
 use crate::{Error, TulispContext, TulispObject};
@@ -198,6 +199,17 @@ where
 /// The [`AsList!`](macro@crate::AsList) macro implements this trait
 /// for the struct it declares.
 pub trait Plistable {
+    /// The keys `Self` reads from a plist, as a plist spells them, each with
+    /// its leading `:`, in the order the fields declare them. The
+    /// [`AsList!`](macro@crate::AsList) macro implements this from the fields;
+    /// the default lists no keys.
+    fn plist_keys() -> Vec<Cow<'static, str>>
+    where
+        Self: Sized,
+    {
+        Vec::new()
+    }
+
     /// Deserialize `Self` from a flat `[k0, v0, k1, v1, …]` slice of
     /// already-evaluated lisp values. The defun-arg path (`Plist<T>`)
     /// calls this directly with the evaluated arg slice.

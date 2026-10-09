@@ -307,12 +307,16 @@ macro_rules! AsList {
     (@key $field:ident<$key:literal>) => { $key };
     (@key $field:ident) => { $crate::__private::as_list::field_key(stringify!($field)) };
 
+    // A field's key in the plist spelling, as a `Cow`, for
+    // [`Plistable::plist_keys`](crate::Plistable::plist_keys).
+    (@plist_key_cow $field:ident<$key:literal>) => { $crate::__private::as_list::plist_key($key) };
+    (@plist_key_cow $field:ident) => {
+        $crate::__private::as_list::plist_field_key(concat!(":", stringify!($field)))
+    };
+
     // A field's key in each shape, spelled at expansion time when
     // the field declares no key of its own.
-    (@plist_key $field:ident<$key:literal>) => { &*$crate::__private::as_list::plist_key($key) };
-    (@plist_key $field:ident) => {
-        &*$crate::__private::as_list::plist_field_key(concat!(":", stringify!($field)))
-    };
+    (@plist_key $field:ident $(<$key:literal>)?) => { &*$crate::AsList!(@plist_key_cow $field $(<$key>)?) };
     (@alist_key $field:ident<$key:literal>) => { $crate::__private::as_list::alist_key($key) };
     (@alist_key $field:ident) => { $crate::__private::as_list::field_key(stringify!($field)) };
 
@@ -423,6 +427,12 @@ macro_rules! AsList {
             }
 
             impl $crate::Plistable for $name {
+                fn plist_keys() -> ::std::vec::Vec<::std::borrow::Cow<'static, str>> {
+                    ::std::vec![
+                        $( $crate::AsList!(@plist_key_cow $field $(<$key>)?), )+
+                    ]
+                }
+
                 fn from_plist_as_slice(
                     __ctx: &mut $crate::TulispContext,
                     __kvs: &[$crate::TulispObject],
@@ -775,6 +785,27 @@ mod tests {
         struct Raw {
             r#type: i64,
         }
+    }
+
+    crate::AsList! {
+        #[derive(Debug, PartialEq)]
+        struct Keyed {
+            plain: i64,
+            bare<"tail">: i64 {= 0},
+        }
+    }
+
+    #[test]
+    fn plist_keys_list_the_fields_as_a_plist_spells_them() {
+        assert_eq!(Keyed::plist_keys(), [":plain", ":tail"]);
+        assert_eq!(Raw::plist_keys(), [":type"]);
+        assert_eq!(S::plist_keys(), [":a"]);
+        // An alist-shaped struct spells its keys the plist way here.
+        assert_eq!(Pair::plist_keys(), [":a", ":b"]);
+        assert_eq!(
+            Config::plist_keys(),
+            [":host", ":port-number", ":scheme", ":extra", ":inner"]
+        );
     }
 
     // Constants spelled like the generated bindings must not capture
