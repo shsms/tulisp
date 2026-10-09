@@ -226,8 +226,7 @@ pub(crate) fn signature(kinds: &[ParamKind], types: &[Option<Cow<'static, str>>]
     message = "`defun` and `defmacro` cannot register this closure",
     note = "up to twelve parameters, each `TulispConvertible`; only the last may be `Rest<T>` or `Plist<T>`",
     note = "the return type must be `TulispConvertible`, `()`, or a `Result` of one",
-    note = "a `TulispAny` type converts by value only when it is `Clone`; `Shared<T>` converts one that is not",
-    note = "with a `(name, [names], doc)` name, give one name for each parameter, not counting `&mut TulispContext`"
+    note = "a `TulispAny` type converts by value only when it is `Clone`; `Shared<T>` converts one that is not"
 )]
 pub trait TulispCallable<Args: 'static, Output: 'static, const CTX: bool> {
     #[doc(hidden)]
@@ -308,6 +307,11 @@ impl<N: AsRef<str>, D: AsRef<str>> Name for (N, D) {
 /// and when `fmakunbound` clears it.
 ///
 /// Only Tulisp implements it.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a name `defun`, `defspecial` or `defmacro` can take for this function",
+    note = "a name is a `String` or a reference such as `&str`, a `(name, doc)` pair, or `(name, [names], doc)`",
+    note = "with a `(name, [names], doc)` name, give one name for each parameter, not counting `&mut TulispContext`. At most twelve parameters can have names"
+)]
 pub trait FunctionName<Args> {
     #[doc(hidden)]
     fn parts(&self, _: Token) -> (&str, Option<&[&str]>, Option<&str>);
@@ -335,10 +339,23 @@ impl<Args, N: AsRef<str>, P: ParamNames<Args>, D: AsRef<str>> FunctionName<Args>
 /// TulispContext` one.
 ///
 /// Only Tulisp implements it.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` does not give one name for each parameter",
+    label = "expected one name for each parameter in `{Args}`",
+    note = "a `&mut TulispContext` parameter gets no name"
+)]
 pub trait ParamNames<Args> {
     #[doc(hidden)]
     fn names(&self, _: Token) -> &[&str];
 }
+
+/// The `Args` of a second `ParamNames` impl on each array of up to twelve
+/// names. Each of those lengths also has a real impl. With two impls, the
+/// array's length cannot pick `Args`, so the closure's parameter types pick it.
+/// Most compilers then report a wrong count of names on the names; some report
+/// it on the whole name. `do_not_recommend` keeps these impls out of the
+/// error's list of impls.
+struct ParamsDecoy;
 
 macro_rules! count_params {
     () => { 0 };
@@ -397,6 +414,12 @@ macro_rules! impl_tulisp_callable {
         impl<'a, $($p,)* $($last,)?> ParamNames<($($p,)* $($last,)?)>
             for [&'a str; count_params!($($p)* $($last)?)]
         {
+            fn names(&self, _: Token) -> &[&str] {
+                self
+            }
+        }
+        #[diagnostic::do_not_recommend]
+        impl<'a> ParamNames<ParamsDecoy> for [&'a str; count_params!($($p)* $($last)?)] {
             fn names(&self, _: Token) -> &[&str] {
                 self
             }

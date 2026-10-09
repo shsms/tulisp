@@ -236,8 +236,7 @@ impl SpecialPositionalParam for Option<Form> {}
 #[diagnostic::on_unimplemented(
     message = "`defspecial` cannot register this closure",
     note = "up to twelve parameters, each `TulispConvertible` or `Form`; only the last may be `Rest<T>`, `Plist<T>` or `Rest<Form>`",
-    note = "the return type must be `TulispConvertible`, `()`, or a `Result` of one",
-    note = "with a `(name, [names], doc)` name, give one name for each parameter, not counting `&mut TulispContext`"
+    note = "the return type must be `TulispConvertible`, `()`, or a `Result` of one"
 )]
 pub trait SpecialCallable<Args: 'static, Output: 'static, const CTX: bool> {
     #[doc(hidden)]
