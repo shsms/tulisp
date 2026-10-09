@@ -270,6 +270,34 @@ assert_eq!(hint.name, "car");
 assert_eq!(hint.active, Some(0));
 ```
 
+When a Rust function, macro or special form ends with a
+[`Plist<T>`](https://docs.rs/tulisp/latest/tulisp/struct.Plist.html) parameter,
+its signature lists the keys of `T`, as `Plistable::plist_keys` of `T` gives
+them (`AsList!` writes `plist_keys` from the struct's fields). Where a key goes
+in that parameter's arguments, `completions` offers the keys that start with
+what is typed. It leaves out the keys the call gives before the cursor.
+
+```rust
+use tulisp::{Plist, TulispContext, analysis, syntax};
+
+tulisp::AsList! {
+    struct Opts {
+        retries: i64 {= 0},
+    }
+}
+
+let mut ctx = TulispContext::new();
+ctx.defun("fetch", |url: String, opts: Plist<Opts>| url);
+let source = "(fetch \"x\" :";
+let tree = syntax::read(source);
+let names: Vec<String> = analysis::completions(&ctx, &tree, source.len())
+    .items
+    .into_iter()
+    .map(|item| item.name)
+    .collect();
+assert_eq!(names, [":retries"]);
+```
+
 ## Cargo features
 
 | Feature         | Description                                                                  |

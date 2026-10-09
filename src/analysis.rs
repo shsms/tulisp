@@ -73,7 +73,9 @@ fn completion(name: &str, info: SymbolInfo) -> Completion {
 /// Right after `(` they are functions, macros and special forms, except in a
 /// list where a binding form names what it binds; after `#'`, functions; in
 /// quoted data, any name; elsewhere, variables, the local ones around OFFSET
-/// included. The file's own definitions are offered too, and win over the
+/// included. Where a key of a call's keyword parameter goes, the keys that
+/// parameter takes are offered too, without the ones the call has given before
+/// the cursor. The file's own definitions are offered as well, and win over the
 /// context's. Inside a string, a comment or a number there are none.
 pub fn completions(ctx: &TulispContext, tree: &SyntaxTree, offset: usize) -> Completions {
     let offset = tree.clamp(offset);
@@ -164,10 +166,58 @@ pub fn completions(ctx: &TulispContext, tree: &SyntaxTree, offset: usize) -> Com
             }
         }
     }
+    // Every key starts with `:`.
+    if place == Place::Value && (prefix.is_empty() || prefix.starts_with(':')) {
+        let keys = key_completions(ctx, tree, prefix, offset).unwrap_or_default();
+        for item in keys {
+            items.insert(item.name.clone(), item);
+        }
+    }
     Completions {
         range,
         items: items.into_values().collect(),
     }
+}
+
+/// The keys to offer at OFFSET, in the innermost call around it: the keys of
+/// the parameter that the argument at OFFSET fills, that start with PREFIX,
+/// without the ones the call gives before OFFSET. `None` where no key goes:
+/// outside a call with a known signature, at no parameter of it, at a parameter
+/// that declares no keys, or where a key's value goes.
+fn key_completions(
+    ctx: &TulispContext,
+    tree: &SyntaxTree,
+    prefix: &str,
+    offset: usize,
+) -> Option<Vec<Completion>> {
+    let help = signature_help(ctx, tree, offset)?;
+    let active = help.active?;
+    let keys = help.signature.params.into_iter().nth(active)?.keys;
+    if keys.is_empty() {
+        return None;
+    }
+    let call = tree.call_at(offset)?;
+    // From the first of the plist's arguments, every second form is a key. The
+    // head and each parameter before the plist take one form, so its arguments
+    // start at ACTIVE + 1.
+    if !call.position.checked_sub(active + 1)?.is_multiple_of(2) {
+        return None;
+    }
+    // The keys the call has given before the cursor.
+    let given: Vec<&str> = tree
+        .forms(call.list)
+        .take(call.position)
+        .skip(active + 1)
+        .step_by(2)
+        .filter(|form| scope::is_symbol(tree, *form))
+        .map(|form| tree.text(form))
+        .collect();
+    let items = keys
+        .iter()
+        .filter(|key| key.starts_with(prefix) && !given.contains(&key.as_ref()))
+        .map(|key| completion(key, SymbolInfo::new(SymbolKind::Keyword, None, None)))
+        .collect();
+    Some(items)
 }
 
 /// The call around an offset: what is called, its parameters, and which of them
@@ -590,7 +640,65 @@ mod tests {
     crate::AsList! {
         struct Opts {
             a: Option<i64>,
+            bee<":bee">: i64 {= 0},
         }
+    }
+
+    #[test]
+    fn a_call_offers_the_keys_its_plist_parameter_takes() {
+        let ctx = hint_context();
+        let names = complete(&ctx, "(kw 1 |");
+        assert!(has(&names, ":a") && has(&names, ":bee"));
+        // Only the keys that match what is typed.
+        assert!(has(&complete(&ctx, "(kw 1 :|"), ":a"));
+        assert!(!has(&complete(&ctx, "(kw 1 :a|"), ":bee"));
+        // A positional argument takes no keys, nor does a call without a plist
+        // parameter.
+        assert!(!has(&complete(&ctx, "(kw |"), ":a"));
+        assert!(!has(&complete(&ctx, "(fixed 1 |"), ":a"));
+        // Not after `#'` or `'`, where a key is not being typed.
+        assert!(!has(&complete(&ctx, "(kw 1 #'|"), ":a"));
+        assert!(!has(&complete(&ctx, "(kw 1 '|"), ":a"));
+        // The keys come as keywords.
+        let (text, offset) = at_cursor("(kw 1 |");
+        let tree = read(&text);
+        let key = completions(&ctx, &tree, offset)
+            .items
+            .into_iter()
+            .find(|item| item.name == ":a")
+            .unwrap();
+        assert_eq!(key.kind, SymbolKind::Keyword);
+    }
+
+    #[test]
+    fn a_key_the_call_already_gives_is_not_offered() {
+        let ctx = hint_context();
+        assert!(!has(&complete(&ctx, "(kw 1 :a 2 |"), ":a"));
+        assert!(has(&complete(&ctx, "(kw 1 :a 2 |"), ":bee"));
+        // The key being typed is still offered: it may be a prefix of another
+        // one, and a cursor at its end has not given it yet.
+        assert!(has(&complete(&ctx, "(kw 1 :|bee 2"), ":bee"));
+        assert!(has(&complete(&ctx, "(kw 1 :a|"), ":a"));
+        // A key's value is not a given key: only every second form from where
+        // the plist's arguments start is a key.
+        assert!(has(&complete(&ctx, "(kw 1 :a :bee |"), ":bee"));
+    }
+
+    #[test]
+    fn no_keys_where_a_value_goes() {
+        let ctx = hint_context();
+        assert!(!has(&complete(&ctx, "(kw 1 :a |"), ":bee"));
+        assert!(!has(&complete(&ctx, "(kw 1 :a :|"), ":bee"));
+        assert!(!has(&complete(&ctx, "(kw 1 :a ; c\n |"), ":bee"));
+        // A comment is not a form, so the value after it fills the slot.
+        assert!(has(&complete(&ctx, "(kw 1 :a ; c\n 2 |"), ":bee"));
+    }
+
+    #[test]
+    fn no_keys_in_quoted_data_or_a_binding_list() {
+        let ctx = hint_context();
+        assert!(!has(&complete(&ctx, "'(kw 1 :|"), ":a"));
+        assert!(!has(&complete(&ctx, "(let ((kw 1 :|"), ":a"));
     }
 
     fn help(ctx: &TulispContext, source: &str) -> Option<SignatureHelp> {

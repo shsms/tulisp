@@ -8,7 +8,9 @@ use std::ops::Range;
 use crate::value::DefunArity;
 
 /// What a name holds. A function and a variable of the same name share one
-/// value in Tulisp, so a name is one of these at a time.
+/// value in Tulisp, so a name is one of these at a time. No name is a
+/// `Keyword`: only a key that [`completions`](crate::analysis::completions)
+/// offers is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum SymbolKind {
@@ -18,6 +20,9 @@ pub enum SymbolKind {
     /// [`defspecial`](crate::TulispContext::defspecial).
     SpecialForm,
     Variable,
+    /// A key of a [`Plist`](crate::Plist) parameter, such as `:retries`: a
+    /// keyword symbol, as Emacs's `keywordp` tests.
+    Keyword,
 }
 
 /// Which arguments a parameter takes.
