@@ -297,6 +297,10 @@ impl<N: AsRef<str>, D: AsRef<str>> Name for (N, D) {
 /// ctx.defun(("add", ["a"], "Add A and B."), |a: i64, b: i64| a + b);
 /// ```
 ///
+/// The docstring and the names stay with the name while it holds the function:
+/// they go when the name is defined again, when `fset` gives it another value,
+/// and when `fmakunbound` clears it.
+///
 /// Only Tulisp implements it.
 pub trait FunctionName<Args> {
     #[doc(hidden)]

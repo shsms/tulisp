@@ -3,7 +3,7 @@
 use std::borrow::Cow;
 
 use crate::symbols::{DocOwner, ParamPosition, Signature, SignatureParam, SymbolInfo, SymbolKind};
-use crate::{Error, TulispContext, TulispObject, TulispValue};
+use crate::{TulispContext, TulispObject, TulispValue};
 
 /// The kind of name a value makes.
 pub(crate) fn kind_of(value: &TulispValue) -> SymbolKind {
@@ -230,62 +230,23 @@ impl TulispContext {
         }
     }
 
-    /// Attaches DOC to what NAME holds, a function or a variable, for
-    /// [`describe`](Self::describe) and the editor tools built on it. For a
-    /// function, a last line `(fn HOST &optional PORT)` after a blank line, as
-    /// Emacs writes it, gives the parameter names to show.
-    ///
-    /// A function's docstring belongs to NAME, not to the value. It goes when
-    /// NAME is defined again, by a compiled `defun` or `defmacro` or from Rust;
-    /// when `fset` gives NAME another value; and when `fmakunbound` clears it.
-    /// So call this after the definition it documents. Running a function whose
-    /// body holds a `defun` of NAME keeps it, unless the run replaces a value
-    /// of other code with that `defun`'s function. A `setq` leaves it in place:
-    /// it shows whenever NAME holds that function, or another closure of the
-    /// same code. A variable's docstring stays whatever NAME is given.
-    ///
-    /// Returns an Error if NAME has no value and was not declared with
-    /// `defvar`.
-    ///
-    /// ```rust
-    /// use tulisp::TulispContext;
-    ///
-    /// let mut ctx = TulispContext::new();
-    /// ctx.defun("connect", |host: String, port: Option<i64>| {
-    ///     format!("{host}:{}", port.unwrap_or(80))
-    /// });
-    /// ctx.set_doc("connect", "Connect to HOST.\n\n(fn HOST &optional PORT)").unwrap();
-    /// let info = ctx.describe("connect").unwrap();
-    /// assert_eq!(info.doc.as_deref(), Some("Connect to HOST."));
-    /// assert_eq!(info.signature.unwrap().render("connect"), "(connect HOST &optional PORT)");
-    /// ```
-    pub fn set_doc(&mut self, name: &str, doc: &str) -> Result<(), Error> {
-        if self.attach_doc(name, Cow::Owned(doc.to_string())) {
-            Ok(())
-        } else {
-            Err(Error::invalid_argument(format!(
-                "set_doc: {name} has no value"
-            )))
-        }
-    }
-
     /// Attaches DOC to what NAME holds, or to nothing for a variable declared
     /// with `defvar` and never set. A function's docstring goes in its entry,
     /// keeping the entry's signature when the entry describes the value; any
-    /// other value's is the variable's docstring. Returns false where
-    /// [`describe`](Self::describe) gives `None`.
-    fn attach_doc(&mut self, name: &str, doc: Cow<'static, str>) -> bool {
+    /// other value's is the variable's docstring. Skips a name that
+    /// [`describe`](Self::describe) gives `None` for.
+    fn attach_doc(&mut self, name: &str, doc: Cow<'static, str>) {
         let Some((addr, value)) = self
             .obarray
             .get(name)
             .and_then(|sym| Some((sym.addr_as_usize(), described_value(name, sym)?)))
         else {
-            return false;
+            return;
         };
         let (kind, identity) = held_kind_and_identity(value.as_ref());
         let Some(identity) = identity else {
             self.variable_docs.insert(addr, doc);
-            return true;
+            return;
         };
         let blank_entry = || FunctionDoc {
             kind,
@@ -298,7 +259,6 @@ impl TulispContext {
             *entry = blank_entry();
         }
         entry.doc = Some(doc);
-        true
     }
 
     /// Attaches a built-in's docstring, without copying it. Skips a name that
@@ -578,14 +538,15 @@ mod tests {
         assert!(!has_function_doc(&ctx, "gone"));
     }
 
-    // set_doc replaces the entry left from the Rust function.
+    // A docstring attached later replaces the entry left from the Rust
+    // function.
     #[test]
     fn a_lambda_set_over_a_rust_function_has_its_own_signature_and_doc() {
         let mut ctx = TulispContext::new();
         ctx.defun("f", |a: i64| a);
         ctx.eval_string("(setq f (lambda (x) x))").unwrap();
         assert_eq!(rendered(&ctx, "f"), "(f X)");
-        ctx.set_doc("f", "New.").unwrap();
+        ctx.set_builtin_doc("f", "New.");
         assert_eq!(doc(&ctx, "f").as_deref(), Some("New."));
         assert_eq!(rendered(&ctx, "f"), "(f X)");
     }
@@ -712,21 +673,12 @@ mod tests {
         assert_eq!(doc(&ctx, "v").as_deref(), Some("Still v."));
     }
 
-    #[test]
-    fn set_doc_attaches_a_docstring() {
-        let mut ctx = TulispContext::new();
-        ctx.defun("f", |a: i64| a);
-        ctx.set_doc("f", "Return A.").unwrap();
-        assert_eq!(doc(&ctx, "f").as_deref(), Some("Return A."));
-        assert_eq!(rendered(&ctx, "f"), "(f INTEGER)");
-    }
-
+    // A built-in's docstring can name its parameters, as Emacs's do.
     #[test]
     fn a_usage_line_names_the_parameters() {
         let mut ctx = TulispContext::new();
         ctx.defun("f", |a: String, b: Option<i64>| format!("{a}{b:?}"));
-        ctx.set_doc("f", "Connect.\n\n(fn HOST &optional PORT)")
-            .unwrap();
+        ctx.set_builtin_doc("f", "Connect.\n\n(fn HOST &optional PORT)");
         assert_eq!(doc(&ctx, "f").as_deref(), Some("Connect."));
         assert_eq!(rendered(&ctx, "f"), "(f HOST &optional PORT)");
     }
@@ -735,7 +687,7 @@ mod tests {
     fn a_docstring_can_be_only_a_usage_line() {
         let mut ctx = TulispContext::new();
         ctx.defun("f", |a: i64| a);
-        ctx.set_doc("f", "(fn A)").unwrap();
+        ctx.set_builtin_doc("f", "(fn A)");
         assert_eq!(doc(&ctx, "f"), None);
         assert_eq!(rendered(&ctx, "f"), "(f A)");
     }
@@ -744,7 +696,7 @@ mod tests {
     fn a_malformed_usage_line_is_text() {
         let mut ctx = TulispContext::new();
         ctx.defun("f", |a: i64| a);
-        ctx.set_doc("f", "Text.\n\n(fn (A))").unwrap();
+        ctx.set_builtin_doc("f", "Text.\n\n(fn (A))");
         assert_eq!(doc(&ctx, "f").as_deref(), Some("Text.\n\n(fn (A))"));
         assert_eq!(rendered(&ctx, "f"), "(f INTEGER)");
     }
@@ -753,16 +705,10 @@ mod tests {
     fn usage_lines_take_emacs_notations() {
         let mut ctx = TulispContext::new();
         ctx.defun("f", |a: i64| a);
-        ctx.set_doc("f", "X.\n\n(fn VARLIST BODY...)").unwrap();
+        ctx.set_builtin_doc("f", "X.\n\n(fn VARLIST BODY...)");
         assert_eq!(rendered(&ctx, "f"), "(f VARLIST &rest BODY)");
-        ctx.set_doc("f", "X.\n\n(fn A [B])").unwrap();
+        ctx.set_builtin_doc("f", "X.\n\n(fn A [B])");
         assert_eq!(rendered(&ctx, "f"), "(f A &optional B)");
-    }
-
-    #[test]
-    fn set_doc_on_an_unknown_name_is_an_error() {
-        let mut ctx = TulispContext::new();
-        assert!(ctx.set_doc("nothing-here", "Doc.").is_err());
     }
 
     #[test]
@@ -791,9 +737,8 @@ mod tests {
         assert_eq!(info.kind, SymbolKind::Function);
         assert_eq!(info.signature.unwrap().render("w"), "(w X)");
         assert_eq!(info.doc.as_deref(), Some("The w.\n\n(fn A)"));
-        // And when the doc comes from `set_doc`.
-        ctx.eval_string("(setq u 2)").unwrap();
-        ctx.set_doc("u", "The u.\n\n(fn A)").unwrap();
+        // And when the doc comes from a Rust `defvar`.
+        ctx.defvar(("u", "The u.\n\n(fn A)"), 2).unwrap();
         assert_eq!(doc(&ctx, "u").as_deref(), Some("The u.\n\n(fn A)"));
     }
 
@@ -829,8 +774,7 @@ mod tests {
     fn redefining_drops_the_docstring() {
         let mut ctx = TulispContext::new();
         // Rust over Rust.
-        ctx.defun("a", || 1);
-        ctx.set_doc("a", "Old.").unwrap();
+        ctx.defun(("a", "Old."), || 1);
         ctx.defun("a", || 2);
         assert_eq!(doc(&ctx, "a"), None);
         // Lisp over Lisp, in one program.
@@ -838,8 +782,7 @@ mod tests {
             .unwrap();
         assert_eq!(doc(&ctx, "b"), None);
         // Lisp over Rust.
-        ctx.defun("c", || 1);
-        ctx.set_doc("c", "Old.").unwrap();
+        ctx.defun(("c", "Old."), || 1);
         ctx.eval_string("(defun c () 2)").unwrap();
         assert_eq!(doc(&ctx, "c"), None);
         // Rust over Lisp.
@@ -847,8 +790,7 @@ mod tests {
         ctx.defun("d", || 2);
         assert_eq!(doc(&ctx, "d"), None);
         // fset.
-        ctx.defun("e", || 1);
-        ctx.set_doc("e", "Old.").unwrap();
+        ctx.defun(("e", "Old."), || 1);
         let function = ctx.eval_string("(lambda () 2)").unwrap();
         ctx.fset("e", function).unwrap();
         assert_eq!(doc(&ctx, "e"), None);
@@ -892,8 +834,7 @@ mod tests {
     #[test]
     fn a_defvar_doc_does_not_replace_a_rust_functions_doc() {
         let mut ctx = TulispContext::new();
-        ctx.defun("rf", |a: i64| a);
-        ctx.set_doc("rf", "Rust doc.").unwrap();
+        ctx.defun(("rf", "Rust doc."), |a: i64| a);
         ctx.eval_string("(defvar rf nil \"Var doc.\")").unwrap();
         assert_eq!(doc(&ctx, "rf").as_deref(), Some("Rust doc."));
         assert_eq!(rendered(&ctx, "rf"), "(rf INTEGER)");
@@ -924,8 +865,7 @@ mod tests {
     #[test]
     fn fset_of_the_same_object_keeps_its_entry() {
         let mut ctx = TulispContext::new();
-        ctx.defun("q", |a: i64| a);
-        ctx.set_doc("q", "NewQ.\n\n(fn NUM)").unwrap();
+        ctx.defun(("q", ["num"], "NewQ."), |a: i64| a);
         let own = ctx.intern("q").global().expect("q's function");
         ctx.fset("q", own).unwrap();
         assert_eq!(doc(&ctx, "q").as_deref(), Some("NewQ."));
@@ -936,8 +876,7 @@ mod tests {
     #[test]
     fn fset_of_another_value_removes_the_entry() {
         let mut ctx = TulispContext::new();
-        ctx.defun("q", |a: i64| a);
-        ctx.set_doc("q", "NewQ.").unwrap();
+        ctx.defun(("q", "NewQ."), |a: i64| a);
         let lambda = ctx.eval_string("(lambda (x) x)").unwrap();
         ctx.fset("q", lambda).unwrap();
         assert!(!has_function_doc(&ctx, "q"));
@@ -950,7 +889,7 @@ mod tests {
         ctx.eval_string("(defun mk (n) (lambda () n))").unwrap();
         let first = ctx.eval_string("(mk 1)").unwrap();
         ctx.fset("f", first).unwrap();
-        ctx.set_doc("f", "Set doc.").unwrap();
+        ctx.set_builtin_doc("f", "Set doc.");
         assert_eq!(doc(&ctx, "f").as_deref(), Some("Set doc."));
         let second = ctx.eval_string("(mk 2)").unwrap();
         ctx.fset("f", second).unwrap();
@@ -958,15 +897,15 @@ mod tests {
         assert!(!has_function_doc(&ctx, "f"));
     }
 
-    // A capturing `defun` made again as the program runs keeps a docstring that
-    // `set_doc` gave it.
+    // A capturing `defun` made again as the program runs keeps a docstring
+    // attached to it later.
     #[test]
-    fn a_capturing_defun_made_again_keeps_a_set_doc() {
+    fn a_capturing_defun_made_again_keeps_an_attached_doc() {
         let mut ctx = TulispContext::new();
         ctx.eval_string("(defun make-cf () (let ((x 1)) (defun cf () \"Lisp doc.\" x)))")
             .unwrap();
         ctx.eval_string("(make-cf)").unwrap();
-        ctx.set_doc("cf", "Set doc.").unwrap();
+        ctx.set_builtin_doc("cf", "Set doc.");
         ctx.eval_string("(make-cf)").unwrap();
         assert_eq!(doc(&ctx, "cf").as_deref(), Some("Set doc."));
     }
@@ -978,8 +917,7 @@ mod tests {
         let mut ctx = TulispContext::new();
         ctx.eval_string("(defun make-cf () (let ((x 1)) (defun cf () \"Lisp doc.\" x)))")
             .unwrap();
-        ctx.defun("cf", |a: i64| a);
-        ctx.set_doc("cf", "Rust doc.").unwrap();
+        ctx.defun(("cf", "Rust doc."), |a: i64| a);
         ctx.eval_string("(make-cf)").unwrap();
         assert!(!has_function_doc(&ctx, "cf"));
         assert_eq!(doc(&ctx, "cf").as_deref(), Some("Lisp doc."));
@@ -993,7 +931,8 @@ mod tests {
             .unwrap();
         let other = ctx.eval_string("(let ((y 2)) (lambda () y))").unwrap();
         ctx.fset("cf", other).unwrap();
-        ctx.set_doc("cf", "Lambda doc.").unwrap();
+        ctx.set_builtin_doc("cf", "Lambda doc.");
+        assert!(has_function_doc(&ctx, "cf"));
         ctx.eval_string("(make-cf)").unwrap();
         assert!(!has_function_doc(&ctx, "cf"));
         assert_eq!(doc(&ctx, "cf").as_deref(), Some("Lisp doc."));
@@ -1007,8 +946,7 @@ mod tests {
             .unwrap();
         assert_eq!(doc(&ctx, "b"), None);
         assert!(!has_function_doc(&ctx, "b"));
-        ctx.defun("rb", |a: i64| a);
-        ctx.set_doc("rb", "Rust doc.").unwrap();
+        ctx.defun(("rb", "Rust doc."), |a: i64| a);
         assert!(has_function_doc(&ctx, "rb"));
         ctx.eval_string("(defun rb () 2)").unwrap();
         assert_eq!(doc(&ctx, "rb"), None);

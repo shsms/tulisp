@@ -216,9 +216,10 @@ these; nothing here evaluates code or interns a name.
 [`TulispContext::describe`](https://docs.rs/tulisp/latest/tulisp/struct.TulispContext.html#method.describe)
 says what a name holds, its signature and its docstring, and
 [`symbols`](https://docs.rs/tulisp/latest/tulisp/struct.TulispContext.html#method.symbols)
-lists every defined name. A Rust function shows its parameters' Lisp types;
-[`set_doc`](https://docs.rs/tulisp/latest/tulisp/struct.TulispContext.html#method.set_doc)
-attaches a docstring, whose last line can name the parameters as Emacs's do:
+lists every defined name. A Rust function shows its parameters' Lisp types,
+unless its definition names them. A definition can carry a docstring too, as
+[`FunctionName`](https://docs.rs/tulisp/latest/tulisp/trait.FunctionName.html)
+describes:
 
 ```rust
 use tulisp::TulispContext;
@@ -230,7 +231,10 @@ ctx.defun("connect", |host: String, port: Option<i64>| {
 let info = ctx.describe("connect").unwrap();
 assert_eq!(info.signature.unwrap().render("connect"), "(connect STRING &optional INTEGER)");
 
-ctx.set_doc("connect", "Connect to HOST.\n\n(fn HOST &optional PORT)").unwrap();
+ctx.defun(
+    ("connect", ["host", "port"], "Connect to HOST."),
+    |host: String, port: Option<i64>| format!("{host}:{}", port.unwrap_or(80)),
+);
 let info = ctx.describe("connect").unwrap();
 assert_eq!(info.doc.as_deref(), Some("Connect to HOST."));
 assert_eq!(info.signature.unwrap().render("connect"), "(connect HOST &optional PORT)");

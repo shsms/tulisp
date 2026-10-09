@@ -677,7 +677,7 @@ mod tests {
     #[test]
     fn hover_shows_a_context_function() {
         let mut ctx = hint_context();
-        ctx.set_doc("fixed", "Doc of fixed.").unwrap();
+        ctx.defun(("fixed", "Doc of fixed."), |a: i64| a);
         let found = hover_at(&ctx, "(fix|ed 1)").expect("hover");
         assert_eq!(found.name, "fixed");
         assert_eq!(found.range, 1..6);
