@@ -224,7 +224,8 @@ pub(crate) fn signature(kinds: &[ParamKind], types: &[Option<Cow<'static, str>>]
     message = "`defun` cannot register this closure",
     note = "up to twelve parameters, each `TulispConvertible`; only the last may be `Rest<T>` or `Plist<T>`",
     note = "the return type must be `TulispConvertible`, `()`, or a `Result` of one",
-    note = "a `TulispAny` type converts by value only when it is `Clone`; `Shared<T>` converts one that is not"
+    note = "a `TulispAny` type converts by value only when it is `Clone`; `Shared<T>` converts one that is not",
+    note = "with a `(name, [names], doc)` name, give one name for each parameter, not counting `&mut TulispContext`"
 )]
 pub trait TulispCallable<Args: 'static, Output: 'static, const CTX: bool> {
     #[doc(hidden)]
@@ -234,6 +235,105 @@ pub trait TulispCallable<Args: 'static, Output: 'static, const CTX: bool> {
 /// Keeps [`TulispCallable`] and [`SpecialCallable`](crate::SpecialCallable) for
 /// Tulisp to implement: their method takes one, and no other crate can name it.
 pub struct Token(pub(crate) ());
+
+/// The name of a definition, alone or with a docstring: `"name"`, or `("name",
+/// "Docstring.")`. A `String`, or a reference to anything that gives a `&str`
+/// with `as_ref`, such as `&String` or `&Box<str>`, works too. Every `Name` is
+/// a [`FunctionName`] as well.
+///
+/// Only Tulisp implements it.
+pub trait Name {
+    #[doc(hidden)]
+    fn parts(&self, _: Token) -> (&str, Option<&str>);
+}
+
+impl Name for String {
+    fn parts(&self, _: Token) -> (&str, Option<&str>) {
+        (self, None)
+    }
+}
+
+impl<T: AsRef<str> + ?Sized> Name for &T {
+    fn parts(&self, _: Token) -> (&str, Option<&str>) {
+        ((*self).as_ref(), None)
+    }
+}
+
+impl<T: AsRef<str> + ?Sized> Name for &mut T {
+    fn parts(&self, _: Token) -> (&str, Option<&str>) {
+        ((**self).as_ref(), None)
+    }
+}
+
+impl<N: AsRef<str>, D: AsRef<str>> Name for (N, D) {
+    fn parts(&self, _: Token) -> (&str, Option<&str>) {
+        (self.0.as_ref(), Some(self.1.as_ref()))
+    }
+}
+
+/// The name [`defun`](TulispContext::defun) and
+/// [`defspecial`](TulispContext::defspecial) define, for a function whose
+/// parameters are `Args`. It is any [`Name`], or the name, the parameters'
+/// names and a docstring, in the order of a Lisp `defun`:
+///
+/// ```rust
+/// use tulisp::TulispContext;
+///
+/// let mut ctx = TulispContext::new();
+/// ctx.defun(
+///     ("connect", ["host", "port"], "Connect to HOST."),
+///     |host: String, port: Option<i64>| format!("{host}:{}", port.unwrap_or(80)),
+/// );
+/// let info = ctx.describe("connect").unwrap();
+/// assert_eq!(info.doc.as_deref(), Some("Connect to HOST."));
+/// assert_eq!(info.signature.unwrap().render("connect"), "(connect HOST &optional PORT)");
+/// ```
+///
+/// The names are an array of `&str`, one for each parameter. A `&mut
+/// TulispContext` parameter gets no name. The compiler checks the count:
+///
+/// ```compile_fail,E0277
+/// let mut ctx = tulisp::TulispContext::new();
+/// ctx.defun(("add", ["a"], "Add A and B."), |a: i64, b: i64| a + b);
+/// ```
+///
+/// Only Tulisp implements it.
+pub trait FunctionName<Args> {
+    #[doc(hidden)]
+    fn parts(&self, _: Token) -> (&str, Option<&[&str]>, Option<&str>);
+}
+
+impl<Args, N: Name> FunctionName<Args> for N {
+    fn parts(&self, token: Token) -> (&str, Option<&[&str]>, Option<&str>) {
+        let (name, doc) = Name::parts(self, token);
+        (name, None, doc)
+    }
+}
+
+impl<Args, N: AsRef<str>, P: ParamNames<Args>, D: AsRef<str>> FunctionName<Args> for (N, P, D) {
+    fn parts(&self, token: Token) -> (&str, Option<&[&str]>, Option<&str>) {
+        (
+            self.0.as_ref(),
+            Some(self.1.names(token)),
+            Some(self.2.as_ref()),
+        )
+    }
+}
+
+/// The names of a function's parameters, one for each of `Args`: an array of
+/// `&str`, as many names as the function has parameters, not counting a `&mut
+/// TulispContext` one.
+///
+/// Only Tulisp implements it.
+pub trait ParamNames<Args> {
+    #[doc(hidden)]
+    fn names(&self, _: Token) -> &[&str];
+}
+
+macro_rules! count_params {
+    () => { 0 };
+    ($head:ident $($tail:ident)*) => { 1 + count_params!($($tail)*) };
+}
 
 macro_rules! impl_tulisp_callable {
     // One impl per arity for closures with and without the context
@@ -265,7 +365,16 @@ macro_rules! impl_tulisp_callable {
             }
         }
     };
+    // The names of the parameters, and the closures with and without the
+    // context parameter.
     (($($p:ident),*), ($($last:ident)?)) => {
+        impl<'a, $($p,)* $($last,)?> ParamNames<($($p,)* $($last,)?)>
+            for [&'a str; count_params!($($p)* $($last)?)]
+        {
+            fn names(&self, _: Token) -> &[&str] {
+                self
+            }
+        }
         impl_tulisp_callable!(@impl false, cx, (), (), ($($p),*), ($($last)?));
         impl_tulisp_callable!(@impl true, cx, (&mut TulispContext,), (cx,), ($($p),*), ($($last)?));
     };

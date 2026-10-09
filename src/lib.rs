@@ -16,7 +16,9 @@ pub use cons::{BaseIter, Iter};
 
 mod context;
 pub use context::call_args::{ApplyArgs, FuncallArgs, SpreadArgs};
-pub use context::callable::{Param, ParamKind, PositionalParam, Return, TulispCallable};
+pub use context::callable::{
+    FunctionName, Name, Param, ParamKind, ParamNames, PositionalParam, Return, TulispCallable,
+};
 pub use context::destructure::Destructure;
 pub use context::special::{Form, SpecialCallable, SpecialParam, SpecialPositionalParam};
 pub use context::{Interrupt, Rest, TulispContext};

@@ -199,6 +199,37 @@ impl TulispContext {
             .filter(|entry| entry.describes(kind, identity))
     }
 
+    /// Gives the Rust function NAME was just defined with, whose entry
+    /// `define_function` made, its parameters' NAMES and its DOC, each when
+    /// given. NAMES has one name for each parameter.
+    pub(crate) fn document_function(
+        &mut self,
+        name: &str,
+        names: Option<&[&str]>,
+        doc: Option<&str>,
+    ) {
+        if names.is_none() && doc.is_none() {
+            return;
+        }
+        let Some(entry) = self
+            .obarray
+            .get(name)
+            .and_then(|sym| self.function_docs.get_mut(&sym.addr_as_usize()))
+        else {
+            return;
+        };
+        if let Some(names) = names
+            && let Some(signature) = entry.signature.as_mut()
+        {
+            for (param, name) in signature.params.iter_mut().zip(names) {
+                param.name = Some(name.to_string());
+            }
+        }
+        if let Some(doc) = doc {
+            entry.doc = Some(Cow::Owned(doc.to_string()));
+        }
+    }
+
     /// Attaches DOC to what NAME holds, a function or a variable, for
     /// [`describe`](Self::describe) and the editor tools built on it. For a
     /// function, a last line `(fn HOST &optional PORT)` after a blank line, as
@@ -369,8 +400,8 @@ impl TulispContext {
 
 #[cfg(test)]
 mod tests {
-    use crate::TulispContext;
     use crate::symbols::SymbolKind;
+    use crate::{Form, Rest, TulispContext, TulispObject};
 
     /// Whether NAME has a function entry.
     fn has_function_doc(ctx: &TulispContext, name: &str) -> bool {
@@ -582,6 +613,88 @@ mod tests {
 
     fn doc(ctx: &TulispContext, name: &str) -> Option<String> {
         ctx.describe(name).and_then(|info| info.doc)
+    }
+
+    #[test]
+    fn defun_takes_a_docstring() {
+        let mut ctx = TulispContext::new();
+        ctx.defun(("f", "Return A."), |a: i64| a);
+        assert_eq!(doc(&ctx, "f").as_deref(), Some("Return A."));
+        assert_eq!(rendered(&ctx, "f"), "(f INTEGER)");
+    }
+
+    #[test]
+    fn defun_takes_parameter_names() {
+        let mut ctx = TulispContext::new();
+        ctx.defun(
+            ("f", ["host", "port", "opts"], "Connect."),
+            |a: String, b: Option<i64>, c: Rest<i64>| format!("{a}{b:?}{c:?}"),
+        );
+        assert_eq!(doc(&ctx, "f").as_deref(), Some("Connect."));
+        assert_eq!(rendered(&ctx, "f"), "(f HOST &optional PORT &rest OPTS)");
+        // The types stay, for tools that show them.
+        let info = ctx.describe("f").unwrap();
+        let types: Vec<_> = info
+            .signature
+            .unwrap()
+            .params
+            .into_iter()
+            .map(|param| param.type_name)
+            .collect();
+        assert_eq!(
+            types,
+            [
+                Some("string".into()),
+                Some("integer".into()),
+                Some("integer".into())
+            ]
+        );
+    }
+
+    #[test]
+    fn defun_with_a_context_parameter_names_the_others() {
+        let mut ctx = TulispContext::new();
+        ctx.defun(
+            ("f", ["form"], "Eval FORM."),
+            |ctx: &mut TulispContext, form: TulispObject| ctx.eval(&form),
+        );
+        assert_eq!(rendered(&ctx, "f"), "(f FORM)");
+    }
+
+    #[test]
+    fn defspecial_takes_a_docstring_and_parameter_names() {
+        let mut ctx = TulispContext::new();
+        ctx.defspecial(("s", "Run BODY."), |body: Rest<Form>| body.len() as i64);
+        assert_eq!(doc(&ctx, "s").as_deref(), Some("Run BODY."));
+        ctx.defspecial(
+            ("st", ["test", "body"], "Run BODY when TEST."),
+            |_test: Form, body: Rest<Form>| body.len() as i64,
+        );
+        assert_eq!(doc(&ctx, "st").as_deref(), Some("Run BODY when TEST."));
+        assert_eq!(rendered(&ctx, "st"), "(st TEST &rest BODY)");
+    }
+
+    #[test]
+    fn a_name_can_be_a_string_or_a_reference_to_one() {
+        let mut ctx = TulispContext::new();
+        ctx.defun(String::from("f"), |a: i64| a);
+        let owned = String::from("g");
+        ctx.defun(&owned, |a: i64| a);
+        let name: &&str = &"h";
+        ctx.defun(name, |a: i64| a);
+        let boxed: Box<str> = "i".into();
+        ctx.defun(&boxed, |a: i64| a);
+        let mut borrowed = String::from("k");
+        ctx.defun(&mut borrowed, |a: i64| a);
+        for name in ["f", "g", "h", "i", "k"] {
+            assert_eq!(rendered(&ctx, name), format!("({name} INTEGER)"));
+            assert_eq!(doc(&ctx, name), None);
+        }
+        let doc_text = String::from("Doc.");
+        ctx.defun((String::from("j"), &doc_text), |a: i64| a);
+        ctx.defun((&owned, ["num"], doc_text.clone()), |a: i64| a);
+        assert_eq!(doc(&ctx, "j").as_deref(), Some("Doc."));
+        assert_eq!(rendered(&ctx, "g"), "(g NUM)");
     }
 
     #[test]

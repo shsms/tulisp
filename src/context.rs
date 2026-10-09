@@ -483,6 +483,9 @@ impl TulispContext {
     /// earlier calls it as a function, so its arguments are evaluated
     /// and then the call fails.
     ///
+    /// NAME can carry a docstring and the parameters' names, as for `defun`:
+    /// see [`FunctionName`](crate::FunctionName).
+    ///
     /// # Migrating from raw arguments
     ///
     /// A closure that took `(ctx, args: &TulispObject)` and called
@@ -536,10 +539,12 @@ impl TulispContext {
     #[track_caller]
     pub fn defspecial<Args: 'static, Output: 'static, const CTX: bool>(
         &mut self,
-        name: &str,
+        name: impl callable::FunctionName<Args>,
         func: impl special::SpecialCallable<Args, Output, CTX> + 'static,
     ) -> &mut Self {
+        let (name, names, doc) = name.parts(callable::Token(()));
         func.add_to_context(self, name, callable::Token(()));
+        self.document_function(name, names, doc);
         self
     }
 
@@ -666,6 +671,11 @@ impl TulispContext {
     ///
     /// Returns `&mut Self` so calls can be chained.
     ///
+    /// NAME can carry a docstring, and the parameters' names that
+    /// [`describe`](Self::describe) shows: `("add", "Add A and B.")` or
+    /// `("add", ["a", "b"], "Add A and B.")`. See
+    /// [`FunctionName`](crate::FunctionName).
+    ///
     /// # Argument types
     ///
     /// Up to twelve parameters. A positional parameter is any type that
@@ -735,10 +745,12 @@ impl TulispContext {
     #[track_caller]
     pub fn defun<Args: 'static, Output: 'static, const CTX: bool>(
         &mut self,
-        name: &str,
+        name: impl callable::FunctionName<Args>,
         func: impl TulispCallable<Args, Output, CTX> + 'static,
     ) -> &mut Self {
+        let (name, names, doc) = name.parts(callable::Token(()));
         func.add_to_context(self, name, callable::Token(()));
+        self.document_function(name, names, doc);
         self
     }
 
