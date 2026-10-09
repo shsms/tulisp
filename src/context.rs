@@ -832,18 +832,25 @@ impl TulispContext {
     /// where NAME names a function defined in Lisp, a call `(NAME ...)` still
     /// runs that function.
     ///
+    /// NAME can carry a docstring, as in `("depth", "How deep the search
+    /// goes.")`, which replaces any NAME had, as a Lisp `defvar` does.
+    ///
     /// Returns an Error if NAME is `nil`, `t` or a keyword.
     pub fn defvar(
         &mut self,
-        name: &str,
+        name: impl callable::Name,
         value: impl crate::TulispConvertible,
     ) -> Result<(), Error> {
+        let (name, doc) = name.parts(callable::Token(()));
         let sym = self.intern(name);
         crate::builtin::check_defvar_name(&sym)?;
         sym.set_special()?;
         if sym.global().is_none() {
             let value = value.into_tulisp(self);
             sym.set_global(value)?;
+        }
+        if let Some(doc) = doc {
+            self.set_variable_doc(&sym, doc.to_string());
         }
         Ok(())
     }

@@ -698,6 +698,21 @@ mod tests {
     }
 
     #[test]
+    fn defvar_takes_a_docstring() {
+        let mut ctx = TulispContext::new();
+        ctx.defvar(("v", "The v."), 1).unwrap();
+        assert_eq!(doc(&ctx, "v").as_deref(), Some("The v."));
+        // As in Lisp, a defvar of a name with a value keeps the value and
+        // replaces the docstring.
+        ctx.defvar(("v", "Still v."), 2).unwrap();
+        assert_eq!(doc(&ctx, "v").as_deref(), Some("Still v."));
+        assert_eq!(ctx.eval_string("v").unwrap().to_string(), "1");
+        // A name alone leaves the docstring.
+        ctx.defvar("v", 3).unwrap();
+        assert_eq!(doc(&ctx, "v").as_deref(), Some("Still v."));
+    }
+
+    #[test]
     fn set_doc_attaches_a_docstring() {
         let mut ctx = TulispContext::new();
         ctx.defun("f", |a: i64| a);
