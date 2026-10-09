@@ -25,7 +25,7 @@ use crate::{
     context::callable::TulispCallable,
     error::Error,
     eval::resolve_function,
-    object::wrappers::{DefunFn, InterruptCheckFn, TulispFn, generic::Shared},
+    object::wrappers::{DefunFn, InterruptCheckFn, generic::Shared},
     parse::parse,
     symbols::Signature,
 };
@@ -494,7 +494,7 @@ impl TulispContext {
     /// get it unevaluated, and calls `form.eval(ctx)` where it called
     /// `ctx.eval(&arg)`. `destruct_eval_bind!` is gone: use typed
     /// parameters. For code transformation, use
-    /// [`defmacro`](Self::defmacro), which keeps raw arguments.
+    /// [`defmacro`](Self::defmacro).
     ///
     /// A single `TulispObject` parameter is one evaluated argument, not
     /// the argument list: use `Rest<Form>` for all the arguments,
@@ -641,6 +641,31 @@ impl TulispContext {
         );
     }
 
+    /// Internal: makes a `ctx.defmacro`-style typed-args closure the macro of
+    /// NAME. A macro gets the call's arguments as one list, unevaluated, so the
+    /// macro checks their number against `arity` before it calls `func` with
+    /// them. Used by the `impl_tulisp_callable!` macro arms.
+    #[inline(always)]
+    #[track_caller]
+    pub(crate) fn define_typed_macro(
+        &mut self,
+        name: &str,
+        arity: crate::value::DefunArity,
+        signature: Signature,
+        func: impl DefunFn,
+    ) {
+        let expand = move |ctx: &mut TulispContext, args: &TulispObject| {
+            let args = crate::cons::collect_list(args, Ok)?;
+            arity.check(args.len())?;
+            func(ctx, &args)
+        };
+        self.define_function(
+            name,
+            TulispValue::Macro(Shared::new_tulisp_fn(expand)),
+            Some(signature),
+        );
+    }
+
     #[inline(always)]
     #[track_caller]
     pub(crate) fn define_special(
@@ -760,6 +785,19 @@ impl TulispContext {
     /// [`TulispObject`] that is then evaluated in the caller's environment —
     /// the same semantics as a Lisp `defmacro`.
     ///
+    /// The closure takes typed parameters, as for [`defun`](Self::defun), but
+    /// each takes its argument as written. A [`TulispObject`] parameter gets
+    /// the form itself, and [`Rest<TulispObject>`](crate::Rest) the remaining
+    /// ones. An `Option<TulispObject>` parameter gets one that may be absent; a
+    /// written `nil` is `None` too, as in Lisp. Another
+    /// [`TulispConvertible`](crate::TulispConvertible) type converts the form,
+    /// so an `i64` parameter takes a number written in the call. A call with
+    /// too few or too many arguments is an error when it expands, and so is a
+    /// dotted call such as `(m 1 . 2)`.
+    ///
+    /// NAME can carry a docstring and the parameters' names, as for `defun`:
+    /// see [`FunctionName`](crate::FunctionName).
+    ///
     /// For functions that should evaluate their arguments normally, use
     /// [`defun`](Self::defun) instead.
     ///
@@ -770,12 +808,13 @@ impl TulispContext {
     ///
     /// let mut ctx = TulispContext::new();
     /// // Implement `(push newelt place)` as a macro.
-    /// ctx.defmacro("push", |ctx, args| {
-    ///     let (newelt, place): (TulispObject, TulispObject) =
-    ///         args.destructure(ctx)?;
-    ///     let cons = list!(,ctx.intern("cons") ,newelt ,place.clone())?;
-    ///     list!(,ctx.intern("setq") ,place ,cons)
-    /// });
+    /// ctx.defmacro(
+    ///     ("push", ["newelt", "place"], "Add NEWELT to the list in PLACE."),
+    ///     |ctx: &mut TulispContext, newelt: TulispObject, place: TulispObject| {
+    ///         let cons = list!(,ctx.intern("cons") ,newelt ,place.clone())?;
+    ///         list!(,ctx.intern("setq") ,place ,cons)
+    ///     },
+    /// );
     ///
     /// assert_eq!(
     ///     ctx.eval_string("(macroexpand '(push 1 my-list))").unwrap().to_string(),
@@ -783,13 +822,33 @@ impl TulispContext {
     /// );
     /// ```
     ///
+    /// # Migrating from raw arguments
+    ///
+    /// A closure that took `(ctx, args: &TulispObject)` and destructured `args`
+    /// declares each argument instead, typing the context parameter: `|ctx:
+    /// &mut TulispContext, cond: TulispObject, body: Rest<TulispObject>|` where
+    /// it destructured `(cond, body)`. One that used the whole list takes a
+    /// `Rest<TulispObject>`.
+    ///
+    /// The closure gets the arguments, not the list that holds them. So a call
+    /// with more arguments than the closure has parameters for is an error, and
+    /// so is a dotted call. A closure that took the list could ignore these.
+    /// `defmacro` returns `&mut Self`, as `defun` does.
+    ///
     /// # Panics
     ///
     /// If NAME is `nil`, `t` or a keyword.
     #[inline(always)]
     #[track_caller]
-    pub fn defmacro(&mut self, name: &str, func: impl TulispFn) {
-        self.define_function(name, TulispValue::Macro(Shared::new_tulisp_fn(func)), None);
+    pub fn defmacro<Args: 'static, Output: 'static, const CTX: bool>(
+        &mut self,
+        name: impl callable::FunctionName<Args>,
+        func: impl TulispCallable<Args, Output, CTX> + 'static,
+    ) -> &mut Self {
+        let (name, names, doc) = name.parts(callable::Token(()));
+        func.add_macro_to_context(self, name, callable::Token(()));
+        self.document_function(name, names, doc);
+        self
     }
 
     /// Returns true if NAME holds a function, a macro or a special form,
@@ -1592,7 +1651,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "can't define a function named :k")]
     fn defmacro_named_a_keyword_panics() {
-        TulispContext::new().defmacro(":k", |_, _| Ok(TulispObject::nil()));
+        TulispContext::new().defmacro(":k", TulispObject::nil);
     }
 
     // `map`, `filter` and `reduce` reject a non-list or a dotted list,

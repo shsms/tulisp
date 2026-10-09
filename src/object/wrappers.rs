@@ -1,22 +1,10 @@
 use crate::{Error, TulispContext, TulispObject};
 
-/// The body of a macro registered with [`defmacro`](TulispContext::defmacro):
-/// it gets the call's arguments, unevaluated, as a list, and returns the form
-/// to run in the call's place. With the `sync` feature it must be `Send` and
-/// `Sync`.
-///
-/// ```rust
-/// use tulisp::{TulispContext, TulispFn};
-///
-/// fn register(ctx: &mut TulispContext, name: &str, body: impl TulispFn) {
-///     ctx.defmacro(name, body);
-/// }
-///
-/// let mut ctx = TulispContext::new();
-/// register(&mut ctx, "first-arg", |_, args| args.car());
-/// assert_eq!(ctx.eval_string("(first-arg 7 8)").unwrap().to_string(), "7");
-/// ```
-pub trait TulispFn:
+/// The expander of a macro registered with
+/// [`defmacro`](TulispContext::defmacro), which wraps the closure given to
+/// `defmacro`: it gets the call's arguments, unevaluated, as a list, and
+/// returns the form to run in the call's place.
+pub(crate) trait TulispFn:
     Fn(&mut TulispContext, &TulispObject) -> Result<TulispObject, Error>
     + generic::SendSyncIfSync
     + 'static
@@ -29,9 +17,10 @@ impl<T> TulispFn for T where
 {
 }
 
-/// The closure behind a `ctx.defun`-registered function. It gets its
-/// arguments as values, evaluated by the caller or passed from Rust, as
-/// a slice. It may call back into `ctx`.
+/// The closure behind a `ctx.defun` function or a `ctx.defmacro` macro. It gets
+/// its arguments as a slice: for a function, values, evaluated by the caller or
+/// passed from Rust; for a macro, the forms as written. It may call back into
+/// `ctx`.
 pub trait DefunFn:
     Fn(&mut TulispContext, &[TulispObject]) -> Result<TulispObject, Error>
     + generic::SendSyncIfSync

@@ -1877,8 +1877,8 @@ mod tests {
     }
 
     // Each usage line takes the arguments the built-in itself takes, where its
-    // value knows its arity: Rust functions, Lisp functions and macros.
-    // Built-in special forms and Rust macros record none.
+    // value or its Rust registration knows its arity: Rust functions and
+    // macros, Lisp functions and macros. Built-in special forms record none.
     #[test]
     fn every_usage_line_fits_its_built_in() {
         let ctx = TulispContext::new();
@@ -1900,50 +1900,31 @@ mod tests {
                 actual.render(name)
             );
         }
-        // The built-ins with no arity to check against: the special forms and
-        // the Rust macros. A new one must be added here on purpose.
+        // The built-ins with no arity to check against: the special forms. A
+        // new one must be added here on purpose.
         skipped.sort_unstable();
         assert_eq!(skipped, SKIPPED);
     }
 
     const SKIPPED: &[&str] = &[
-        "->",
-        "->>",
         "and",
         "catch",
         "cond",
         "condition-case",
         "declare",
-        "defconst",
         "defmacro",
         "defun",
         "defvar",
-        "dolist",
-        "dotimes",
         "function",
         "if",
-        "if-let",
-        "if-let*",
-        "ignore-errors",
         "interactive",
         "lambda",
         "let",
         "let*",
         "or",
-        "pop",
-        "prog1",
-        "prog2",
         "progn",
-        "push",
-        "quote",
         "setq",
-        "thread-first",
-        "thread-last",
-        "unless",
         "unwind-protect",
-        "when",
-        "when-let",
         "while",
-        "while-let",
     ];
 }

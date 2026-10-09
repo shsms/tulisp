@@ -46,8 +46,8 @@ pub(crate) use value::TulispValue;
 mod object;
 pub use {
     object::conversions::TulispConvertible,
+    object::wrappers::InterruptCheckFn,
     object::wrappers::generic::{SendIfSync, SendSyncIfSync, Shared, SharedMut},
-    object::wrappers::{InterruptCheckFn, TulispFn},
     object::{Span, TulispObject},
 };
 

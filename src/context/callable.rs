@@ -40,8 +40,8 @@ pub enum ParamKind {
     RestForm,
 }
 
-/// A parameter of a function registered with
-/// [`defun`](TulispContext::defun).
+/// A parameter of a function registered with [`defun`](TulispContext::defun),
+/// or of a macro registered with [`defmacro`](TulispContext::defmacro).
 pub trait Param: Sized + 'static {
     const KIND: ParamKind;
 
@@ -108,7 +108,8 @@ pub trait PositionalParam: Param {}
 
 impl<T: TulispConvertible + 'static> PositionalParam for T {}
 
-/// The value a [`defun`](TulispContext::defun) closure returns.
+/// The value a [`defun`](TulispContext::defun) or
+/// [`defmacro`](TulispContext::defmacro) closure returns.
 pub trait Return: 'static {
     /// The Lisp value the call answers with, or the error it raises.
     fn into_result(self, ctx: &mut TulispContext) -> Result<TulispObject, Error>;
@@ -183,10 +184,11 @@ pub(crate) fn signature(kinds: &[ParamKind], types: &[Option<Cow<'static, str>>]
     Signature { params }
 }
 
-/// A closure that [`defun`](TulispContext::defun) can register:
-/// `Fn(P1, .., Pn) -> R` or `Fn(&mut TulispContext, P1, .., Pn) -> R`
-/// for up to twelve parameters and a [`Return`]; every parameter but
-/// the last is a [`PositionalParam`], the last any [`Param`].
+/// A closure that [`defun`](TulispContext::defun) and
+/// [`defmacro`](TulispContext::defmacro) can register: `Fn(P1, .., Pn) -> R` or
+/// `Fn(&mut TulispContext, P1, .., Pn) -> R` for up to twelve parameters and a
+/// [`Return`]; every parameter but the last is a [`PositionalParam`], the last
+/// any [`Param`].
 ///
 /// Code of an embedder can take one and pass it on to `defun`:
 ///
@@ -221,7 +223,7 @@ pub(crate) fn signature(kinds: &[ParamKind], types: &[Option<Cow<'static, str>>]
 /// }
 /// ```
 #[diagnostic::on_unimplemented(
-    message = "`defun` cannot register this closure",
+    message = "`defun` and `defmacro` cannot register this closure",
     note = "up to twelve parameters, each `TulispConvertible`; only the last may be `Rest<T>` or `Plist<T>`",
     note = "the return type must be `TulispConvertible`, `()`, or a `Result` of one",
     note = "a `TulispAny` type converts by value only when it is `Clone`; `Shared<T>` converts one that is not",
@@ -230,6 +232,9 @@ pub(crate) fn signature(kinds: &[ParamKind], types: &[Option<Cow<'static, str>>]
 pub trait TulispCallable<Args: 'static, Output: 'static, const CTX: bool> {
     #[doc(hidden)]
     fn add_to_context(self, ctx: &mut TulispContext, name: &str, _: Token);
+
+    #[doc(hidden)]
+    fn add_macro_to_context(self, ctx: &mut TulispContext, name: &str, _: Token);
 }
 
 /// Keeps [`TulispCallable`] and [`SpecialCallable`](crate::SpecialCallable) for
@@ -271,8 +276,9 @@ impl<N: AsRef<str>, D: AsRef<str>> Name for (N, D) {
     }
 }
 
-/// The name [`defun`](TulispContext::defun) and
-/// [`defspecial`](TulispContext::defspecial) define, for a function whose
+/// The name [`defun`](TulispContext::defun),
+/// [`defspecial`](TulispContext::defspecial) and
+/// [`defmacro`](TulispContext::defmacro) define, for a function whose
 /// parameters are `Args`. It is any [`Name`], or the name, the parameters'
 /// names and a docstring, in the order of a Lisp `defun`:
 ///
@@ -340,9 +346,22 @@ macro_rules! count_params {
 }
 
 macro_rules! impl_tulisp_callable {
-    // One impl per arity for closures with and without the context
-    // parameter; `$cx` is the name the closure binds it to. Every
-    // parameter but the last binds one position.
+    // What `defun` and `defmacro` both register: the arity, the signature, and
+    // a closure that takes the parameters from the arguments and calls `$func`.
+    // `$cx` is the name the closure binds the context to.
+    (@parts $func:ident, $cx:ident, ($($call_ctx:tt)*), ($($p:ident),*), ($($last:ident)?)) => {{
+        let kinds = [$(<$p as Param>::KIND,)* $(<$last as Param>::KIND,)?];
+        let types = [$(<$p as Param>::type_name(),)* $(<$last as Param>::type_name(),)?];
+        let call = move |$cx: &mut TulispContext, args: &[TulispObject]| {
+            let mut args = args;
+            $(let $p = <$p as Param>::take($cx, &mut args)?;)*
+            $(let $last = <$last as Param>::take($cx, &mut args)?;)?
+            ($func)($($call_ctx)* $($p,)* $($last)?).into_result($cx)
+        };
+        (arity(&kinds), signature(&kinds, &types), call)
+    }};
+    // One impl per arity for closures with and without the context parameter.
+    // Every parameter but the last binds one position.
     (@impl $ctx:literal, $cx:ident, ($($fn_ctx:tt)*), ($($call_ctx:tt)*), ($($p:ident),*), ($($last:ident)?)) => {
         #[allow(nonstandard_style)]
         impl<FnT, R, $($p,)* $($last,)?> TulispCallable<($($p,)* $($last,)?), R, $ctx> for FnT
@@ -356,16 +375,19 @@ macro_rules! impl_tulisp_callable {
             #[track_caller]
             #[allow(unused_mut, unused_variables)]
             fn add_to_context(self, ctx: &mut TulispContext, name: &str, _: Token) {
-                let kinds = [$(<$p as Param>::KIND,)* $(<$last as Param>::KIND,)?];
-                let types = [$(<$p as Param>::type_name(),)* $(<$last as Param>::type_name(),)?];
-                let arity = arity(&kinds);
-                let signature = signature(&kinds, &types);
-                ctx.define_typed_defun(name, arity, signature, move |$cx, args| {
-                    let mut args = args;
-                    $(let $p = <$p as Param>::take($cx, &mut args)?;)*
-                    $(let $last = <$last as Param>::take($cx, &mut args)?;)?
-                    (self)($($call_ctx)* $($p,)* $($last)?).into_result($cx)
-                });
+                let (arity, signature, call) = impl_tulisp_callable!(
+                    @parts self, $cx, ($($call_ctx)*), ($($p),*), ($($last)?)
+                );
+                ctx.define_typed_defun(name, arity, signature, call);
+            }
+
+            #[track_caller]
+            #[allow(unused_mut, unused_variables)]
+            fn add_macro_to_context(self, ctx: &mut TulispContext, name: &str, _: Token) {
+                let (arity, signature, call) = impl_tulisp_callable!(
+                    @parts self, $cx, ($($call_ctx)*), ($($p),*), ($($last)?)
+                );
+                ctx.define_typed_macro(name, arity, signature, call);
             }
         }
     };
@@ -403,7 +425,70 @@ mod tests {
     use super::{Param, ParamKind, arity};
     use crate::test_utils::{eval_assert, eval_assert_equal, eval_assert_error};
     use crate::value::DefunArity;
-    use crate::{Error, Plist, Rest, TulispContext, TulispObject};
+    use crate::{Error, Plist, Rest, TulispContext, TulispObject, list};
+
+    #[test]
+    fn a_macro_takes_its_arguments_as_written() {
+        let ctx = &mut TulispContext::new();
+        ctx.defmacro(
+            "quoted",
+            |ctx: &mut TulispContext, form: TulispObject, other: Option<TulispObject>| {
+                list!(,ctx.intern("quote") ,list!(,form ,other)?)
+            },
+        );
+        eval_assert_equal(ctx, "(quoted (+ 1 2))", "'((+ 1 2) nil)");
+        eval_assert_equal(ctx, "(quoted (+ 1 2) x)", "'((+ 1 2) x)");
+        // As in Lisp, a written nil is no argument: the option is `None`.
+        ctx.defmacro(
+            "given",
+            |_form: TulispObject, other: Option<TulispObject>| other.is_some(),
+        );
+        eval_assert_equal(
+            ctx,
+            "(list (given 1) (given 1 nil) (given 1 x))",
+            "'(nil nil t)",
+        );
+        // Another type converts the form as written.
+        ctx.defmacro(
+            "times",
+            |ctx: &mut TulispContext, count: i64, body: Rest<TulispObject>| {
+                let mut forms = Vec::new();
+                for _ in 0..count {
+                    forms.extend(body.iter().cloned());
+                }
+                list!(,ctx.intern("progn") ,@forms)
+            },
+        );
+        eval_assert_equal(ctx, "(let ((x 0)) (times 3 (setq x (1+ x))) x)", "3");
+        eval_assert_error(
+            ctx,
+            "(times (+ 1 2) nil)",
+            "ERR TypeMismatch: Expected integer: (+ 1 2)\n\
+             <eval_string>:1.8-1.14:  at (+ 1 2)\n\
+             <eval_string>:1.1-1.19:  at (times (+ 1 2) nil)\n",
+        );
+    }
+
+    #[test]
+    fn a_macro_call_with_a_wrong_count_is_an_error() {
+        let ctx = &mut TulispContext::new();
+        ctx.defmacro("one", |form: TulispObject| form);
+        eval_assert_error(
+            ctx,
+            "(one)",
+            "ERR ArityMismatch: Too few arguments\n\
+             <eval_string>:1.1-1.5:  at (one)\n",
+        );
+        eval_assert_error(
+            ctx,
+            "(one 1 2)",
+            "ERR ArityMismatch: Too many arguments\n\
+             <eval_string>:1.1-1.9:  at (one 1 2)\n",
+        );
+        // So is an argument list that does not end in nil.
+        let err = ctx.eval_string("(one . 1)").unwrap_err();
+        assert!(!err.to_string().contains("Arity"), "{err}");
+    }
 
     #[test]
     fn arity_counts_forms_as_positions() {

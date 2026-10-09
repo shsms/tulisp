@@ -115,14 +115,20 @@ to its parameters.
 use tulisp::{list, Rest, TulispContext, TulispObject};
 
 let ctx = &mut TulispContext::new();
-ctx.defmacro("my-when", |ctx, args| {
-    let (cond, body): (TulispObject, Rest<TulispObject>) = args.destructure(ctx)?;
-    list!(,ctx.intern("if") ,cond ,list!(,ctx.intern("progn") ,@body)?)
-});
+ctx.defmacro(
+    "my-when",
+    |ctx: &mut TulispContext, cond: TulispObject, body: Rest<TulispObject>| {
+        list!(,ctx.intern("if") ,cond ,list!(,ctx.intern("progn") ,@body)?)
+    },
+);
 assert_eq!(ctx.eval_string("(my-when t 1 2)").unwrap().to_string(), "2");
 
 let form = list!(ctx => ,ctx.intern("message") ,"sizes" ,vec![1, 2]).unwrap();
 assert_eq!(form.to_string(), r#"(message "sizes" (1 2))"#);
+
+let (head, args): (TulispObject, Rest<TulispObject>) = form.destructure(ctx).unwrap();
+assert_eq!(head.to_string(), "message");
+assert_eq!(args.len(), 2);
 ```
 
 ## Keyed-list structs

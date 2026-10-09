@@ -1127,7 +1127,7 @@ mod tests {
     fn backquote_rejects_a_circular_template() {
         let ctx = &mut TulispContext::new();
         // Only a Rust macro can hand over a template that loops.
-        ctx.defmacro("circular-template", |_, _| {
+        ctx.defmacro("circular-template", || {
             let items = list!(1, 2, 3)?;
             items.cddr()?.set_cdr(items.clone())?;
             Ok(TulispValue::Backquote { value: items }.into_ref(None))
@@ -1613,7 +1613,7 @@ mod tests {
         ctx.eval_string("(defmacro once-outer () (list 'quote (once-counted)))")?;
         let count = Arc::new(AtomicUsize::new(0));
         let counter = count.clone();
-        ctx.defmacro("once-counted", move |_, _| {
+        ctx.defmacro("once-counted", move || {
             counter.fetch_add(1, Ordering::Relaxed);
             Ok(TulispObject::from(1))
         });
@@ -1925,7 +1925,7 @@ mod tests {
         ctx.eval_string("(defmacro pc-outer () (list 'quote (pc-host)))")?;
         let first = Arc::new(AtomicBool::new(true));
         let flag = first.clone();
-        ctx.defmacro("pc-host", move |_, _| {
+        ctx.defmacro("pc-host", move || {
             if flag.swap(false, Ordering::Relaxed) {
                 panic!("host macro panic");
             }

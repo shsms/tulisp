@@ -313,56 +313,60 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     // Emacs. Each iteration binds `var` afresh, so closures made in
     // different iterations see different values. The loop state lives
     // in uninterned symbols, which user code cannot name.
-    ctx.defmacro("dolist", |ctx, args| {
-        let (spec, body): (TulispObject, Rest<TulispObject>) = args.destructure(ctx)?;
-        let (var, list, result): (TulispObject, TulispObject, Option<TulispObject>) =
-            spec.destructure(ctx)?;
-        let result = result.unwrap_or_default();
-        crate::builtin::check_not_nil_or_t(&var)?;
-        let tail = TulispObject::symbol("tail".to_string(), false);
-        // (let ((tail list))
-        //   (while tail
-        //     (let ((var (car tail))) body...)
-        //     (setq tail (cdr tail)))
-        //   result)
-        list!(,ctx.intern("let") ,list!(,list!(,tail.clone() ,list)?)?
-              ,list!(,ctx.intern("while") ,tail.clone()
-                     ,list!(,ctx.intern("let")
-                            ,list!(,list!(,var ,list!(,ctx.intern("car") ,tail.clone())?)?)?
-                            ,@body)?
-                     ,list!(,ctx.intern("setq") ,tail.clone()
-                            ,list!(,ctx.intern("cdr") ,tail)?)?)?
-              ,result)
-    });
+    ctx.defmacro(
+        "dolist",
+        |ctx: &mut TulispContext, spec: TulispObject, body: Rest<TulispObject>| {
+            let (var, list, result): (TulispObject, TulispObject, Option<TulispObject>) =
+                spec.destructure(ctx)?;
+            let result = result.unwrap_or_default();
+            crate::builtin::check_not_nil_or_t(&var)?;
+            let tail = TulispObject::symbol("tail".to_string(), false);
+            // (let ((tail list))
+            //   (while tail
+            //     (let ((var (car tail))) body...)
+            //     (setq tail (cdr tail)))
+            //   result)
+            list!(,ctx.intern("let") ,list!(,list!(,tail.clone() ,list)?)?
+                  ,list!(,ctx.intern("while") ,tail.clone()
+                         ,list!(,ctx.intern("let")
+                                ,list!(,list!(,var ,list!(,ctx.intern("car") ,tail.clone())?)?)?
+                                ,@body)?
+                         ,list!(,ctx.intern("setq") ,tail.clone()
+                                ,list!(,ctx.intern("cdr") ,tail)?)?)?
+                  ,result)
+        },
+    );
 
-    ctx.defmacro("dotimes", |ctx, args| {
-        let (spec, body): (TulispObject, Rest<TulispObject>) = args.destructure(ctx)?;
-        let (var, count, result): (TulispObject, TulispObject, Rest<TulispObject>) =
-            spec.destructure(ctx)?;
-        crate::builtin::check_not_nil_or_t(&var)?;
-        let limit = TulispObject::symbol("limit".to_string(), false);
-        let counter = TulispObject::symbol("counter".to_string(), false);
-        // (let ((limit count) (counter 0))
-        //   (while (< counter limit)
-        //     (let ((var counter)) body...)
-        //     (setq counter (+ counter 1)))
-        //   (let ((var counter)) result...))  ; only with result forms
-        let result = if result.is_empty() {
-            TulispObject::nil()
-        } else {
-            list!(,list!(,ctx.intern("let") ,list!(,list!(,var.clone() ,counter.clone())?)?
-                         ,@result)?)?
-        };
-        list!(,ctx.intern("let")
-              ,list!(,list!(,limit.clone() ,count)? ,list!(,counter.clone() ,0)?)?
-              ,list!(,ctx.intern("while")
-                     ,list!(,ctx.intern("<") ,counter.clone() ,limit)?
-                     ,list!(,ctx.intern("let") ,list!(,list!(,var ,counter.clone())?)?
-                            ,@body)?
-                     ,list!(,ctx.intern("setq") ,counter.clone()
-                            ,list!(,ctx.intern("+") ,counter ,1)?)?)?
-              ,@result)
-    });
+    ctx.defmacro(
+        "dotimes",
+        |ctx: &mut TulispContext, spec: TulispObject, body: Rest<TulispObject>| {
+            let (var, count, result): (TulispObject, TulispObject, Rest<TulispObject>) =
+                spec.destructure(ctx)?;
+            crate::builtin::check_not_nil_or_t(&var)?;
+            let limit = TulispObject::symbol("limit".to_string(), false);
+            let counter = TulispObject::symbol("counter".to_string(), false);
+            // (let ((limit count) (counter 0))
+            //   (while (< counter limit)
+            //     (let ((var counter)) body...)
+            //     (setq counter (+ counter 1)))
+            //   (let ((var counter)) result...))  ; only with result forms
+            let result = if result.is_empty() {
+                TulispObject::nil()
+            } else {
+                list!(,list!(,ctx.intern("let") ,list!(,list!(,var.clone() ,counter.clone())?)?
+                             ,@result)?)?
+            };
+            list!(,ctx.intern("let")
+                  ,list!(,list!(,limit.clone() ,count)? ,list!(,counter.clone() ,0)?)?
+                  ,list!(,ctx.intern("while")
+                         ,list!(,ctx.intern("<") ,counter.clone() ,limit)?
+                         ,list!(,ctx.intern("let") ,list!(,list!(,var ,counter.clone())?)?
+                                ,@body)?
+                         ,list!(,ctx.intern("setq") ,counter.clone()
+                                ,list!(,ctx.intern("+") ,counter ,1)?)?)?
+                  ,@result)
+        },
+    );
 
     ctx.defun("list", |args: crate::Rest<TulispObject>| -> TulispObject {
         args.into_iter().collect()

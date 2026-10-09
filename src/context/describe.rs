@@ -267,12 +267,18 @@ impl TulispContext {
         self.attach_doc(name, Cow::Borrowed(doc));
     }
 
-    /// Test-only: the signature NAME's value itself shows, with no docstring's
-    /// usage line in the way.
+    /// Test-only: the signature [`describe`](Self::describe) gives NAME, with
+    /// no docstring's usage line in the way: the one its function entry holds,
+    /// else the value's own.
     #[cfg(test)]
     pub(crate) fn arity_signature(&self, name: &str) -> Option<Signature> {
-        let value = self.obarray.get(name)?.global()?;
-        derived_signature(&value.inner_ref().0)
+        let sym = self.obarray.get(name)?;
+        let value = sym.global()?;
+        let (kind, identity) = held_kind_and_identity(Some(&value));
+        identity
+            .and_then(|identity| self.function_doc(sym, kind, identity))
+            .and_then(|entry| entry.signature.clone())
+            .or_else(|| derived_signature(&value.inner_ref().0))
     }
 
     /// Records a `defvar` docstring for SYM, when SYM is interned.
@@ -656,6 +662,25 @@ mod tests {
         ctx.defun((&owned, ["num"], doc_text.clone()), |a: i64| a);
         assert_eq!(doc(&ctx, "j").as_deref(), Some("Doc."));
         assert_eq!(rendered(&ctx, "g"), "(g NUM)");
+    }
+
+    #[test]
+    fn defmacro_takes_a_docstring_and_parameter_names() {
+        let mut ctx = TulispContext::new();
+        ctx.defmacro(
+            ("m", "Expand to FORM."),
+            |form: TulispObject, _rest: Rest<TulispObject>| form,
+        );
+        assert_eq!(doc(&ctx, "m").as_deref(), Some("Expand to FORM."));
+        assert_eq!(rendered(&ctx, "m"), "(m ARG &rest ARG)");
+        ctx.defmacro(
+            ("n", ["form", "body"], "Expand to FORM."),
+            |form: TulispObject, _body: Rest<TulispObject>| form,
+        );
+        assert_eq!(rendered(&ctx, "n"), "(n FORM &rest BODY)");
+        let info = ctx.describe("n").unwrap();
+        assert_eq!(info.kind, SymbolKind::Macro);
+        assert_eq!(info.doc.as_deref(), Some("Expand to FORM."));
     }
 
     #[test]

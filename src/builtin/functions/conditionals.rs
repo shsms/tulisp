@@ -6,15 +6,19 @@ use crate::{
 pub(crate) fn add(ctx: &mut TulispContext) {
     ctx.define_special_form("if");
 
-    ctx.defmacro("when", |ctx, args| {
-        let (cond, body): (TulispObject, Rest<TulispObject>) = args.destructure(ctx)?;
-        list!(,ctx.intern("if") ,cond ,list!(,ctx.intern("progn") ,@body)?)
-    });
+    ctx.defmacro(
+        "when",
+        |ctx: &mut TulispContext, cond: TulispObject, body: Rest<TulispObject>| {
+            list!(,ctx.intern("if") ,cond ,list!(,ctx.intern("progn") ,@body)?)
+        },
+    );
 
-    ctx.defmacro("unless", |ctx, args| {
-        let (cond, body): (TulispObject, Rest<TulispObject>) = args.destructure(ctx)?;
-        list!(,ctx.intern("if") ,cond ,TulispObject::nil() ,@body)
-    });
+    ctx.defmacro(
+        "unless",
+        |ctx: &mut TulispContext, cond: TulispObject, body: Rest<TulispObject>| {
+            list!(,ctx.intern("if") ,cond ,TulispObject::nil() ,@body)
+        },
+    );
 
     ctx.define_special_form("cond");
 
@@ -38,52 +42,64 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         },
     );
 
-    ctx.defmacro("if-let*", |ctx, args| {
-        let (varlist, then, body): (TulispObject, TulispObject, Rest<TulispObject>) =
-            args.destructure(ctx)?;
-        if varlist.null() {
-            return list!(,ctx.intern("let*") ,varlist ,then);
-        }
-        let varlist = build_bindings(ctx, &varlist)?;
-        let cond = last(&varlist, None)?.caar()?;
-        list!(,ctx.intern("let*") ,varlist
-              ,list!(,ctx.intern("if")
-                     ,cond
-                     ,then
-                     ,@body
-              )?
-        )
-    });
+    ctx.defmacro(
+        "if-let*",
+        |ctx: &mut TulispContext,
+         varlist: TulispObject,
+         then: TulispObject,
+         body: Rest<TulispObject>| {
+            if varlist.null() {
+                return list!(,ctx.intern("let*") ,varlist ,then);
+            }
+            let varlist = build_bindings(ctx, &varlist)?;
+            let cond = last(&varlist, None)?.caar()?;
+            list!(,ctx.intern("let*") ,varlist
+                  ,list!(,ctx.intern("if")
+                         ,cond
+                         ,then
+                         ,@body
+                  )?
+            )
+        },
+    );
 
-    ctx.defmacro("if-let", |ctx, args| {
-        let (spec, then, body): (TulispObject, TulispObject, Rest<TulispObject>) =
-            args.destructure(ctx)?;
-        let spec = if length(&spec)? <= 2 && !spec.car()?.listp() {
-            list!(,spec)?
-        } else {
-            spec
-        };
-        let macroexp_progn_on_body = macroexp_progn(ctx, body)?;
-        list!(,ctx.intern("if-let*") ,spec ,then ,macroexp_progn_on_body)
-    });
+    ctx.defmacro(
+        "if-let",
+        |ctx: &mut TulispContext,
+         spec: TulispObject,
+         then: TulispObject,
+         body: Rest<TulispObject>| {
+            let spec = if length(&spec)? <= 2 && !spec.car()?.listp() {
+                list!(,spec)?
+            } else {
+                spec
+            };
+            let macroexp_progn_on_body = macroexp_progn(ctx, body)?;
+            list!(,ctx.intern("if-let*") ,spec ,then ,macroexp_progn_on_body)
+        },
+    );
 
-    ctx.defmacro("when-let", |ctx, args| {
-        let (spec, body): (TulispObject, Rest<TulispObject>) = args.destructure(ctx)?;
-        let macroexp_progn_on_body = macroexp_progn(ctx, body)?;
-        list!(,ctx.intern("if-let") ,spec ,macroexp_progn_on_body)
-    });
+    ctx.defmacro(
+        "when-let",
+        |ctx: &mut TulispContext, spec: TulispObject, body: Rest<TulispObject>| {
+            let macroexp_progn_on_body = macroexp_progn(ctx, body)?;
+            list!(,ctx.intern("if-let") ,spec ,macroexp_progn_on_body)
+        },
+    );
 
-    ctx.defmacro("while-let", |ctx, args| {
-        let (spec, body): (TulispObject, Rest<TulispObject>) = args.destructure(ctx)?;
-        list!(,ctx.intern("while")
-              ,list!(
-                  ,ctx.intern("if-let"),
-                  spec,
-                  list!(,ctx.intern("progn") ,@body ,TulispObject::t())?,
-                  TulispObject::nil()
-              )?
-        )
-    });
+    ctx.defmacro(
+        "while-let",
+        |ctx: &mut TulispContext, spec: TulispObject, body: Rest<TulispObject>| {
+            list!(,ctx.intern("while")
+                  ,list!(
+                      ,ctx.intern("if-let"),
+                      spec,
+                      list!(,ctx.intern("progn") ,@body ,TulispObject::t())?,
+                      TulispObject::nil()
+                  )?
+            )
+        },
+    );
 }
 
 /// BODY as one form: nil for none, the form itself for one, and a

@@ -4,15 +4,14 @@ use crate::context::TulispContext;
 use crate::error::Error;
 use crate::{Rest, list};
 
-/// `->` with LAST false, `->>` with LAST true. VV is (X FORM...): X
-/// threaded through each FORM in turn, as its first argument or its
-/// last. A FORM that is not a cons, nil included, becomes (FORM X).
+/// `->` with LAST false, `->>` with LAST true: X threaded through each of FORMS
+/// in turn, as its first argument or its last. A form that is not a cons, nil
+/// included, becomes (FORM X).
 fn thread_forms(
-    ctx: &mut TulispContext,
-    vv: &TulispObject,
+    mut x: TulispObject,
+    forms: Rest<TulispObject>,
     last: bool,
 ) -> Result<TulispObject, Error> {
-    let (mut x, forms): (TulispObject, Rest<TulispObject>) = vv.destructure(ctx)?;
     for form in forms {
         x = if !form.consp() {
             list!(,form ,x)?
@@ -25,30 +24,16 @@ fn thread_forms(
     Ok(x)
 }
 
-fn thread_first(ctx: &mut TulispContext, vv: &TulispObject) -> Result<TulispObject, Error> {
-    thread_forms(ctx, vv, false)
+fn thread_first(x: TulispObject, forms: Rest<TulispObject>) -> Result<TulispObject, Error> {
+    thread_forms(x, forms, false)
 }
 
-fn thread_last(ctx: &mut TulispContext, vv: &TulispObject) -> Result<TulispObject, Error> {
-    thread_forms(ctx, vv, true)
+fn thread_last(x: TulispObject, forms: Rest<TulispObject>) -> Result<TulispObject, Error> {
+    thread_forms(x, forms, true)
 }
 
-fn quote(_ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
-    if !args.consp() {
-        return Err(Error::type_mismatch(
-            "quote: expected one argument".to_string(),
-        ));
-    }
-    args.cdr_and_then(|cdr| {
-        if !cdr.null() {
-            return Err(Error::type_mismatch(
-                "quote: expected one argument".to_string(),
-            ));
-        }
-        Ok(())
-    })?;
-    let arg = args.car()?;
-    Ok(TulispValue::Quote { value: arg }.into_ref(None))
+fn quote(arg: TulispObject) -> TulispObject {
+    TulispValue::Quote { value: arg }.into_ref(None)
 }
 
 /// An uninterned symbol named NAME, and the `let` bindings `((SYMBOL INIT))`.
@@ -75,8 +60,11 @@ fn check_place(macro_name: &str, place: &TulispObject) -> Result<(), Error> {
 
 /// `(push NEWELT PLACE)` is `(setq PLACE (cons NEWELT PLACE))`. PLACE must be a
 /// variable.
-fn push(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
-    let (newelt, place): (TulispObject, TulispObject) = args.destructure(ctx)?;
+fn push(
+    ctx: &mut TulispContext,
+    newelt: TulispObject,
+    place: TulispObject,
+) -> Result<TulispObject, Error> {
     check_place("push", &place)?;
     let cons = list!(ctx => ,ctx.intern("cons") ,newelt ,&place)?;
     list!(ctx => ,ctx.intern("setq") ,&place ,cons)
@@ -84,24 +72,29 @@ fn push(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Er
 
 /// `(prog1 FIRST BODY...)` is `(let ((V FIRST)) BODY... V)`, with V an
 /// uninterned symbol.
-fn prog1(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
-    let (first, body): (TulispObject, Rest<TulispObject>) = args.destructure(ctx)?;
+fn prog1(
+    ctx: &mut TulispContext,
+    first: TulispObject,
+    body: Rest<TulispObject>,
+) -> Result<TulispObject, Error> {
     let (value, bindings) = bind_uninterned(ctx, "prog1-value", first)?;
     list!(ctx => ,ctx.intern("let") ,bindings ,@body ,value)
 }
 
 /// `(prog2 FIRST SECOND BODY...)` is `(progn FIRST (prog1 SECOND BODY...))`.
-fn prog2(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
-    let (first, second, body): (TulispObject, TulispObject, Rest<TulispObject>) =
-        args.destructure(ctx)?;
+fn prog2(
+    ctx: &mut TulispContext,
+    first: TulispObject,
+    second: TulispObject,
+    body: Rest<TulispObject>,
+) -> Result<TulispObject, Error> {
     let prog1 = list!(ctx => ,ctx.intern("prog1") ,second ,@body)?;
     list!(ctx => ,ctx.intern("progn") ,first ,prog1)
 }
 
 /// `(pop PLACE)` is `(let ((V (car-safe PLACE))) (setq PLACE (cdr PLACE)) V)`,
 /// with V an uninterned symbol. PLACE must be a variable, as for `push`.
-fn pop(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
-    let (place,): (TulispObject,) = args.destructure(ctx)?;
+fn pop(ctx: &mut TulispContext, place: TulispObject) -> Result<TulispObject, Error> {
     check_place("pop", &place)?;
     let car = list!(ctx => ,ctx.intern("car-safe") ,&place)?;
     let (first, bindings) = bind_uninterned(ctx, "pop-first", car)?;
@@ -112,7 +105,7 @@ fn pop(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Err
 
 /// `(ignore-errors BODY...)` is `(condition-case nil (progn BODY...) (error
 /// nil))`.
-fn ignore_errors(ctx: &mut TulispContext, body: &TulispObject) -> Result<TulispObject, Error> {
+fn ignore_errors(ctx: &mut TulispContext, body: Rest<TulispObject>) -> Result<TulispObject, Error> {
     let progn = list!(ctx => ,ctx.intern("progn") ,@body)?;
     let handler = list!(ctx => ,ctx.intern("error") ,TulispObject::nil())?;
     list!(ctx => ,ctx.intern("condition-case") ,TulispObject::nil() ,progn ,handler)
@@ -122,13 +115,16 @@ fn ignore_errors(ctx: &mut TulispContext, body: &TulispObject) -> Result<TulispO
 /// SYMBOL is declared, and sets SYMBOL to it even when it already has a value:
 /// `(let ((V INITVALUE)) (defvar SYMBOL V DOCSTRING) (setq SYMBOL V) 'SYMBOL)`,
 /// with V an uninterned symbol.
-fn defconst(ctx: &mut TulispContext, args: &TulispObject) -> Result<TulispObject, Error> {
-    let (symbol, initvalue, docstring): (TulispObject, TulispObject, Option<TulispObject>) =
-        args.destructure(ctx)?;
+fn defconst(
+    ctx: &mut TulispContext,
+    symbol: TulispObject,
+    initvalue: TulispObject,
+    docstring: Option<TulispObject>,
+) -> Result<TulispObject, Error> {
     let (value, bindings) = bind_uninterned(ctx, "defconst-value", initvalue)?;
     let declare = list!(ctx => ,ctx.intern("defvar") ,&symbol ,&value ,docstring)?;
     let set = list!(ctx => ,ctx.intern("setq") ,&symbol ,&value)?;
-    let quoted = TulispValue::Quote { value: symbol }.into_ref(None);
+    let quoted = quote(symbol);
     list!(ctx => ,ctx.intern("let") ,bindings ,declare ,set ,quoted)
 }
 
@@ -161,17 +157,31 @@ mod tests {
         let ctx = &mut TulispContext::new();
         eval_assert_equal(ctx, "(quote (1 2 3))", "'(1 2 3)");
         eval_assert_equal(ctx, "(quote word)", "'word");
+        // A wrong count is wrong-number-of-arguments, as in Emacs 30.1.
         eval_assert_error(
             ctx,
             "(quote)",
-            "ERR TypeMismatch: quote: expected one argument\n\
+            "ERR ArityMismatch: Too few arguments\n\
              <eval_string>:1.1-1.7:  at (quote)\n",
         );
         eval_assert_error(
             ctx,
             "(quote 1 2)",
-            "ERR TypeMismatch: quote: expected one argument\n\
+            "ERR ArityMismatch: Too many arguments\n\
              <eval_string>:1.1-1.11:  at (quote 1 2)\n",
+        );
+        // A dotted argument list is an error too: wrong-type-argument, as in
+        // Emacs 30.1.
+        eval_assert_error(
+            ctx,
+            "(quote 1 . 2)",
+            "ERR TypeMismatch: Expected list, got: 2\n\
+             <eval_string>:1.1-1.13:  at (quote 1 . 2)\n",
+        );
+        eval_assert_equal(
+            ctx,
+            "(condition-case e (eval '(quote 1 . 2)) (error e))",
+            "'(wrong-type-argument listp 2)",
         );
     }
 
