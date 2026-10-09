@@ -673,10 +673,11 @@ impl TulispContext {
         name: &str,
         kinds: Vec<crate::ParamKind>,
         types: &[Option<std::borrow::Cow<'static, str>>],
+        keys: &[Vec<std::borrow::Cow<'static, str>>],
         func: impl crate::object::wrappers::SpecialFn,
     ) {
         let arity = callable::arity(&kinds);
-        let signature = callable::signature(&kinds, types);
+        let signature = callable::signature(&kinds, types, keys);
         self.define_function(
             name,
             TulispValue::Special {

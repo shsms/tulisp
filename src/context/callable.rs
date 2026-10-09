@@ -55,6 +55,13 @@ pub trait Param: Sized + 'static {
     fn type_name() -> Option<Cow<'static, str>> {
         None
     }
+
+    /// The keys a `Plist` parameter reads, as a plist spells them, each with
+    /// its leading `:`. Empty unless overridden: `Plist<T>` gives
+    /// [`Plistable::plist_keys`] of `T`.
+    fn keys() -> Vec<Cow<'static, str>> {
+        Vec::new()
+    }
 }
 
 impl<T: TulispConvertible + 'static> Param for T {
@@ -98,6 +105,10 @@ impl<T: Plistable + 'static> Param for Plist<T> {
 
     fn take(ctx: &mut TulispContext, args: &mut &[TulispObject]) -> Result<Self, Error> {
         Plist::new(ctx, std::mem::take(args))
+    }
+
+    fn keys() -> Vec<Cow<'static, str>> {
+        T::plist_keys()
     }
 }
 
@@ -160,15 +171,22 @@ pub(crate) fn arity(kinds: &[ParamKind]) -> DefunArity {
 }
 
 /// The signature a parameter list declares, its positions counted as [`arity`]
-/// counts them, with each parameter's Lisp type name.
-pub(crate) fn signature(kinds: &[ParamKind], types: &[Option<Cow<'static, str>>]) -> Signature {
+/// counts them, with each parameter's Lisp type name, and the keys a `Plist`
+/// parameter reads.
+pub(crate) fn signature(
+    kinds: &[ParamKind],
+    types: &[Option<Cow<'static, str>>],
+    keys: &[Vec<Cow<'static, str>>],
+) -> Signature {
     debug_assert_eq!(kinds.len(), types.len());
+    debug_assert_eq!(kinds.len(), keys.len());
     let required = arity(kinds).required;
     let params = kinds
         .iter()
         .zip(types)
+        .zip(keys)
         .enumerate()
-        .map(|(index, (kind, type_name))| SignatureParam {
+        .map(|(index, ((kind, type_name), keys))| SignatureParam {
             name: None,
             position: match kind {
                 ParamKind::Rest | ParamKind::RestForm => ParamPosition::Rest,
@@ -179,6 +197,7 @@ pub(crate) fn signature(kinds: &[ParamKind], types: &[Option<Cow<'static, str>>]
                 ParamKind::Positional { .. } | ParamKind::Form { .. } => ParamPosition::Optional,
             },
             type_name: type_name.clone(),
+            keys: keys.clone(),
         })
         .collect();
     Signature { params }
@@ -369,13 +388,14 @@ macro_rules! impl_tulisp_callable {
     (@parts $func:ident, $cx:ident, ($($call_ctx:tt)*), ($($p:ident),*), ($($last:ident)?)) => {{
         let kinds = [$(<$p as Param>::KIND,)* $(<$last as Param>::KIND,)?];
         let types = [$(<$p as Param>::type_name(),)* $(<$last as Param>::type_name(),)?];
+        let keys = [$(<$p as Param>::keys(),)* $(<$last as Param>::keys(),)?];
         let call = move |$cx: &mut TulispContext, args: &[TulispObject]| {
             let mut args = args;
             $(let $p = <$p as Param>::take($cx, &mut args)?;)*
             $(let $last = <$last as Param>::take($cx, &mut args)?;)?
             ($func)($($call_ctx)* $($p,)* $($last)?).into_result($cx)
         };
-        (arity(&kinds), signature(&kinds, &types), call)
+        (arity(&kinds), signature(&kinds, &types, &keys), call)
     }};
     // One impl per arity for closures with and without the context parameter.
     // Every parameter but the last binds one position.

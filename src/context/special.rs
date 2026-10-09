@@ -175,6 +175,13 @@ pub trait SpecialParam: Sized + 'static {
     fn special_type_name() -> Option<Cow<'static, str>> {
         None
     }
+
+    /// The keys a `Plist` parameter reads, as a plist spells them, each with
+    /// its leading `:`. Empty unless overridden: a [`Param`] gives its
+    /// [`Param::keys`].
+    fn special_keys() -> Vec<Cow<'static, str>> {
+        Vec::new()
+    }
 }
 
 impl<T: Param> SpecialParam for T {
@@ -193,6 +200,10 @@ impl<T: Param> SpecialParam for T {
 
     fn special_type_name() -> Option<Cow<'static, str>> {
         <T as Param>::type_name()
+    }
+
+    fn special_keys() -> Vec<Cow<'static, str>> {
+        <T as Param>::keys()
     }
 }
 
@@ -262,7 +273,8 @@ macro_rules! impl_special_callable {
             fn add_to_context(self, ctx: &mut TulispContext, name: &str, _: Token) {
                 let kinds = vec![$(<$p as SpecialParam>::KIND,)* $(<$last as SpecialParam>::KIND,)?];
                 let types = [$(<$p as SpecialParam>::special_type_name(),)* $(<$last as SpecialParam>::special_type_name(),)?];
-                ctx.define_special(name, kinds, &types, move |$cx, values, forms| {
+                let keys = [$(<$p as SpecialParam>::special_keys(),)* $(<$last as SpecialParam>::special_keys(),)?];
+                ctx.define_special(name, kinds, &types, &keys, move |$cx, values, forms| {
                     let mut args = SpecialArgs { values, forms: forms.into_iter() };
                     $(let $p = <$p as SpecialParam>::take($cx, &mut args)?;)*
                     $(let $last = <$last as SpecialParam>::take($cx, &mut args)?;)?

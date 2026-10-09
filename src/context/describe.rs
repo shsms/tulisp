@@ -86,6 +86,7 @@ pub(crate) fn derived_signature(value: &TulispValue) -> Option<Signature> {
                 name: p.as_symbol().ok(),
                 position,
                 type_name: None,
+                keys: Vec::new(),
             };
             let mut params: Vec<SignatureParam> = required
                 .iter()
@@ -370,6 +371,8 @@ impl TulispContext {
 
 #[cfg(test)]
 mod tests {
+    use std::borrow::Cow;
+
     use crate::symbols::SymbolKind;
     use crate::{Form, Rest, TulispContext, TulispObject};
 
@@ -476,6 +479,7 @@ mod tests {
     crate::AsList! {
         struct Cfg {
             a: i64,
+            bee<":bee">: i64 {= 0},
         }
     }
 
@@ -515,6 +519,40 @@ mod tests {
         let mut ctx = TulispContext::new();
         ctx.defun("cfg", |scale: i64, c: crate::Plist<Cfg>| scale + c.a);
         assert_eq!(rendered(&ctx, "cfg"), "(cfg INTEGER &key ARG)");
+    }
+
+    /// The keys of the second of NAME's parameters, having checked the first
+    /// declares none.
+    fn tail_keys(ctx: &TulispContext, name: &str) -> Vec<Cow<'static, str>> {
+        let info = ctx
+            .describe(name)
+            .unwrap_or_else(|| panic!("{name} is not defined"));
+        let signature = info
+            .signature
+            .unwrap_or_else(|| panic!("{name} has no signature"));
+        assert!(signature.params[0].keys.is_empty());
+        signature.params[1].keys.clone()
+    }
+
+    #[test]
+    fn a_keyword_tail_carries_its_keys() {
+        let mut ctx = TulispContext::new();
+        ctx.defun("cfg", |scale: i64, c: crate::Plist<Cfg>| scale + c.a);
+        assert_eq!(tail_keys(&ctx, "cfg"), [":a", ":bee"]);
+    }
+
+    #[test]
+    fn a_keyword_tail_carries_its_keys_from_a_special_form_too() {
+        let mut ctx = TulispContext::new();
+        ctx.defspecial("sp-cfg", |_scale: i64, c: crate::Plist<Cfg>| c.a);
+        assert_eq!(tail_keys(&ctx, "sp-cfg"), [":a", ":bee"]);
+    }
+
+    #[test]
+    fn a_keyword_tail_carries_its_keys_from_a_macro_too() {
+        let mut ctx = TulispContext::new();
+        ctx.defmacro("m-cfg", |_scale: i64, c: crate::Plist<Cfg>| c.a);
+        assert_eq!(tail_keys(&ctx, "m-cfg"), [":a", ":bee"]);
     }
 
     #[test]

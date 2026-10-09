@@ -42,6 +42,11 @@ pub struct SignatureParam {
     /// The Lisp type a Rust function's parameter converts from, such as
     /// `integer`.
     pub type_name: Option<Cow<'static, str>>,
+    /// The keys a keyword parameter takes, each with its leading `:`, as a Rust
+    /// definition's [`Plist`](crate::Plist) parameter declares them. Empty
+    /// where none are declared. A docstring's usage line gives each `&key` name
+    /// as a parameter of its own, with no keys here.
+    pub keys: Vec<Cow<'static, str>>,
 }
 
 impl SignatureParam {
@@ -100,6 +105,7 @@ impl Signature {
             name: None,
             position,
             type_name: None,
+            keys: Vec::new(),
         };
         let mut params: Vec<SignatureParam> = (0..arity.required)
             .map(|_| param(ParamPosition::Required))
@@ -124,6 +130,7 @@ impl Signature {
                     name: Some(name.to_string()),
                     position,
                     type_name: None,
+                    keys: Vec::new(),
                 }),
             }
         }
@@ -228,6 +235,7 @@ pub(crate) fn split_usage(doc: &str) -> Option<(&str, Signature)> {
                     name: Some(name.to_string()),
                     position: at,
                     type_name: None,
+                    keys: Vec::new(),
                 });
             }
         }
