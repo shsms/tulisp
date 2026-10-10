@@ -2,7 +2,7 @@ use std::borrow::Cow;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::bytecode::{FormBlock, FrameState};
-use crate::context::callable::Token;
+use crate::context::callable::{ParamDetail, Token};
 use crate::object::wrappers::generic::{SendSyncIfSync, Shared};
 use crate::{
     Error, Param, ParamKind, PositionalParam, Rest, Return, TulispContext, TulispConvertible,
@@ -272,9 +272,8 @@ macro_rules! impl_special_callable {
             #[allow(unused_mut, unused_variables)]
             fn add_to_context(self, ctx: &mut TulispContext, name: &str, _: Token) {
                 let kinds = vec![$(<$p as SpecialParam>::KIND,)* $(<$last as SpecialParam>::KIND,)?];
-                let types = [$(<$p as SpecialParam>::special_type_name(),)* $(<$last as SpecialParam>::special_type_name(),)?];
-                let keys = [$(<$p as SpecialParam>::special_keys(),)* $(<$last as SpecialParam>::special_keys(),)?];
-                ctx.define_special(name, kinds, &types, &keys, move |$cx, values, forms| {
+                let details = vec![$(ParamDetail::of::<$p>(),)* $(ParamDetail::of::<$last>(),)?];
+                ctx.define_special(name, kinds, details, move |$cx, values, forms| {
                     let mut args = SpecialArgs { values, forms: forms.into_iter() };
                     $(let $p = <$p as SpecialParam>::take($cx, &mut args)?;)*
                     $(let $last = <$last as SpecialParam>::take($cx, &mut args)?;)?
