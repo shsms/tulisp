@@ -61,7 +61,7 @@ pub trait Param: Sized + 'static {
     /// The keys a `Plist` parameter reads, as a plist spells them, each with
     /// its leading `:`. Empty unless overridden: `Plist<T>` gives
     /// [`Plistable::plist_keys`] of `T`.
-    fn keys() -> Vec<Cow<'static, str>> {
+    fn declared_keys() -> Vec<Cow<'static, str>> {
         Vec::new()
     }
 }
@@ -109,7 +109,7 @@ impl<T: Plistable + 'static> Param for Plist<T> {
         Plist::new(ctx, std::mem::take(args))
     }
 
-    fn keys() -> Vec<Cow<'static, str>> {
+    fn declared_keys() -> Vec<Cow<'static, str>> {
         T::plist_keys()
     }
 }
@@ -186,7 +186,7 @@ impl ParamDetail {
     pub(crate) fn of<P: SpecialParam>() -> Self {
         Self {
             type_name: P::special_type_name(),
-            keys: P::special_keys(),
+            keys: P::special_declared_keys(),
         }
     }
 }

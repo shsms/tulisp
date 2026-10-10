@@ -178,8 +178,8 @@ pub trait SpecialParam: Sized + 'static {
 
     /// The keys a `Plist` parameter reads, as a plist spells them, each with
     /// its leading `:`. Empty unless overridden: a [`Param`] gives its
-    /// [`Param::keys`].
-    fn special_keys() -> Vec<Cow<'static, str>> {
+    /// [`Param::declared_keys`].
+    fn special_declared_keys() -> Vec<Cow<'static, str>> {
         Vec::new()
     }
 }
@@ -202,8 +202,8 @@ impl<T: Param> SpecialParam for T {
         <T as Param>::type_name()
     }
 
-    fn special_keys() -> Vec<Cow<'static, str>> {
-        <T as Param>::keys()
+    fn special_declared_keys() -> Vec<Cow<'static, str>> {
+        <T as Param>::declared_keys()
     }
 }
 
